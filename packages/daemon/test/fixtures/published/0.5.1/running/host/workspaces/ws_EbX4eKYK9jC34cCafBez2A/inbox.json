@@ -1,0 +1,367 @@
+{
+  "version": 1,
+  "members": {
+    "dev:leo": {
+      "notes": [
+        {
+          "id": "nt_wwtxV5RS59SpOcfCavIIDQ",
+          "kind": "mention",
+          "at": 1792485207685,
+          "from": {
+            "kind": "user",
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_bd6a3442c49ce66e74111f329415eff0"
+          },
+          "anchor": {
+            "cardId": "rq_TBNexRO775qZ89pXGBqdjA"
+          },
+          "excerpt": "@Leo invoices matter to schools. smurg-flow-COMMENT-26063c32a83d2bde0f542ba8"
+        },
+        {
+          "id": "nt_LGTOzh4cs9zcZNNqRmoTaA",
+          "kind": "mention",
+          "at": 1792485252561,
+          "from": {
+            "kind": "user",
+            "userId": "dev:erin",
+            "displayName": "Erin"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183"
+          },
+          "anchor": {
+            "cardId": "sug_1JNoJ4EXHu_jukXO-CNjnQ"
+          },
+          "excerpt": "@Leo rename the title"
+        },
+        {
+          "id": "nt_xcGx9FuNCR5_wX44EiOWCQ",
+          "kind": "mention",
+          "at": 1792485302354,
+          "from": {
+            "kind": "user",
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "@Leo readers without an account matter."
+        }
+      ],
+      "seen": {}
+    },
+    "dev:mei": {
+      "notes": [
+        {
+          "id": "nt_wzHn8j6YHVoWUIhmbcPh8A",
+          "kind": "mention",
+          "at": 1792485302716,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {
+        "suggestion:ses_bd6a3442c49ce66e74111f329415eff0.dev-amy": "sug_Yy3JH708iOMyio6KIf_Rqg"
+      }
+    },
+    "dev:bob": {
+      "notes": [
+        {
+          "id": "nt_68y0PjFqTRt9Sc4mIWs02A",
+          "kind": "mention",
+          "at": 1792485249548,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183"
+          },
+          "anchor": {
+            "seq": 103
+          },
+          "excerpt": "@Bob look at this: tell bob the notes are ready."
+        },
+        {
+          "id": "nt_BT2CZeJTDMKplnU9cgywPA",
+          "kind": "mention",
+          "at": 1792485249745,
+          "from": {
+            "kind": "agent",
+            "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183",
+            "ownerUserId": "dev:host",
+            "displayName": "Claude (Host)"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183"
+          },
+          "excerpt": "The notes are ready."
+        }
+      ],
+      "seen": {}
+    },
+    "dev:amy": {
+      "notes": [
+        {
+          "id": "nt_gztQj-70XpfC0WtsJBL6lQ",
+          "kind": "result",
+          "at": 1792485251902,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183",
+          "suggestionId": "sug_ZY1qLXjB0fSNxa3sBzMG_w",
+          "outcome": "rejected",
+          "excerpt": "delete the tests"
+        },
+        {
+          "id": "nt_KQTiCsGTGmUZZSN6lWH8hA",
+          "kind": "result",
+          "at": 1792485251997,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183",
+          "suggestionId": "sug_Trtl-vFaGfKj_AxDzfFxwQ",
+          "outcome": "rejected",
+          "excerpt": "rename everything"
+        },
+        {
+          "id": "nt_U3B9wBrqD7YC166HkK_-yA",
+          "kind": "result",
+          "at": 1792485252889,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "sessionId": "ses_1d6e5bd1a62105fc5aef217687391183",
+          "suggestionId": "sug_1GRbzQkfVuMBkELafRaH4g",
+          "outcome": "accepted-edited",
+          "excerpt": "rename the shop"
+        },
+        {
+          "id": "nt_BBIGBUCRAy3Dn2dcrMDDsw",
+          "kind": "mention",
+          "at": 1792485302716,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:kate": {
+      "notes": [
+        {
+          "id": "nt_PGhChv2P80UQKF_qGBiEUQ",
+          "kind": "mention",
+          "at": 1792485273105,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_12220f545839d4c73ba8d93737175fe3"
+          },
+          "anchor": {
+            "seq": 17
+          },
+          "excerpt": "@Kate what about empty cards?"
+        },
+        {
+          "id": "nt_ntvrkwNMzropWd3Yh_EmNQ",
+          "kind": "mention",
+          "at": 1792485301877,
+          "from": {
+            "kind": "user",
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_5640aa50b2ff09fc3ced07e15cc2a587"
+          },
+          "anchor": {
+            "seq": 10
+          },
+          "excerpt": "@Kate and then add a share button."
+        },
+        {
+          "id": "nt_pYXKHAPsdC12lGK8Vfqncg",
+          "kind": "mention",
+          "at": 1792485302716,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:noa": {
+      "notes": [
+        {
+          "id": "nt_kpfbDGoiJby85ykhQfY-Uw",
+          "kind": "mention",
+          "at": 1792485302716,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:ruth": {
+      "notes": [
+        {
+          "id": "nt_Eu-PeGQYZ6O0mRp4lVOcRQ",
+          "kind": "mention",
+          "at": 1792485302716,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:quinn": {
+      "notes": [
+        {
+          "id": "nt_4jvRONs1Zo5OxwndKf6C1g",
+          "kind": "mention",
+          "at": 1792485302717,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:gina": {
+      "notes": [
+        {
+          "id": "nt_IogpXBaDDIyg9iIandzERQ",
+          "kind": "mention",
+          "at": 1792485302717,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    },
+    "dev:frank": {
+      "notes": [
+        {
+          "id": "nt_Ek8diPB0XTCt1tvjev0lLw",
+          "kind": "mention",
+          "at": 1792485302717,
+          "from": {
+            "kind": "user",
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "target": {
+            "kind": "session",
+            "sessionId": "ses_02a4bc42dca3f2cb9a2e9ccc42f12563"
+          },
+          "anchor": {
+            "cardId": "rq_ljgm2SM-Z37JQb1UGtsJiQ"
+          },
+          "excerpt": "Where is the wishlist kept?"
+        }
+      ],
+      "seen": {}
+    }
+  }
+}

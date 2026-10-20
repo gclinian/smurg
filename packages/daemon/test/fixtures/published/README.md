@@ -7,6 +7,8 @@ refused, reset or lost.
 
     0.4.0/    written by the published 0.4.0 executable
     0.5.0/    written by the code of tag v0.5.0
+    0.5.1/    written by the code of tag v0.5.1 (with a second workspace: what 0.4.0 wrote, opened by that code)
+    0.5.2/    written by the code of tag v0.5.2 (the same)
 
 Nothing here is edited by hand, with the exceptions each README names (the paths and the name of the machine a fixture
 was made on are replaced by placeholders). Every key in these folders was made for the fixture and protects nothing.
@@ -24,7 +26,8 @@ Inside a variant:
 
     host/            the host's `~/.smurg` (SMURG_HOME): credentials.json, workspaces.json, logs/, run/, sessions/,
                      workspaces/<workspace id>/ (the workspace folder: state documents, the daemon's key, the logs,
-                     conflicts/, uploads/, transcripts/, git-home/, git-staging/, git-template/)
+                     conflicts/, uploads/, transcripts/, git-home/, git-staging/, git-template/; since 0.5.1 the
+                     stamp written-by.json, and where a step ran the kept copy <name>.json.before-upgrade-from-<step>)
     cli-member/      the `~/.smurg` of a member who uses the command: credentials.json, workspaces.json, device.key, pins/
     devices/<name>/  device.key and pins/ of the members who joined with the client library (a browser keeps the
                      same two things in IndexedDB; here they are files in the command's format)

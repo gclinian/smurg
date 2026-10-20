@@ -1,0 +1,2934 @@
+{
+ "version": "0.5.2",
+ "what": "What the files of this fixture are instances of, in the code of tag v0.5.2, and what of those schemas they visit. Made by W/build/S0/driver/fx-coverage.ts (the walk of test/upgrade/walker.ts and the persisted kinds of test/upgrade/persisted.ts, with the stamp and the kept copies as kinds) running in a git archive of the tag; see README.md.",
+ "howToRead": {
+  "paths": "members[].avatarUrl = a key of every element of an array; members{}.seen{} = a value of a record; notes[]<kind=mention>.anchor = inside one branch of a union (a discriminated one by its key, another one by <index:what it is>); responsible<null> / responsible<value> = the two sides of a nullable.",
+  "visited": "optionalKeys: present in at least one instance. arrays, records: not empty in at least one instance. branches: taken by at least one instance. enums: the values that occur.",
+  "variants": "Both variants count together (stopped, running): every file of each copy is an instance.",
+  "why": "\"cannot\": the code of this version has no way to write it (the reason names the code). \"not-made\": it can be written, and this fixture does not hold it (the reason says what it would take).",
+  "enums": "Every value of an enumeration that a stored file may hold. The ones that are not visited carry one reason for the whole enumeration; they are told for the reader and are not a gap of shape."
+ },
+ "documentsOpenedByTheDaemon": [
+  "agent-sessions",
+  "cards",
+  "claude-trust",
+  "conflicts",
+  "host-rules",
+  "inbox",
+  "reports",
+  "sessions",
+  "state",
+  "suggestions",
+  "topics",
+  "worktrees"
+ ],
+ "totals": {
+  "optionalKeys": {
+   "visited": 177,
+   "notVisited": 2
+  },
+  "arrays": {
+   "visited": 78,
+   "notVisited": 5
+  },
+  "records": {
+   "visited": 13,
+   "notVisited": 0
+  },
+  "branches": {
+   "visited": 93,
+   "notVisited": 31
+  }
+ },
+ "kinds": [
+  {
+   "kind": "agent-sessions.json",
+   "schema": "packages/daemon/src/sessions/agent/store.ts documentSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/agent-sessions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/agent-sessions.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/agent-sessions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/agent-sessions.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "sessions[].branch",
+     "sessions[].claudeVersion",
+     "sessions[].endReason",
+     "sessions[].endedAt",
+     "sessions[].endedBy",
+     "sessions[].item",
+     "sessions[].itemState",
+     "sessions[].itemState.stalled",
+     "sessions[].modeChangedBy",
+     "sessions[].pending",
+     "sessions[].pending[].turn.by",
+     "sessions[].pending[].turn.from",
+     "sessions[].pending[].turn.origin",
+     "sessions[].pending[].turn.purpose",
+     "sessions[].pending[].turn.suggestionId",
+     "sessions[].title",
+     "sessions[].topic",
+     "sessions[].worktreeId"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "sessions",
+     "sessions[].pending",
+     "sessions[].rules"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "sessions[].fallbackDecider<null>",
+     "sessions[].fallbackDecider<value>",
+     "sessions[].pending[].fromUserId<null>",
+     "sessions[].pending[].fromUserId<value>",
+     "sessions[].responsible<null>",
+     "sessions[].responsible<value>",
+     "sessions[].root<kind=main>",
+     "sessions[].root<kind=worktree>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "sessions[].claudeVersion"
+   ],
+   "enums": {
+    "sessions[].endReason": {
+     "visited": [
+      "archived",
+      "ended",
+      "kicked",
+      "left",
+      "merged",
+      "role-changed",
+      "terminated"
+     ],
+     "notVisited": [
+      "exit",
+      "replaced",
+      "stopped",
+      "worktree-removed"
+     ],
+     "why": "not-made",
+     "reason": "`exit` is how a terminal session ends, and terminal sessions are not stored in this document (an agent process that ends by itself makes its session `failed`: packages/daemon/src/sessions/agent/agent-runner.ts:532). The other values that are not visited did not happen to an agent session in the story."
+    },
+    "sessions[].itemState.stalled": {
+     "visited": [
+      "agent",
+      "error",
+      "restart",
+      "stopped"
+     ],
+     "notVisited": []
+    },
+    "sessions[].mode": {
+     "visited": [
+      "ask-all",
+      "ask-commands"
+     ],
+     "notVisited": []
+    },
+    "sessions[].pathRights": {
+     "visited": [
+      "host",
+      "member"
+     ],
+     "notVisited": []
+    },
+    "sessions[].pending[].turn.kind": {
+     "visited": [
+      "person",
+      "smurg"
+     ],
+     "notVisited": []
+    },
+    "sessions[].pending[].turn.origin": {
+     "visited": [
+      "composer",
+      "follow-up",
+      "selection"
+     ],
+     "notVisited": [
+      "revise"
+     ],
+     "why": "not-made",
+     "reason": "A message waits only while its session is in a turn. The story left sessions with a person's message, one written from a selection, an accepted suggestion, and smurg's requests for the plan and the spec waiting; the other origins and purposes would each need a session that is busy at that very moment."
+    },
+    "sessions[].pending[].turn.purpose": {
+     "visited": [
+      "update-plan",
+      "write-spec"
+     ],
+     "notVisited": [
+      "continue-item",
+      "conversation-lost",
+      "fix-plan",
+      "fix-report",
+      "generate-plan",
+      "nudge-report",
+      "resolve-conflict",
+      "restart-discussion",
+      "retry-item",
+      "start-item"
+     ],
+     "why": "not-made",
+     "reason": "A message waits only while its session is in a turn. The story left sessions with a person's message, one written from a selection, an accepted suggestion, and smurg's requests for the plan and the spec waiting; the other origins and purposes would each need a session that is busy at that very moment."
+    },
+    "sessions[].purpose": {
+     "visited": [
+      "discussion",
+      "free",
+      "item"
+     ],
+     "notVisited": []
+    },
+    "sessions[].rules[].scope": {
+     "visited": [
+      "session"
+     ],
+     "notVisited": [
+      "topic"
+     ],
+     "why": "cannot",
+     "reason": "A session's own record keeps the rules of scope `session` (packages/daemon/src/conversation/permissions.ts:465); a rule for a whole topic is stored in topics.json."
+    },
+    "sessions[].rules[].tool": {
+     "visited": [
+      "Bash",
+      "WebFetch"
+     ],
+     "notVisited": []
+    },
+    "sessions[].state": {
+     "visited": [
+      "ended",
+      "failed",
+      "live"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "sessions[].hasConversation": [
+     "true",
+     "false"
+    ],
+    "sessions[].itemState.reportRegistered": [
+     "true",
+     "false"
+    ],
+    "sessions[].lastTurnOpen": [
+     "true",
+     "false"
+    ],
+    "sessions[].untrustedSaid": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "cards.json",
+   "schema": "packages/daemon/src/conversation/cards-store.ts cardsIndexSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/cards.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/cards.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/cards.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/cards.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "sessions"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "claude-trust.json",
+   "schema": "packages/daemon/src/sessions/agent/project-settings.ts documentSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/claude-trust.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/claude-trust.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/claude-trust.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/claude-trust.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "decisions",
+     "decisions[].scripts",
+     "loaded.ignored",
+     "loaded.trusted"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "decisions[].decision": {
+     "visited": [
+      "ignore",
+      "trust"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "conflicts.json",
+   "schema": "packages/daemon/src/docs/conflicts.ts conflictsDocumentSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "conflicts[].hunksOmitted",
+     "conflicts[].hunks[].truncated"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "conflicts",
+     "conflicts[].humans",
+     "conflicts[].hunks"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "conflicts[].file.root<kind=main>",
+     "conflicts[].file.root<kind=worktree>",
+     "conflicts[].source<kind=agent>",
+     "conflicts[].source<kind=system>",
+     "conflicts[].source<kind=user>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "conflicts[].status": {
+     "visited": [
+      "applied",
+      "dismissed",
+      "open"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "conflicts[].hunks[].truncated": [
+     "true"
+    ]
+   }
+  },
+  {
+   "kind": "host-rules.json",
+   "schema": "packages/daemon/src/sessions/agent/host-rules.ts documentSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/host-rules.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/host-rules.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/host-rules.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/host-rules.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "main",
+     "notices",
+     "told",
+     "worktree"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "main[].source": {
+     "visited": [
+      "local",
+      "managed",
+      "project",
+      "user"
+     ],
+     "notVisited": []
+    },
+    "worktree[].source": {
+     "visited": [
+      "local",
+      "managed",
+      "project",
+      "user"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "seen": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "inbox.json",
+   "schema": "packages/daemon/src/inbox/store.ts inboxDocumentSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/inbox.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/inbox.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/inbox.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/inbox.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "members{}.notes[]<kind=mention>.anchor",
+     "members{}.notes[]<kind=mention>.anchor.cardId",
+     "members{}.notes[]<kind=mention>.anchor.seq"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "members{}.notes"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "members",
+     "members{}.seen"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "members{}.notes[]<kind=mention>",
+     "members{}.notes[]<kind=mention>.from<kind=agent>",
+     "members{}.notes[]<kind=mention>.from<kind=user>",
+     "members{}.notes[]<kind=mention>.target<kind=session>",
+     "members{}.notes[]<kind=result>",
+     "members{}.notes[]<kind=result>.from<kind=user>"
+    ],
+    "notVisited": [
+     {
+      "at": "members{}.notes[]<kind=mention>.from<kind=system>",
+      "why": "cannot",
+      "reason": "A mention is stored for the principal who wrote it: a person (a message, a suggestion, a comment, a reminder) or an agent (the notify_member tool). The system writes none (the five callers of addMention pass principal.actor)."
+     },
+     {
+      "at": "members{}.notes[]<kind=mention>.target<kind=changes>",
+      "why": "cannot",
+      "reason": "A stored mention always points at a session: storeMentions has three callers (packages/daemon/src/suggest/suggestion-service.ts:267, conversation/messages.ts:91, conversation/questions.ts:165) and InboxService.addMention two more (hooks/mcp-tools.ts:330, conversation/questions.ts:267), every one with target { kind: 'session' }. The other targets of the column schema are for inbox items the daemon derives (inbox/derive.ts), which are not stored."
+     },
+     {
+      "at": "members{}.notes[]<kind=mention>.target<kind=console>",
+      "why": "cannot",
+      "reason": "A stored mention always points at a session: storeMentions has three callers (packages/daemon/src/suggest/suggestion-service.ts:267, conversation/messages.ts:91, conversation/questions.ts:165) and InboxService.addMention two more (hooks/mcp-tools.ts:330, conversation/questions.ts:267), every one with target { kind: 'session' }. The other targets of the column schema are for inbox items the daemon derives (inbox/derive.ts), which are not stored."
+     },
+     {
+      "at": "members{}.notes[]<kind=mention>.target<kind=plan>",
+      "why": "cannot",
+      "reason": "A stored mention always points at a session: storeMentions has three callers (packages/daemon/src/suggest/suggestion-service.ts:267, conversation/messages.ts:91, conversation/questions.ts:165) and InboxService.addMention two more (hooks/mcp-tools.ts:330, conversation/questions.ts:267), every one with target { kind: 'session' }. The other targets of the column schema are for inbox items the daemon derives (inbox/derive.ts), which are not stored."
+     },
+     {
+      "at": "members{}.notes[]<kind=mention>.target<kind=report>",
+      "why": "cannot",
+      "reason": "A stored mention always points at a session: storeMentions has three callers (packages/daemon/src/suggest/suggestion-service.ts:267, conversation/messages.ts:91, conversation/questions.ts:165) and InboxService.addMention two more (hooks/mcp-tools.ts:330, conversation/questions.ts:267), every one with target { kind: 'session' }. The other targets of the column schema are for inbox items the daemon derives (inbox/derive.ts), which are not stored."
+     },
+     {
+      "at": "members{}.notes[]<kind=mention>.target<kind=spec>",
+      "why": "cannot",
+      "reason": "A stored mention always points at a session: storeMentions has three callers (packages/daemon/src/suggest/suggestion-service.ts:267, conversation/messages.ts:91, conversation/questions.ts:165) and InboxService.addMention two more (hooks/mcp-tools.ts:330, conversation/questions.ts:267), every one with target { kind: 'session' }. The other targets of the column schema are for inbox items the daemon derives (inbox/derive.ts), which are not stored."
+     },
+     {
+      "at": "members{}.notes[]<kind=result>.from<kind=agent>",
+      "why": "cannot",
+      "reason": "A result note is stored by SuggestionService.tellAuthor (packages/daemon/src/suggest/suggestion-service.ts:500), called only from the accept and the reject of a person (lines 368 and 385): `from` is that person."
+     },
+     {
+      "at": "members{}.notes[]<kind=result>.from<kind=system>",
+      "why": "cannot",
+      "reason": "A result note is stored by SuggestionService.tellAuthor (packages/daemon/src/suggest/suggestion-service.ts:500), called only from the accept and the reject of a person (lines 368 and 385): `from` is that person."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "members{}.notes[].outcome": {
+     "visited": [
+      "accepted-edited",
+      "rejected"
+     ],
+     "notVisited": []
+    },
+    "members{}.notes[].target.section": {
+     "visited": [],
+     "notVisited": [
+      "audit",
+      "claude-config",
+      "host-rules",
+      "invites",
+      "members",
+      "merges",
+      "sessions",
+      "settings",
+      "suggestions"
+     ],
+     "why": "cannot",
+     "reason": "No stored mention has a console target (see that branch)."
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "reports.json",
+   "schema": "packages/daemon/src/topics/store.ts reportsDocumentSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/reports.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/reports.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/reports.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/reports.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "reports[].changes",
+     "reports[].error",
+     "reports[].error.line",
+     "reports[].error.text.params",
+     "reports[].escalatedAt",
+     "reports[].noChanges",
+     "reports[].pending[].messageId",
+     "reports[].pending[].question",
+     "reports[].pending[].question.truncated",
+     "reports[].pending[].suggestionId",
+     "reports[].questions[].answer",
+     "reports[].questions[].answer.truncated",
+     "reports[].questions[].truncated",
+     "reports[].review",
+     "reports[].review.insteadOf",
+     "reports[].sections.followUps",
+     "reports[].sections.verified[].note"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "reports",
+     "reports[].changes.byHand",
+     "reports[].changes.byHand[].by",
+     "reports[].pending",
+     "reports[].questions",
+     "reports[].reviewers",
+     "reports[].sections.verified"
+    ],
+    "notVisited": [
+     {
+      "at": "reports[].error.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "The error of a registered report is the first finding of the report format: `report.error.format` or `report.error.outcome`, both with the one parameter `line: number` (packages/protocol/src/i18n/messages/topics.ts:203-207; packages/daemon/src/topics/report-service.ts:236)."
+     }
+    ]
+   },
+   "records": {
+    "visited": [
+     "reports[].error.text.params"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "reports[].error.text.params{}<1:number>",
+     "reports[].file.root<kind=worktree>"
+    ],
+    "notVisited": [
+     {
+      "at": "reports[].error.text.params{}<0:string>",
+      "why": "cannot",
+      "reason": "The error of a registered report is the first finding of the report format: `report.error.format` or `report.error.outcome`, both with the one parameter `line: number` (packages/protocol/src/i18n/messages/topics.ts:203-207; packages/daemon/src/topics/report-service.ts:236)."
+     },
+     {
+      "at": "reports[].error.text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "The error of a registered report is the first finding of the report format: `report.error.format` or `report.error.outcome`, both with the one parameter `line: number` (packages/protocol/src/i18n/messages/topics.ts:203-207; packages/daemon/src/topics/report-service.ts:236)."
+     },
+     {
+      "at": "reports[].error.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "The error of a registered report is the first finding of the report format: `report.error.format` or `report.error.outcome`, both with the one parameter `line: number` (packages/protocol/src/i18n/messages/topics.ts:203-207; packages/daemon/src/topics/report-service.ts:236)."
+     },
+     {
+      "at": "reports[].file.root<kind=main>",
+      "why": "cannot",
+      "reason": "A report is registered from the report file in the work item's worktree: `file: { root: worktreeRoot(item.worktreeId), … }` (packages/daemon/src/topics/report-service.ts:334 and :380). The root is never the main folder."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "reports[].error.line",
+    "reports[].error.text.params"
+   ],
+   "enums": {
+    "reports[].noChanges": {
+     "visited": [
+      "conflict-markers",
+      "spec-files"
+     ],
+     "notVisited": [
+      "host-only-paths"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "reports[].outcome": {
+     "visited": [
+      "blocked",
+      "complete",
+      "partial"
+     ],
+     "notVisited": []
+    },
+    "reports[].state": {
+     "visited": [
+      "invalid",
+      "reviewed",
+      "to-review"
+     ],
+     "notVisited": [
+      "changed-after-review"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    }
+   },
+   "booleans": {
+    "reports[].error.text.params{}": [],
+    "reports[].sections.verified[].passed": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "sessions.json",
+   "schema": "packages/daemon/src/sessions/session-manager.ts liveDocumentSchema (not exported)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/sessions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/sessions.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/sessions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/sessions.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "procs"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "live",
+     "procs{}"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "procs"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "state.json",
+   "schema": "packages/daemon/src/core/workspace-state.ts workspaceStateSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/state.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/state.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "devices[].inviteId",
+     "devices[].revokedAt",
+     "invites[].boundUserId",
+     "invites[].expiresAt",
+     "invites[].maxUses",
+     "members[].avatarUrl",
+     "members[].kickedAt",
+     "worktreeRoots[].item"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "devices",
+     "invites",
+     "members",
+     "settings.sharedDirs",
+     "worktreeRoots",
+     "worktreeRoots[].sharedLinks"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "invites[].createdBy<null>",
+     "invites[].createdBy<value>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "devices[].inviteId",
+    "invites[].expiresAt"
+   ],
+   "enums": {
+    "devices[].kind": {
+     "visited": [
+      "cli",
+      "web"
+     ],
+     "notVisited": []
+    },
+    "invites[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].status": {
+     "visited": [
+      "active",
+      "kicked"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "devices[].revoked": [
+     "true",
+     "false"
+    ],
+    "invites[].host": [
+     "true",
+     "false"
+    ],
+    "invites[].revoked": [
+     "true",
+     "false"
+    ],
+    "settings.agentMcp": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "suggestions.json",
+   "schema": "packages/daemon/src/suggest/store.ts suggestionsDocumentSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/suggestions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/suggestions.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "suggestions[].cleaned",
+     "suggestions[].closedReason",
+     "suggestions[].decidedBy",
+     "suggestions[].editedAt",
+     "suggestions[].finalText",
+     "suggestions[].itemId",
+     "suggestions[].mentions",
+     "suggestions[].rejectReason",
+     "suggestions[].resolvedAt",
+     "suggestions[].source",
+     "suggestions[].topicId"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "suggestions",
+     "suggestions[].mentions"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "suggestions[].source.file.root<kind=main>",
+     "suggestions[].source.file.root<kind=worktree>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "suggestions[].closedReason": {
+     "visited": [
+      "author-demoted",
+      "author-kicked",
+      "session-ended",
+      "topic-archived"
+     ],
+     "notVisited": []
+    },
+    "suggestions[].origin": {
+     "visited": [
+      "composer",
+      "follow-up",
+      "revise",
+      "selection"
+     ],
+     "notVisited": []
+    },
+    "suggestions[].status": {
+     "visited": [
+      "accepted",
+      "accepted-modified",
+      "pending",
+      "rejected",
+      "withdrawn"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "topics.json",
+   "schema": "packages/daemon/src/topics/store.ts topicsDocumentSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/topics.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/topics.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/topics.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/topics.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "topics[].discussionSessionId",
+     "topics[].items[].changesAsked",
+     "topics[].items[].disarmed",
+     "topics[].items[].fix",
+     "topics[].items[].merge",
+     "topics[].items[].pin",
+     "topics[].items[].sessionId",
+     "topics[].items[].snapshotOwed",
+     "topics[].items[].stalledBy",
+     "topics[].items[].startError",
+     "topics[].items[].startError.text.params",
+     "topics[].items[].startedBy",
+     "topics[].items[].worktreeId",
+     "topics[].lostAt",
+     "topics[].plan.changedAt",
+     "topics[].plan.changedBy",
+     "topics[].plan.error",
+     "topics[].plan.error.line",
+     "topics[].plan.error.text.params",
+     "topics[].plan.fix",
+     "topics[].plan.lastPin",
+     "topics[].plan.pausedAt",
+     "topics[].plan.split",
+     "topics[].plan.split.reason",
+     "topics[].plan.warnings[].text.params",
+     "topics[].spec.changedAt",
+     "topics[].spec.changedBy",
+     "topics[].spec.lastAgentChange",
+     "topics[].spec.lastAgentChange.askedBy"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "topics",
+     "topics[].discussionSessions",
+     "topics[].handEdits.plan",
+     "topics[].handEdits.spec",
+     "topics[].items",
+     "topics[].items[].checked",
+     "topics[].items[].dependsOn",
+     "topics[].items[].sessions",
+     "topics[].items[].touches",
+     "topics[].plan.error.text.params{}<3:array<string>>",
+     "topics[].plan.people",
+     "topics[].plan.warnings",
+     "topics[].rules"
+    ],
+    "notVisited": [
+     {
+      "at": "topics[].items[].startError.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A failed start stores the text of the error that stopped it (packages/daemon/src/topics/scheduler.ts:250-269): one of the session, worktree-creation or general error texts. The only texts of those catalogs with a list parameter are the five `merge.*` ones (packages/protocol/src/i18n/messages/worktrees.ts:294-310), which a merge raises, never a start."
+     },
+     {
+      "at": "topics[].plan.warnings[].text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A plan has two warnings, `plan.warning.overlap { first, second }` and `plan.warning.noSummary { number }`: numbers only (packages/daemon/src/topics/plan-format.ts:343-355)."
+     }
+    ]
+   },
+   "records": {
+    "visited": [
+     "topics[].items[].startError.text.params",
+     "topics[].plan.error.text.params",
+     "topics[].plan.warnings[].text.params"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "topics[].handEdits.plan[].by<0:object{userId,displayName}>",
+     "topics[].handEdits.plan[].by<1:\"outside\">",
+     "topics[].handEdits.spec[].by<0:object{userId,displayName}>",
+     "topics[].handEdits.spec[].by<1:\"outside\">",
+     "topics[].items[].pin.planBlob<value>",
+     "topics[].items[].pin.specBlob<value>",
+     "topics[].items[].responsible<null>",
+     "topics[].items[].responsible<value>",
+     "topics[].items[].startError.text.params{}<0:string>",
+     "topics[].plan.changedBy<kind=agent>",
+     "topics[].plan.changedBy<kind=system>",
+     "topics[].plan.changedBy<kind=user>",
+     "topics[].plan.error.text.params{}<0:string>",
+     "topics[].plan.error.text.params{}<1:number>",
+     "topics[].plan.error.text.params{}<3:array<string>>",
+     "topics[].plan.lastPin.planBlob<value>",
+     "topics[].plan.lastPin.specBlob<value>",
+     "topics[].plan.warnings[].text.params{}<1:number>",
+     "topics[].spec.changedBy<kind=agent>",
+     "topics[].spec.changedBy<kind=system>",
+     "topics[].spec.changedBy<kind=user>"
+    ],
+    "notVisited": [
+     {
+      "at": "topics[].items[].pin.planBlob<null>",
+      "why": "cannot",
+      "reason": "A pin's blob id is null only when the checkpoint commit of a Start does not hold that file (packages/daemon/src/topics/checkpoint.ts:75). A Start is refused before that: without SPEC.md (`topic.noSpec`) and without a PLAN.md that parses (`plan.start.invalid`, packages/daemon/src/topics/plan-service.ts:378-379), and when a file cannot be committed (`git-ignored`, checkpoint.ts). Every pin this version stores has both ids."
+     },
+     {
+      "at": "topics[].items[].pin.specBlob<null>",
+      "why": "cannot",
+      "reason": "A pin's blob id is null only when the checkpoint commit of a Start does not hold that file (packages/daemon/src/topics/checkpoint.ts:75). A Start is refused before that: without SPEC.md (`topic.noSpec`) and without a PLAN.md that parses (`plan.start.invalid`, packages/daemon/src/topics/plan-service.ts:378-379), and when a file cannot be committed (`git-ignored`, checkpoint.ts). Every pin this version stores has both ids."
+     },
+     {
+      "at": "topics[].items[].startError.text.params{}<1:number>",
+      "why": "not-made",
+      "reason": "Needs a start that a limit refuses, whose text carries the limit as a number: `session.limit.agents { max }` at 200 live agent sessions (packages/daemon/src/core/config.ts:238, sessions/agent/agent-sessions.ts:894), or `session.limit.processes { max }` when 32 agent sessions have a process and none of them can be parked (sessions/agent/agent-sessions.ts makeRoom). Left out: 200 live sessions, or 32 agents at work at the same moment, do not fit a small fixture made on one computer. The starts that failed in the story did so because the host's Claude Code was too old (two strings) and because the member who pressed Start was removed (a name)."
+     },
+     {
+      "at": "topics[].items[].startError.text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "The catalog of this version (packages/protocol/src/i18n/messages/*.ts) has a boolean parameter in two messages only, both of the activity feed (`activity.lockDeniedHeld.holderIsAgent`, `activity.fileCreate.isDir`); no text that is stored here is one of them."
+     },
+     {
+      "at": "topics[].items[].startError.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A failed start stores the text of the error that stopped it (packages/daemon/src/topics/scheduler.ts:250-269): one of the session, worktree-creation or general error texts. The only texts of those catalogs with a list parameter are the five `merge.*` ones (packages/protocol/src/i18n/messages/worktrees.ts:294-310), which a merge raises, never a start."
+     },
+     {
+      "at": "topics[].plan.error.text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "The catalog of this version (packages/protocol/src/i18n/messages/*.ts) has a boolean parameter in two messages only, both of the activity feed (`activity.lockDeniedHeld.holderIsAgent`, `activity.fileCreate.isDir`); no text that is stored here is one of them."
+     },
+     {
+      "at": "topics[].plan.lastPin.planBlob<null>",
+      "why": "cannot",
+      "reason": "A pin's blob id is null only when the checkpoint commit of a Start does not hold that file (packages/daemon/src/topics/checkpoint.ts:75). A Start is refused before that: without SPEC.md (`topic.noSpec`) and without a PLAN.md that parses (`plan.start.invalid`, packages/daemon/src/topics/plan-service.ts:378-379), and when a file cannot be committed (`git-ignored`, checkpoint.ts). Every pin this version stores has both ids."
+     },
+     {
+      "at": "topics[].plan.lastPin.specBlob<null>",
+      "why": "cannot",
+      "reason": "A pin's blob id is null only when the checkpoint commit of a Start does not hold that file (packages/daemon/src/topics/checkpoint.ts:75). A Start is refused before that: without SPEC.md (`topic.noSpec`) and without a PLAN.md that parses (`plan.start.invalid`, packages/daemon/src/topics/plan-service.ts:378-379), and when a file cannot be committed (`git-ignored`, checkpoint.ts). Every pin this version stores has both ids."
+     },
+     {
+      "at": "topics[].plan.warnings[].text.params{}<0:string>",
+      "why": "cannot",
+      "reason": "A plan has two warnings, `plan.warning.overlap { first, second }` and `plan.warning.noSummary { number }`: numbers only (packages/daemon/src/topics/plan-format.ts:343-355)."
+     },
+     {
+      "at": "topics[].plan.warnings[].text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "A plan has two warnings, `plan.warning.overlap { first, second }` and `plan.warning.noSummary { number }`: numbers only (packages/daemon/src/topics/plan-format.ts:343-355)."
+     },
+     {
+      "at": "topics[].plan.warnings[].text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A plan has two warnings, `plan.warning.overlap { first, second }` and `plan.warning.noSummary { number }`: numbers only (packages/daemon/src/topics/plan-format.ts:343-355)."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "topics[].discussionSessionId",
+    "topics[].plan.error.text.params",
+    "topics[].plan.warnings[].text.params",
+    "topics[].spec.lastAgentChange.askedBy"
+   ],
+   "enums": {
+    "topics[].discussion": {
+     "visited": [
+      "live",
+      "lost"
+     ],
+     "notVisited": []
+    },
+    "topics[].items[].disarmed": {
+     "visited": [
+      "plan-changed",
+      "start-failed",
+      "starter-removed"
+     ],
+     "notVisited": []
+    },
+    "topics[].items[].merge.status": {
+     "visited": [
+      "conflict",
+      "draft",
+      "merged"
+     ],
+     "notVisited": [
+      "pending",
+      "rejected"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "topics[].items[].responsible.source": {
+     "visited": [
+      "agent",
+      "chosen",
+      "smurg"
+     ],
+     "notVisited": []
+    },
+    "topics[].items[].size": {
+     "visited": [
+      "l",
+      "m",
+      "s"
+     ],
+     "notVisited": []
+    },
+    "topics[].items[].stalledBy": {
+     "visited": [
+      "agent",
+      "error",
+      "restart",
+      "stopped"
+     ],
+     "notVisited": []
+    },
+    "topics[].items[].state": {
+     "visited": [
+      "done",
+      "failed",
+      "not-started",
+      "queued",
+      "reviewed",
+      "running",
+      "stalled",
+      "stopped",
+      "waiting"
+     ],
+     "notVisited": []
+    },
+    "topics[].plan.mode": {
+     "visited": [
+      "assigned",
+      "everyone"
+     ],
+     "notVisited": []
+    },
+    "topics[].plan.split.source": {
+     "visited": [
+      "agent",
+      "smurg"
+     ],
+     "notVisited": []
+    },
+    "topics[].rules[].scope": {
+     "visited": [
+      "topic"
+     ],
+     "notVisited": [
+      "session"
+     ],
+     "why": "cannot",
+     "reason": "A topic's rules have the scope `topic` (packages/daemon/src/topics/topic-service.ts, the rules of a topic); a session's own are in agent-sessions.json."
+    },
+    "topics[].rules[].tool": {
+     "visited": [
+      "Bash",
+      "WebFetch"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "topics[].archived": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].armed": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].chosen": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].merge.ready": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].merged": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].nudged": [
+     "true",
+     "false"
+    ],
+    "topics[].items[].retry": [
+     "false"
+    ],
+    "topics[].items[].startError.text.params{}": [],
+    "topics[].plan.error.text.params{}": [],
+    "topics[].plan.exists": [
+     "true",
+     "false"
+    ],
+    "topics[].plan.parsed": [
+     "true",
+     "false"
+    ],
+    "topics[].plan.paused": [
+     "true",
+     "false"
+    ],
+    "topics[].plan.valid": [
+     "true",
+     "false"
+    ],
+    "topics[].plan.warnings[].text.params{}": [],
+    "topics[].spec.exists": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "worktrees.json",
+   "schema": "packages/daemon/src/worktree/store.ts worktreesDocumentSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/worktrees.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/worktrees.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/worktrees.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/worktrees.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "merges[].conflictFiles",
+     "merges[].decidedAt",
+     "merges[].itemId",
+     "merges[].mergeCommit",
+     "merges[].message",
+     "merges[].rejectReason",
+     "merges[].requestedBy",
+     "merges[].reviewed",
+     "merges[].topicId",
+     "merges[].topicSlug",
+     "worktrees[].handEdits",
+     "worktrees[].item",
+     "worktrees[].merge",
+     "worktrees[].sessionId"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "merges",
+     "merges[].conflictFiles",
+     "worktrees",
+     "worktrees[].handEdits",
+     "worktrees[].handEdits[].by",
+     "worktrees[].merge.conflicted",
+     "worktrees[].sharedDirs"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "merges[].message"
+   ],
+   "enums": {
+    "merges[].status": {
+     "visited": [
+      "conflict",
+      "draft",
+      "merged",
+      "pending",
+      "rejected"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "worktrees[].kept": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "written-by.json (the stamp)",
+   "schema": "packages/daemon/src/core/state-store.ts workspaceStampSchema",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/written-by.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/written-by.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/written-by.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/written-by.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": [
+     {
+      "at": "pending",
+      "why": "not-made",
+      "reason": "`pending` is in the stamp only between an upgrade's first and last write (packages/daemon/src/core/workspace-folder.ts, phase 2: the stamp with `pending`, then each kept copy and its document, then the stamp without it): a kill there is unfinished.test's case (packages/daemon/test/upgrade/unfinished.test.ts). The pictures are of a smurg that runs and of one that stopped cleanly."
+     }
+    ]
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": [
+     {
+      "at": "pending",
+      "why": "not-made",
+      "reason": "`pending` is in the stamp only between an upgrade's first and last write (packages/daemon/src/core/workspace-folder.ts, phase 2: the stamp with `pending`, then each kept copy and its document, then the stamp without it): a kill there is unfinished.test's case (packages/daemon/test/upgrade/unfinished.test.ts). The pictures are of a smurg that runs and of one that stopped cleanly."
+     }
+    ]
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "state.json.before-upgrade-from-0.4.0[-n] (a kept copy: state.json as the step from 0.4.0 found it)",
+   "schema": "packages/daemon/src/frozen/v0.4.0.ts stateShapeV040 (the shape the step from 0.4.0 of state.json reads: packages/daemon/src/core/workspace-state.ts)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json.before-upgrade-from-0.4.0"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json.before-upgrade-from-0.4.0"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "devices[].inviteId",
+     "devices[].revokedAt",
+     "invites[].boundUserId",
+     "invites[].expiresAt",
+     "invites[].maxUses",
+     "members[].kickedAt"
+    ],
+    "notVisited": [
+     {
+      "at": "members[].avatarUrl",
+      "why": "not-made",
+      "reason": "A kept copy here is a file of the 0.4.0 fixture as the step from 0.4.0 found it: the tree's own copyPublishedFixture('0.4.0', 'stopped') put that fixture into a second workspace of the host, and the tree's daemon upgraded it (S0 runs no 0.4.0 executable and downloads nothing). That fixture was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Every member there logged in with the relay's dev login, which has no picture; it would take a 0.4.0 state with a GitHub or Google login."
+     }
+    ]
+   },
+   "arrays": {
+    "visited": [
+     "devices",
+     "invites",
+     "members",
+     "settings.sharedDirs",
+     "worktreeRoots",
+     "worktreeRoots[].sharedLinks"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "invites[].createdBy<null>",
+     "invites[].createdBy<value>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "devices[].inviteId",
+    "invites[].expiresAt"
+   ],
+   "enums": {
+    "devices[].kind": {
+     "visited": [
+      "cli",
+      "web"
+     ],
+     "notVisited": []
+    },
+    "invites[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host",
+      "viewer"
+     ],
+     "notVisited": []
+    },
+    "members[].status": {
+     "visited": [
+      "active",
+      "kicked"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "devices[].revoked": [
+     "true",
+     "false"
+    ],
+    "invites[].host": [
+     "true",
+     "false"
+    ],
+    "invites[].revoked": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "suggestions.json.before-upgrade-from-0.4.0[-n] (a kept copy: suggestions.json as the step from 0.4.0 found it)",
+   "schema": "packages/daemon/src/frozen/v0.4.0.ts suggestionsShapeV040 (the shape the step from 0.4.0 of suggestions.json reads: packages/daemon/src/suggest/store.ts)",
+   "instances": 2,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json.before-upgrade-from-0.4.0"
+    ],
+    "running": [
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json.before-upgrade-from-0.4.0"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "suggestions[].closedReason",
+     "suggestions[].editedAt",
+     "suggestions[].finalText",
+     "suggestions[].rejectReason",
+     "suggestions[].resolvedAt",
+     "suggestions[].source"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "suggestions"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "suggestions[].source.file.root<kind=main>"
+    ],
+    "notVisited": [
+     {
+      "at": "suggestions[].source.file.root<kind=worktree>",
+      "why": "not-made",
+      "reason": "A kept copy here is a file of the 0.4.0 fixture as the step from 0.4.0 found it: the tree's own copyPublishedFixture('0.4.0', 'stopped') put that fixture into a second workspace of the host, and the tree's daemon upgraded it (S0 runs no 0.4.0 executable and downloads nothing). That fixture was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. Its one suggestion with a code selection names a file of the main folder."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "suggestions[].resolvedAt"
+   ],
+   "enums": {
+    "suggestions[].closedReason": {
+     "visited": [
+      "author-kicked",
+      "session-ended"
+     ],
+     "notVisited": [
+      "author-demoted"
+     ],
+     "why": "not-made",
+     "reason": "A kept copy here is a file of the 0.4.0 fixture as the step from 0.4.0 found it: the tree's own copyPublishedFixture('0.4.0', 'stopped') put that fixture into a second workspace of the host, and the tree's daemon upgraded it (S0 runs no 0.4.0 executable and downloads nothing). That fixture was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. No author of a pending suggestion became a Viewer."
+    },
+    "suggestions[].status": {
+     "visited": [
+      "accepted",
+      "accepted-modified",
+      "rejected",
+      "withdrawn"
+     ],
+     "notVisited": [
+      "pending"
+     ],
+     "why": "not-made",
+     "reason": "A kept copy here is a file of the 0.4.0 fixture as the step from 0.4.0 found it: the tree's own copyPublishedFixture('0.4.0', 'stopped') put that fixture into a second workspace of the host, and the tree's daemon upgraded it (S0 runs no 0.4.0 executable and downloads nothing). That fixture was made once, with the published 0.4.0 executable (W/REAL, 2026-10-07), and is kept as it is. It is the `stopped` picture of 0.4.0: its stop closed the suggestions that were pending (`session-ended`); the `running` picture of 0.4.0 holds two."
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "transcripts/<hex of the session id>/cards.json",
+   "schema": "packages/daemon/src/conversation/cards-store.ts cardsFileSchema",
+   "instances": 24,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/cards.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/cards.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/cards.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "cards[]<kind=permission>.request.alwaysRule",
+     "cards[]<kind=permission>.request.change",
+     "cards[]<kind=permission>.request.command",
+     "cards[]<kind=permission>.request.decision",
+     "cards[]<kind=permission>.request.decision.always",
+     "cards[]<kind=permission>.request.decision.message",
+     "cards[]<kind=permission>.request.escalatedAt",
+     "cards[]<kind=permission>.request.file",
+     "cards[]<kind=permission>.request.gate",
+     "cards[]<kind=permission>.request.input",
+     "cards[]<kind=permission>.request.noAlways",
+     "cards[]<kind=permission>.request.outside",
+     "cards[]<kind=permission>.request.path",
+     "cards[]<kind=permission>.request.reason",
+     "cards[]<kind=permission>.request.url",
+     "cards[]<kind=permission>.request.withdrawn",
+     "cards[]<kind=question>.question.answer",
+     "cards[]<kind=question>.question.answer.note",
+     "cards[]<kind=question>.question.answer.onBehalfOf",
+     "cards[]<kind=question>.question.answer.parts[].options",
+     "cards[]<kind=question>.question.answer.parts[].other",
+     "cards[]<kind=question>.question.answer.parts[].otherBy",
+     "cards[]<kind=question>.question.comments[].mentions",
+     "cards[]<kind=question>.question.deciderSeenAt",
+     "cards[]<kind=question>.question.escalatedAt",
+     "cards[]<kind=question>.question.previous",
+     "cards[]<kind=question>.question.votes[].options",
+     "cards[]<kind=question>.question.votes[].other",
+     "cards[]<kind=question>.question.withdrawn",
+     "cards[]<kind=question>.question.withdrawn.by"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "cards",
+     "cards[]<kind=question>.question.answer.parts",
+     "cards[]<kind=question>.question.answer.parts[].options",
+     "cards[]<kind=question>.question.answer.tally",
+     "cards[]<kind=question>.question.answer.tally[]",
+     "cards[]<kind=question>.question.comments",
+     "cards[]<kind=question>.question.comments[].mentions",
+     "cards[]<kind=question>.question.parts",
+     "cards[]<kind=question>.question.parts[].options",
+     "cards[]<kind=question>.question.previous.tally",
+     "cards[]<kind=question>.question.previous.tally[]",
+     "cards[]<kind=question>.question.votes",
+     "cards[]<kind=question>.question.votes[].options"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "cards[]<kind=permission>",
+     "cards[]<kind=permission>.request.file.root<kind=main>",
+     "cards[]<kind=permission>.request.file.root<kind=worktree>",
+     "cards[]<kind=permission>.request.root<kind=main>",
+     "cards[]<kind=permission>.request.root<kind=worktree>",
+     "cards[]<kind=question>",
+     "cards[]<kind=question>.question.decider<value>"
+    ],
+    "notVisited": [
+     {
+      "at": "cards[]<kind=question>.question.decider<null>",
+      "why": "cannot",
+      "reason": "deciderOf (packages/protocol/src/routing.ts:57) answers the responsible person, else the fallback decider, else the host; a workspace always has its host member, so a question of a running workspace has a decider."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "cards[].question.status": {
+     "visited": [
+      "answered",
+      "open",
+      "withdrawn"
+     ],
+     "notVisited": []
+    },
+    "cards[].question.withdrawn.reason": {
+     "visited": [
+      "ended",
+      "restarted",
+      "stopped"
+     ],
+     "notVisited": [
+      "failed"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "cards[].request.alwaysRule.tool": {
+     "visited": [
+      "Bash",
+      "WebFetch"
+     ],
+     "notVisited": []
+    },
+    "cards[].request.decision.always": {
+     "visited": [
+      "session",
+      "topic"
+     ],
+     "notVisited": []
+    },
+    "cards[].request.gate": {
+     "visited": [
+      "may-reach-settings-script",
+      "writes-settings-script"
+     ],
+     "notVisited": []
+    },
+    "cards[].request.noAlways": {
+     "visited": [
+      "fetches-code",
+      "host-only",
+      "interpreter",
+      "no-suggestion"
+     ],
+     "notVisited": [
+      "one-word"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "cards[].request.status": {
+     "visited": [
+      "allowed",
+      "denied",
+      "open",
+      "withdrawn"
+     ],
+     "notVisited": []
+    },
+    "cards[].request.what": {
+     "visited": [
+      "command",
+      "edit",
+      "fetch",
+      "other",
+      "outside"
+     ],
+     "notVisited": []
+    },
+    "cards[].request.withdrawn.reason": {
+     "visited": [
+      "ended",
+      "restarted",
+      "stopped"
+     ],
+     "notVisited": [
+      "failed"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    }
+   },
+   "booleans": {
+    "cards[].question.parts[].multi": [
+     "true",
+     "false"
+    ],
+    "cards[].request.hostOnly": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "transcripts/<hex of the session id>/events-<6 digits>.jsonl (one line = { v: 1, …event })",
+   "schema": "packages/protocol/src/schema/conversation.ts conversationEventSchema; the line: packages/daemon/src/sessions/agent/transcript.ts lineOf / parseLine",
+   "instances": 2214,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3034613939666662383431333863343732366339656664346434313738393566/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039356139393833616530376466623639363062666531373238613036373062/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3134373130363765333966356137643030363731303038326336386136363035/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3166623037616463333630383730366638373833346463326638343264663465/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3263333163616364353739653333666437646638333335396532613464333037/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335306237393334623935366239303762306365636336616132316265373162/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335383130366631303832373762636365333939633565373962363336343336/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3437636438346365663637333531666561636466666437616436356330363239/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3531376335366438346235376437323430636562366431636562386436653435/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3532626464353933653334393364356461343461666431313936616134373034/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3565356563366339613066646538303063303937353364613932663461616661/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3664363338636136613332353062623931353737396464366462333733353664/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3738373533666435663239633962376335323365646332363934353136353438/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3832383564336463376662376136663739343536343531316366363635343561/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3837303332306164373434333735383161623666636563313330393033613935/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3865663739643664613666303237653430653065353566653331633638646664/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3964333637346633633764353930656338656438646130643236326638376133/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164313936623337353730326663656438383732333835313934353138363761/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6233383662353064313939323639353331343764313466653338306334663539/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6265653331313237636233653631643062356332653836393865613465663439/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6266646363646365323239363934643862646137363830316365353432386139/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6330323339383165623830333939363030623932393839666665656133663037/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6364613965316666383761376663666230663931653932343636353737306137/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463316434326234353034663230616535343464366439343536326365623530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463643332376433306537613938323131643932363630343332396435373230/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6464366566386539333839663639323033336636633532356233613838333964/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536306566386163633630326364323232626534373135303535353263626332/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536383631616330393331376162353964313033353336373939653661656130/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536633338303837396632376531666330303362363230363330643165326666/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6538623635313539636339313033303437366232323464633738613734376262/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6632613733363436633365366537323236343532376661393730623636653661/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664333566383532333165653966306136626361623134353165343537663233/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/events-000001.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3034613939666662383431333863343732366339656664346434313738393566/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039356139393833616530376466623639363062666531373238613036373062/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3134373130363765333966356137643030363731303038326336386136363035/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3166623037616463333630383730366638373833346463326638343264663465/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3263333163616364353739653333666437646638333335396532613464333037/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335306237393334623935366239303762306365636336616132316265373162/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335383130366631303832373762636365333939633565373962363336343336/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3437636438346365663637333531666561636466666437616436356330363239/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3531376335366438346235376437323430636562366431636562386436653435/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3532626464353933653334393364356461343461666431313936616134373034/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3565356563366339613066646538303063303937353364613932663461616661/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3664363338636136613332353062623931353737396464366462333733353664/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3738373533666435663239633962376335323365646332363934353136353438/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3832383564336463376662376136663739343536343531316366363635343561/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3837303332306164373434333735383161623666636563313330393033613935/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3865663739643664613666303237653430653065353566653331633638646664/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3964333637346633633764353930656338656438646130643236326638376133/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164313936623337353730326663656438383732333835313934353138363761/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6233383662353064313939323639353331343764313466653338306334663539/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6265653331313237636233653631643062356332653836393865613465663439/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6266646363646365323239363934643862646137363830316365353432386139/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6330323339383165623830333939363030623932393839666665656133663037/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6364613965316666383761376663666230663931653932343636353737306137/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463316434326234353034663230616535343464366439343536326365623530/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463643332376433306537613938323131643932363630343332396435373230/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6464366566386539333839663639323033336636633532356233613838333964/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536306566386163633630326364323232626534373135303535353263626332/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536383631616330393331376162353964313033353336373939653661656130/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536633338303837396632376531666330303362363230363330643165326666/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6538623635313539636339313033303437366232323464633738613734376262/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6632613733363436633365366537323236343532376661393730623636653661/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664333566383532333165653966306136626361623134353165343537663233/events-000001.jsonl",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/events-000001.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "<kind=line>.text.params",
+     "<kind=message>.cleaned",
+     "<kind=message>.mentions",
+     "<kind=message>.suggestion",
+     "<kind=notice>.action",
+     "<kind=notice>.text.params",
+     "<kind=pointer>.itemId",
+     "<kind=pointer>.version",
+     "<kind=smurg>.by",
+     "<kind=text>.aborted",
+     "<kind=text>.parentToolUseId",
+     "<kind=text>.truncated",
+     "<kind=tool.finished>.result.additions",
+     "<kind=tool.finished>.result.body",
+     "<kind=tool.finished>.result.deletions",
+     "<kind=tool.finished>.result.durationMs",
+     "<kind=tool.finished>.result.exitCode",
+     "<kind=tool.finished>.result.matches",
+     "<kind=tool.started>.parentToolUseId",
+     "<kind=tool.started>.tool.file",
+     "<kind=tool.started>.tool.outside",
+     "<kind=tool.started>.tool.target",
+     "<kind=turn.finished>.stoppedBy"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "<kind=message>.mentions",
+     "<kind=notice>.text.params{}<3:array<string>>"
+    ],
+    "notVisited": [
+     {
+      "at": "<kind=line>.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A conversation stores as a line one of the `conversation.*` texts or `session.resume.lost` (the lineEvent calls of packages/daemon/src); none of them takes a list. The one conversation text with a list, `conversation.locked.spec { holders }`, is stored as a notice (it is in this fixture)."
+     }
+    ]
+   },
+   "records": {
+    "visited": [
+     "<kind=line>.text.params",
+     "<kind=notice>.text.params"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "<kind=card>",
+     "<kind=delivery>",
+     "<kind=line>",
+     "<kind=line>.text.params{}<0:string>",
+     "<kind=line>.text.params{}<1:number>",
+     "<kind=message>",
+     "<kind=notice>",
+     "<kind=notice>.text.params{}<0:string>",
+     "<kind=notice>.text.params{}<1:number>",
+     "<kind=notice>.text.params{}<3:array<string>>",
+     "<kind=pointer>",
+     "<kind=smurg>",
+     "<kind=text>",
+     "<kind=tool.finished>",
+     "<kind=tool.started>",
+     "<kind=tool.started>.tool.file.root<kind=main>",
+     "<kind=tool.started>.tool.file.root<kind=worktree>",
+     "<kind=turn.finished>",
+     "<kind=turn.started>"
+    ],
+    "notVisited": [
+     {
+      "at": "<kind=line>.text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "The catalog of this version (packages/protocol/src/i18n/messages/*.ts) has a boolean parameter in two messages only, both of the activity feed (`activity.lockDeniedHeld.holderIsAgent`, `activity.fileCreate.isDir`); no text that is stored here is one of them."
+     },
+     {
+      "at": "<kind=line>.text.params{}<3:array<string>>",
+      "why": "cannot",
+      "reason": "A conversation stores as a line one of the `conversation.*` texts or `session.resume.lost` (the lineEvent calls of packages/daemon/src); none of them takes a list. The one conversation text with a list, `conversation.locked.spec { holders }`, is stored as a notice (it is in this fixture)."
+     },
+     {
+      "at": "<kind=notice>.text.params{}<2:boolean>",
+      "why": "cannot",
+      "reason": "The catalog of this version (packages/protocol/src/i18n/messages/*.ts) has a boolean parameter in two messages only, both of the activity feed (`activity.lockDeniedHeld.holderIsAgent`, `activity.fileCreate.isDir`); no text that is stored here is one of them."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "<kind=tool.finished>.result.durationMs"
+   ],
+   "enums": {
+    "action": {
+     "visited": [
+      "restart-agent",
+      "retry"
+     ],
+     "notVisited": []
+    },
+    "card": {
+     "visited": [
+      "permission",
+      "question",
+      "suggestion"
+     ],
+     "notVisited": []
+    },
+    "from.role": {
+     "visited": [
+      "agent",
+      "editor",
+      "host"
+     ],
+     "notVisited": [
+      "viewer"
+     ],
+     "why": "cannot",
+     "reason": "A Viewer cannot write to an agent: `session.message.send` needs the capability `session.drive`, and a suggestion (the only way another member's text becomes a message) needs `discuss`, which a Viewer does not have."
+    },
+    "level": {
+     "visited": [
+      "error",
+      "info",
+      "warning"
+     ],
+     "notVisited": []
+    },
+    "origin": {
+     "visited": [
+      "composer",
+      "follow-up",
+      "revise",
+      "selection"
+     ],
+     "notVisited": []
+    },
+    "outcome": {
+     "visited": [
+      "budget",
+      "completed",
+      "error",
+      "interrupted",
+      "max-turns"
+     ],
+     "notVisited": []
+    },
+    "purpose": {
+     "visited": [
+      "continue-item",
+      "fix-plan",
+      "fix-report",
+      "generate-plan",
+      "nudge-report",
+      "resolve-conflict",
+      "restart-discussion",
+      "start-item",
+      "update-plan",
+      "write-spec"
+     ],
+     "notVisited": [
+      "conversation-lost",
+      "retry-item"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "result.body.kind": {
+     "visited": [
+      "diff",
+      "list",
+      "output",
+      "text"
+     ],
+     "notVisited": []
+    },
+    "state": {
+     "visited": [
+      "completed",
+      "queued",
+      "started"
+     ],
+     "notVisited": [
+      "cancelled"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "target": {
+     "visited": [
+      "plan",
+      "report",
+      "spec"
+     ],
+     "notVisited": []
+    },
+    "tool.verb": {
+     "visited": [
+      "create",
+      "edit",
+      "fetch",
+      "other",
+      "read",
+      "run",
+      "search",
+      "smurg",
+      "task",
+      "todo"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "ok": [
+     "true",
+     "false"
+    ],
+    "result.body.truncated": [
+     "false"
+    ],
+    "suggestion.modified": [
+     "true",
+     "false"
+    ],
+    "text.params{}": []
+   }
+  },
+  {
+   "kind": "uploads/<upload id>.json",
+   "schema": "packages/daemon/src/files/upload-store.ts manifestSchema",
+   "instances": 8,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.json"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.json",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.json",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "root<kind=main>",
+     "root<kind=worktree>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "onConflict": {
+     "visited": [
+      "fail",
+      "overwrite",
+      "rename"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "uploads/<upload id>.log (journal: one line \"<chunk index> <sha256 hex>\" per durable chunk)",
+   "schema": "packages/daemon/src/files/upload-store.ts JOURNAL_LINE",
+   "instances": 8,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.log",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.log",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.log",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.log"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.log",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.log",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.log",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.log"
+    ]
+   }
+  },
+  {
+   "kind": "uploads/<upload id>.part (the bytes received so far, at their offsets)",
+   "schema": "none (bytes)",
+   "instances": 8,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.part",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.part",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.part",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.part"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_Db2Ng6i7fvcsRNt10p_0JQ.part",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_c4u2kjdV0Q2eDNGYBnVtAQ.part",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/uploads/up_yMJOjw_uQenC4zulcDM4TA.part",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/uploads/up_csBqrqqTK4yjRWoaJ2NtnA.part"
+    ]
+   }
+  },
+  {
+   "kind": "audit.jsonl, audit.<n>.jsonl (one entry per line)",
+   "schema": "packages/protocol/src/schema/entities.ts auditEntrySchema (read by packages/daemon/src/core/audit.ts)",
+   "instances": 2378,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "detail",
+     "target"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "detail"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "actor<kind=agent>",
+     "actor<kind=system>",
+     "actor<kind=user>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [
+    "target"
+   ],
+   "enums": {
+    "action": {
+     "visited": [
+      "agent.command",
+      "agent.edit",
+      "auth.connect",
+      "auth.disconnect",
+      "auth.join",
+      "auth.rejected",
+      "authz.denied",
+      "claude-config.decide",
+      "device.revoke",
+      "doc.conflict",
+      "doc.conflict-resolve",
+      "doc.edit",
+      "external.change",
+      "file.create",
+      "file.delete",
+      "file.download",
+      "file.rename",
+      "file.upload",
+      "file.write",
+      "invite.create",
+      "invite.revoke",
+      "lock.acquire",
+      "lock.denied",
+      "lock.force-release",
+      "lock.release",
+      "member.kick",
+      "member.leave",
+      "member.role",
+      "path.denied",
+      "permission.auto",
+      "permission.auto-deny",
+      "permission.decide",
+      "plan.assign",
+      "plan.generate",
+      "plan.item.continue",
+      "plan.item.resolve",
+      "plan.item.retry",
+      "plan.mode",
+      "plan.resume",
+      "plan.start",
+      "question.remind",
+      "question.submit",
+      "report.register",
+      "report.review",
+      "responsible.fallback",
+      "scheduler.disarm",
+      "scheduler.start",
+      "session.create",
+      "session.end",
+      "session.handover",
+      "session.interrupt",
+      "session.message",
+      "session.mode",
+      "session.terminate",
+      "settings.change",
+      "smurg.message",
+      "spec.commit",
+      "suggest.accept",
+      "suggest.create",
+      "suggest.edit",
+      "suggest.reject",
+      "suggest.withdraw",
+      "topic.archive",
+      "topic.create",
+      "topic.delete",
+      "topic.discussion.restart",
+      "topic.rename",
+      "topic.rule.add",
+      "topic.spec.request",
+      "worktree.create",
+      "worktree.merge.approve",
+      "worktree.merge.reject",
+      "worktree.merge.request",
+      "worktree.remove"
+     ],
+     "notVisited": [
+      "session.responsible",
+      "session.restart",
+      "session.retry",
+      "session.rule.remove",
+      "topic.rule.remove",
+      "transcript.redact"
+     ],
+     "why": "not-made",
+     "reason": "The values that are not visited did not occur in the story this fixture was made with (the README lists what it holds)."
+    },
+    "outcome": {
+     "visited": [
+      "denied",
+      "error",
+      "ok"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "audit-overflow.jsonl, audit-overflow.<n>.jsonl (one entry per line)",
+   "schema": "packages/protocol/src/schema/entities.ts auditEntrySchema (read by packages/daemon/src/core/audit.ts)",
+   "instances": 8,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit-overflow.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit-overflow.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "detail",
+     "target"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "detail"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "actor<kind=user>"
+    ],
+    "notVisited": [
+     {
+      "at": "actor<kind=agent>",
+      "why": "cannot",
+      "reason": "Only a member's own accepted requests have the per-minute budget whose surplus goes to the overflow file: \"Entries of agents, of the daemon itself and of the host have no such budget\" (packages/daemon/src/core/audit.ts:548-555, admitAccepted). A line here is always a member's."
+     },
+     {
+      "at": "actor<kind=system>",
+      "why": "cannot",
+      "reason": "Only a member's own accepted requests have the per-minute budget whose surplus goes to the overflow file: \"Entries of agents, of the daemon itself and of the host have no such budget\" (packages/daemon/src/core/audit.ts:548-555, admitAccepted). A line here is always a member's."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "detail",
+    "target"
+   ],
+   "enums": {
+    "action": {
+     "visited": [
+      "file.write"
+     ],
+     "notVisited": [
+      "agent.command",
+      "agent.edit",
+      "auth.connect",
+      "auth.disconnect",
+      "auth.join",
+      "auth.rejected",
+      "authz.denied",
+      "claude-config.decide",
+      "device.revoke",
+      "doc.conflict",
+      "doc.conflict-resolve",
+      "doc.edit",
+      "external.change",
+      "file.create",
+      "file.delete",
+      "file.download",
+      "file.rename",
+      "file.upload",
+      "invite.create",
+      "invite.revoke",
+      "lock.acquire",
+      "lock.denied",
+      "lock.force-release",
+      "lock.release",
+      "member.kick",
+      "member.leave",
+      "member.role",
+      "path.denied",
+      "permission.auto",
+      "permission.auto-deny",
+      "permission.decide",
+      "plan.assign",
+      "plan.generate",
+      "plan.item.continue",
+      "plan.item.resolve",
+      "plan.item.retry",
+      "plan.mode",
+      "plan.resume",
+      "plan.start",
+      "question.remind",
+      "question.submit",
+      "report.register",
+      "report.review",
+      "responsible.fallback",
+      "scheduler.disarm",
+      "scheduler.start",
+      "session.create",
+      "session.end",
+      "session.handover",
+      "session.interrupt",
+      "session.message",
+      "session.mode",
+      "session.responsible",
+      "session.restart",
+      "session.retry",
+      "session.rule.remove",
+      "session.terminate",
+      "settings.change",
+      "smurg.message",
+      "spec.commit",
+      "suggest.accept",
+      "suggest.create",
+      "suggest.edit",
+      "suggest.reject",
+      "suggest.withdraw",
+      "topic.archive",
+      "topic.create",
+      "topic.delete",
+      "topic.discussion.restart",
+      "topic.rename",
+      "topic.rule.add",
+      "topic.rule.remove",
+      "topic.spec.request",
+      "transcript.redact",
+      "worktree.create",
+      "worktree.merge.approve",
+      "worktree.merge.reject",
+      "worktree.merge.request",
+      "worktree.remove"
+     ],
+     "why": "not-made",
+     "reason": "The overflow file holds what one member did more than 120 times in a minute: here an Editor's writes of small files. Its lines have the schema of audit.jsonl, where the actions are listed."
+    },
+    "outcome": {
+     "visited": [
+      "ok"
+     ],
+     "notVisited": [
+      "denied",
+      "error"
+     ],
+     "why": "cannot",
+     "reason": "Only ACCEPTED entries over the per-minute budget go to the overflow file (packages/daemon/src/core/audit.ts): their outcome is `ok`. Denied ones have a budget of their own and are counted, not kept."
+    }
+   },
+   "booleans": {}
+  },
+  {
+   "kind": "audit-text.jsonl, audit-text.<n>.jsonl (one text per line)",
+   "schema": "none in the code (packages/daemon/src/core/audit-text.ts writes { sha256, at, text } and reads `text` back by its hash); described in coverage.json",
+   "instances": 186,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit-text.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit-text.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/audit-text.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/audit-text.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "activity.jsonl, activity.1.jsonl (one event per line)",
+   "schema": "packages/protocol/src/schema/entities.ts activityEventSchema (read by packages/daemon/src/locks/activity-log.ts)",
+   "instances": 697,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/activity.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/activity.jsonl"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/activity.jsonl",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/activity.jsonl"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "file",
+     "renamedFrom",
+     "text.params",
+     "via"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "text.params{}<3:array<string>>"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "text.params"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "actor<kind=agent>",
+     "actor<kind=system>",
+     "actor<kind=user>",
+     "file.root<kind=main>",
+     "file.root<kind=worktree>",
+     "text.params{}<0:string>",
+     "text.params{}<1:number>",
+     "text.params{}<2:boolean>",
+     "text.params{}<3:array<string>>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {
+    "kind": {
+     "visited": [
+      "agent.edit",
+      "conflict",
+      "external.change",
+      "file.create",
+      "file.delete",
+      "file.rename",
+      "file.upload",
+      "human.edit",
+      "lock.denied",
+      "merge"
+     ],
+     "notVisited": []
+    }
+   },
+   "booleans": {
+    "text.params{}": [
+     "true",
+     "false"
+    ]
+   }
+  },
+  {
+   "kind": "identity.key (the daemon's static private key: 32 bytes)",
+   "schema": "packages/protocol/src/node (loadOrCreateDaemonIdentity)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/identity.key",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/identity.key"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/identity.key",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/identity.key"
+    ]
+   }
+  },
+  {
+   "kind": "conflicts/<hex of the conflict id>.bin (the agent's version of a file, bytes)",
+   "schema": "none (bytes; packages/daemon/src/docs/conflicts.ts)",
+   "instances": 20,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f304d6c335736737a334a7449764c7539533746365877.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f47314464646b42433273707a5f625264306a4a464241.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f4d4f6c69746a353378786152504a6d4d646a41324d41.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f4d537943397959677941475959326a584251492d7851.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f536879495978543434586f4573487a47455359473777.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f6735644f36434a6d4832714f665279486a7755727867.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f6b50656c5f48716c545754336b6c795979624d786f41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3374744b4449484254566c5a53636b7767434e505841.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3454417445744468504552742d677a79577138634c41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f77706771594e4d49324964735a624362467364633767.bin"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f304d6c335736737a334a7449764c7539533746365877.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f47314464646b42433273707a5f625264306a4a464241.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f4d4f6c69746a353378786152504a6d4d646a41324d41.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f4d537943397959677941475959326a584251492d7851.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f536879495978543434586f4573487a47455359473777.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f6735644f36434a6d4832714f665279486a7755727867.bin",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/conflicts/636f6e666c6963745f6b50656c5f48716c545754336b6c795979624d786f41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3374744b4449484254566c5a53636b7767434e505841.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f3454417445744468504552742d677a79577138634c41.bin",
+     "host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/conflicts/636f6e666c6963745f77706771594e4d49324964735a624362467364633767.bin"
+    ]
+   }
+  },
+  {
+   "kind": "workspaces.json (the command: shared folders and joined workspaces)",
+   "schema": "none in the code: packages/cli/src/state/workspaces.ts reads it field by field (loadWorkspaces); described in coverage.json",
+   "instances": 3,
+   "files": {
+    "stopped": [
+     "host/workspaces.json",
+     "cli-member/workspaces.json"
+    ],
+    "running": [
+     "host/workspaces.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [
+     "joined[].web"
+    ],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [
+     "joined",
+     "shared"
+    ],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "joined[].name<value>"
+    ],
+    "notVisited": [
+     {
+      "at": "joined[].name<null>",
+      "why": "cannot",
+      "reason": "The command writes `name: channel.welcome.workspace.name` (packages/cli/src/commands/attach.ts:310), always a string; null is what its reader makes of an entry without a name (state/workspaces.ts loadWorkspaces)."
+     }
+    ]
+   },
+   "optionalKeysNeverAbsent": [
+    "joined[].web"
+   ],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "credentials.json (the command: relay logins)",
+   "schema": "none in the code: packages/cli/src/state/credentials.ts reads it field by field (loadCredentials); described in coverage.json",
+   "instances": 3,
+   "files": {
+    "stopped": [
+     "host/credentials.json",
+     "cli-member/credentials.json"
+    ],
+    "running": [
+     "host/credentials.json"
+    ]
+   },
+   "optionalKeys": {
+    "visited": [],
+    "notVisited": []
+   },
+   "arrays": {
+    "visited": [],
+    "notVisited": []
+   },
+   "records": {
+    "visited": [
+     "relays"
+    ],
+    "notVisited": []
+   },
+   "branches": {
+    "visited": [
+     "defaultRelay<null>",
+     "defaultRelay<value>"
+    ],
+    "notVisited": []
+   },
+   "optionalKeysNeverAbsent": [],
+   "enums": {},
+   "booleans": {}
+  },
+  {
+   "kind": "device.key (a device's private key) and pins/<hex of the workspace id>.pub (the daemon key it saw): 32 bytes each",
+   "schema": "packages/protocol/src/node (loadOrCreateCliDeviceKey, pinDaemonKey)",
+   "instances": 44,
+   "files": {
+    "stopped": [
+     "cli-member/device.key",
+     "cli-member/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/amy/device.key",
+     "devices/amy/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/amy-2/device.key",
+     "devices/amy-2/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/bob/device.key",
+     "devices/bob/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/dave/device.key",
+     "devices/dave/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/erin/device.key",
+     "devices/erin/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/frank/device.key",
+     "devices/frank/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/frank-2/device.key",
+     "devices/frank-2/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/gina/device.key",
+     "devices/gina/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/host/device.key",
+     "devices/host/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/kate/device.key",
+     "devices/kate/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/leo/device.key",
+     "devices/leo/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/mallory/device.key",
+     "devices/mallory/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/mallory-2/device.key",
+     "devices/mallory-2/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/mallory-3/device.key",
+     "devices/mallory-3/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/mei/device.key",
+     "devices/mei/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/noa/device.key",
+     "devices/noa/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/olga/device.key",
+     "devices/olga/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/pete/device.key",
+     "devices/pete/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/quinn/device.key",
+     "devices/quinn/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/ruth/device.key",
+     "devices/ruth/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub",
+     "devices/sam/device.key",
+     "devices/sam/pins/77735f707461433341387a6d6e53734b425f44413874665877.pub"
+    ],
+    "running": []
+   }
+  },
+  {
+   "kind": "logs/<workspace id>.log (the host log of `smurg host`: text lines, never read back by smurg)",
+   "schema": "none (packages/cli/src/commands/host.ts openLog; packages/daemon/src/core/logger.ts)",
+   "instances": 4,
+   "files": {
+    "stopped": [
+     "host/logs/ws_ptaC3A8zmnSsKB_DA8tfXw.log",
+     "host/logs/ws_x0ero8pS70bWM5G4VbZ1NA.log"
+    ],
+    "running": [
+     "host/logs/ws_ptaC3A8zmnSsKB_DA8tfXw.log",
+     "host/logs/ws_x0ero8pS70bWM5G4VbZ1NA.log"
+    ]
+   }
+  },
+  {
+   "kind": "run/<12 characters>.pid (the process id of a running daemon; removed at a clean stop)",
+   "schema": "none (packages/daemon/src/local (the control module))",
+   "instances": 1,
+   "files": {
+    "stopped": [],
+    "running": [
+     "host/run/kpeP9Y1WrVFZ.pid"
+    ]
+   }
+  },
+  {
+   "kind": "sessions/<workspace key>/<hex of the session id>/settings.json, mcp.json, role.md (launch files of a session that has a process; removed with it)",
+   "schema": "none (packages/daemon/src/hooks/settings-writer.ts)",
+   "instances": 36,
+   "files": {
+    "stopped": [],
+    "running": [
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3039656538626137643763336231613639353264366663633232363565616230/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3039656538626137643763336231613639353264366663633232363565616230/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3039656538626137643763336231613639353264366663633232363565616230/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3263333163616364353739653333666437646638333335396532613464333037/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3263333163616364353739653333666437646638333335396532613464333037/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3263333163616364353739653333666437646638333335396532613464333037/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3664363338636136613332353062623931353737396464366462333733353664/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3664363338636136613332353062623931353737396464366462333733353664/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3664363338636136613332353062623931353737396464366462333733353664/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3865663739643664613666303237653430653065353566653331633638646664/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3865663739643664613666303237653430653065353566653331633638646664/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3865663739643664613666303237653430653065353566653331633638646664/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3936366639653763353038373132656534626162653238383337386230326264/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3936366639653763353038373132656534626162653238383337386230326264/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f3936366639653763353038373132656534626162653238383337386230326264/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6164323234363236306237616661383638663662366632666133616230383662/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6164323234363236306237616661383638663662366632666133616230383662/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6164323234363236306237616661383638663662366632666133616230383662/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6266646363646365323239363934643862646137363830316365353432386139/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6266646363646365323239363934643862646137363830316365353432386139/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6266646363646365323239363934643862646137363830316365353432386139/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6364613965316666383761376663666230663931653932343636353737306137/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6364613965316666383761376663666230663931653932343636353737306137/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6364613965316666383761376663666230663931653932343636353737306137/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6463643332376433306537613938323131643932363630343332396435373230/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6463643332376433306537613938323131643932363630343332396435373230/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6463643332376433306537613938323131643932363630343332396435373230/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6536633338303837396632376531666330303362363230363330643165326666/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6536633338303837396632376531666330303362363230363330643165326666/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6536633338303837396632376531666330303362363230363330643165326666/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6632613733363436633365366537323236343532376661393730623636653661/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6632613733363436633365366537323236343532376661393730623636653661/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6632613733363436633365366537323236343532376661393730623636653661/settings.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6664633266656437316432363839393362386233643638656530343164653735/mcp.json",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6664633266656437316432363839393362386233643638656530343164653735/role.md",
+     "host/sessions/653d42ce72f4fcd1ffee00cf/7365735f6664633266656437316432363839393362386233643638656530343164653735/settings.json"
+    ]
+   }
+  },
+  {
+   "kind": "transcripts/<hex of the session id>/role.md (the role text an agent session was started with)",
+   "schema": "none (packages/daemon/src/sessions/agent (the agent runner))",
+   "instances": 88,
+   "files": {
+    "stopped": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3034613939666662383431333863343732366339656664346434313738393566/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039356139393833616530376466623639363062666531373238613036373062/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3134373130363765333966356137643030363731303038326336386136363035/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3166623037616463333630383730366638373833346463326638343264663465/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3263333163616364353739653333666437646638333335396532613464333037/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335306237393334623935366239303762306365636336616132316265373162/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335383130366631303832373762636365333939633565373962363336343336/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3437636438346365663637333531666561636466666437616436356330363239/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3531376335366438346235376437323430636562366431636562386436653435/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3532626464353933653334393364356461343461666431313936616134373034/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3565356563366339613066646538303063303937353364613932663461616661/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3664363338636136613332353062623931353737396464366462333733353664/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3738373533666435663239633962376335323365646332363934353136353438/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3832383564336463376662376136663739343536343531316366363635343561/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3837303332306164373434333735383161623666636563313330393033613935/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3865663739643664613666303237653430653065353566653331633638646664/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3964333637346633633764353930656338656438646130643236326638376133/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164313936623337353730326663656438383732333835313934353138363761/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6233383662353064313939323639353331343764313466653338306334663539/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6265653331313237636233653631643062356332653836393865613465663439/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6266646363646365323239363934643862646137363830316365353432386139/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6330323339383165623830333939363030623932393839666665656133663037/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6364613965316666383761376663666230663931653932343636353737306137/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463316434326234353034663230616535343464366439343536326365623530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463643332376433306537613938323131643932363630343332396435373230/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6464366566386539333839663639323033336636633532356233613838333964/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536306566386163633630326364323232626534373135303535353263626332/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536383631616330393331376162353964313033353336373939653661656130/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536633338303837396632376531666330303362363230363330643165326666/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6538623635313539636339313033303437366232323464633738613734376262/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6632613733363436633365366537323236343532376661393730623636653661/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664333566383532333165653966306136626361623134353165343537663233/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/role.md"
+    ],
+    "running": [
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3032386136393734643964393066323130666531396634356331373464656530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3034613939666662383431333863343732366339656664346434313738393566/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039356139393833616530376466623639363062666531373238613036373062/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3039656538626137643763336231613639353264366663633232363565616230/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3131663033633531386661613263386666363032653732373034656566626132/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3134373130363765333966356137643030363731303038326336386136363035/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3136373661393339646430623466393436653839353731373330346338383532/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3166623037616463333630383730366638373833346463326638343264663465/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3263333163616364353739653333666437646638333335396532613464333037/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335306237393334623935366239303762306365636336616132316265373162/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3335383130366631303832373762636365333939633565373962363336343336/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3437636438346365663637333531666561636466666437616436356330363239/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3531376335366438346235376437323430636562366431636562386436653435/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3532626464353933653334393364356461343461666431313936616134373034/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3536363832623130373263643937316439323434646164326139313239333663/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3565356563366339613066646538303063303937353364613932663461616661/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3664363338636136613332353062623931353737396464366462333733353664/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3738373533666435663239633962376335323365646332363934353136353438/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3832383564336463376662376136663739343536343531316366363635343561/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3837303332306164373434333735383161623666636563313330393033613935/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3863366632316565383534613864623332323461373337303863303732333030/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3865663739643664613666303237653430653065353566653331633638646664/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3933643561373132636661373166616139633666373030633434363364653565/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3936366639653763353038373132656534626162653238383337386230326264/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f3964333637346633633764353930656338656438646130643236326638376133/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164313936623337353730326663656438383732333835313934353138363761/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6164323234363236306237616661383638663662366632666133616230383662/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6233383662353064313939323639353331343764313466653338306334663539/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6265653331313237636233653631643062356332653836393865613465663439/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6266646363646365323239363934643862646137363830316365353432386139/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6330323339383165623830333939363030623932393839666665656133663037/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6364613965316666383761376663666230663931653932343636353737306137/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6434653932306432653134366439636432653165666639623533306435646530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463316434326234353034663230616535343464366439343536326365623530/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6463643332376433306537613938323131643932363630343332396435373230/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6464366566386539333839663639323033336636633532356233613838333964/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536306566386163633630326364323232626534373135303535353263626332/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536383631616330393331376162353964313033353336373939653661656130/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6536633338303837396632376531666330303362363230363330643165326666/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6538623635313539636339313033303437366232323464633738613734376262/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6632613733363436633365366537323236343532376661393730623636653661/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6639323630636164656666366131336630343437636437313563343430326331/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664333566383532333165653966306136626361623134353165343537663233/role.md",
+     "host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/transcripts/7365735f6664633266656437316432363839393362386233643638656530343164653735/role.md"
+    ]
+   }
+  }
+ ]
+}

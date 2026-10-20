@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "shared": [],
+  "joined": [
+    {
+      "workspaceId": "ws_EbX4eKYK9jC34cCafBez2A",
+      "relay": "http://127.0.0.1:59739",
+      "name": "Bookshop",
+      "joinedAt": 1792485323595,
+      "web": "http://localhost:59739"
+    }
+  ]
+}

@@ -1,0 +1,93 @@
+{
+  "conflicts": [
+    {
+      "id": "conflict_4TAtEtDhPERt-gzyWq8cLA",
+      "file": {
+        "root": {
+          "kind": "main"
+        },
+        "path": "conflict.txt"
+      },
+      "createdAt": 1791378108538,
+      "source": {
+        "kind": "system"
+      },
+      "humans": [
+        {
+          "userId": "dev:amy",
+          "displayName": "Amy"
+        }
+      ],
+      "hunks": [
+        {
+          "humanText": "line (Amy) one",
+          "agentText": "line ONE by a formatter",
+          "baseText": "line one",
+          "startLine": 1
+        }
+      ],
+      "agentVersionBytes": 44,
+      "status": "open"
+    },
+    {
+      "id": "conflict_wpgqYNMI2IdsZbCbFsdc7g",
+      "file": {
+        "root": {
+          "kind": "main"
+        },
+        "path": "docs/plan.md"
+      },
+      "createdAt": 1791378108845,
+      "source": {
+        "kind": "system"
+      },
+      "humans": [
+        {
+          "userId": "dev:erin",
+          "displayName": "Erin"
+        }
+      ],
+      "hunks": [
+        {
+          "humanText": "# Erin's Plan",
+          "agentText": "# PLAN (rewritten by a script)",
+          "baseText": "# Plan",
+          "startLine": 1
+        }
+      ],
+      "agentVersionBytes": 49,
+      "status": "applied"
+    },
+    {
+      "id": "conflict_3ttKDIHBTVlZSckwgCNPXA",
+      "file": {
+        "root": {
+          "kind": "main"
+        },
+        "path": "docs/gina.md"
+      },
+      "createdAt": 1791378109171,
+      "source": {
+        "kind": "user",
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "humans": [
+        {
+          "userId": "dev:gina",
+          "displayName": "Gina"
+        }
+      ],
+      "hunks": [
+        {
+          "humanText": "# About Gina",
+          "agentText": "# GINA (reformatted)",
+          "baseText": "# Gina",
+          "startLine": 1
+        }
+      ],
+      "agentVersionBytes": 67,
+      "status": "dismissed"
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Mei"}},"fallback":"Mei opened this session","seq":1,"at":1792485302904}
+{"v":1,"kind":"message","messageId":"m_HXTuB_qHLc33RNkObfewGw","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"Please tidy the readme.","origin":"composer","seq":2,"at":1792485302980}
+{"v":1,"kind":"delivery","messageId":"m_HXTuB_qHLc33RNkObfewGw","state":"queued","seq":3,"at":1792485302981}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1792485303070}
+{"v":1,"kind":"delivery","messageId":"m_HXTuB_qHLc33RNkObfewGw","state":"started","seq":5,"at":1792485303075}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1792485303076}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0001","tool":{"name":"Edit","verb":"edit","target":"README.md","file":{"root":{"kind":"main"},"path":"README.md"}},"seq":7,"at":1792485303138}
+{"v":1,"kind":"card","card":"permission","id":"rq_x33pXhk3hGS1JTSLnCTQuA","seq":8,"at":1792485303269}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0001","ok":true,"result":{"durationMs":398,"additions":1,"deletions":1,"body":{"kind":"diff","text":"@@ -1,1 +1,1 @@\n-# Bookshop\n+# The Bookshop\n","truncated":false}},"seq":9,"at":1792485303536}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0002","tool":{"name":"Read","verb":"read","outside":true},"seq":10,"at":1792485303536}
+{"v":1,"kind":"card","card":"permission","id":"rq_4zy6nmDgei3UOa2sTJD2Ww","seq":11,"at":1792485303608}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0002","ok":false,"result":{"durationMs":175},"seq":12,"at":1792485303711}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0003","tool":{"name":"mcp__tracker__create_issue","verb":"other","target":"mcp__tracker__create_issue"},"seq":13,"at":1792485303711}
+{"v":1,"kind":"card","card":"permission","id":"rq_rhNQ7kP9VWOV9EvXc3Br7A","seq":14,"at":1792485303771}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0003","ok":true,"result":{"durationMs":140,"body":{"kind":"text","text":"created #12","truncated":false}},"seq":15,"at":1792485303851}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0004","tool":{"name":"Bash","verb":"run","target":"git status"},"seq":16,"at":1792485303851}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0004","ok":true,"result":{"durationMs":188,"exitCode":0,"body":{"kind":"output","text":"clean","truncated":false}},"seq":17,"at":1792485304039}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0005","tool":{"name":"Glob","verb":"search","target":"*.md"},"seq":18,"at":1792485304040}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0005","ok":true,"result":{"durationMs":64,"matches":1,"body":{"kind":"list","text":"README.md\n","truncated":false}},"seq":19,"at":1792485304104}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"Tidy.","seq":20,"at":1792485304104}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":1098,"seq":21,"at":1792485304173}
+{"v":1,"kind":"delivery","messageId":"m_HXTuB_qHLc33RNkObfewGw","state":"completed","seq":22,"at":1792485304175}
+{"v":1,"kind":"message","messageId":"m_bdarToNnS2qAhBxP3qs_jQ","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"Now change the readme.","origin":"composer","seq":23,"at":1792485304322}
+{"v":1,"kind":"delivery","messageId":"m_bdarToNnS2qAhBxP3qs_jQ","state":"started","seq":24,"at":1792485304328}
+{"v":1,"kind":"turn.started","turnId":"t_2","seq":25,"at":1792485304329}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0006","tool":{"name":"Edit","verb":"edit","target":"README.md","file":{"root":{"kind":"main"},"path":"README.md"}},"seq":26,"at":1792485304400}
+{"v":1,"kind":"card","card":"permission","id":"rq_d_oQMHNi74JPcDRTIg4Qjg","seq":27,"at":1792485304536}
+{"v":1,"kind":"message","messageId":"m_aun0azdYzG_1gt8UvoJKsw","from":{"userId":"dev:mei","displayName":"Mei","role":"agent"},"text":"And then tell bob.","origin":"composer","seq":28,"at":1792485304709}
+{"v":1,"kind":"delivery","messageId":"m_aun0azdYzG_1gt8UvoJKsw","state":"queued","seq":29,"at":1792485304712}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_5DWdOswTeEmNA4lSbgI4pA","seq":30,"at":1792485304744}
+{"v":1,"kind":"turn.finished","turnId":"t_2","outcome":"interrupted","durationMs":415518,"seq":31,"at":1792485719847}
+{"v":1,"kind":"delivery","messageId":"m_bdarToNnS2qAhBxP3qs_jQ","state":"completed","seq":32,"at":1792485719848}
+{"v":1,"kind":"delivery","messageId":"m_aun0azdYzG_1gt8UvoJKsw","state":"started","seq":33,"at":1792485719849}
+{"v":1,"kind":"turn.started","turnId":"t_3","seq":34,"at":1792485719850}
+{"v":1,"kind":"tool.started","turnId":"t_3","toolUseId":"toolu_fake_0007","tool":{"name":"mcp__smurg__notify_member","verb":"smurg","target":"notify_member"},"seq":35,"at":1792485720186}
+{"v":1,"kind":"tool.finished","turnId":"t_3","toolUseId":"toolu_fake_0007","ok":true,"result":{"durationMs":239,"body":{"kind":"text","text":"{\n  \"delivered\": true,\n  \"member\": {\n    \"userId\": \"dev:bob\",\n    \"name\": \"Bob\"\n  },\n  \"online\": false,\n  \"inbox\": \"stored\",\n  \"summary\": \"Bob is offline right now; the notification reaches them only if their client resumes its connection. It is also in their inbox.\"\n}","truncated":false}},"seq":36,"at":1792485720425}
+{"v":1,"kind":"text","turnId":"t_3","blockId":"b_3_1","text":"Told him.","seq":37,"at":1792485720425}
+{"v":1,"kind":"turn.finished","turnId":"t_3","outcome":"completed","durationMs":682,"seq":38,"at":1792485720528}
+{"v":1,"kind":"delivery","messageId":"m_aun0azdYzG_1gt8UvoJKsw","state":"completed","seq":39,"at":1792485720530}
+{"v":1,"kind":"line","text":{"id":"conversation.interrupted.restart"},"fallback":"smurg was restarted on the host's computer. The agent's turn was interrupted","seq":40,"at":1792485720627}

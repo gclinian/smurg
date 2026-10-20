@@ -70,7 +70,9 @@ interface Case {
 }
 
 /** A document that one of the LAST modules opens: everything before it has been created and started by then. */
-const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 'suggestions', '0.5.0': 'topics' };
+const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 'suggestions', '0.5.0': 'topics', '0.5.1': 'topics', '0.5.2': 'topics' };
+/** 0.5.1 is the first published smurg that stamps a folder: its fixture and every later one hold a stamp. */
+const stampedBy = (version: PublishedVersion): boolean => version !== '0.4.0' && version !== '0.5.0';
 
 async function replaceDocument(copy: FixtureCopy, name: string, change: (value: Record<string, unknown>) => unknown): Promise<() => Promise<void>> {
   const path = join(copy.workspaceDir, `${name}.json`);
@@ -86,8 +88,10 @@ function casesOf(version: PublishedVersion): Case[] {
     {
       name: 'a stamp of a smurg with newer shapes: the whole folder, before any document is read',
       damage: async (copy) => {
-        await writeFile(join(copy.workspaceDir, STAMP_NAME), serialize({ smurg: '9.3.1', shapes: 2, at: copy.at }), { mode: 0o600 });
-        return () => rm(join(copy.workspaceDir, STAMP_NAME));
+        const path = join(copy.workspaceDir, STAMP_NAME);
+        const before = await readFile(path).catch(() => null);
+        await writeFile(path, serialize({ smurg: '9.3.1', shapes: 2, at: copy.at }), { mode: 0o600 });
+        return () => (before === null ? rm(path) : writeFile(path, before, { mode: 0o600 }));
       },
       refusal: (copy) => ({ kind: 'newer', path: copy.workspaceDir, writtenBy: '9.3.1' }),
     },
@@ -164,7 +168,7 @@ describe.each(PUBLISHED_VERSIONS)('a refused start leaves what smurg %s left whi
     expect(Object.keys(everything.workspace)).toContain(`./uploads/${UNREADABLE_UPLOAD}.part`);
     // No audit-text.jsonl where 0.4.0 wrote the folder (0.5.0 added it): a start creates it.
     expect(Object.keys(everything.workspace).includes('./audit-text.jsonl')).toBe(version !== '0.4.0');
-    expect(Object.keys(everything.workspace)).not.toContain(`./${STAMP_NAME}`);
+    expect(Object.keys(everything.workspace).includes(`./${STAMP_NAME}`)).toBe(stampedBy(version));
     expect(Object.keys(everything.all).filter((name) => /^\.\/host\/run\/[A-Za-z0-9]{12}\.pid$/.test(name))).toHaveLength(1);
 
     // And it is a folder this smurg STARTS on, doing all of that (so each refusal below is refused for its one reason).
@@ -196,7 +200,7 @@ describe.each(PUBLISHED_VERSIONS)('a refused start leaves what smurg %s left whi
     // Said once more by name, for the reader of a failure: nothing of what a start makes is there.
     const names = await readdir(copy.workspaceDir);
     expect(names.filter((name) => name.includes('.before-upgrade-from-') || name.endsWith('.tmp'))).toEqual([]);
-    if (!one.name.startsWith('a stamp')) expect(names).not.toContain(STAMP_NAME);
+    if (!one.name.startsWith('a stamp') && !stampedBy(version)) expect(names).not.toContain(STAMP_NAME);
     expect((await readFile(join(copy.workspaceDir, 'audit.jsonl'), 'utf8')).endsWith(TORN_LINE)).toBe(true);
 
     // What the command words: the kind, the file, and what belongs to the kind.

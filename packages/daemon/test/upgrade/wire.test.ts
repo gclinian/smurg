@@ -1,4 +1,4 @@
-// THE WIRE OF THIS TREE IS THE WIRE OF THE PUBLISHED TAG (0.5.1, the last fixes: V1-7).
+// THE WIRE OF THIS TREE IS THE WIRE OF THE PUBLISHED TAG (0.5.2, the newest published smurg).
 //
 // The relay serves ONE web app to everybody. A page built from this tree talks to hosts that still run the published
 // smurg, and every message schema is strict: one added key in a payload, and that page cuts off every such host
@@ -6,7 +6,7 @@
 // nothing a peer sends or accepts may differ from it. Nothing in the tree said so: the pin of the stored shapes hashes
 // only what a stored schema is built from, and other-version.test.ts runs the tag's daemon on FOLDERS, not a message.
 //
-// Two things are compared with the protocol package of the tag itself (`git archive v0.5.0 packages/protocol`):
+// Two things are compared with the protocol package of the tag itself (`git archive v0.5.2 packages/protocol`):
 //   1. WHAT THE PACKAGE SAYS, as text, by the pin's own machinery (wire-runner.ts, run with plain node in each tree):
 //      the protocol version; every registered message type with its direction, channel, capability, checks and
 //      flags, and the shape of its payload and of its result; every schema and every data constant the tag exports
@@ -19,7 +19,7 @@
 // so and asks for nothing (peers of another version are refused at the handshake, with words).
 //
 // The tag must be at hand, as for other-version.test.ts: this repository's git with the tag (`GIT_DIR` works), or
-// `$SMURG_PUBLISHED_TREES/v0.5.0/packages/protocol`. Without it these tests are SKIPPED and say so; for the release
+// `$SMURG_PUBLISHED_TREES/v0.5.2/packages/protocol`. Without it these tests are SKIPPED and say so; for the release
 // (SMURG_RELEASE_GATE=1) a missing tag FAILS. After a release, TAG moves to the new tag (docs/RELEASING.md).
 import { execFile } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, symlink } from 'node:fs/promises';
@@ -34,7 +34,7 @@ const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..');
 const PROTOCOL = join(REPO, 'packages', 'protocol');
-const TAG = 'v0.5.0';
+const TAG = 'v0.5.2';
 const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
 const MIB = 1024 * 1024;
 
@@ -45,16 +45,7 @@ const QUESTION =
  * packages/protocol/src/<file>: the source files that differ from the tag's, and why none of them changes the wire.
  * (Tests and fixtures of the package are not compared.)
  */
-const CHANGED_WITHOUT_A_WIRE_CHANGE: Readonly<Record<string, string>> = {
-  'codec.ts': 'decodeClientHello RETURNS the peer\'s protocol number when it is another version (what `smurg host` words its one line from). It reads the same bytes and nothing is encoded differently.',
-  'browser/key-stores.ts': 'the browser\'s own key store (IndexedDB): a record written by a later page is no longer replaced by a new key. Nothing of it is ever sent.',
-  'node/index.ts': 'exports assertPrivateDirectory (a look at a folder of the host\'s disk).',
-  'node/key-file.ts': 'assertPrivateDirectory: checks owner and mode of a folder and creates nothing. Files on the host\'s disk, never on the wire.',
-  'i18n/messages/topics.ts':
-    'the Start blocker `plan.start.noGit` is gone (0.5.2: one message per reason, the worktree.unavailable.* ones). A message id is free-form wire text (messageRefSchema bounds its shape only) and travels with its English fallback: a page that does not know an id shows the fallback. No schema or message type changes.',
-  'i18n/messages/worktrees.ts':
-    'the worktree.unavailable.* sentences say what the host can do (0.5.2), three are new (noCommit, checkFailed, gitDirGone), gitNotFound and gitTooOld take parameters, and gitUnusable, worktree.mainNoCommits and worktree.worktreesDirUnusable are gone. The same free-form ids with their English fallback: a page of 0.5.1 renders an id it knows in its own words and shows the fallback for one it does not. No schema or message type changes.',
-};
+const CHANGED_WITHOUT_A_WIRE_CHANGE: Readonly<Record<string, string>> = {};
 
 interface Line {
   readonly what: 'protocol version' | 'message' | 'schema' | 'constant';

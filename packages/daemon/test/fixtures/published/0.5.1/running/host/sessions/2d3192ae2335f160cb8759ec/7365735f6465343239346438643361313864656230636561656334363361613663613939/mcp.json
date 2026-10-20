@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "smurg": {
+      "type": "stdio",
+      "command": "/__SMURG_FIXTURE__/node",
+      "args": [
+        "/__SMURG_FIXTURE__/smurg-src/packages/cli/src/main.ts",
+        "mcp"
+      ],
+      "env": {}
+    }
+  }
+}

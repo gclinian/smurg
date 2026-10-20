@@ -63,7 +63,8 @@ function loadedOf(t: TestDaemon): ReadonlyMap<string, { readonly value: unknown;
 
 // =====================================================================================================================
 // What each fixture's files must become. The only shapes that differ from today's are 0.4.0's state.json and
-// suggestions.json (DESIGN A3, A4); everything else every published smurg wrote is today's shape as it is.
+// suggestions.json (DESIGN A3, A4); everything else every published smurg wrote is today's shape as it is (0.5.1 and
+// 0.5.2 wrote what 0.5.0 wrote, and stamped the folder).
 // =====================================================================================================================
 
 /** The values the step from 0.4.0 adds to the settings: constants of the step (the closed side), and this machine's default. */
@@ -91,6 +92,8 @@ const UPGRADES: Readonly<Record<PublishedVersion, Upgrades>> = {
     },
   },
   '0.5.0': { from: {}, expected: (_name, stored) => stored },
+  '0.5.1': { from: {}, expected: (_name, stored) => stored },
+  '0.5.2': { from: {}, expected: (_name, stored) => stored },
 };
 
 // =====================================================================================================================
@@ -115,6 +118,53 @@ interface Story {
   /** A link made before the removals that still has room: a removed member must not come back through it. */
   readonly linkFromBeforeTheRemovals: string;
 }
+
+/**
+ * The bookshop of the fixtures of 0.5.0, 0.5.1 and 0.5.2: one story, played by the code of each tag (their READMEs,
+ * "How it was made"); the people, devices and links are the same, by label.
+ */
+const BOOKSHOP: Story = {
+  in: {
+    host: { userId: 'dev:host', role: 'host' },
+    amy: { userId: 'dev:amy', role: 'editor' },
+    'amy-2': { userId: 'dev:amy', role: 'editor' },
+    bob: { userId: 'dev:bob', role: 'viewer' },
+    dave: { userId: 'dev:dave', role: 'agent' },
+    'frank-2': { userId: 'dev:frank', role: 'editor' },
+    gina: { userId: 'dev:gina', role: 'editor' },
+    kate: { userId: 'dev:kate', role: 'agent' },
+    leo: { userId: 'dev:leo', role: 'viewer' },
+    mei: { userId: 'dev:mei', role: 'agent' },
+    noa: { userId: 'dev:noa', role: 'agent' },
+    olga: { userId: 'dev:olga', role: 'viewer' },
+    quinn: { userId: 'dev:quinn', role: 'editor' },
+    ruth: { userId: 'dev:ruth', role: 'agent' },
+  },
+  cliMember: { userId: 'github:12345', role: 'agent' },
+  removed: { 'dev:erin': 'erin', 'dev:pete': 'pete', 'dev:sam': 'sam' },
+  revokedDevices: { frank: 'dev:frank' },
+  strangers: ['mallory', 'mallory-2', 'mallory-3'],
+  usable: {
+    'unused-editor-3uses': { role: 'editor', left: 3 },
+    'unused-viewer-nolimit-30d': { role: 'viewer', left: null },
+    'unused-agent-1use': { role: 'agent', left: 1 },
+    'cli-member-agent-1use': { role: 'agent', left: 1 },
+    'agents-3uses': { role: 'agent', left: 1 },
+    'multi-editor-5uses': { role: 'editor', left: 2 },
+  },
+  dead: {
+    'bob-viewer-1use': 'used-up',
+    'kate-agent-1use': 'used-up',
+    'dave-agent-1use': 'used-up',
+    'ruth-agent-1use': 'used-up',
+    'frank-editor-rejoin-1use': 'used-up',
+    'sam-agent-1use': 'used-up',
+    'gina-viewer-2uses-then-revoked': 'revoked',
+    'revoked-unused-editor': 'revoked',
+    'expired-editor-6s': 'expired',
+  },
+  linkFromBeforeTheRemovals: 'multi-editor-5uses',
+};
 
 const STORIES: Readonly<Record<PublishedVersion, Story>> = {
   '0.4.0': {
@@ -150,48 +200,9 @@ const STORIES: Readonly<Record<PublishedVersion, Story>> = {
     },
     linkFromBeforeTheRemovals: 'multi-editor-5uses',
   },
-  '0.5.0': {
-    in: {
-      host: { userId: 'dev:host', role: 'host' },
-      amy: { userId: 'dev:amy', role: 'editor' },
-      'amy-2': { userId: 'dev:amy', role: 'editor' },
-      bob: { userId: 'dev:bob', role: 'viewer' },
-      dave: { userId: 'dev:dave', role: 'agent' },
-      'frank-2': { userId: 'dev:frank', role: 'editor' },
-      gina: { userId: 'dev:gina', role: 'editor' },
-      kate: { userId: 'dev:kate', role: 'agent' },
-      leo: { userId: 'dev:leo', role: 'viewer' },
-      mei: { userId: 'dev:mei', role: 'agent' },
-      noa: { userId: 'dev:noa', role: 'agent' },
-      olga: { userId: 'dev:olga', role: 'viewer' },
-      quinn: { userId: 'dev:quinn', role: 'editor' },
-      ruth: { userId: 'dev:ruth', role: 'agent' },
-    },
-    cliMember: { userId: 'github:12345', role: 'agent' },
-    removed: { 'dev:erin': 'erin', 'dev:pete': 'pete', 'dev:sam': 'sam' },
-    revokedDevices: { frank: 'dev:frank' },
-    strangers: ['mallory', 'mallory-2', 'mallory-3'],
-    usable: {
-      'unused-editor-3uses': { role: 'editor', left: 3 },
-      'unused-viewer-nolimit-30d': { role: 'viewer', left: null },
-      'unused-agent-1use': { role: 'agent', left: 1 },
-      'cli-member-agent-1use': { role: 'agent', left: 1 },
-      'agents-3uses': { role: 'agent', left: 1 },
-      'multi-editor-5uses': { role: 'editor', left: 2 },
-    },
-    dead: {
-      'bob-viewer-1use': 'used-up',
-      'kate-agent-1use': 'used-up',
-      'dave-agent-1use': 'used-up',
-      'ruth-agent-1use': 'used-up',
-      'frank-editor-rejoin-1use': 'used-up',
-      'sam-agent-1use': 'used-up',
-      'gina-viewer-2uses-then-revoked': 'revoked',
-      'revoked-unused-editor': 'revoked',
-      'expired-editor-6s': 'expired',
-    },
-    linkFromBeforeTheRemovals: 'multi-editor-5uses',
-  },
+  '0.5.0': BOOKSHOP,
+  '0.5.1': BOOKSHOP,
+  '0.5.2': BOOKSHOP,
 };
 
 describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000 }, (version) => {
@@ -370,6 +381,9 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
   it('the kept copies are byte for byte the old files, private, and only where a step ran; the stamp names this smurg', async () => {
     const copy = await fresh(version);
     const stored = await storedDocuments(copy);
+    // 0.5.1 is the first published smurg that stamps a folder.
+    const stampBefore = await readJson(join(copy.workspaceDir, STAMP_NAME)).catch(() => null);
+    expect(stampBefore === null).toBe(version === '0.4.0' || version === '0.5.0');
     const t = await start(copy);
     const names = await readdir(copy.workspaceDir);
     expect(names.filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual(Object.entries(upgrades.from).map(([document, from]) => keptCopyName(document, from)).sort());
@@ -385,7 +399,9 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
     expect((await stat(join(copy.workspaceDir, STAMP_NAME))).mode & 0o777).toBe(0o600);
     expect(Math.abs((await readJson<{ at: number }>(join(copy.workspaceDir, STAMP_NAME))).at - copy.at)).toBeLessThan(60_000);
-    expect(t.daemon.internals.folder.stamp).toBeNull(); // no published smurg before this one stamped a folder
+    // What the start read: the stamp the published smurg wrote (`smurg`, `shapes: 1`, `at`), or none.
+    expect(t.daemon.internals.folder.stamp).toEqual(stampBefore);
+    if (stampBefore !== null) expect(stampBefore).toEqual({ smurg: version, shapes: 1, at: expect.any(Number) });
   });
 
   it('a second start runs no step, writes no document again because of an upgrade and makes no second copy', async () => {

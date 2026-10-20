@@ -1,0 +1,40 @@
+2026-10-20T08:33:24.025Z info "hook socket listening" sessions=0
+2026-10-20T08:33:24.314Z info "control socket listening" module=control
+2026-10-20T08:33:24.323Z info "daemon started" workspace=ws_EbX4eKYK9jC34cCafBez2A relay=http://127.0.0.1:59739
+2026-10-20T08:33:24.330Z info "relay link online" module=relay link=ws
+2026-10-20T08:33:24.335Z info "relay link online" module=relay link=xfer
+2026-10-20T08:33:24.974Z info "stop requested on the control socket" module=control
+2026-10-20T08:33:26.549Z info "hook socket listening" sessions=0
+2026-10-20T08:33:26.592Z info "control socket listening" module=control
+2026-10-20T08:33:26.610Z info "daemon started" workspace=ws_EbX4eKYK9jC34cCafBez2A relay=http://127.0.0.1:59739
+2026-10-20T08:33:26.616Z info "relay link online" module=relay link=ws
+2026-10-20T08:33:26.619Z info "relay link online" module=relay link=xfer
+2026-10-20T08:33:31.292Z info "stop requested on the control socket" module=control
+2026-10-20T08:33:32.452Z info "hook socket listening" sessions=0
+2026-10-20T08:33:32.603Z info "control socket listening" module=control
+2026-10-20T08:33:32.636Z info "daemon started" workspace=ws_EbX4eKYK9jC34cCafBez2A relay=http://127.0.0.1:59739
+2026-10-20T08:33:32.646Z info "relay link online" module=relay link=ws
+2026-10-20T08:33:32.669Z info "relay link online" module=relay link=xfer
+2026-10-20T08:33:42.763Z info "stop requested on the control socket" module=control
+2026-10-20T08:33:43.437Z info "hook socket listening" sessions=0
+2026-10-20T08:33:43.519Z info "control socket listening" module=control
+2026-10-20T08:33:43.572Z info "daemon started" workspace=ws_EbX4eKYK9jC34cCafBez2A relay=http://127.0.0.1:59739
+2026-10-20T08:33:43.587Z info "relay link online" module=relay link=ws
+2026-10-20T08:33:43.608Z info "relay link online" module=relay link=xfer
+2026-10-20T08:34:03.248Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_1d6e5bd1a62105fc5aef217687391183 tool=TodoWrite
+2026-10-20T08:34:03.614Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_1d6e5bd1a62105fc5aef217687391183 tool=SomethingNew
+2026-10-20T08:34:09.745Z info "agent notified a member" session=ses_1d6e5bd1a62105fc5aef217687391183 member=dev:bob
+2026-10-20T08:34:15.757Z warn "an agent process ended unexpectedly" session=ses_5a72574bda17169abe87163c61e96e1d code=3 signal=none stderr="the stand-in crashed on purpose\n"
+2026-10-20T08:34:24.602Z warn "an agent process ended unexpectedly" session=ses_4ac0e147b9928e5d730c1980e4dc05e3 code=7 signal=none stderr="printer on fire\n"
+2026-10-20T08:34:25.885Z warn "an agent process ended unexpectedly" session=ses_52471b111ca6d96e26f879e4d48d766c code=9 signal=none stderr="out of ink\n"
+2026-10-20T08:34:28.583Z error "snapshot failed" topic=tp_l-4tu88y7yaXmxfb9EfXEQ item=card-vendor error=SmurgError
+2026-10-20T08:34:43.075Z info "stop requested on the control socket" module=control
+2026-10-20T08:34:44.642Z info "hook socket listening" sessions=0
+2026-10-20T08:34:44.701Z warn "inbox: a source failed" module=inbox source=plans error=SmurgError
+2026-10-20T08:34:44.860Z info "control socket listening" module=control
+2026-10-20T08:34:44.904Z info "daemon started" workspace=ws_EbX4eKYK9jC34cCafBez2A relay=http://127.0.0.1:59739
+2026-10-20T08:34:44.921Z info "relay link online" module=relay link=ws
+2026-10-20T08:34:44.932Z info "relay link online" module=relay link=xfer
+2026-10-20T08:35:04.972Z warn "an agent process ended unexpectedly" session=ses_f6361528e726c475b9d993c8ff4b8945 code=3 signal=none stderr="the stand-in crashed on purpose\n"
+2026-10-20T08:41:59.441Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:00.423Z info "agent notified a member" session=ses_5504118ce921d12ac21b71934eafa5ac member=dev:bob

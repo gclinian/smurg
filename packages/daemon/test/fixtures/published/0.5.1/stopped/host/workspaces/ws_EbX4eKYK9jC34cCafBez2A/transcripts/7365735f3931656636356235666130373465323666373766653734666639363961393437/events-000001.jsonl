@@ -1,0 +1,35 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Kate"}},"fallback":"Kate opened this session","seq":1,"at":1792485253742}
+{"v":1,"kind":"message","messageId":"m_z9dPe50TKHFjy7nAD4-rXA","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Hello.","origin":"composer","seq":2,"at":1792485253742}
+{"v":1,"kind":"delivery","messageId":"m_z9dPe50TKHFjy7nAD4-rXA","state":"queued","seq":3,"at":1792485253743}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1792485253885}
+{"v":1,"kind":"delivery","messageId":"m_z9dPe50TKHFjy7nAD4-rXA","state":"started","seq":5,"at":1792485253891}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1792485253892}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"ok","seq":7,"at":1792485253952}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":129,"seq":8,"at":1792485254020}
+{"v":1,"kind":"delivery","messageId":"m_z9dPe50TKHFjy7nAD4-rXA","state":"completed","seq":9,"at":1792485254021}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_ratvPQOsX-17I_QDldIOqw","seq":10,"at":1792485254174}
+{"v":1,"kind":"message","messageId":"m_Gav_5dQe07L-mbL_q2do-A","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Please run something and wait.","origin":"composer","seq":11,"at":1792485254261}
+{"v":1,"kind":"delivery","messageId":"m_Gav_5dQe07L-mbL_q2do-A","state":"started","seq":12,"at":1792485254264}
+{"v":1,"kind":"turn.started","turnId":"t_2","seq":13,"at":1792485254264}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0001","tool":{"name":"Bash","verb":"run","target":"pnpm e2e"},"seq":14,"at":1792485254337}
+{"v":1,"kind":"card","card":"permission","id":"rq_kn-NnWsfV-gSmOXF9ZyB0Q","seq":15,"at":1792485254467}
+{"v":1,"kind":"line","text":{"id":"conversation.stopped","params":{"name":"Kate"}},"fallback":"Kate stopped the agent","seq":16,"at":1792485254537}
+{"v":1,"kind":"turn.finished","turnId":"t_2","outcome":"interrupted","durationMs":349,"stoppedBy":{"userId":"dev:kate","displayName":"Kate"},"seq":17,"at":1792485254613}
+{"v":1,"kind":"delivery","messageId":"m_Gav_5dQe07L-mbL_q2do-A","state":"completed","seq":18,"at":1792485254614}
+{"v":1,"kind":"message","messageId":"m_5J8-q9M3p5D6MjtUVnxkeQ","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Now ask once more, please.","origin":"composer","seq":19,"at":1792485254739}
+{"v":1,"kind":"delivery","messageId":"m_5J8-q9M3p5D6MjtUVnxkeQ","state":"started","seq":20,"at":1792485254741}
+{"v":1,"kind":"turn.started","turnId":"t_3","seq":21,"at":1792485254741}
+{"v":1,"kind":"card","card":"question","id":"rq_m_YVruWSzfal_Nu17MWvFA","seq":22,"at":1792485254873}
+{"v":1,"kind":"line","text":{"id":"conversation.stopped","params":{"name":"Kate"}},"fallback":"Kate stopped the agent","seq":23,"at":1792485254911}
+{"v":1,"kind":"turn.finished","turnId":"t_3","outcome":"interrupted","durationMs":240,"stoppedBy":{"userId":"dev:kate","displayName":"Kate"},"seq":24,"at":1792485254981}
+{"v":1,"kind":"delivery","messageId":"m_5J8-q9M3p5D6MjtUVnxkeQ","state":"completed","seq":25,"at":1792485254982}
+{"v":1,"kind":"message","messageId":"m_jBKSt9LPtRVS7sRqB_s9TQ","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Please run something and wait.","origin":"composer","seq":26,"at":1792485255095}
+{"v":1,"kind":"delivery","messageId":"m_jBKSt9LPtRVS7sRqB_s9TQ","state":"started","seq":27,"at":1792485255098}
+{"v":1,"kind":"turn.started","turnId":"t_4","seq":28,"at":1792485255098}
+{"v":1,"kind":"tool.started","turnId":"t_4","toolUseId":"toolu_fake_0003","tool":{"name":"Bash","verb":"run","target":"pnpm e2e"},"seq":29,"at":1792485255159}
+{"v":1,"kind":"card","card":"permission","id":"rq_0vRtwD1IkEZIRP_9Vz_qig","seq":30,"at":1792485255281}
+{"v":1,"kind":"line","text":{"id":"conversation.ended","params":{"name":"Kate"}},"fallback":"Kate ended this session","seq":31,"at":1792485255332}
+{"v":1,"kind":"tool.finished","turnId":"t_4","toolUseId":"toolu_fake_0003","ok":false,"result":{"durationMs":176,"exitCode":1,"body":{"kind":"output","text":"The user doesn't want to proceed with this tool use. The request was withdrawn: the session was stopped.","truncated":false}},"seq":32,"at":1792485255335}
+{"v":1,"kind":"text","turnId":"t_4","blockId":"b_4_1","text":"Ran.","seq":33,"at":1792485255335}
+{"v":1,"kind":"turn.finished","turnId":"t_4","outcome":"interrupted","durationMs":293,"seq":34,"at":1792485255391}
+{"v":1,"kind":"delivery","messageId":"m_jBKSt9LPtRVS7sRqB_s9TQ","state":"completed","seq":35,"at":1792485255392}

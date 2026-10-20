@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "shared": [
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "relay": "http://127.0.0.1:63672",
+      "workspaceId": "ws_ptaC3A8zmnSsKB_DA8tfXw",
+      "createdAt": 1792485725373
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/old/project",
+      "relay": "http://127.0.0.1:63672",
+      "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+      "createdAt": 1791377829732
+    }
+  ],
+  "joined": []
+}

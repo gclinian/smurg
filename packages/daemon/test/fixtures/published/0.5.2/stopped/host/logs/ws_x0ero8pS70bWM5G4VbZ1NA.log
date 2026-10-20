@@ -1,0 +1,20 @@
+2026-10-07T12:57:09.789Z info "hook socket listening" sessions=0
+2026-10-07T12:57:10.078Z info "control socket listening" module=control
+2026-10-07T12:57:10.091Z info "daemon started" workspace=ws_x0ero8pS70bWM5G4VbZ1NA relay=http://localhost:18740
+2026-10-07T12:57:10.098Z info "relay link online" module=relay link=ws
+2026-10-07T12:57:10.103Z info "relay link online" module=relay link=xfer
+2026-10-07T13:04:00.918Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:06.956Z info "state file upgraded" module=state document=state from=0.4.0 copy=/__SMURG_FIXTURE__/host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/state.json.before-upgrade-from-0.4.0 putBack=false
+2026-10-20T08:42:06.966Z info "state file upgraded" module=state document=suggestions from=0.4.0 copy=/__SMURG_FIXTURE__/host/workspaces/ws_x0ero8pS70bWM5G4VbZ1NA/suggestions.json.before-upgrade-from-0.4.0 putBack=false
+2026-10-20T08:42:06.982Z info "This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps"
+2026-10-20T08:42:06.987Z info "hook socket listening" sessions=0
+2026-10-20T08:42:06.993Z error "could not watch a root" root=wt:wt_1a6446cb2f94b9ce8fadd272 error="not the root directory"
+2026-10-20T08:42:06.993Z error "could not watch a root" root=wt:wt_efcb449900c9593bcdf13b6b error="not the root directory"
+2026-10-20T08:42:07.000Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_1a6446cb2f94b9ce8fadd272
+2026-10-20T08:42:07.008Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_efcb449900c9593bcdf13b6b
+2026-10-20T08:42:07.120Z info "control socket listening" module=control
+2026-10-20T08:42:07.128Z info "daemon started" workspace=ws_x0ero8pS70bWM5G4VbZ1NA relay=http://127.0.0.1:63672
+2026-10-20T08:42:07.135Z info "relay link online" module=relay link=ws
+2026-10-20T08:42:07.139Z info "relay link online" module=relay link=xfer
+2026-10-20T08:42:07.486Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:07.490Z info "daemon stopped" workspace=ws_x0ero8pS70bWM5G4VbZ1NA

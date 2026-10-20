@@ -3,6 +3,10 @@
 // that are not store documents (A10: per-session cards, upload manifests with their journals and parts, transcript
 // segments, the lines of the audit and activity logs), and the command's own two files.
 //
+// And the two files 0.5.1 added beside the documents (DESIGN A5, A9): the stamp `written-by.json`, and the kept copy
+// `<name>.json.before-upgrade-from-<step>[-n]` a step leaves of the file it upgraded (one kind per step: the file as
+// the step found it has the frozen shape that step reads).
+//
 // The kinds carry the names the fixtures' coverage.json gives them (test/fixtures/published/<version>/coverage.json).
 // Used by the coverage test of the fixtures and by the pin.
 import { totalmem } from 'node:os';
@@ -10,7 +14,7 @@ import { activityEventSchema, auditEntrySchema, conversationEventSchema } from '
 import { z } from 'zod';
 import { cardsFileSchema } from '../../src/conversation/cards-store.ts';
 import { defaultHostSettings } from '../../src/core/config.ts';
-import { compareVersionNames, type DocumentDeclaration } from '../../src/core/state-store.ts';
+import { compareVersionNames, workspaceStampSchema, type DocumentDeclaration } from '../../src/core/state-store.ts';
 import { declaredDocuments } from '../../src/daemon.ts';
 import { manifestSchema } from '../../src/files/upload-store.ts';
 import type { PublishedVersion } from './fixture.ts';
@@ -94,6 +98,18 @@ const WS = 'workspaces/[^/]+/';
 const noSchema = (): null => null;
 const today = (schema: Schema) => (): { schema: Schema; frozen: boolean } => ({ schema, frozen: false });
 const whole = (bytes: Buffer): unknown[] => [bytes];
+const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * The first published smurg of each `shapes` number (WORKSPACE_SHAPES): the first that has a step of that number, and
+ * so the first that can leave its kept copy. A step of a number no published smurg has yet needs its line here when
+ * that smurg is published (until then its kept copies are of no published version).
+ */
+const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion>> = { 1: '0.5.1' };
+const firstOfShapes = (shapes: number, what: string): PublishedVersion => {
+  const version = FIRST_OF_SHAPES[shapes];
+  if (version === undefined) throw new Error(`no published smurg has shapes ${shapes} yet: say in test/upgrade/persisted.ts (FIRST_OF_SHAPES) since when ${what} is written`);
+  return version;
+};
 
 /** Every kind of file smurg persists. The order is the one of coverage.json. */
 export function persistedKinds(): PersistedKind[] {
@@ -108,8 +124,25 @@ export function persistedKinds(): PersistedKind[] {
       schema: (version: string) => shapeWrittenBy(document, version),
       read: json,
     }));
+  // A kept copy of each step: the file as that step found it, so of the frozen shape the step reads (`-2` … `-99`: a
+  // further copy of the same step, src/core/state-store.ts keptCopyPath). No pin of its own: the frozen shape is the
+  // step's, pinned as a frozen file.
+  const keptCopies: PersistedKind[] = [...documentsOfThisSmurg()]
+    .sort((a, b) => (a.name < b.name ? -1 : 1))
+    .flatMap((document) =>
+      (document.steps ?? []).map((step) => ({
+        kind: `${document.name}.json.before-upgrade-from-${step.from}[-n] (a kept copy: ${document.name}.json as the step from ${step.from} found it)`,
+        pattern: new RegExp(`^${WS}${escape(document.name)}\\.json\\.before-upgrade-from-${escape(step.from)}(-([2-9]|[1-9][0-9]))?$`),
+        homes: ['host'] as const,
+        since: firstOfShapes(step.sinceShapes, `the kept copy of the step from ${step.from} of ${document.name}.json`),
+        schema: () => ({ schema: step.shape, frozen: true }),
+        read: json,
+      })),
+    );
   return [
     ...documents,
+    { kind: 'written-by.json (the stamp)', pattern: new RegExp(`^${WS}written-by\\.json$`), homes: ['host'], since: '0.5.1', pin: 'written-by.json', schema: today(workspaceStampSchema), read: json },
+    ...keptCopies,
     { kind: 'transcripts/<hex of the session id>/cards.json', pattern: new RegExp(`^${WS}transcripts/[0-9a-f]+/cards\\.json$`), homes: ['host'], since: '0.5.0', pin: 'transcripts.cards.json', schema: today(cardsFileSchema), read: json },
     { kind: 'transcripts/<hex of the session id>/events-<6 digits>.jsonl (one line = { v: 1, …event })', pattern: new RegExp(`^${WS}transcripts/[0-9a-f]+/events-\\d{6}\\.jsonl$`), homes: ['host'], since: '0.5.0', pin: 'transcripts.events.line', schema: today(conversationEventSchema), read: transcriptLines },
     { kind: 'uploads/<upload id>.json', pattern: new RegExp(`^${WS}uploads/up_[A-Za-z0-9_-]{22}\\.json$`), homes: ['host'], since: '0.4.0', pin: 'uploads.manifest.json', schema: today(manifestSchema), read: json },

@@ -46,7 +46,7 @@ import { dirname, join, normalize, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as protocol from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
-import { WORKSPACE_SHAPES, workspaceStampSchema } from '../../src/core/state-store.ts';
+import { WORKSPACE_SHAPES } from '../../src/core/state-store.ts';
 import { documentsOfThisSmurg, persistedKinds } from './persisted.ts';
 import { nodesOf, shapeOf } from './walker.ts';
 
@@ -412,9 +412,6 @@ describe('the pin of everything smurg persists', () => {
       if (kind.pin === undefined || which === null || which.described === true) continue;
       pinned.set(kind.pin, shapeOf(which.schema));
     }
-    // The stamp is no document and no fixture holds one (0.5.1 is the first smurg that writes it): its shape is
-    // pinned here, as this smurg writes it. Every later smurg reads these.
-    pinned.set('written-by.json', shapeOf(workspaceStampSchema));
 
     it('every kind with a schema has a pinned shape, and no pinned shape is left over', () => {
       expect([...pinned.keys()].sort()).toEqual([
