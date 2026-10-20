@@ -5,7 +5,7 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
-## [0.6.0] - YYYY-MM-DD
+## [0.6.0] - 2026-10-21
 
 - **Choose the model.** The host and members with agent access choose an agent session's model from the list the
   host's Claude Code offers, Fable included: when they open a session or a topic, at Start for a topic's work items,

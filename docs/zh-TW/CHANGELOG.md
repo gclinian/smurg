@@ -4,7 +4,7 @@
 [語意化版本](https://semver.org/lang/zh-TW/)）。每個版本的段落也是那個版本的發佈說明；沒有對應段落的版本不會發佈。
 英文版：[English](../../CHANGELOG.md)。
 
-## [0.6.0] - YYYY-MM-DD
+## [0.6.0] - 2026-10-21
 
 - **可以選模型了。** 主人和可使用 agent 的成員可以從主人的 Claude Code 提供的清單（包括 Fable）選擇 agent session 的模型：
   開啟 session 或主題時、按開始讓主題的工作項目開始時，以及之後在 session 上方的資訊列，變更會從 agent 的下一輪開始生效。
