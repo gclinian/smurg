@@ -1,8 +1,8 @@
 // topic.*, plan.*, report.* handlers (ARCHITECTURE §5.10; the registry's checks in brackets). The Router has checked
 // the caller's capability; every check a registry entry names (`topic-open`, `topic-archived`, `plan-pins`,
-// `rule-form`, `responsible-eligible`, `report-may-review`, and through ConversationService.sendAs `drive-or-suggest`,
-// `suggestion-limit`, `mentions-checked`) is made INSIDE the service, so it holds for every caller of that service,
-// not only for this file.
+// `rule-form`, `responsible-eligible`, `report-may-review`, `model-offered`, and through ConversationService.sendAs
+// `drive-or-suggest`, `suggestion-limit`, `mentions-checked`) is made INSIDE the service, so it holds for every caller
+// of that service, not only for this file.
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { Router } from '../core/interfaces.ts';
@@ -16,7 +16,7 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   const stack = new DisposableStack();
 
   // ---- topic.* ----
-  // [session.create] the slug is free, the folder does not exist yet
+  // [session.create] model-offered; the slug is free, the folder does not exist yet
   stack.add(router.handle('topic.create', (payload, req) => topics.create(payload, req.principal)));
   // [session.view] one list-rule page
   stack.add(router.handle('topic.list', (payload) => topics.list(payload)));
@@ -45,6 +45,8 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   // [session.drive] topic-open, rule-form
   stack.add(router.handle('topic.rule.add', async (payload, req) => ({ topic: await topics.addRule(payload, req.principal) })));
   stack.add(router.handle('topic.rule.remove', async (payload, req) => ({ topic: await topics.removeRule(payload, req.principal) })));
+  // [session.drive] topic-open, model-offered: the model of the topic's new sessions, the mode its work items follow
+  stack.add(router.handle('topic.agent.set', async (payload, req) => ({ topic: await topics.setAgent(payload, req.principal) })));
 
   // ---- plan.* ----
   // [session.drive] topic-open, a spec exists, the discussion is live
@@ -67,7 +69,7 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   stack.add(router.handle('plan.suggest', async (payload, req) => ({ plan: await plans.suggest(payload, req.principal) })));
   // [session.create] topic-open
   stack.add(router.handle('plan.preflight', async (payload, req) => ({ preflight: await plans.preflight(payload, req.principal) })));
-  // [session.create] topic-open, plan-pins
+  // [session.create] topic-open, plan-pins, model-offered
   stack.add(router.handle('plan.start', async (payload, req) => ({ plan: await plans.start(payload, req.principal) })));
   // [session.view] topic-open
   stack.add(router.handle('plan.changes', (payload, req) => plans.changes(payload, req.principal)));

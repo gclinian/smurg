@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { guestRoleSchema } from '../../roles.ts';
 import {
   auditEntrySchema,
+  hostNoticeSchema,
   hostSettingsPatchSchema,
   hostSettingsSchema,
   inviteInfoSchema,
@@ -83,8 +84,15 @@ export const adminAuditEntryPayloadSchema = z.strictObject({ entry: auditEntrySc
 export const adminSettingsGetPayloadSchema = emptyPayloadSchema;
 export const hostSettingsResultSchema = z.strictObject({ settings: hostSettingsSchema });
 
-/** `Partial<HostSettings>`; unknown keys are refused. */
+/**
+ * `Partial<HostSettings>`; unknown keys are refused. `permissionMode: 'ask-nothing'` is refused while smurg runs as the
+ * root user (`settings.asksNothing.root`). Naming `permissionMode` also settles the `agents-auto` notice.
+ */
 export const adminSettingsSetPayloadSchema = hostSettingsPatchSchema;
+
+/** The host has seen a notice (protocol 5): it leaves `state.json` and the host's inbox. */
+export const adminNoticeSeenPayloadSchema = z.strictObject({ notice: hostNoticeSchema });
+export const adminNoticeSeenResultSchema = emptyPayloadSchema;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Claude Code on the host: project settings (the trust gate), the host's own rules, transcripts (ARCHITECTURE §5.8)

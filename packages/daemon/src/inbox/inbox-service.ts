@@ -42,7 +42,7 @@ import { isStubService } from '../core/stubs.ts';
 import { attentionKey, deriveInbox, excerptOf, noteItem, type InboxWorld, type SessionView } from './derive.ts';
 import { INBOX_DOCUMENT, emptyBox, inboxDocumentSchema, initialInboxDocument, noteKey, storedNoteSchema, type InboxDocument, type MemberBox, type StoredNote } from './store.ts';
 
-const ATTENTION_SOURCES: readonly AttentionSource[] = ['topics', 'sessions', 'trust', 'host-rules'];
+const ATTENTION_SOURCES: readonly AttentionSource[] = ['topics', 'sessions', 'trust', 'host-rules', 'settings'];
 /** How long after a member went the inbox looks again (the per-member teardown is a matter of milliseconds). */
 const TEARDOWN_RECHECK_MS = 300;
 
@@ -577,6 +577,8 @@ export class InboxServiceImpl implements InboxService {
       sessions: { service: services.agents, ask: () => services.agents.attention() },
       trust: { service: services.projectTrust, ask: () => services.projectTrust.attention() },
       'host-rules': { service: services.hostRules, ask: () => services.hostRules.attention() },
+      // The host's notices (state.json, DESIGN 0.6.0 D13): a core service, never a stub.
+      settings: { service: this.ctx.settings, ask: () => this.ctx.settings.attention() },
     };
     for (const source of this.stale) {
       const { service, ask } = sources[source];

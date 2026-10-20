@@ -2,7 +2,7 @@
 // works, what it may do without asking, and Stop. "End session" and "Rename" are in the column's "More actions"
 // (ConversationColumn.tsx). The host and members with agent access change things; everyone else reads them.
 import { useEffect, useState } from 'react';
-import { PERMISSION_MODES, mayBeResponsible, ruleString, type AgentSession, type PermissionMode, type RememberedRule, type ResultOf } from '@smurg/protocol';
+import { SESSION_MODE_CHOICES, mayBeResponsible, ruleString, type AgentSession, type RememberedRule, type ResultOf, type SessionModeChoice } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatRole, gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
@@ -75,7 +75,7 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
         ) : (
           <fieldset className="conv-mode__choice" disabled={!canChange || action.busy}>
             <legend>{t('mode.choice')}</legend>
-            {PERMISSION_MODES.map((mode: PermissionMode) => (
+            {SESSION_MODE_CHOICES.map((mode: SessionModeChoice) => (
               <label key={mode}>
                 <input type="radio" name="conv-mode" checked={session.permissionMode === mode} onChange={() => void action.run(() => stores.sessions.setMode(sessionId, mode))} /> {modeLabel(mode)}
               </label>

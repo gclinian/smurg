@@ -87,6 +87,18 @@ export const sessions = {
     en: () => "The path of this session's folder has a backslash or a control character in it. Claude Code's permission rules cannot name such a folder, so no agent session can be started there. The host should rename the folder.",
     'zh-TW': () => '這個 session 的資料夾路徑含有反斜線或控制字元，Claude Code 的權限規則無法表示這樣的資料夾，所以無法在這裡啟動 agent session。請主人重新命名資料夾',
   }),
+  'session.model.notKnown': message({}, {
+    en: () => "smurg does not know yet which models the host's Claude Code offers. Try again in a moment.",
+    'zh-TW': () => 'smurg 還不知道主人的 Claude Code 提供哪些模型。請稍後再試。',
+  }),
+  'session.model.notOffered': message({ model: 'string' }, {
+    en: (p) => `The host's Claude Code does not offer the model ${p.model}.`,
+    'zh-TW': (p) => `主人的 Claude Code 沒有提供模型 ${p.model}。`,
+  }),
+  'session.model.refused': message({ model: 'string' }, {
+    en: (p) => `Claude Code refused to switch to ${p.model}: the host's Claude Code settings or account do not allow it.`,
+    'zh-TW': (p) => `Claude Code 拒絕換成 ${p.model}：主人的 Claude Code 設定或帳號不允許。`,
+  }),
   'session.mode.fixed': message({}, {
     en: () => "A discussion session's permissions are fixed: it reads the code and writes only the spec and the plan.",
     'zh-TW': () => '討論 session 的權限是固定的：只能讀程式碼，並且只能寫 spec 和計畫',

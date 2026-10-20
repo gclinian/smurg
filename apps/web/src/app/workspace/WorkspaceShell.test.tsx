@@ -466,7 +466,7 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
 
   it('the banners of the sessions view are above its columns', async () => {
     const { conn } = await open();
-    act(() => conn.emit('session.host', { account: { state: 'logged-out', sessions: 1 }, mainProjectSettings: 'none' }));
+    act(() => conn.emit('session.host', { account: { state: 'logged-out', sessions: 1 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(view('sessions').querySelector('[data-banner="account"]')?.textContent).toContain("The host's Claude Code is logged out");
   });
 

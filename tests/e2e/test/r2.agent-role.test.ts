@@ -174,7 +174,7 @@ describe('R2 the role Agent access (§11 D-15)', () => {
       // 1. Ada opens an agent session: hers by `openedBy`, a session without a topic like the host's own would be.
       //    An Editor and a Viewer cannot open one.
       const { session } = await ada.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Tests' });
-      expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: ada.userId, displayName: 'Ada' }, root: { kind: 'main' }, responsible: null, permissionMode: 'ask-all' });
+      expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: ada.userId, displayName: 'Ada' }, root: { kind: 'main' }, responsible: null, permissionMode: 'auto', modeChoice: null }); // the workspace's mode (protocol 5)
       for (const other of [amy, vic]) expect(await refusal(other.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } }))).toMatchObject({ code: 'forbidden' });
       await sessionReady(host, session.id);
       for (const one of everyone) await one.watch(session.id);

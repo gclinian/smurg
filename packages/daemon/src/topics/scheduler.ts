@@ -19,7 +19,6 @@ import {
   LIST_MAX_ITEMS,
   MAIN_ROOT,
   SmurgError,
-  defaultPermissionMode,
   lineEvent,
   topicPlanPath,
   topicSpecPath,
@@ -199,7 +198,8 @@ export class Scheduler {
       // 1. the item's own worktree at the main workspace's HEAD (a retry reuses it; an existing report file is removed)
       const handle = await worktrees.acquireForItem({ topic: { id: topic.id, slug: topic.slug }, itemId, owner: starter });
       const worktreeId = handle.worktree.id;
-      // 2. its session: edits in the worktree are automatic, commands ask
+      // 2. its session: it follows its topic's mode, else the workspace's (DESIGN 0.6.0 D3); the host's default model
+      // (the topic's model reaches item sessions with DESIGN D7)
       const session = await agents.start({
         purpose: 'item',
         topic: { id: topic.id, slug: topic.slug, name: topic.name },
@@ -207,7 +207,8 @@ export class Scheduler {
         openedBy: starter,
         responsible,
         workspace: { mode: 'worktree', worktreeId },
-        mode: defaultPermissionMode('item', worktreeRoot(worktreeId)),
+        modeChoice: null,
+        model: null,
         rolePrompt: ({ smurgTag, branch }) => executionRolePrompt({ slug: topic.slug, itemId: item.id, smurgTag, branch: branch ?? handle.worktree.branch }),
         opening: retry ? msg('conversation.retry', { name: item.startedBy?.displayName ?? '', attempt }) : msg('conversation.started.item', { number: item.number, branch: handle.worktree.branch }),
         firstMessage: retry

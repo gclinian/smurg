@@ -4,13 +4,15 @@ import {
   itemIdSchema,
   itemTitleSchema,
   MERGE_REQUEST_STATUSES,
+  permissionModeSchema,
   projectSettingsStateSchema,
   rememberedRuleSchema,
+  sessionModeChoiceSchema,
   topicNameSchema,
   topicSlugSchema,
   userRefSchema,
+  wireTextSchema,
 } from './entities.ts';
-import { wireTextSchema } from './conversation.ts';
 import {
   HAND_EDITS_MAX,
   ITEM_GLOB_MAX_CHARS,
@@ -23,6 +25,7 @@ import {
   PREFLIGHT_ALSO_IN_FOLDER_MAX,
   PREFLIGHT_BLOCKERS_MAX,
   PREFLIGHT_EDITING_NOW_MAX,
+  PREFLIGHT_NESTED_REPOS_MAX,
   REMEMBERED_RULES_MAX,
   REPORT_BY_HAND_MAX,
   REPORT_CHECKS_MAX,
@@ -35,7 +38,7 @@ import {
   SPLIT_REASON_MAX_CHARS,
 } from './limits.ts';
 import { entryPathSchema, fileRefSchema } from './paths.ts';
-import { epochMsSchema, indexSchema, largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, shortTextSchema } from './primitives.ts';
+import { epochMsSchema, indexSchema, largeTextSchema, lineTextSchema, modelIdSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, shortTextSchema } from './primitives.ts';
 
 // Topics, the plan and its work items, result reports, and what a Start confirms (ARCHITECTURE §5.10). A topic's
 // spec and plan are FILES in the project (`specs/<slug>/SPEC.md`, `PLAN.md`); who is responsible, what runs and what
@@ -66,6 +69,13 @@ export const PLAN_MODES = ['assigned', 'everyone'] as const;
 export const planModeSchema = z.enum(PLAN_MODES);
 export type PlanMode = z.infer<typeof planModeSchema>;
 
+/**
+ * A topic's agent settings (protocol 5): the model of its new sessions (null: the host's default) and the permission
+ * mode its work items follow (null: the workspace's).
+ */
+export const topicAgentSchema = z.strictObject({ model: modelIdSchema.nullable(), permissionMode: sessionModeChoiceSchema.nullable() });
+export type TopicAgent = z.infer<typeof topicAgentSchema>;
+
 export const topicSchema = z.strictObject({
   id: opaqueIdSchema,
   name: topicNameSchema,
@@ -73,8 +83,13 @@ export const topicSchema = z.strictObject({
   slug: topicSlugSchema,
   phase: topicPhaseSchema,
   archived: z.boolean(),
-  /** The main workspace is a git repository (execution needs one). */
+  /**
+   * The shared folder has a git repository of its own. Nothing decides from it any more (protocol 5): a folder without
+   * one gets smurg's own history, and `HostState.work` says how work items run.
+   */
   versioned: z.boolean(),
+  /** The model and the permission mode of this topic's sessions and work items. */
+  agent: topicAgentSchema,
   createdBy: userRefSchema,
   createdAt: epochMsSchema,
   discussionSessionId: opaqueIdSchema.optional(),
@@ -141,7 +156,8 @@ export type ReportSummary = z.infer<typeof reportSummarySchema>;
 
 const reportSectionSchema = largeTextSchema(REPORT_SECTION_MAX_BYTES);
 
-export const NO_CHANGES_REASONS = ['host-only-paths', 'spec-files', 'conflict-markers'] as const;
+/** Why a report has no changes to review. `no-history` (protocol 5): the item ran directly in the shared folder (no git). */
+export const NO_CHANGES_REASONS = ['host-only-paths', 'spec-files', 'conflict-markers', 'no-history'] as const;
 export type NoChangesReason = (typeof NO_CHANGES_REASONS)[number];
 
 const followUpTextSchema = z.strictObject({ text: largeTextSchema(REPORT_FOLLOW_UP_TEXT_MAX_BYTES), truncated: z.literal(true).optional() });
@@ -269,6 +285,9 @@ export const planInfoSchema = z.strictObject({
 });
 export type PlanInfo = z.infer<typeof planInfoSchema>;
 
+/** How the items a Start starts now would run: the folder's own git, smurg's own history, or directly in the folder. */
+export const START_HISTORIES = ['folder', 'smurg', 'direct'] as const;
+
 /** What the Start dialog shows; `plan.start` echoes `planRevision`, `specHash` and `planHash` (the pin). */
 export const startPreflightSchema = z.strictObject({
   planRevision: indexSchema,
@@ -280,7 +299,20 @@ export const startPreflightSchema = z.strictObject({
   responsible: z.array(z.strictObject({ itemId: itemIdSchema, user: userRefSchema.nullable(), online: z.boolean() })).max(PLAN_INFO_ITEMS_MAX),
   /** Sessions whose questions the caller will decide. */
   youDecide: indexSchema,
-  /** The checkpoint commit of exactly the two files; null when the folder is not a git repository. */
+  /** How the items started now run (protocol 5). */
+  history: z.enum(START_HISTORIES),
+  /**
+   * With history `direct`: why git cannot be used, and `hostOnly` when the caller is not the host (only the host starts
+   * items that run directly in the folder). Null otherwise.
+   */
+  direct: z.strictObject({ reason: wireTextSchema, hostOnly: z.boolean() }).nullable(),
+  /** The topic's agent settings a Start would use, and the mode its items would run with (`effectivePermissionMode`). */
+  agent: z.strictObject({ model: modelIdSchema.nullable(), permissionMode: sessionModeChoiceSchema.nullable(), effective: permissionModeSchema }),
+  /** With history `smurg`: folders that are git repositories of their own and are not copied into work items. */
+  nestedRepos: z.array(entryPathSchema).max(PREFLIGHT_NESTED_REPOS_MAX),
+  /** With history `smurg`: the folder lies in a folder a cloud service syncs. */
+  cloudSynced: z.boolean(),
+  /** The checkpoint commit of exactly the two files; only with history `folder` (null otherwise). */
   commit: z
     .strictObject({
       needed: z.boolean(),
@@ -303,5 +335,8 @@ export const startPreflightSchema = z.strictObject({
   sharedDirs: z.array(entryPathSchema).max(SHARED_DIRS_MAX),
   /** While one holds, `plan.start` is refused (not a git repository, git busy, the plan does not parse, …). */
   blockers: z.array(wireTextSchema).max(PREFLIGHT_BLOCKERS_MAX),
-});
+})
+  .refine((p) => (p.direct !== null) === (p.history === 'direct'), '`direct` goes with history direct')
+  .refine((p) => p.commit === null || p.history === 'folder', 'a checkpoint commit only in the folder\'s own repository')
+  .refine((p) => p.history === 'smurg' || (p.nestedRepos.length === 0 && !p.cloudSynced), 'nested repositories and the cloud-synced flag only with smurg\'s own history');
 export type StartPreflight = z.infer<typeof startPreflightSchema>;

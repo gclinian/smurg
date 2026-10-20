@@ -76,7 +76,7 @@ reports[].changes.byHand[].path|out: transform
 reports[].changes.byHand[].by: array [max_length maximum=20]
 reports[].changes.byHand[].by[]: the same as #3
 reports[].noChanges: optional
-reports[].noChanges: enum "host-only-paths"|"spec-files"|"conflict-markers"
+reports[].noChanges: enum "host-only-paths"|"spec-files"|"conflict-markers"|"no-history"
 reports[].questions: array [max_length maximum=50]
 reports[].questions[]: #17 object strict
 reports[].questions[].text: string [custom] [custom]

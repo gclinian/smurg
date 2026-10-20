@@ -179,6 +179,10 @@ export const errors = {
     en: () => 'A shared directory must be an ordinary folder inside the shared folder.',
     'zh-TW': () => '共享資料夾必須是分享資料夾內一般的資料夾',
   }),
+  'settings.asksNothing.root': message({}, {
+    en: () => 'Claude Code does not run agents without asking while smurg runs as the root user. Share the folder as your own user.',
+    'zh-TW': () => 'smurg 以 root 身分執行時，Claude Code 不會讓 agent 什麼都不問就執行。請用你自己的使用者帳號分享資料夾。',
+  }),
 
   // ---- the control socket (smurg stop / status / attach on the host's machine) ---------------------------------
   'control.badRequest': message({}, {

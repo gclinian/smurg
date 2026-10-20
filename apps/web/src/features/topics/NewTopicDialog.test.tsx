@@ -8,7 +8,7 @@ import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/servi
 import { NewTopicDialog } from './NewTopicDialog.tsx';
 import { admitAs, settle, topicConnection } from './testing/support.tsx';
 
-const UNDECIDED: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored' };
+const UNDECIDED: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } };
 const SETTINGS: ClaudeConfigFile = {
   path: '.claude/settings.json',
   hash: FAKE_HASH,

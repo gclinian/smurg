@@ -5,7 +5,7 @@
 //   node test/upgrade/published-runner.ts <SMURG_HOME> <workspace id> <shared folder> <clock, epoch ms>
 //
 // It prints one line `RESULT <json>`: `{ ok: true, … }` and exit code 0, or, when that daemon refuses the folder,
-// `{ ok: false, name, message }` and exit code 2. It uses nothing a published tree may lack: only what tag v0.5.0
+// `{ ok: false, name, message, kind? }` (the StateFileError's kind) and exit code 2. It uses nothing a published tree may lack: only what tag v0.5.0
 // already had, and no TypeScript that node cannot run by leaving the types out.
 import { createTestDaemon } from '../../src/testing/index.ts';
 import { DAEMON_VERSION } from '../../src/daemon.ts';
@@ -34,7 +34,8 @@ try {
   };
   await t.cleanup();
 } catch (err) {
-  result = { ok: false, name: err instanceof Error ? err.name : 'unknown', message: err instanceof Error ? err.message : String(err) };
+  const kind = typeof err === 'object' && err !== null && typeof (err as { kind?: unknown }).kind === 'string' ? (err as { kind: string }).kind : undefined;
+  result = { ok: false, name: err instanceof Error ? err.name : 'unknown', message: err instanceof Error ? err.message : String(err), ...(kind === undefined ? {} : { kind }) };
 }
 process.stdout.write(`RESULT ${JSON.stringify(result)}\n`);
 // Timers of an in-memory relay may outlive the daemon: this process is done.

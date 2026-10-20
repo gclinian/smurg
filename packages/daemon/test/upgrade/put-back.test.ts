@@ -87,7 +87,7 @@ describe('a kept copy put back after later decisions', { timeout: 60_000 }, () =
     // It is SAID: the terminal line is made of these two, and the host's log has the sentence.
     expect(t.daemon.putBack).toBe(true);
     expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: kept }]);
-    expect(t.daemon.internals.folder.stamp).toMatchObject({ shapes: 1 });
+    expect(t.daemon.internals.folder.stamp).toMatchObject({ shapes: 2 });
     const said = log.lines.filter((line) => line.level === 'warn' && /OLDER state file was put back/.test(line.message));
     expect(said).toHaveLength(1);
     expect(said[0]?.message).toMatch(/kicks, revoked devices and links, role changes, used-up links/);
@@ -95,7 +95,7 @@ describe('a kept copy put back after later decisions', { timeout: 60_000 }, () =
     // The copy itself is never written over: it still is the file of the day of the upgrade.
     expect((await readFile(kept)).equals(keptBytes)).toBe(true);
     expect((await stat(kept)).mtimeMs).toBe(keptMtime);
-    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toMatchObject({ shapes: 1 });
+    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toMatchObject({ shapes: 2 });
 
     // ---- What it undoes. Every line below was refused (or was a Viewer) a moment ago.
     expect(knock(t, { userId: 'dev:gina', key: gina }), 'Gina is back, with the key the host revoked').toBe('in as editor');

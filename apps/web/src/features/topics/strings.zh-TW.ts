@@ -335,6 +335,7 @@ export const zhTW = {
   'report.noChanges.host-only-paths': '變更沒有顯示：它們改到了只有主人能改的檔案。主人會直接查看 worktree。',
   'report.noChanges.spec-files': '變更沒有顯示：它們改到了 spec 或計畫，而工作項目不能改這兩個檔案。',
   'report.noChanges.conflict-markers': '變更沒有顯示：檔案裡還留著合併衝突的標記。',
+  'report.noChanges.no-history': '沒有 git 時，smurg 不保存版本紀錄：這個項目直接改動了分享的資料夾，沒有 diff 可以顯示。它的 agent 做了什麼，可以看它的對話和動態。',
   'report.question.cut': '這裡只顯示一部分，完整內容在 session 裡。',
   'report.question.waiting': 'Claude 還沒回答。',
   'report.state.reviewed': '{name} 已看過，{time}',

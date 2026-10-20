@@ -134,23 +134,25 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect(first.fingerprint).toBe('5521 e1d4 5f4e da2c ff81');
     expect(toHex(parseInviteUrl(first.hostInviteUrl as string).fingerprint)).toBe(toHex(parseInviteUrl(ledger.links['teamLink'] as string).fingerprint));
 
-    // The stamp: this smurg wrote the folder last, with shapes 1.
-    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
+    // The stamp: this smurg wrote the folder last, with shapes 2 (0.6.0).
+    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
     // The copies: the files as 0.4.0 left them, byte for byte, private.
     expect(await keptIn(dir)).toEqual(['state.json.before-upgrade-from-0.4.0', 'suggestions.json.before-upgrade-from-0.4.0']);
     expect(sha256Of(await readFile(join(dir, keptCopyName('state', '0.4.0'))))).toBe(sha256Of(oldState));
     expect(sha256Of(await readFile(join(dir, keptCopyName('suggestions', '0.4.0'))))).toBe(sha256Of(oldSuggestions));
     for (const name of [STAMP_NAME, ...(await keptIn(dir))]) expect((await stat(join(dir, name))).mode & 0o777, name).toBe(0o600);
 
-    // The settings in force: the six the host chose under 0.4.0, and the three 0.5.0 added, closed.
-    expect(first.ctx.settings.get()).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false });
+    // The settings in force: the six the host chose under 0.4.0, the three 0.5.0 added, closed, and the workspace's
+    // permission mode 0.6.0 added: auto (the owner's decision, DECISIONS.md 2), said to the host until they have seen it.
+    expect(first.ctx.settings.get()).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
+    expect(first.ctx.settings.notices()).toEqual(['agents-auto']);
     await host.stop();
 
     // ---- The documents on disk after that run, in the shapes this smurg (and 0.5.0) writes.
     const state = await readJson<StoredState>(join(dir, 'state.json'));
-    expect(state.version).toBe(1);
+    expect(state.version).toBe(2);
     expect(state.workspaceId).toBe(old.workspaceId);
-    expect(state.settings).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false });
+    expect(state.settings).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
     // Every member and every device, the removed and the revoked ones as they were.
     expect(state.members.map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(old.members.map((member) => `${member.userId} ${member.role} ${member.status}`));
     expect(state.members.filter((member) => member.status === 'kicked').map((member) => member.userId)).toEqual(['dev:erin']);
@@ -189,7 +191,7 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect(again.devices).toEqual(old.devices);
   });
 
-  it('0.5.0: shared again, stopped, shared again. Nothing is upgraded, nothing is copied, everything it held is there', async () => {
+  it('0.5.0: shared again, stopped, shared again. One upgrade to auto mode, said once and kept; everything it held is there', async () => {
     const host = await hostOf('0.5.0');
     const dir = host.copy.workspaceDir;
     const documents = (await namesOf(dir)).filter((name) => name.endsWith('.json'));
@@ -200,25 +202,44 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect(old.settings).toMatchObject({ maxLiveAgents: 2, escalateAfterMs: 60_000, agentMcp: true });
 
     const first = await host.share();
-    expect(first.upgraded).toEqual([]);
+    // 0.6.0 (the owner's decision, DECISIONS.md 2): state.json and agent-sessions.json of 0.5.0 are upgraded (auto mode,
+    // the host's notice; every session follows the workspace unless a person made it stricter), once, and kept.
+    expect(first.upgraded).toEqual([
+      { document: 'state', from: '0.5.0', copy: join(dir, 'state.json.before-upgrade-from-0.5.0') },
+      { document: 'agent-sessions', from: '0.5.0', copy: join(dir, 'agent-sessions.json.before-upgrade-from-0.5.0') },
+    ]);
     expect(first.putBack).toBe(false);
-    expect(host.log.lines.filter((line) => line.message === 'state file upgraded' || aboutTheState(line))).toEqual([]);
-    expect(await keptIn(dir)).toEqual([]);
-    // Everything it held, as this smurg read it before it changed anything: file for file what 0.5.0 wrote.
+    expect(host.log.lines.filter((line) => line.message === 'state file upgraded').map((line) => line.fields)).toEqual(first.upgraded.map((entry) => ({ module: 'state', ...entry, putBack: false })));
+    expect(host.log.lines.filter(aboutTheState)).toEqual([]);
+    expect(await keptIn(dir)).toEqual(['agent-sessions.json.before-upgrade-from-0.5.0', 'state.json.before-upgrade-from-0.5.0']);
+    // Everything it held, as this smurg read it before it changed anything: file for file what 0.5.0 wrote, but for
+    // the two documents the step changed (and only in what the step changes).
     const loaded = first.internals.folder.loaded;
     expect([...loaded.keys()].sort()).toEqual([...stored.keys()].sort());
     for (const [name, value] of stored) {
-      expect(loaded.get(name)?.upgradedFrom, name).toBeNull();
-      expect(loaded.get(name)?.value, `${name}.json`).toEqual(value);
+      expect(loaded.get(name)?.upgradedFrom, name).toBe(name === 'state' || name === 'agent-sessions' ? '0.5.0' : null);
+      if (name === 'state') expect(loaded.get(name)?.value, 'state.json').toEqual({ ...(value as object), version: 2, settings: { ...old.settings, permissionMode: 'auto' }, hostNotices: ['agents-auto'] });
+      else if (name === 'agent-sessions') {
+        const sessions = (loaded.get(name)?.value as { sessions: Record<string, unknown>[] }).sessions;
+        const before = (value as { sessions: Record<string, unknown>[] }).sessions;
+        expect(sessions.map((session) => session['id'])).toEqual(before.map((session) => session['id']));
+        for (const [index, session] of sessions.entries()) {
+          const { modeChoice: _choice, model, modeChangedBy: _by, ...rest } = session;
+          const { mode: _mode, modeChangedBy: _was, ...was } = before[index] as Record<string, unknown>;
+          expect(rest, String(session['id'])).toEqual(was);
+          expect(model).toBeNull();
+        }
+      } else expect(loaded.get(name)?.value, `${name}.json`).toEqual(value);
     }
     expect(first.workspaceId).toBe('ws_n8MKlviIItx2COhFvmlwCw');
     expect(first.fingerprint).toBe('cb32 c31a ed6d e26a 69b9');
-    expect(first.ctx.settings.get()).toEqual(old.settings);
-    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
+    // The settings the host chose under 0.5.0 stay; the workspace's mode is auto (the step's constant).
+    expect(first.ctx.settings.get()).toEqual({ ...old.settings, permissionMode: 'auto' });
+    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
     await host.stop();
 
     const state = await readJson<StoredState>(join(dir, 'state.json'));
-    expect(state.settings).toEqual(old.settings);
+    expect(state.settings).toEqual({ ...old.settings, permissionMode: 'auto' });
     expect(state.members.map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(old.members.map((member) => `${member.userId} ${member.role} ${member.status}`));
     expect(state.members.filter((member) => member.status === 'kicked').map((member) => member.userId)).toEqual(['dev:pete', 'dev:erin', 'dev:sam']);
     expect(state.devices).toEqual(old.devices);
@@ -237,6 +258,6 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect(second.fingerprint).toBe('cb32 c31a ed6d e26a 69b9');
     await host.stop();
     expect(await namesOf(dir)).toEqual(names);
-    expect(await keptIn(dir)).toEqual([]);
+    expect(await keptIn(dir)).toEqual(['agent-sessions.json.before-upgrade-from-0.5.0', 'state.json.before-upgrade-from-0.5.0']);
   });
 });

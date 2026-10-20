@@ -2,10 +2,19 @@
 // shared dirs), so a change reaches connected clients at once as channel.settingsUpdated (contract review C16), and
 // the host-only fields never do.
 import { afterEach, describe, expect, it } from 'vitest';
+import { readFile, writeFile } from 'node:fs/promises';
 import { totalmem } from 'node:os';
-import { ESCALATE_AFTER_MS_DEFAULT, ESCALATE_AFTER_MS_RANGE, MAX_LIVE_AGENTS_RANGE, type PublicSettings } from '@smurg/protocol';
-import { defaultMaxLiveAgents } from '../src/core/config.ts';
-import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
+import { join } from 'node:path';
+import { ESCALATE_AFTER_MS_DEFAULT, ESCALATE_AFTER_MS_RANGE, MAX_LIVE_AGENTS_RANGE, type HostNotice, type PermissionMode, type PublicSettings } from '@smurg/protocol';
+import { SettingsServiceImpl } from '../src/admin/settings.ts';
+import { TypedEventBus } from '../src/core/bus.ts';
+import { defaultHostSettings, defaultMaxLiveAgents } from '../src/core/config.ts';
+import type { AuditInput, AuditLog, PersistentDocument, Principal } from '../src/core/interfaces.ts';
+import { silentLogger } from '../src/core/logger.ts';
+import { SYSTEM_PRINCIPAL } from '../src/core/permissions.ts';
+import { STAMP_FILE, keptCopyPath, serializeDocument } from '../src/core/state-store.ts';
+import { initialWorkspaceState, workspaceStateSchema, type WorkspaceState } from '../src/core/workspace-state.ts';
+import { createTempDir, createTempProject, createTempRunDir, createTestDaemon, removeTempDir, removeTempRunDir, waitFor, type TestDaemon } from '../src/testing/index.ts';
 
 let t: TestDaemon | null = null;
 
@@ -29,8 +38,8 @@ describe('admin.settings.set', () => {
     await waitFor(() => [...seen.values()].every((list) => list.length === 1), { what: 'channel.settingsUpdated everywhere' });
     for (const list of seen.values()) {
       expect(list[0]?.humanLockIdleMs).toBe(45_000);
-      // ARCHITECTURE §11 D-15: no guest switches any more.
-      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'sharedDirs', 'uploadChunkSize']);
+      // ARCHITECTURE §11 D-15: no guest switches any more. Protocol 5: every member knows the workspace's mode.
+      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
     }
     // An editor cannot change them (router capability check), and nothing is broadcast then.
     await expect(eddie.conn.request('admin.settings.set', { humanLockIdleMs: 1_000 })).rejects.toMatchObject({ code: 'forbidden' });
@@ -47,7 +56,7 @@ describe('no guest switches (ARCHITECTURE §11 D-15)', () => {
       await expect(host.conn.request('admin.settings.set', removed as never)).rejects.toMatchObject({ code: 'bad_request' });
     }
     const { settings } = await host.conn.request('admin.settings.get', {});
-    expect(Object.keys(settings).sort()).toEqual(['agentLockTimeoutMs', 'agentMcp', 'diskReserveBytes', 'diskReservePercent', 'escalateAfterMs', 'humanLockIdleMs', 'maxLiveAgents', 'sharedDirs', 'uploadChunkSize']);
+    expect(Object.keys(settings).sort()).toEqual(['agentLockTimeoutMs', 'agentMcp', 'diskReserveBytes', 'diskReservePercent', 'escalateAfterMs', 'humanLockIdleMs', 'maxLiveAgents', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
   });
 });
 
@@ -90,9 +99,139 @@ describe('the agent settings of protocol 4 (host-only)', () => {
     expect(t.ctx.settings.get().maxLiveAgents).toBe(4);
     // The change is audited; what members get (PublicSettings) carries none of the three.
     await waitFor(() => pushed.length >= 1, { what: 'channel.settingsUpdated' });
-    for (const settingsSeen of pushed) expect(Object.keys(settingsSeen).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'sharedDirs', 'uploadChunkSize']);
+    for (const settingsSeen of pushed) expect(Object.keys(settingsSeen).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
     await t.ctx.audit.flush();
     const changes = (await t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'settings.change');
     expect(changes.length).toBeGreaterThanOrEqual(1);
   });
+});
+
+// ── protocol 5 (smurg 0.6.0): the workspace's permission mode, and the update's notice (DESIGN 0.6.0 D3, D8, D13) ──────
+
+const HOST: Principal = { kind: 'user', actor: { kind: 'user', userId: 'dev:host', displayName: 'Host' }, userId: 'dev:host', role: 'host' };
+const EDDIE: Principal = { kind: 'user', actor: { kind: 'user', userId: 'dev:eddie', displayName: 'Eddie' }, userId: 'dev:eddie', role: 'editor' };
+
+/** The settings service on a state.json held in memory, as the daemon composes it (the root check's uid injected). */
+function settingsOn(options: { readonly notices?: readonly HostNotice[]; readonly uid?: number }) {
+  let value: WorkspaceState = { ...initialWorkspaceState('ws_test_0123456789abcdef', defaultHostSettings(16 * 1024 ** 3)), hostNotices: [...(options.notices ?? [])] };
+  const state: PersistentDocument<WorkspaceState> = {
+    name: 'state',
+    get: () => value,
+    update: (mutator) => {
+      const draft = structuredClone(value);
+      value = workspaceStateSchema.parse(mutator(draft) ?? draft);
+      return value;
+    },
+    flush: async () => {},
+  };
+  const audited: AuditInput[] = [];
+  const audit = { record: (input: AuditInput) => void audited.push(input) } as unknown as AuditLog;
+  const bus = new TypedEventBus(silentLogger);
+  const attention: string[] = [];
+  bus.on('attention.changed', (event) => attention.push(event.source));
+  const service = new SettingsServiceImpl({ state, audit, bus, mainRealPath: '/nowhere', hostUserId: () => 'dev:host', uid: () => options.uid ?? 501, now: () => 1_000 });
+  return { service, state, audited, attention };
+}
+
+describe('the workspace\'s permission mode (protocol 5, DESIGN 0.6.0 D3)', () => {
+  it('is `auto` in a new workspace; every member learns it (Welcome, channel.settingsUpdated); only the host changes it', async () => {
+    t = await createTestDaemon();
+    const host = await t.connectHost();
+    const eddie = await t.connect({ userId: 'dev:eddie', role: 'editor' });
+    expect(eddie.welcome?.settings.permissionMode).toBe('auto');
+    expect((await host.conn.request('admin.settings.get', {})).settings.permissionMode).toBe('auto');
+    const pushed: PublicSettings[] = [];
+    eddie.conn.on('channel.settingsUpdated', (payload) => pushed.push(payload.settings));
+    const modes: PermissionMode[] = process.getuid?.() === 0 ? ['ask-commands', 'ask-all', 'auto'] : ['ask-commands', 'ask-all', 'ask-nothing', 'auto'];
+    for (const permissionMode of modes) {
+      expect((await host.conn.request('admin.settings.set', { permissionMode })).settings.permissionMode).toBe(permissionMode);
+      await waitFor(() => pushed.at(-1)?.permissionMode === permissionMode, { what: `channel.settingsUpdated with ${permissionMode}` });
+    }
+    await expect(eddie.conn.request('admin.settings.set', { permissionMode: 'ask-all' })).rejects.toMatchObject({ code: 'forbidden' });
+    await expect(host.conn.request('admin.settings.set', { permissionMode: 'yolo' } as never)).rejects.toMatchObject({ code: 'bad_request' });
+    expect(t.ctx.settings.get().permissionMode).toBe('auto');
+  });
+
+  it('`ask-nothing` is refused while the daemon runs as root (Claude Code does not run so there); nothing changes', async () => {
+    const root = settingsOn({ uid: 0 });
+    await expect(root.service.update({ permissionMode: 'ask-nothing' }, HOST)).rejects.toMatchObject({ code: 'forbidden', detail: { reason: 'root' }, text: { id: 'settings.asksNothing.root' } });
+    expect(root.state.get().settings.permissionMode).toBe('auto');
+    expect(root.audited).toEqual([]);
+    await root.service.update({ permissionMode: 'ask-all' }, HOST);
+    expect(root.state.get().settings.permissionMode).toBe('ask-all');
+    const user = settingsOn({ uid: 501 });
+    await user.service.update({ permissionMode: 'ask-nothing' }, HOST);
+    expect(user.state.get().settings.permissionMode).toBe('ask-nothing');
+  });
+});
+
+describe('the update\'s notice `agents-auto` (DESIGN 0.6.0 D13)', () => {
+  it('is an attention fact for the host alone while it is there, opening the console\'s settings', () => {
+    const { service } = settingsOn({ notices: ['agents-auto'] });
+    expect(service.notices()).toEqual(['agents-auto']);
+    expect(service.attention()).toEqual([{ subject: 'agents-auto', id: 'workspace', at: 1_000, recipients: ['dev:host'], target: { kind: 'console', section: 'settings' }, excerpt: '' }]);
+    expect(settingsOn({}).service.attention()).toEqual([]);
+  });
+
+  it('goes when the host has seen it (admin.notice.seen), and only the host can say so', async () => {
+    const { service, state, attention } = settingsOn({ notices: ['agents-auto'] });
+    await expect(service.seeNotice('agents-auto', EDDIE)).rejects.toMatchObject({ code: 'forbidden' });
+    expect(state.get().hostNotices).toEqual(['agents-auto']);
+    await service.seeNotice('agents-auto', HOST);
+    expect(state.get().hostNotices).toEqual([]);
+    expect(service.attention()).toEqual([]);
+    expect(attention).toEqual(['settings']);
+    await service.seeNotice('agents-auto', HOST); // seen twice: nothing more happens
+    expect(attention).toEqual(['settings']);
+  });
+
+  it('goes when the host decides the workspace\'s mode, even to the mode it already has; another setting leaves it', async () => {
+    const { service, state, attention } = settingsOn({ notices: ['agents-auto'] });
+    await service.update({ humanLockIdleMs: 45_000 }, HOST);
+    expect(state.get().hostNotices).toEqual(['agents-auto']);
+    await service.update({ permissionMode: 'auto' }, SYSTEM_PRINCIPAL);
+    expect(state.get().hostNotices).toEqual([]);
+    expect(attention).toEqual(['settings']);
+  });
+
+  it('a workspace that 0.5.x left: the start upgrades it to `auto`, the host\'s inbox holds the notice, and it goes when he has seen it', async () => {
+    const WS = 'ws_test_settings_notice_01';
+    const stateDir = await createTempRunDir();
+    const base = await createTempDir('notice');
+    try {
+      const root = await createTempProject(base, 'project', { files: { 'README.md': 'hello\n' } });
+      const dir = join(stateDir, 'workspaces', WS);
+      t = await createTestDaemon({ stateDir, root, workspaceId: WS });
+      (await t.connect({ userId: 'dev:eddie', role: 'editor' })).close();
+      await t.cleanup();
+      t = null;
+      // What 0.5.2 left: state.json version 1 with nine settings, and its stamp (shapes 1).
+      const today = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState;
+      const { hostNotices: _notices, ...rest } = today;
+      const { permissionMode: _mode, ...nine } = today.settings;
+      await writeFile(join(dir, 'state.json'), serializeDocument({ ...rest, version: 1, settings: nine }), { mode: 0o600 });
+      await writeFile(join(dir, STAMP_FILE), serializeDocument({ smurg: '0.5.2', shapes: 1, at: 1 }), { mode: 0o600 });
+
+      t = await createTestDaemon({ stateDir, root, workspaceId: WS });
+      expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.5.0', copy: keptCopyPath(dir, 'state', '0.5.0'), writer: '0.5.2' }]);
+      expect(t.ctx.settings.get().permissionMode).toBe('auto');
+      const host = await t.connectHost();
+      const eddie = await t.connect({ userId: 'dev:eddie', role: 'editor' });
+      const KEY = 'attention:agents-auto:workspace';
+      await waitFor(async () => (await host.conn.request('inbox.list', {})).items.some((item) => item.key === KEY), { what: 'the notice in the host\'s inbox' });
+      expect((await host.conn.request('inbox.list', {})).items.find((item) => item.key === KEY)).toMatchObject({ kind: 'attention', subject: 'agents-auto', waiting: false, target: { kind: 'console', section: 'settings' } });
+      expect((await eddie.conn.request('inbox.list', {})).items.some((item) => item.key === KEY)).toBe(false);
+      await expect(eddie.conn.request('admin.notice.seen', { notice: 'agents-auto' })).rejects.toMatchObject({ code: 'forbidden' });
+      await host.conn.request('admin.notice.seen', { notice: 'agents-auto' });
+      await waitFor(async () => !(await host.conn.request('inbox.list', {})).items.some((item) => item.key === KEY), { what: 'the notice gone' });
+      await t.cleanup();
+      t = null;
+      expect((JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState).hostNotices).toEqual([]);
+    } finally {
+      await t?.cleanup();
+      t = null;
+      await removeTempRunDir(stateDir);
+      await removeTempDir(base);
+    }
+  }, 60_000);
 });

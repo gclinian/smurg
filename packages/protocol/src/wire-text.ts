@@ -2,7 +2,7 @@
 // rendering next to it. One builder, so every module clips the same way and a line, a notice, a plan error and a
 // preflight blocker all pass their schemas.
 import { renderEnglish, type MessageRef } from './i18n/index.ts';
-import type { WireText } from './schema/conversation.ts';
+import type { WireText } from './schema/entities.ts';
 import { FALLBACK_TEXT_MAX_CHARS } from './schema/limits.ts';
 
 function clipLine(text: string, max: number): string {

@@ -11,7 +11,8 @@ import { epochMsSchema, indexSchema, lineTextSchema, multilineTextSchema, opaque
 
 /**
  * The sections of the host console an item may open (`ColumnTarget { kind: 'console' }`). The attention subjects map
- * to them: `account` and `storage` → `sessions`; `project-settings` → `claude-config`; `host-rules` → `host-rules`.
+ * to them: `account` and `storage` → `sessions`; `project-settings` → `claude-config`; `host-rules` → `host-rules`;
+ * `agents-auto` → `settings`.
  */
 export const CONSOLE_SECTIONS = ['members', 'sessions', 'suggestions', 'merges', 'invites', 'audit', 'settings', 'claude-config', 'host-rules'] as const;
 export const consoleSectionSchema = z.enum(CONSOLE_SECTIONS);
@@ -32,7 +33,10 @@ export const INBOX_KINDS = ['question', 'vote', 'permission', 'attention', 'sugg
 export const inboxKindSchema = z.enum(INBOX_KINDS);
 export type InboxKind = z.infer<typeof inboxKindSchema>;
 
-/** Work that stopped and has no card. */
+/**
+ * Work that stopped and has no card, and what the host must know. `agents-auto` (protocol 5): the host's notice of the
+ * 0.6.0 update (agents run in auto mode), until the host has seen it (`admin.notice.seen`).
+ */
 export const ATTENTION_SUBJECTS = [
   'item-stalled',
   'item-failed',
@@ -44,6 +48,7 @@ export const ATTENTION_SUBJECTS = [
   'project-settings',
   'host-rules',
   'storage',
+  'agents-auto',
 ] as const;
 export const attentionSubjectSchema = z.enum(ATTENTION_SUBJECTS);
 export type AttentionSubject = z.infer<typeof attentionSubjectSchema>;
@@ -59,7 +64,7 @@ export const INBOX_RESULTS = ['rejected', 'accepted-edited'] as const;
 /** Whether an item of this kind stops an agent or a plan (`InboxItem.waiting`). */
 export function inboxKindWaits(kind: InboxKind, subject?: AttentionSubject): boolean {
   if (kind === 'question' || kind === 'vote' || kind === 'permission') return true;
-  return kind === 'attention' && subject !== undefined && subject !== 'host-rules' && subject !== 'storage';
+  return kind === 'attention' && subject !== undefined && subject !== 'host-rules' && subject !== 'storage' && subject !== 'agents-auto';
 }
 
 /** The fields of an item beyond the ones every item has (`key`, `kind`, `at`, `unread`, `waiting`, `target`, `excerpt`). */

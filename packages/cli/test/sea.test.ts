@@ -69,8 +69,8 @@ describe.skipIf(BINARY === null)('the single executable (SMURG_SEA_BINARY)', () 
     const s = await setup();
     const { stdout } = await run(s.bin, ['--version'], { env: s.env, cwd: s.dirs.home, timeout: 30_000 });
     // A release build prints its --version (build-sea.ts), any other build `<package version>-dev`; the protocol is the
-    // one of the source it was built from (2 since ARCHITECTURE §11 D-15).
-    expect(PROTOCOL_VERSION).toBe(4);
+    // one of the source it was built from (2 since ARCHITECTURE §11 D-15; 5 since 0.6.0).
+    expect(PROTOCOL_VERSION).toBe(5);
     expect(stdout).toMatch(new RegExp(`^smurg \\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)? \\(protocol v${PROTOCOL_VERSION}, daemon \\S+, node \\d+\\.\\d+\\.\\d+\\)\\n$`));
     if (process.env['SMURG_SEA_VERSION']) expect(stdout.startsWith(`smurg ${process.env['SMURG_SEA_VERSION']} (`)).toBe(true);
     // The binary runs on this machine, so it is this machine's build: its release name is smurg-<platform>-<arch>

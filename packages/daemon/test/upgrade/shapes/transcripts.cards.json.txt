@@ -117,7 +117,7 @@ cards[]<1>.request.root: the same as #17
 cards[]<1>.request.reason: optional
 cards[]<1>.request.reason: string [min_length minimum=0] [max_length maximum=1000] [custom]
 cards[]<1>.request.gate: optional
-cards[]<1>.request.gate: enum "writes-settings-script"|"may-reach-settings-script"
+cards[]<1>.request.gate: enum "writes-settings-script"|"may-reach-settings-script"|"writes-host-only"|"writes-outside"
 cards[]<1>.request.hostOnly: boolean
 cards[]<1>.request.alwaysRule: optional
 cards[]<1>.request.alwaysRule: #21 object strict

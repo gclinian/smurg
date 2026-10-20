@@ -405,7 +405,7 @@ describe('host console: Claude Code project settings', () => {
 
     // Decided on another device of the host: the main folder's state changes.
     fixture.claudeConfig = [{ root: MAIN, state: 'used', files: [{ ...SETTINGS, decision: 'trust' }] }];
-    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'used' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'used', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(await within(claude).findByText('In use')).toBeTruthy();
     expect(reads()).toBe(before + 2);
   });
@@ -416,7 +416,7 @@ describe('host console: Claude Code project settings', () => {
     const claude = await section();
     await within(claude).findByText('This folder has no Claude Code project settings.');
     view.conn.handle('admin.claudeConfig.get', () => Promise.reject(new SmurgError('internal')));
-    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(await within(claude).findByText('Could not read the project settings: Something went wrong on the host.')).toBeTruthy();
     view.conn.handle('admin.claudeConfig.get', () => ({ roots: [{ root: MAIN, state: 'ignored', files: [SETTINGS] }], hasMore: false }));
     fireEvent.click(within(claude).getByRole('button', { name: 'Reload' }));
@@ -434,7 +434,7 @@ describe('host console: Claude Code project settings', () => {
       after === undefined ? { roots: [{ root: MAIN, state: 'ignored', files: [SETTINGS] }], hasMore: true } : { roots: [{ root: WT, state: 'ignored', files: [MCP] }], hasMore: false },
     );
     // A change the daemon announces makes the page read again, now through the paged handler.
-    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'ignored', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(await within(claude).findByText('node tools/mcp.js')).toBeTruthy();
     expect(within(claude).getByText('./scripts/lint.sh --fix')).toBeTruthy();
     await waitFor(() => expect(view.conn.lastRequest('admin.claudeConfig.get')?.payload).toEqual({ after: 'main' }));

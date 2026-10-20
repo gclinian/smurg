@@ -16,6 +16,7 @@
 import type {
   AccountInfo,
   Actor,
+  AgentHostState,
   AgentPurpose,
   AgentSession,
   AttentionSubject,
@@ -39,6 +40,7 @@ import type {
   FileRef,
   GuestRole,
   HandshakeMode,
+  HostNotice,
   HostSettings,
   HostSettingsPatch,
   InboxItem,
@@ -70,6 +72,7 @@ import type {
   RootRef,
   RoutingMember,
   SessionEndReason,
+  SessionModeChoice,
   SessionInfo,
   SmurgPurpose,
   StalledBy,
@@ -78,10 +81,12 @@ import type {
   Suggestion,
   ToolView,
   Topic,
+  TopicAgent,
   TurnOutcome,
   UserRef,
   Welcome,
   WorkItem,
+  WorkState,
   WorkspaceInfo,
   WorktreeInfo,
 } from '@smurg/protocol';
@@ -964,9 +969,17 @@ export interface SettingsService {
   public(): PublicSettings;
   /**
    * Validated with the protocol schema plus the semantic rules (shared dirs must be existing, non-host-only
-   * directories of the main root), persisted, audited `settings.change`, emits settings.changed.
+   * directories of the main root), persisted, audited `settings.change`, emits settings.changed. `permissionMode:
+   * 'ask-nothing'` is refused while the daemon runs as the root user (`settings.asksNothing.root`, DESIGN 0.6.0 D8); a
+   * patch that names `permissionMode` settles the `agents-auto` notice (the host decided).
    */
   update(patch: HostSettingsPatch, by: Principal): Promise<HostSettings>;
+  /** Notices the host has not seen yet (`state.json`'s `hostNotices`; DESIGN 0.6.0 D13). */
+  notices(): readonly HostNotice[];
+  /** `admin.notice.seen`: the notice leaves `state.json` and the host's inbox (`attention.changed { source: 'settings' }`). */
+  seeNotice(notice: HostNotice, by: Principal): Promise<void>;
+  /** Subject `agents-auto` (for the host; opens the console's `settings` section) while the notice is not seen. */
+  attention(): AttentionFact[];
 }
 
 /** Why keep-awake is not active (PowerStatus.reason). Codes: the CLI words them in the host's language. */
@@ -1237,7 +1250,7 @@ export interface TurnMessage {
 }
 /** The rows of the tool gate that deny (ARCHITECTURE §7.7). */
 export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
-export type AttentionSource = 'topics' | 'sessions' | 'trust' | 'host-rules';
+export type AttentionSource = 'topics' | 'sessions' | 'trust' | 'host-rules' | 'settings';
 
 /**
  * What goes to an agent. The runner allocates the message id, appends the `message` / `smurg` event, and writes
@@ -1302,8 +1315,10 @@ export interface AgentSessionFacts {
   readonly pathRights: 'member' | 'host';
   /** The opener / starter until cleared for good (routing.ts `deciderOf`). */
   readonly fallbackDecider: UserId | null;
-  /** Who loosened the permission mode from its default, if anyone. */
+  /** Who chose the session's own permission mode, if anyone. */
   readonly modeChangedBy?: UserId;
+  /** Who chose the session's model, if anyone. */
+  readonly modelChangedBy?: UserId;
   readonly hasProcess: boolean;
 }
 
@@ -1404,8 +1419,18 @@ export interface AgentStartInput {
   readonly title?: string;
   /** The caller acquired the worktree. */
   readonly workspace: { readonly mode: 'main' } | { readonly mode: 'worktree'; readonly worktreeId: string };
-  /** What the session starts with: `defaultPermissionMode(purpose, root)` unless the caller has a reason. */
-  readonly mode: PermissionMode;
+  /**
+   * The session's own permission mode (a person's choice: `session.create.permissionMode`, or what a session it
+   * replaces had); null: it follows (a work item its topic's choice, then the workspace's). Ignored for a discussion
+   * (fixed). The mode it runs with is `effectivePermissionMode` of this, the topic's and the workspace's.
+   */
+  readonly modeChoice: SessionModeChoice | null;
+  /** Who made `modeChoice` (with a non-null choice of a person). */
+  readonly modeChangedBy?: UserRef;
+  /** The model (a value of the host agent's list; the caller checked it with `model-offered`); null: the host's default. */
+  readonly model: string | null;
+  /** Who chose `model` (with a non-null model of a person). */
+  readonly modelChangedBy?: UserRef;
   /** Called once with the session's tag (and branch); the result is stored and used, byte for byte, at every process start. */
   rolePrompt(facts: { readonly smurgTag: string; readonly branch?: string }): string;
   /**
@@ -1484,12 +1509,29 @@ export interface AgentSessions {
   ): void;
 
   /**
-   * By a person (`session.mode.set`): the line `conversation.mode.changed`, audit `session.mode`; remembers them as
-   * `modeChangedBy` while the mode is not the default. By the system (ConversationService.memberRemoved putting it
-   * back to `defaultPermissionMode`): the line `conversation.mode.reset` naming who had changed it; `modeChangedBy`
-   * is cleared. Emits session.updated.
+   * The session's own permission mode; null: it follows again (its topic, the workspace). By a person
+   * (`session.mode.set`): the line `conversation.mode.changed` {by, mode} for a choice, `conversation.mode.followed`
+   * {by, mode: the effective one} for null; audit `session.mode` {sessionId, mode: choice|null}; `modeChangedBy` is
+   * the person for a choice and cleared with null. By the system (ConversationService.memberRemoved putting a looser
+   * choice back to null): the line `conversation.mode.reset` naming who had chosen it; `modeChangedBy` is cleared.
+   * Refused for a discussion (`session.mode.fixed`). Emits session.updated.
    */
-  setMode(sessionId: string, mode: PermissionMode, by: Actor): Promise<void>;
+  setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void>;
+  /**
+   * The session's model (DESIGN 0.6.0 D7); null: the host's default. The caller checked it (`model-offered`). By a
+   * person: the line `conversation.model.changed` {by, model} or `conversation.model.default` {by}, audit
+   * `session.model` {sessionId, model|null}, `modelChangedBy` the person (cleared with null). By the system (a member
+   * who chose it went, DESIGN D12): the line `conversation.model.reset` {name}. A parked session stores it; its next
+   * start passes it. Emits session.updated. (0.6.0 S1: stored only; the live switch of a running process is S3's.)
+   */
+  setModel(sessionId: string, model: string | null, by: Actor): Promise<void>;
+  /**
+   * A topic's agent settings changed (TopicService.setAgent, PlanService.start with `agent`; `previous`: the topic's
+   * mode choice before): every live item session of the topic that follows the topic's mode (its own choice null) runs
+   * with the new effective mode; the line `conversation.mode.topic` {by, mode} in each whose effective mode changed.
+   * Emits session.updated for every session of the topic.
+   */
+  topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void>;
   /**
    * Replaces the session's own remembered rules (a topic's rules are read from TopicService.rules at each process
    * start). For each rule that WENT: by a person the line `conversation.rule.removed` and audit `session.rule.remove`;
@@ -1583,6 +1625,11 @@ export interface AgentSessions {
   account(): AccountInfo;
   /** Claude Code on the host as of the daemon's last check (`smurg status`); null: not checked yet. */
   claude(): NonNullable<DaemonStatus['claude']> | null;
+  /**
+   * The host's agent as every member may know it (`HostState.agent`, DESIGN 0.6.0 D4): its models, its default, what
+   * can run. A change sends `session.host` to everyone. (0.6.0 S1: the list is not known yet: no model is offered.)
+   */
+  hostAgentState(): AgentHostState;
   /** Subjects `account`, `storage` (both open the console's `sessions` section). */
   attention(): AttentionFact[];
 }
@@ -1653,8 +1700,8 @@ export interface UserTeardown {
 export interface SessionManager {
   /**
    * `session.create`: a terminal, or a free agent session (through AgentSessions.start with the opening line
-   * `conversation.started.free`, the mode `defaultPermissionMode('free', root)` and the caller's `title`). The caller
-   * is `openedBy`. Audits `session.create`.
+   * `conversation.started.free`, the caller's mode choice (absent: it follows the workspace), model and `title`). The
+   * caller is `openedBy`. Audits `session.create` (detail `model`, null for the host's default).
    */
   create(input: Req<'session.create'>, conn: ClientConnection, principal: Principal): Promise<SessionInfo>;
   /**
@@ -1870,10 +1917,11 @@ export interface ConversationService {
 
   /**
    * What §3 removes for a member who was kicked, left or changed role: their votes; the rules they added
-   * (AgentSessions.setRules by the system, which writes `conversation.rule.removed.member`); a mode they loosened
-   * (AgentSessions.setMode to `defaultPermissionMode(purpose, root)` by the system, which writes
-   * `conversation.mode.reset`); their queued messages (AgentSessions.cancelQueued); a kicked member's undelivered
-   * message stops its turn. Returns it for the `session.handover` entry. Called by the core only.
+   * (AgentSessions.setRules by the system, which writes `conversation.rule.removed.member`); a mode they chose that is
+   * LOOSER than what the session would follow without it (AgentSessions.setMode to null by the system, which writes
+   * `conversation.mode.reset`; a stricter choice stays, DESIGN 0.6.0 D12); their queued messages
+   * (AgentSessions.cancelQueued); a kicked member's undelivered message stops its turn. Returns it for the
+   * `session.handover` entry. Called by the core only.
    */
   memberRemoved(userId: UserId, change: MemberChange, to?: Role): ConversationRemoval;
 }
@@ -1946,6 +1994,12 @@ export interface TopicService {
    */
   delete(input: Req<'topic.delete'>, principal: Principal): Promise<void>;
   restartDiscussion(input: Req<'topic.discussion.restart'>, principal: Principal): Promise<{ readonly topic: Topic; readonly session: AgentSession }>;
+  /**
+   * `topic.agent.set` (DESIGN 0.6.0 D3, D4): the model of the topic's new sessions and the mode its work items follow
+   * (null: the host's default / the workspace's; a key left out stays). Audit `topic.agent`; then
+   * AgentSessions.topicAgentChanged. The caller checked the model (`model-offered`).
+   */
+  setAgent(input: Req<'topic.agent.set'>, principal: Principal): Promise<Topic>;
   /** → ConversationService.sendAs to the discussion session (origin `revise`, with `target` and `quote`: sendAs composes the text). */
   revise(input: Req<'topic.revise'>, principal: Principal): Promise<{ readonly messageId: string } | { readonly suggestion: Suggestion }>;
   requestSpec(input: Req<'topic.spec.request'>, principal: Principal): Promise<void>;
@@ -1955,6 +2009,12 @@ export interface TopicService {
   removeRule(input: Req<'topic.rule.remove'>, principal: Principal): Promise<Topic>;
   /** The rules a session of this topic starts with (the sessions module reads them at each process start). */
   rules(topicId: string): readonly RememberedRule[];
+  /**
+   * The topic's agent settings (`Topic.agent`): the model of its new sessions and the mode its work items follow (null:
+   * the host's default / the workspace's). The sessions module reads them for a session's effective mode. Null for an
+   * unknown topic.
+   */
+  agent(topicId: string): TopicAgent | null;
   /** §3 for a member who was kicked, left or changed role: their topic rules go, items they armed are disarmed, plan records that name them are cleared. Called by the core only. */
   memberRemoved(userId: UserId, change: MemberChange, to?: Role): TopicRemoval;
   /** Subjects item-stalled, item-failed, item-stopped, item-not-started, plan-paused, discussion-lost. */
@@ -2159,6 +2219,13 @@ export interface WorktreeManager {
    * way): the first reason that holds, one `worktree.unavailable.*` sentence each.
    */
   mainState(): Promise<MainState>;
+  /**
+   * How work items run here as far as is known NOW (`HostState.work`, DESIGN 0.6.0 D5): it never runs git (a teammate's
+   * request must not make smurg look for git on the host's computer). `folder` while the shared folder has a git
+   * repository of its own; `direct` once the git executable was found unusable (with its reason); else `unchecked`.
+   * (0.6.0 S1: smurg's own history, `smurg`, comes with S5.)
+   */
+  workState(): WorkState;
   /**
    * Looks at `<share>/.git` again (0.5.2): file calls only while nothing changed. A repository that appeared gets the
    * exclude line and the detection of git (worktree mode may become available); a `.git` that went or changed into

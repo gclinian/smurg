@@ -16,7 +16,7 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PUBLISHED_VERSIONS, copyOf, fixtureDirOf, manifestOf, storedFileProblems, type FixtureCopy, type PublishedVersion } from './fixture.ts';
-import { persistedKinds, type PersistedKind } from './persisted.ts';
+import { NOT_PUBLISHED, persistedKinds, type PersistedKind } from './persisted.ts';
 import { COVERAGE_PARTS, declare, newCoverage, report, visit, type CoverageReport } from './walker.ts';
 
 /**
@@ -25,9 +25,31 @@ import { COVERAGE_PARTS, declare, newCoverage, report, visit, type CoverageRepor
  * the tree (made by its own code, docs/RELEASING.md): it visits them, or lists them with a reason.
  * Adding a point here goes together with a step or a raised WORKSPACE_SHAPES (test/upgrade/pin.test.ts says when).
  */
-const NOT_PUBLISHED_YET: Readonly<Record<string, readonly string[]>> = {};
+const NOT_PUBLISHED_YET: Readonly<Record<string, readonly string[]>> = {
+  // 0.6.0 (DESIGN D6): optional keys of documents WITHOUT a step (a 0.5.x file passes as it is). state.json and
+  // agent-sessions.json have steps from 0.5.0: their files of 0.5.x are checked against the frozen shape the step reads
+  // (src/frozen/v0.5.0.ts), so their new points (`hostNotices`, `modeChoice`, `model`, `modelChangedBy`) are not here.
+  'topics.json': [
+    'topics[].agent',
+    'topics[].agent.model',
+    'topics[].agent.permissionMode',
+    'topics[].agent.modeChangedBy',
+    'topics[].agent.modelChangedBy',
+    'topics[].items[].direct',
+    'topics[].items[].pin.history',
+    'topics[].items[].pin.commit<null>',
+    'topics[].items[].pin.commit<value>',
+    'topics[].plan.lastPin.history',
+    'topics[].plan.lastPin.commit<null>',
+    'topics[].plan.lastPin.commit<value>',
+  ],
+  'worktrees.json': ['hidden', 'worktrees[].repo', 'merges[].repo', 'merges[].base'],
+};
 
 const NEWEST = PUBLISHED_VERSIONS[PUBLISHED_VERSIONS.length - 1] as PublishedVersion;
+
+/** Where a kind's first version stands among the published ones: a kind no published smurg writes comes after all. */
+const rankOf = (since: PersistedKind['since']): number => (since === NOT_PUBLISHED ? PUBLISHED_VERSIONS.length : PUBLISHED_VERSIONS.indexOf(since));
 
 interface StoredCoverage {
   readonly version: string;
@@ -156,8 +178,8 @@ describe.each(PUBLISHED_VERSIONS)('the fixture of smurg %s', { timeout: 60_000 }
     const here = walked.kinds.filter((kind) => kind.instances > 0).map((kind) => `${kind.kind.kind}: ${kind.instances}`);
     expect(here).toEqual(stored.kinds.map((kind) => `${kind.kind}: ${kind.instances}`));
     // Every kind this smurg persists and that version already wrote has an instance.
-    expect(walked.kinds.filter((kind) => PUBLISHED_VERSIONS.indexOf(kind.kind.since) <= PUBLISHED_VERSIONS.indexOf(version) && kind.instances === 0).map((kind) => kind.kind.kind)).toEqual([]);
-    expect(walked.kinds.filter((kind) => PUBLISHED_VERSIONS.indexOf(kind.kind.since) > PUBLISHED_VERSIONS.indexOf(version) && kind.instances > 0).map((kind) => kind.kind.kind)).toEqual([]);
+    expect(walked.kinds.filter((kind) => rankOf(kind.kind.since) <= PUBLISHED_VERSIONS.indexOf(version) && kind.instances === 0).map((kind) => kind.kind.kind)).toEqual([]);
+    expect(walked.kinds.filter((kind) => rankOf(kind.kind.since) > PUBLISHED_VERSIONS.indexOf(version) && kind.instances > 0).map((kind) => kind.kind.kind)).toEqual([]);
   });
 
   it('leaves no optional key out everywhere, no array or record empty everywhere and no union branch untaken, except what its coverage.json lists', () => {

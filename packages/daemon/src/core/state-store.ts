@@ -336,12 +336,14 @@ export function loadDocumentValue<S extends z.ZodType>(declaration: DocumentDecl
     return { value: value as z.output<S>, upgradedFrom: step.from, ran };
   }
 
-  // It fails today's schema ONLY because of rules that got tighter since a published smurg wrote such files (a path
-  // with more than 30 combining marks in a row): an earlier smurg wrote this file, and every one of its problems is
-  // a value that smurg accepted. Decided by what the problems are, so that it holds for every document, with or
-  // without a step (0.4.0's conflicts.json and worktrees.json pass today's schema as they are and have none).
-  if (current.error.issues.every(isTightenedRule)) {
-    const problems = problemsOf(current.error);
+  // It fails today's schema, or the shape of one of its steps, ONLY because of rules that got tighter since a published
+  // smurg wrote such files (a path with more than 30 combining marks in a row): an earlier smurg wrote this file, and
+  // every one of its problems is a value that smurg accepted. Decided by what the problems are, so that it holds for
+  // every document, with or without a step (0.4.0's conflicts.json and worktrees.json pass today's schema as they are
+  // and have none). (Since 0.6.0 a state.json of 0.5.x's shape is a step's, not today's: the same rule holds for it.)
+  const tightened = failures.find((failure) => failure.error.issues.length > 0 && failure.error.issues.every(isTightenedRule));
+  if (tightened !== undefined) {
+    const problems = problemsOf(tightened.error);
     throw new StateFileError({
       kind: 'unreadable',
       reason: 'carried-value-refused',
@@ -382,10 +384,11 @@ export const STAMP_FILE = 'written-by.json';
 /**
  * ONE integer for everything persisted under the workspace folder (store documents or not: per-session cards.json,
  * upload manifests with their parts, transcript segments, the lines of audit.jsonl and activity.jsonl). 0.5.1 writes
- * 1. RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the whole folder as
- * `newer` before it reads a document.
+ * 1; 0.6.0 writes 2 (state.json version 2, agent sessions with a mode choice and a model, and optional keys in other
+ * documents). RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the whole
+ * folder as `newer` before it reads a document.
  */
-export const WORKSPACE_SHAPES = 1;
+export const WORKSPACE_SHAPES = 2;
 /** More than this is not a stamp. */
 const STAMP_MAX_BYTES = 4096;
 const COPY_MARK = '.json.before-upgrade-from-';

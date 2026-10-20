@@ -17,6 +17,7 @@ import {
   agentDisplayName,
   agentSafeName,
   can,
+  effectivePermissionMode,
   entryPathSchema,
   hasInvisibleCharacters,
   isHiddenTempName,
@@ -30,6 +31,7 @@ import {
   type Actor,
   type FileRef,
   type PlanInfo,
+  type SessionModeChoice,
   type StartPreflight,
   type TurnOutcome,
   type UserRef,
@@ -42,7 +44,8 @@ import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, TurnM
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
-import { isStarted, userRefOf, type TopicsCore } from './core.ts';
+import { requireModelOffered } from '../sessions/model-offered.ts';
+import { applyTopicAgent, isStarted, userRefOf, type TopicsCore } from './core.ts';
 import type { PlanParse } from './plan-format.ts';
 import { fixFileMessage, generatePlanMessage, resolveConflictMessage, updatePlanMessage } from './prompts.ts';
 import type { Scheduler, SchedulerReports } from './scheduler.ts';
@@ -483,6 +486,31 @@ export class PlanServiceImpl implements PlanService {
       rules: topic.rules.map((rule) => ({ ...rule })),
       sharedDirs: [...this.ctx.settings.get().sharedDirs],
       blockers: this.blockersOf(topic, targets, main).map((ref): WireText => wireText(ref)),
+      ...this.startFacts(topic, principal),
+    };
+  }
+
+  /**
+   * What protocol 5 adds to the Start dialog (DESIGN 0.6.0 D5, D3): how the items started now run, and the topic's
+   * agent settings with the mode its items would run with. (0.6.0 S1: without a usable git program the history is
+   * `direct`, and today's blocker still refuses the Start; otherwise the folder's own git, and a folder without one is
+   * still refused by its blocker. smurg's own history, nested repositories and cloud-synced folders come with S5.)
+   */
+  private startFacts(topic: StoredTopic, principal: Principal): Pick<StartPreflight, 'history' | 'direct' | 'agent' | 'nestedRepos' | 'cloudSynced'> {
+    const worktrees = this.ctx.services.worktrees;
+    const work = isStubService(worktrees) ? { history: 'unchecked' as const } : worktrees.workState();
+    const direct = work.history === 'direct' && work.reason !== undefined ? work.reason : null;
+    const choice = topic.agent?.permissionMode ?? null;
+    return {
+      history: direct === null ? 'folder' : 'direct',
+      direct: direct === null ? null : { reason: direct, hostOnly: principal.role !== null && principal.role !== 'host' },
+      agent: {
+        model: topic.agent?.model ?? null,
+        permissionMode: choice,
+        effective: effectivePermissionMode({ purpose: 'item', session: null, topic: choice, workspace: this.ctx.settings.get().permissionMode }),
+      },
+      nestedRepos: [],
+      cloudSynced: false,
     };
   }
 
@@ -495,7 +523,10 @@ export class PlanServiceImpl implements PlanService {
   async start(input: Req<'plan.start'>, principal: Principal): Promise<PlanInfo> {
     const caller = userRefOf(principal);
     this.core.needOpen(input.topicId);
+    // [model-offered] with the other checks: a model the Start sets for the topic is one of the host agent's list.
+    requireModelOffered(this.ctx, input.agent?.model);
     const changed = (): SmurgError => new SmurgError('conflict', msg('plan.start.changed'), { reason: 'plan-changed' });
+    let modeBefore: SessionModeChoice | null = null;
     await this.core.serialize(`start:${input.topicId}`, async () => {
       await this.core.refreshFiles(input.topicId);
       const topic = this.core.needOpen(input.topicId);
@@ -519,7 +550,14 @@ export class PlanServiceImpl implements PlanService {
       const now = this.ctx.clock.now();
       const pin: Pin = { by: caller, at: now, planRevision: input.planRevision, specHash: input.specHash, planHash: input.planHash, commit: checkpoint.commit, specBlob: checkpoint.specBlob, planBlob: checkpoint.planBlob };
       const armed = new Set(targets.map((item) => item.id));
+      modeBefore = topic.agent?.permissionMode ?? null;
+      // The topic's agent settings the dialog showed change in the SAME update that arms the items, after the
+      // checkpoint commit succeeded: a Start refused anywhere leaves them as they were (DESIGN 0.6.0 D3).
       this.core.update(topic.id, (draft) => {
+        if (input.agent !== undefined) {
+          draft.agent = applyTopicAgent(draft.agent, input.agent, caller);
+          if (Object.keys(draft.agent).length === 0) delete draft.agent;
+        }
         draft.handEdits = { spec: [], plan: [] };
         draft.plan.lastPin = pin;
         for (const item of draft.items) {
@@ -539,10 +577,21 @@ export class PlanServiceImpl implements PlanService {
         action: 'plan.start',
         outcome: 'ok',
         target: topic.id,
-        detail: { topicId: topic.id, itemIds: [...armed], planRevision: input.planRevision, specHash: input.specHash, planHash: input.planHash, commit: checkpoint.commit, committed: checkpoint.created },
+        detail: {
+          topicId: topic.id,
+          itemIds: [...armed],
+          planRevision: input.planRevision,
+          specHash: input.specHash,
+          planHash: input.planHash,
+          commit: checkpoint.commit,
+          committed: checkpoint.created,
+          ...(input.agent === undefined ? {} : { agent: input.agent }),
+        },
       });
       this.core.publish(topic.id);
     });
+    const agents = this.ctx.services.agents;
+    if (input.agent?.permissionMode !== undefined && !isStubService(agents)) await agents.topicAgentChanged(input.topicId, modeBefore, principal.actor);
     await this.scheduler.runNow();
     return this.needPlan(input.topicId);
   }

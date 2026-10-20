@@ -53,6 +53,9 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'activity.worktreeChange': { change: FILE_CHANGES },
   'activity.conflictRecovered': { reason: CONFLICT_RECOVERY_REASONS },
   'conversation.mode.changed': { mode: PERMISSION_MODES },
+  'conversation.mode.followed': { mode: PERMISSION_MODES },
+  'conversation.mode.workspace': { mode: PERMISSION_MODES },
+  'conversation.mode.topic': { mode: PERMISSION_MODES },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {
@@ -287,14 +290,24 @@ describe('seed: client request failures', () => {
   });
 });
 
-describe('seed: enumerated values with their own wording (protocol 4)', () => {
-  it('the two permission modes', () => {
-    expect(PERMISSION_MODES.map((mode) => render('en', permissionModeRef(mode)))).toEqual(['Asks before edits and commands', 'Asks before commands']);
-    expect(PERMISSION_MODES.map((mode) => render('zh-TW', permissionModeRef(mode)))).toEqual(['編輯和執行指令前都先問', '執行指令前先問']);
-    expect(permissionModeRef('ask-nothing')).toBeUndefined();
+describe('seed: enumerated values with their own wording (protocol 5)', () => {
+  it('the four permission modes (docs/GLOSSARY.md; DESIGN 0.6.0 D3)', () => {
+    expect(PERMISSION_MODES.map((mode) => render('en', permissionModeRef(mode)))).toEqual(['Auto: runs what a check allows', 'Asks before commands', 'Asks before edits and commands', 'Asks for nothing']);
+    expect(PERMISSION_MODES.map((mode) => render('zh-TW', permissionModeRef(mode)))).toEqual(['自動：檢查通過就執行', '執行指令前先問', '編輯和執行指令前都先問', '什麼都不問']);
+    expect(permissionModeRef('ask-sometimes')).toBeUndefined();
     expect(permissionModeRef('constructor')).toBeUndefined();
     expect(render('en', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-all' }))).toBe('Mei changed the permission mode: asks before edits and commands');
     expect(render('zh-TW', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-commands' }))).toBe('Mei 變更了權限模式：執行指令前先問');
+    expect(render('en', msg('conversation.mode.followed', { by: 'Mei', mode: 'auto' }))).toBe('Mei set the permission mode back to the default: runs what a check allows');
+    expect(render('zh-TW', msg('conversation.mode.workspace', { mode: 'ask-nothing' }))).toBe('主人變更了工作區的權限模式：什麼都不問');
+    expect(render('en', msg('conversation.mode.topic', { by: 'Amy', mode: 'ask-commands' }))).toBe("Amy changed the permission mode of this topic's work items: asks before commands");
+  });
+
+  it('models: chosen, back to the default, refused (DESIGN 0.6.0 D7, B.1)', () => {
+    expect(render('en', msg('conversation.model.changed', { by: 'Mei', model: 'sonnet' }))).toBe('Mei changed the model: sonnet');
+    expect(render('zh-TW', msg('conversation.model.default', { by: 'Mei' }))).toBe('Mei 把模型改回主人的預設');
+    expect(render('en', msg('session.model.notOffered', { model: 'gpt-x' }))).toBe("The host's Claude Code does not offer the model gpt-x.");
+    expect(render('en', msg('notice.modelRefused', { model: 'claude-nope' }))).toMatch(/^Claude Code could not use the model claude-nope on the host's account: .*\.$/);
   });
 
   it('how a work item ended', () => {

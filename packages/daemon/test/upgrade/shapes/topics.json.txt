@@ -105,17 +105,20 @@ topics[].plan.people[].userId: string [string_format format=regex pattern=^(?:gi
 topics[].plan.people[].name: string [min_length minimum=0] [max_length maximum=256] [custom]
 topics[].plan.people[].joinedAt: number format=safeint [greater_than value=0 inclusive=true]
 topics[].plan.lastPin: optional
-topics[].plan.lastPin: #21 object strict
+topics[].plan.lastPin: #21 object [custom] [custom] strict
 topics[].plan.lastPin.by: the same as #3
 topics[].plan.lastPin.at: number format=safeint [greater_than value=0 inclusive=true]
 topics[].plan.lastPin.planRevision: number format=safeint [greater_than value=0 inclusive=true]
 topics[].plan.lastPin.specHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
 topics[].plan.lastPin.planHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].plan.lastPin.commit: nullable
 topics[].plan.lastPin.commit: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
 topics[].plan.lastPin.specBlob: nullable
 topics[].plan.lastPin.specBlob: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
 topics[].plan.lastPin.planBlob: nullable
 topics[].plan.lastPin.planBlob: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
+topics[].plan.lastPin.history: optional
+topics[].plan.lastPin.history: enum "smurg"|"direct"
 topics[].plan.fix: optional
 topics[].plan.fix: #22 object strict
 topics[].plan.fix.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
@@ -180,3 +183,15 @@ topics[].items[].fix.hash: string [string_format format=regex pattern=^[0-9a-f]{
 topics[].items[].fix.count: number format=safeint [greater_than value=0 inclusive=true]
 topics[].items[].snapshotOwed: optional
 topics[].items[].snapshotOwed: literal true
+topics[].items[].direct: optional
+topics[].items[].direct: literal true
+topics[].agent: optional
+topics[].agent: #29 object strict
+topics[].agent.model: optional
+topics[].agent.model: string [min_length minimum=1] [max_length maximum=256] [string_format format=regex pattern=^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]*$/]
+topics[].agent.permissionMode: optional
+topics[].agent.permissionMode: enum "auto"|"ask-commands"|"ask-all"
+topics[].agent.modeChangedBy: optional
+topics[].agent.modeChangedBy: the same as #3
+topics[].agent.modelChangedBy: optional
+topics[].agent.modelChangedBy: the same as #3

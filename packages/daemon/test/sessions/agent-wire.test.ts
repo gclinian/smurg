@@ -74,7 +74,7 @@ async function rig(turns: readonly { match?: string; once?: boolean; steps: read
         openedBy,
         responsible: null,
         workspace,
-        mode: purpose === 'item' ? 'ask-commands' : 'ask-all',
+        modeChoice: purpose === 'item' ? 'ask-commands' : 'ask-all', model: null,
         rolePrompt: ({ smurgTag }) => `ROLE PROMPT of ${purpose} with tag ${smurgTag}`,
         opening: msg('conversation.started.discussion', { name: 'Host' }),
         ...extra,
@@ -208,7 +208,13 @@ describe('session.* handlers of agent sessions', { timeout: 60_000 }, () => {
     const actions = (await r.s.t.ctx.audit.query({ limit: 100 })).map((entry) => entry.action);
     for (const action of ['session.responsible', 'session.mode', 'session.rule.remove', 'session.restart']) expect(actions, action).toContain(action);
     // The host state for every member; the login check for those who drive.
-    expect(await leo.conn.request('session.host.get', {})).toEqual({ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' });
+    // Protocol 5: the host's agent (its models are not asked for yet) and how work items run, for every member too.
+    expect(await leo.conn.request('session.host.get', {})).toEqual({
+      account: { state: 'ok', sessions: 0 },
+      mainProjectSettings: 'none',
+      agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' },
+      work: { history: 'folder' },
+    });
     expect(await mei.conn.request('session.loginStatus', { sessionId: session.id })).toEqual({ login: 'logged-in' });
     // Ending: the opener or the host; not another member with agent access who neither opened it nor is responsible.
     const other = await r.s.t.connect({ userId: 'dev:noa', displayName: 'Noa', role: 'agent' });
@@ -263,7 +269,7 @@ describe('session.* handlers of agent sessions', { timeout: 60_000 }, () => {
     }
     // A record the store refuses (a title with a control character from a caller inside the daemon): the start
     // fails, and no session of it stays in memory to break the list.
-    await expect(r.agents.start({ purpose: 'free', openedBy: r.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', title: `bad${cp(0x1b)}title`, rolePrompt: () => '' })).rejects.toThrow();
+    await expect(r.agents.start({ purpose: 'free', openedBy: r.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, modeChoice: 'ask-all', model: null, title: `bad${cp(0x1b)}title`, rolePrompt: () => '' })).rejects.toThrow();
     await r.host.conn.request('session.list', {});
     expect((await amy.conn.request('session.list', {})).sessions.map((entry) => entry.id)).toEqual(created);
     expect(r.agents.everySession().map((entry) => entry.id)).toEqual(created);

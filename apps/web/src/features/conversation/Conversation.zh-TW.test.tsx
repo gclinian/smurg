@@ -37,7 +37,8 @@ describe('conversation column in zh-TW', () => {
     const strip = screen.getByRole('group', { name: '這個 session 的資訊' });
     expect(within(strip).getByRole('button', { name: '負責人：Mei（你）' })).toBeTruthy();
     expect(within(strip).getByText('主工作區')).toBeTruthy();
-    expect(within(strip).getByText('編輯和執行指令前都先問')).toBeTruthy();
+    // The workspace's mode (protocol 5: `auto` unless someone chose another).
+    expect(within(strip).getByText('自動：檢查通過就執行')).toBeTruthy();
     expect(within(strip).getByRole('button', { name: '停止' })).toBeTruthy();
 
     const log = screen.getByRole('log', { name: '對話：Claude (Ian)' });
@@ -96,7 +97,7 @@ describe('conversation column in zh-TW', () => {
     // The same words as the plan's badge and the inbox row ("stopped without a report").
     expect(sentences()[0]).toBe('沒寫報告就停下了。');
 
-    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 1 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 1 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     fireEvent.click(within(status).getByRole('button', { name: '繼續' }));
     act(() => {
       view.conn.fail('plan.item.continue', new SmurgError('conflict', 'not now'));

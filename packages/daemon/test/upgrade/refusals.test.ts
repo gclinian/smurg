@@ -73,6 +73,16 @@ interface Case {
 const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 'suggestions', '0.5.0': 'topics', '0.5.1': 'topics', '0.5.2': 'topics' };
 /** 0.5.1 is the first published smurg that stamps a folder: its fixture and every later one hold a stamp. */
 const stampedBy = (version: PublishedVersion): boolean => version !== '0.4.0' && version !== '0.5.0';
+/**
+ * What a start of 0.6.0 upgrades in the folder a version left (DESIGN 0.6.0 D6): 0.4.0's state.json and suggestions.json
+ * (its state.json through both steps, named after the first), 0.5.x's state.json and agent-sessions.json (the owner's
+ * decision: auto mode); with the stamp's writer once a version stamps folders.
+ */
+function upgradesOf(version: PublishedVersion, copy: FixtureCopy): unknown[] {
+  const from = version === '0.4.0' ? '0.4.0' : '0.5.0';
+  const documents = version === '0.4.0' ? ['state', 'suggestions'] : ['state', 'agent-sessions'];
+  return documents.map((document) => ({ document, from, copy: join(copy.workspaceDir, keptCopyName(document, from)), ...(stampedBy(version) ? { writer: version } : {}) }));
+}
 
 async function replaceDocument(copy: FixtureCopy, name: string, change: (value: Record<string, unknown>) => unknown): Promise<() => Promise<void>> {
   const path = join(copy.workspaceDir, `${name}.json`);
@@ -90,14 +100,16 @@ function casesOf(version: PublishedVersion): Case[] {
       damage: async (copy) => {
         const path = join(copy.workspaceDir, STAMP_NAME);
         const before = await readFile(path).catch(() => null);
-        await writeFile(path, serialize({ smurg: '9.3.1', shapes: 2, at: copy.at }), { mode: 0o600 });
+        // One above the shapes of this smurg (0.6.0 writes 2).
+        await writeFile(path, serialize({ smurg: '9.3.1', shapes: 3, at: copy.at }), { mode: 0o600 });
         return () => (before === null ? rm(path) : writeFile(path, before, { mode: 0o600 }));
       },
       refusal: (copy) => ({ kind: 'newer', path: copy.workspaceDir, writtenBy: '9.3.1' }),
     },
     {
       name: 'a document with a newer `version`',
-      damage: (copy) => replaceDocument(copy, 'state', (value) => ({ ...value, version: 2 })),
+      // One above the version of state.json this smurg writes (0.6.0 writes 2).
+      damage: (copy) => replaceDocument(copy, 'state', (value) => ({ ...value, version: 3 })),
       refusal: (copy) => ({ kind: 'newer', path: join(copy.workspaceDir, 'state.json') }),
     },
     {
@@ -180,7 +192,7 @@ describe.each(PUBLISHED_VERSIONS)('a refused start leaves what smurg %s left whi
     expect(names).toEqual(expect.arrayContaining([STAMP_NAME, 'audit-text.jsonl', 'inbox.json']));
     expect((await readdir(join(copy.workspaceDir, 'uploads'))).filter((name) => name.startsWith(UNREADABLE_UPLOAD))).toEqual([]);
     expect((await readdir(join(copy.project, '.smurg', 'uploads'))).filter((name) => name.startsWith(UNREADABLE_UPLOAD))).toEqual([]);
-    expect(t.daemon.upgraded.map((entry) => entry.document)).toEqual(version === '0.4.0' ? ['state', 'suggestions'] : []);
+    expect(t.daemon.upgraded).toEqual(upgradesOf(version, copy));
   });
 
   it.each(casesOf(version))('$name', async (one) => {
@@ -209,7 +221,7 @@ describe.each(PUBLISHED_VERSIONS)('a refused start leaves what smurg %s left whi
     // With that one thing put right, the same folder starts; nothing the refusal did stands in the way.
     await repair();
     const t = (running = await startOn(copy));
-    expect(t.daemon.upgraded).toEqual((version === '0.4.0' ? ['state', 'suggestions'] : []).map((document) => ({ document, from: '0.4.0', copy: join(copy.workspaceDir, keptCopyName(document, '0.4.0')) })));
+    expect(t.daemon.upgraded).toEqual(upgradesOf(version, copy));
     expect(t.daemon.putBack).toBe(false);
   });
 

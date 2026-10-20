@@ -552,11 +552,11 @@ describe('banners above the columns', () => {
   it('the state of the host\'s Claude account', async () => {
     const view = await mountSidebar({ ui: <ShellBanners /> });
     expect(document.querySelector('[data-banner="account"]')).toBeNull();
-    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 4 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 4 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(document.querySelector('[data-banner="account"]')?.textContent).toBe("The host's Claude account reached a usage limit. Agents wait until it resets. 4 sessions wait.");
-    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 0 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(document.querySelector('[data-banner="account"]')?.textContent).toBe("The host's Claude Code is logged out, so agents cannot work. Only the host can log in again.");
-    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(document.querySelector('[data-banner="account"]')).toBeNull();
   });
 });

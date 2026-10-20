@@ -4,16 +4,20 @@
 //
 // An agent session survives a daemon restart as an idle session (AD-10): a record that was not `ended` is loaded as
 // idle (parked), whatever it was doing.
+//
+// 0.6.0 (DESIGN D6): a record keeps the session's own permission mode CHOICE (null: it follows its topic and the
+// workspace) and its model (null: the host's default); 0.5.x records are read through the step from 0.5.0.
 import { z } from 'zod';
 import {
   AGENT_PURPOSES,
-  PERMISSION_MODES,
   SESSION_END_REASONS,
+  SESSION_MODE_CHOICES,
   SMURG_TAG_PATTERN,
   displayNameSchema,
   epochMsSchema,
   itemIdSchema,
   messageOriginSchema,
+  modelIdSchema,
   opaqueIdSchema,
   rememberedRuleSchema,
   rootRefSchema,
@@ -23,7 +27,8 @@ import {
   userRefSchema,
 } from '@smurg/protocol';
 import type { PersistentDocument, StateStore } from '../../core/interfaces.ts';
-import { declareDocument } from '../../core/state-store.ts';
+import { declareDocument, defineStep, type DocumentStep } from '../../core/state-store.ts';
+import { agentSessionsShapeV050, type AgentSessionsV050 } from '../../frozen/v0.5.0.ts';
 
 export const AGENT_SESSIONS_DOCUMENT = 'agent-sessions';
 
@@ -65,9 +70,17 @@ export const agentRecordSchema = z.strictObject({
   root: rootRefSchema,
   worktreeId: opaqueIdSchema.optional(),
   branch: shortTextSchema.optional(),
-  mode: z.enum(PERMISSION_MODES),
-  /** Who loosened the mode from its default (the line `conversation.mode.reset` names them). */
+  /**
+   * The session's own permission mode; null: it follows (a work item its topic's, then the workspace's). Never
+   * `ask-nothing` (the host's, workspace-wide). (0.5.x's `mode` was renamed so that no 0.5.x record passes unchanged.)
+   */
+  modeChoice: z.enum(SESSION_MODE_CHOICES).nullable(),
+  /** Who chose the mode (absent with null; the line `conversation.mode.reset` names them). */
   modeChangedBy: z.strictObject({ userId: userIdSchema, displayName: displayNameSchema }).optional(),
+  /** The model chosen for the session (a value of the host agent's list); null: the host's default. */
+  model: modelIdSchema.nullable(),
+  /** Who chose the model (absent with null). */
+  modelChangedBy: z.strictObject({ userId: userIdSchema, displayName: displayNameSchema }).optional(),
   rules: z.array(rememberedRuleSchema).max(200),
   /** Claude Code's own conversation id (a UUID): NOT smurg's session id. */
   claudeSessionId: z.uuid(),
@@ -98,6 +111,27 @@ export type AgentRecord = z.infer<typeof agentRecordSchema>;
 
 const documentSchema = z.strictObject({ sessions: z.array(agentRecordSchema).max(10_000) });
 type AgentDocument = z.infer<typeof documentSchema>;
+
+/**
+ * agent-sessions.json of smurg 0.5.0, 0.5.1 and 0.5.2 → 0.6.0 (with the state step: THE OWNER'S DECISION, 2026-10-20,
+ * DECISIONS.md 2). A session follows the workspace (auto) unless a PERSON made it stricter than 0.5.2's default for
+ * it: `ask-all` in a worktree (where 0.5.x ran every work item), with `modeChangedBy` (0.5.2's default there was
+ * `ask-commands`).
+ * That choice stays, and who made it. A main-workspace session that a person loosened to `ask-commands` follows auto,
+ * which is what its person wanted more of. Every model is the host's default, as it was. Every record is carried;
+ * nothing is dropped.
+ */
+export const agentSessionsStepFromV050: DocumentStep = defineStep({
+  from: '0.5.0',
+  sinceShapes: 2,
+  shape: agentSessionsShapeV050,
+  upgrade: (old: AgentSessionsV050) => ({
+    sessions: old.sessions.map(({ mode, modeChangedBy, ...rest }) => {
+      const tightened = rest.purpose !== 'discussion' && mode === 'ask-all' && modeChangedBy !== undefined && rest.root.kind === 'worktree';
+      return { ...rest, modeChoice: tightened ? ('ask-all' as const) : null, ...(tightened ? { modeChangedBy } : {}), model: null };
+    }),
+  }),
+});
 /**
  * agent-sessions.json (no `version` key; new in 0.5.0). Declared by the sessions module.
  *
@@ -105,7 +139,7 @@ type AgentDocument = z.infer<typeof documentSchema>;
  * every topic still says its discussion is live and every started item still names its session, and none of those
  * sessions exists; a topic's discussion is only called lost when its session ends, never because it is not there.
  */
-export const agentSessionsDocument = declareDocument({ name: AGENT_SESSIONS_DOCUMENT, schema: documentSchema, init: (): AgentDocument => ({ sessions: [] }) });
+export const agentSessionsDocument = declareDocument({ name: AGENT_SESSIONS_DOCUMENT, schema: documentSchema, init: (): AgentDocument => ({ sessions: [] }), steps: [agentSessionsStepFromV050] });
 
 /** The document's records, keyed by session id; every change is written through `save`. */
 export class AgentStore {

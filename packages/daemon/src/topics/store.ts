@@ -5,6 +5,9 @@
 //
 // Both are validated on load and on every update (StateStore): an edited file that does not fit stops the daemon
 // instead of starting an agent from it.
+//
+// 0.6.0 (DESIGN D6): optional keys only (a 0.5.x file passes as it is): a topic's agent settings, an item that ran
+// directly in the shared folder, and a pin that says which history the Start used.
 import { z } from 'zod';
 import { declareDocument } from '../core/state-store.ts';
 import {
@@ -34,8 +37,10 @@ import {
   lineTextSchema,
   multilineTextSchema,
   opaqueIdSchema,
+  modelIdSchema,
   rememberedRuleSchema,
   reportInfoSchema,
+  SESSION_MODE_CHOICES,
   sha256HexSchema,
   shortTextSchema,
   stalledBySchema,
@@ -61,18 +66,24 @@ const gitIdSchema = z.string().regex(/^[0-9a-f]{7,64}$/, 'not a git object id');
 /**
  * What a Start confirmed (security S3): the plan revision and the two file hashes the dialog showed, and the commit
  * and blob ids the checkpoint left at the main workspace's HEAD. An armed item starts only while both files still
- * hash as pinned in the working tree AND at HEAD.
+ * hash as pinned in the working tree AND at HEAD. `history` (0.6.0): which history the Start used: `smurg` (smurg's
+ * own history, `.smurg/git`) or `direct` (no git: no checkpoint, `commit` and the blobs null; the items run in the
+ * folder itself); absent: the folder's own git, as every 0.5.x pin.
  */
-export const pinSchema = z.strictObject({
-  by: userRefSchema,
-  at: epochMsSchema,
-  planRevision: indexSchema,
-  specHash: sha256HexSchema,
-  planHash: sha256HexSchema,
-  commit: gitIdSchema,
-  specBlob: gitIdSchema.nullable(),
-  planBlob: gitIdSchema.nullable(),
-});
+export const pinSchema = z
+  .strictObject({
+    by: userRefSchema,
+    at: epochMsSchema,
+    planRevision: indexSchema,
+    specHash: sha256HexSchema,
+    planHash: sha256HexSchema,
+    commit: gitIdSchema.nullable(),
+    specBlob: gitIdSchema.nullable(),
+    planBlob: gitIdSchema.nullable(),
+    history: z.enum(['smurg', 'direct']).optional(),
+  })
+  .refine((pin) => (pin.commit === null) === (pin.history === 'direct'), 'a pin has a checkpoint commit unless its items run directly in the folder')
+  .refine((pin) => pin.history !== 'direct' || (pin.specBlob === null && pin.planBlob === null), 'a direct pin names no blob');
 export type Pin = z.infer<typeof pinSchema>;
 
 export const storedItemSchema = z.strictObject({
@@ -121,6 +132,8 @@ export const storedItemSchema = z.strictObject({
    * completed turn of the item's session takes the snapshot again, whatever the report file says by then.
    */
   snapshotOwed: z.literal(true).optional(),
+  /** It ran directly in the shared folder (no git, DESIGN 0.6.0 D15). */
+  direct: z.literal(true).optional(),
 });
 export type StoredItem = z.infer<typeof storedItemSchema>;
 
@@ -152,6 +165,18 @@ export const storedPlanSchema = z.strictObject({
 });
 export type StoredPlan = z.infer<typeof storedPlanSchema>;
 
+/**
+ * A topic's agent settings (0.6.0): the model of its new sessions (absent: the host's default) and the mode its work
+ * items follow (absent: the workspace's), each with who chose it.
+ */
+export const storedTopicAgentSchema = z.strictObject({
+  model: modelIdSchema.optional(),
+  permissionMode: z.enum(SESSION_MODE_CHOICES).optional(),
+  modeChangedBy: userRefSchema.optional(),
+  modelChangedBy: userRefSchema.optional(),
+});
+export type StoredTopicAgent = z.infer<typeof storedTopicAgentSchema>;
+
 export const storedTopicSchema = z.strictObject({
   id: opaqueIdSchema,
   name: topicNameSchema,
@@ -176,6 +201,8 @@ export const storedTopicSchema = z.strictObject({
   rules: z.array(rememberedRuleSchema).max(REMEMBERED_RULES_MAX),
   plan: storedPlanSchema,
   items: z.array(storedItemSchema).max(PLAN_INFO_ITEMS_MAX),
+  /** The topic's agent settings; absent: none chosen (the host's default model, the workspace's mode). */
+  agent: storedTopicAgentSchema.optional(),
 });
 export type StoredTopic = z.infer<typeof storedTopicSchema>;
 

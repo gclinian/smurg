@@ -9,6 +9,7 @@ import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PayloadOf } 
 import type { AgentRequest, DaemonEvents, Principal } from '../../src/core/interfaces.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
+import { SYSTEM_ACTOR } from '../../src/core/permissions.ts';
 import { TEST_HOST_USER, createTempRunDir, createTestDaemon, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
 import { createFakes, fakeServicesModule } from './helpers.ts';
 import { startSessionStack, type SessionStack, type SessionStackOptions } from './setup.ts';
@@ -70,7 +71,8 @@ describe('a free agent session, end to end with the stand-in claude', { timeout:
     const states: PayloadOf<'session.state'>['session'][] = [];
     host.conn.on('session.state', (payload) => states.push(payload.session));
     const { session } = await host.conn.request('session.create', { ...AGENT, firstMessage: 'Add a test for the empty cart' });
-    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: TEST_HOST_USER }, responsible: null, permissionMode: 'ask-all', modeFixed: false, title: 'Add a test for the empty cart', root: MAIN_ROOT });
+    // 0.6.0: the session follows the workspace (auto, on the wire), launched as 0.5.2's default for it (`default`).
+    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: TEST_HOST_USER }, responsible: null, permissionMode: 'auto', modeChoice: null, model: null, modeFixed: false, title: 'Add a test for the empty cart', root: MAIN_ROOT });
     await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 8, 'the first turn to end');
     const events = await r.events(session.id);
     expect(await r.kinds(session.id)).toEqual(['line:conversation.started.free', 'message', 'delivery:queued', 'delivery:started', 'turn.started', 'text', 'turn.finished', 'delivery:completed']);
@@ -96,7 +98,8 @@ describe('a free agent session, end to end with the stand-in claude', { timeout:
     expect(profile.rolePrompt).toMatch(/^You are an agent in a shared smurg workspace/);
     // The audit log: who opened it, and the full text of the message.
     const audit = await r.s.t.ctx.audit.query({ limit: 50 });
-    expect(audit.find((entry) => entry.action === 'session.create')?.detail).toMatchObject({ sessionId: session.id, kind: 'agent', purpose: 'free', mode: 'ask-all', root: 'main' });
+    // The mode it runs with (0.6.0: the workspace's auto) and the model (null: the host's default).
+    expect(audit.find((entry) => entry.action === 'session.create')?.detail).toMatchObject({ sessionId: session.id, kind: 'agent', purpose: 'free', mode: 'auto', model: null, root: 'main' });
     expect(audit.find((entry) => entry.action === 'session.message')?.detail).toMatchObject({ sessionId: session.id, origin: 'composer', text: 'Add a test for the empty cart' });
     // The stream flags are the runner's constant; the conversation id is Claude Code's own, not smurg's session id.
     const argv = (await r.s.fakeClaude.echoed()).find((entry) => entry.kind === 'argv')?.value as string[];
@@ -113,7 +116,7 @@ describe('a free agent session, end to end with the stand-in claude', { timeout:
     const hosts = (await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'hello' })).session;
     const hers = (await carol.conn.request('session.create', { ...AGENT, firstMessage: 'hello' })).session;
     for (const id of [hosts.id, hers.id]) await r.until(id, (now) => now.status === 'idle' && now.lastSeq >= 10, 'the first turn');
-    expect(hers).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: 'dev:carol', displayName: 'Carol' }, permissionMode: 'ask-all', root: MAIN_ROOT });
+    expect(hers).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: 'dev:carol', displayName: 'Carol' }, permissionMode: 'auto', modeChoice: null, root: MAIN_ROOT });
     // The same process: the host's HOME, the shared folder as its working directory (no guest directory, no sandbox).
     const root = await realpath(r.s.t.root);
     for (const id of [hosts.id, hers.id]) expect((await readFile(join(r.s.t.root, `agent-env.${id}`), 'utf8')).split('\n').slice(0, 2), id).toEqual([r.s.hostHome, root]);
@@ -468,5 +471,69 @@ describe('refusals before a start, and the limits', { timeout: 60_000 }, () => {
     await expect(r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'x', cleaned: false, origin: 'composer' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'ended' }, text: { id: 'session.ended.noMessages' } });
     expect(await r.kinds(session.id)).toContain('line:conversation.ended');
     expect(r.bus.filter((entry) => entry.name === 'session.exited')).toHaveLength(1);
+  });
+});
+
+// ── protocol 5 (smurg 0.6.0): what a session runs with (DESIGN 0.6.0 D3, D4). S1 stores the choices; what is launched
+// is still 0.5.2's (`default` or `acceptEdits`, never `--model`).
+
+describe('a session\'s mode choice and model, stored (protocol 5)', { timeout: 60_000 }, () => {
+  const linesOf = async (r: Rig, sessionId: string): Promise<unknown[]> => (await r.events(sessionId)).flatMap((event) => (event.kind === 'line' ? [event.text] : []));
+  const audited = async (r: Rig, action: string): Promise<unknown[]> => {
+    await r.s.t.ctx.audit.flush();
+    return (await r.s.t.ctx.audit.query({ limit: 100 })).filter((entry) => entry.action === action).map((entry) => entry.detail).reverse();
+  };
+
+  it('session.mode.set: a choice of its own, then null to follow the workspace again; each said in the conversation and audited', async () => {
+    const r = await rig();
+    const { session } = await r.host.conn.request('session.create', AGENT);
+    await r.until(session.id, idle, 'the session to be ready');
+    const chosen = (await r.host.conn.request('session.mode.set', { sessionId: session.id, mode: 'ask-commands' })).session;
+    expect(chosen).toMatchObject({ permissionMode: 'ask-commands', modeChoice: 'ask-commands' });
+    const followed = (await r.host.conn.request('session.mode.set', { sessionId: session.id, mode: null })).session;
+    expect(followed).toMatchObject({ permissionMode: 'auto', modeChoice: null });
+    expect((await linesOf(r, session.id)).slice(-2)).toMatchObject([
+      { id: 'conversation.mode.changed', params: { mode: 'ask-commands' } },
+      { id: 'conversation.mode.followed', params: { mode: 'auto' } },
+    ]);
+    expect(await audited(r, 'session.mode')).toEqual([{ sessionId: session.id, mode: 'ask-commands' }, { sessionId: session.id, mode: null }]);
+    // `ask-nothing` is the workspace's alone.
+    await expect(r.host.conn.request('session.mode.set', { sessionId: session.id, mode: 'ask-nothing' } as never)).rejects.toMatchObject({ code: 'bad_request' });
+  });
+
+  it('session.model.set: while the agent\'s list is not known every model is refused and nothing changes; null (the host\'s default) is stored, said and audited', async () => {
+    const r = await rig();
+    expect((await r.host.conn.request('session.host.get', {})).agent).toEqual({ models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' });
+    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'sonnet' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' }, text: { id: 'session.model.notKnown' } });
+    const { session } = await r.host.conn.request('session.create', AGENT);
+    await r.until(session.id, idle, 'the session to be ready');
+    const before = (await r.events(session.id)).length;
+    await expect(r.host.conn.request('session.model.set', { sessionId: session.id, model: 'sonnet' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' } });
+    expect(r.agents.get(session.id)).toMatchObject({ model: null });
+    expect((await r.events(session.id)).length).toBe(before);
+    expect(await audited(r, 'session.model')).toEqual([]);
+    const reset = (await r.host.conn.request('session.model.set', { sessionId: session.id, model: null })).session;
+    expect(reset).toMatchObject({ model: null });
+    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.default' });
+    expect(await audited(r, 'session.model')).toEqual([{ sessionId: session.id, model: null }]);
+  });
+
+  it('a model chosen (as S3\'s list will let a person) is kept in agent-sessions.json and on the wire; the launch does not pass it yet; smurg putting it back names who chose it', async () => {
+    const r = await rig([{ steps: [{ text: 'ok' }] }]);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'hello' });
+    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 6, 'the first turn to end');
+    await r.agents.setModel(session.id, 'sonnet', r.hostPrincipal().actor);
+    expect(r.agents.get(session.id)).toMatchObject({ model: 'sonnet' });
+    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.changed', params: { model: 'sonnet' } });
+    type Stored = { sessions: { id: string; model: string | null; modelChangedBy?: { userId: string } }[] };
+    const stored = async (): Promise<Stored['sessions'][number] | undefined> => (JSON.parse(await readFile(join(r.s.t.ctx.state.dir, 'agent-sessions.json'), 'utf8')) as Stored).sessions.find((entry) => entry.id === session.id);
+    await waitFor(async () => (await stored())?.model === 'sonnet', { what: 'the model in agent-sessions.json' });
+    expect(await stored()).toMatchObject({ model: 'sonnet', modelChangedBy: { userId: TEST_HOST_USER } });
+    const argvs = (await r.s.fakeClaude.echoed()).filter((entry) => entry.kind === 'argv').map((entry) => entry.value as string[]);
+    expect(argvs.length).toBeGreaterThan(0);
+    for (const argv of argvs) expect(argv).not.toContain('--model');
+    await r.agents.setModel(session.id, null, SYSTEM_ACTOR);
+    expect(r.agents.get(session.id)).toMatchObject({ model: null });
+    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.reset' });
   });
 });

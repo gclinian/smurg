@@ -139,7 +139,7 @@ describe('host console in zh-TW', () => {
     act(() => page.conn.emit('activity.notify', { notification: { id: 'n_sub', at: Date.now(), from: { kind: 'system' }, msg: msg('notice.personalSubscription'), fallback: 'Agents here use your personal Claude subscription.' } }));
     expect(within(sessions).getByText(/^這裡的 agent 使用你個人的 Claude 訂閱。/)).toBeTruthy();
     expect(within(sessions).getByRole('button', { name: '知道了' })).toBeTruthy();
-    act(() => page.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 2 }, mainProjectSettings: 'none' }));
+    act(() => page.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 2 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(within(sessions).getByText('你的 Claude 帳號已達用量上限。')).toBeTruthy();
     expect(within(sessions).getByText('有 2 個 agent session 在等。')).toBeTruthy();
     const settings = (await screen.findByRole('heading', { level: 2, name: '設定' })).closest('section') as HTMLElement;

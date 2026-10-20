@@ -54,6 +54,7 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'session.restart': { sessionId: 'sess_nope' },
   'session.responsible.set': { sessionId: 'sess_nope', userId: null },
   'session.mode.set': { sessionId: 'sess_nope', mode: 'ask-all' },
+  'session.model.set': { sessionId: 'sess_nope', model: null },
   'session.rules.get': { sessionId: 'sess_nope' },
   'session.rule.remove': { sessionId: 'sess_nope', ruleId: 'rl_nope' },
   'question.vote': { questionId: 'q_nope', part: 0, options: [0] },
@@ -77,6 +78,7 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'topic.spec.request': { topicId: 'tp_nope' },
   'topic.rule.add': { topicId: 'tp_nope', tool: 'Bash', pattern: 'pnpm test *' },
   'topic.rule.remove': { topicId: 'tp_nope', ruleId: 'rl_nope' },
+  'topic.agent.set': { topicId: 'tp_nope', permissionMode: 'ask-all' },
   'plan.generate': { topicId: 'tp_nope' },
   'plan.get': { topicId: 'tp_nope' },
   'plan.mode.set': { topicId: 'tp_nope', mode: 'everyone' },
@@ -116,6 +118,7 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'admin.claudeConfig.decide': { root: MAIN, files: [{ path: '.mcp.json', hash: 'a'.repeat(64) }], decision: 'ignore', acknowledged: [] },
   'admin.hostRules.get': {},
   'admin.hostRules.seen': {},
+  'admin.notice.seen': { notice: 'agents-auto' },
   'admin.transcript.redact': { sessionId: 'sess_nope', seq: 1 },
 };
 

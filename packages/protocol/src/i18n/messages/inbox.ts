@@ -57,4 +57,8 @@ export const inbox = {
     en: () => 'Conversations use more disk space than the limit',
     'zh-TW': () => '對話紀錄佔用的磁碟空間超過上限',
   }),
+  'attention.agentsAuto': message({}, {
+    en: () => 'Agents now run in auto mode',
+    'zh-TW': () => 'agent 現在以自動模式執行',
+  }),
 } as const;

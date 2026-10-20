@@ -10,7 +10,7 @@ import { z } from 'zod';
 import { defaultHostSettings } from '../src/core/config.ts';
 import { ManualClock } from '../src/core/lifecycle.ts';
 import { createMemoryLogger, silentLogger } from '../src/core/logger.ts';
-import { STAMP_FILE, declareDocument, keptCopyPath, serializeDocument, writeStamp, type DocumentDeclaration } from '../src/core/state-store.ts';
+import { STAMP_FILE, WORKSPACE_SHAPES, declareDocument, keptCopyPath, serializeDocument, writeStamp, type DocumentDeclaration } from '../src/core/state-store.ts';
 import { readWorkspaceFolder, writeWorkspaceFolder, type FolderReadOptions, type FolderReading } from '../src/core/workspace-folder.ts';
 import { stateDocument, workspaceStateSchema, type WorkspaceState } from '../src/core/workspace-state.ts';
 import { suggestionsDocument, suggestionsDocumentSchema } from '../src/suggest/store.ts';
@@ -18,6 +18,9 @@ import { createTempDir, removeTempDir } from '../src/testing/temp.ts';
 import { GiB, WS, rejectionOf, snapshotOf, stateOfV040, suggestionsOfV040 } from './fixtures/hand-made.ts';
 
 const SMURG = '0.5.1';
+/** Today's shapes number, and one a later smurg may write. */
+const SHAPES = WORKSPACE_SHAPES;
+const HIGHER = WORKSPACE_SHAPES + 1;
 const bareSchema = z.strictObject({ live: z.array(z.string()) });
 /** A document without a `version` key, like sessions.json. */
 const bareDocument = declareDocument({ name: 'bare', schema: bareSchema, init: () => ({ live: [] as string[] }) });
@@ -95,18 +98,18 @@ describe('phase 1 only reads', () => {
   it('a stamp with a higher `shapes` refuses the WHOLE folder as `newer` before any document is read, and names the writer', async () => {
     await folderOfV040();
     await put('state.json', '{ this is not JSON'); // would be `unreadable` if it were read
-    await put(STAMP_FILE, { smurg: '0.9.0', shapes: 2, at: 5 });
+    await put(STAMP_FILE, { smurg: '0.9.0', shapes: HIGHER, at: 5 });
     const before = await snapshotOf(dir);
     const refusal = await rejectionOf(readWorkspaceFolder(options()));
     expect(refusal).toMatchObject({ kind: 'newer', path: dir, paths: [dir], writtenBy: '0.9.0' });
     expect(await snapshotOf(dir)).toEqual(before);
     // The same folder for a smurg that knows those shapes: now the damaged file is what stops it.
-    expect(await rejectionOf(readWorkspaceFolder(options({ shapes: 2 })))).toMatchObject({ kind: 'unreadable', reason: 'not-json', writtenBy: '0.9.0' });
+    expect(await rejectionOf(readWorkspaceFolder(options({ shapes: HIGHER })))).toMatchObject({ kind: 'unreadable', reason: 'not-json', writtenBy: '0.9.0' });
   });
 
   it('a file that is not JSON is never `newer`, whatever the stamp says; an unusable stamp is never a refusal of its own', async () => {
     await folderOfToday();
-    await put(STAMP_FILE, { smurg: '9.9.9', shapes: 1, at: 5 });
+    await put(STAMP_FILE, { smurg: '9.9.9', shapes: SHAPES, at: 5 });
     await put('suggestions.json', '{"version": 3, "suggestions": [');
     expect(await rejectionOf(readWorkspaceFolder(options()))).toMatchObject({ kind: 'unreadable', reason: 'not-json', path: join(dir, 'suggestions.json'), writtenBy: '9.9.9' });
     await put('suggestions.json', { version: 3, suggestions: [], somethingNew: true });
@@ -210,7 +213,7 @@ describe('phase 1 only reads', () => {
     expect(await readdir(dir)).toEqual([STAMP_FILE]);
     const before = await snapshotOf(dir);
     const reading = await readWorkspaceFolder(options());
-    expect(reading).toMatchObject({ isNew: true, keyPair: null, putBack: false, stamp: { smurg: SMURG, shapes: 1 } });
+    expect(reading).toMatchObject({ isNew: true, keyPair: null, putBack: false, stamp: { smurg: SMURG, shapes: SHAPES } });
     expect(reading.loaded.size).toBe(0);
     expect(await snapshotOf(dir)).toEqual(before);
     // The same with the private sub-folders a start makes, and with a kept copy alone (as before: a copy does not
@@ -218,7 +221,7 @@ describe('phase 1 only reads', () => {
     await mkdir(join(dir, 'uploads'), { mode: 0o700 });
     await put('state.json.before-upgrade-from-0.4.0', stateOfV040());
     expect(await readWorkspaceFolder(options())).toMatchObject({ isNew: true });
-    await put(STAMP_FILE, { smurg: '0.9.0', shapes: 2, at: 5 });
+    await put(STAMP_FILE, { smurg: '0.9.0', shapes: HIGHER, at: 5 });
     expect(await rejectionOf(readWorkspaceFolder(options()))).toMatchObject({ kind: 'newer', path: dir });
   });
 
@@ -273,7 +276,7 @@ describe('phase 2 writes, in order', () => {
     expect(upgraded).toEqual([]);
     expect(((await lstat(dir)).mode & 0o777).toString(8)).toBe('700');
     expect(await readdir(dir)).toEqual([STAMP_FILE]);
-    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
     const bare = await store.document('bare', bareSchema, () => ({ live: [] }));
     expect(bare.get()).toEqual({ live: [] });
     expect((await readdir(dir)).sort()).toEqual(['bare.json', STAMP_FILE]);
@@ -321,14 +324,14 @@ describe('phase 2 writes, in order', () => {
     const names = (await readdir(dir)).sort();
     clock.advance(60_000);
     const again = await readWorkspaceFolder(options());
-    expect(again).toMatchObject({ stamp: { smurg: SMURG, shapes: 1 }, putBack: false });
+    expect(again).toMatchObject({ stamp: { smurg: SMURG, shapes: SHAPES }, putBack: false });
     expect([...again.loaded.values()].map((document) => document.upgradedFrom)).toEqual([null, null, null]);
     expect((await writeWorkspaceFolder(again, { log: silentLogger, clock })).upgraded).toEqual([]);
     expect((await readdir(dir)).sort()).toEqual(names);
     expect((await lstat(join(dir, 'state.json'))).mtimeMs).toBe(stateAfterFirst.mtimeMs);
     expect((await lstat(keptCopyPath(dir, 'state', '0.4.0'))).mtimeMs).toBe(copyAfterFirst.mtimeMs);
     // The stamp is written at every start (its `at` moves).
-    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
   });
 
   it('an OLDER file put back is upgraded again and said to be put back; the kept copy is never overwritten', async () => {
@@ -455,12 +458,12 @@ describe('phase 2 writes, in order', () => {
 
   it('the stamp is never lowered: an older smurg that opens a folder of the same shapes keeps the newer writer\'s name', async () => {
     await folderOfToday();
-    await writeStamp(dir, { smurg: '0.9.0', shapes: 1, at: 5 });
+    await writeStamp(dir, { smurg: '0.9.0', shapes: SHAPES, at: 5 });
     const reading = await readWorkspaceFolder(options());
-    expect(reading.stamp).toEqual({ smurg: '0.9.0', shapes: 1, at: 5 });
+    expect(reading.stamp).toEqual({ smurg: '0.9.0', shapes: SHAPES, at: 5 });
     (await writeWorkspaceFolder(reading, { log: silentLogger, clock })).store.close();
-    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: '0.9.0', shapes: 1, at: clock.now() });
-    await writeStamp(dir, { smurg: '0.5.0', shapes: 1, at: 5 });
+    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: '0.9.0', shapes: SHAPES, at: clock.now() });
+    await writeStamp(dir, { smurg: '0.5.0', shapes: SHAPES, at: 5 });
     (await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock })).store.close();
     expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toMatchObject({ smurg: SMURG });
   });
@@ -502,8 +505,8 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     store.close();
     expect(writes).toEqual(['stamp', 'copy:state', 'document:state', 'copy:suggestions', 'document:suggestions', 'stamp']);
     // While the documents were being upgraded the stamp named them, with the copy each gets; at the end it does not.
-    for (const during of seen.slice(0, 5)) expect(during).toEqual({ smurg: SMURG, shapes: 1, at: clock.now(), pending: PENDING_BOTH });
-    expect(seen[5]).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    for (const during of seen.slice(0, 5)) expect(during).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now(), pending: PENDING_BOTH });
+    expect(seen[5]).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
     expect(upgraded).toEqual(UPGRADED_BOTH());
   });
 
@@ -512,7 +515,7 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     const writes: string[] = [];
     (await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock, interrupt: (written) => void writes.push(written) })).store.close();
     expect(writes).toEqual(['stamp']);
-    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
   });
 
   it('killed between the stamp and the first document: the next start finishes the job and reports an UPGRADE', async () => {
@@ -525,12 +528,12 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     expect((await readdir(dir)).filter((name) => name.includes('before-upgrade'))).toEqual([]);
 
     const next = await readWorkspaceFolder(options());
-    expect(next).toMatchObject({ putBack: false, stamp: { smurg: SMURG, shapes: 1 } });
+    expect(next).toMatchObject({ putBack: false, stamp: { smurg: SMURG, shapes: SHAPES } });
     const { upgraded, store } = await writeWorkspaceFolder(next, { log: silentLogger, clock });
     store.close();
     expect(upgraded).toEqual(UPGRADED_BOTH());
     expect((await readFile(keptCopyPath(dir, 'state', '0.4.0'))).equals(oldState)).toBe(true);
-    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
     // And from then on it is an ordinary folder of today: a later start upgrades nothing and says nothing.
     const later = await readWorkspaceFolder(options());
     expect(later).toMatchObject({ putBack: false });
@@ -559,7 +562,7 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     expect((await readdir(dir)).filter((name) => name.includes('before-upgrade')).sort()).toEqual(['state.json.before-upgrade-from-0.4.0', 'suggestions.json.before-upgrade-from-0.4.0']);
     expect((await readFile(keptCopyPath(dir, 'state', '0.4.0'))).equals(old.state)).toBe(true);
     expect((await readFile(keptCopyPath(dir, 'suggestions', '0.4.0'))).equals(old.suggestions)).toBe(true);
-    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
     expect(log.lines.some((line) => /put back/.test(line.message))).toBe(false);
   });
 
@@ -575,7 +578,7 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     store.close();
     expect(upgraded).toEqual(UPGRADED_BOTH());
     expect(await Promise.all(['state.json', 'suggestions.json'].map(async (name) => (await lstat(join(dir, name))).mtimeMs))).toEqual(mtimes);
-    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
     expect((await writeWorkspaceFolder(await readWorkspaceFolder(options()), { log: silentLogger, clock })).upgraded).toEqual([]);
   });
 
@@ -585,14 +588,14 @@ describe('an upgrade that did not finish is not a put back (V1-1, V2-2)', () => 
     await copyFile(keptCopyPath(dir, 'state', '0.4.0'), join(dir, 'state.json'));
     expect(await readWorkspaceFolder(options())).toMatchObject({ putBack: true });
     // The same file while an upgrade is under way is that upgrade, whatever of it is already done.
-    await put(STAMP_FILE, { smurg: SMURG, shapes: 1, at: 5, pending: PENDING_BOTH });
+    await put(STAMP_FILE, { smurg: SMURG, shapes: SHAPES, at: 5, pending: PENDING_BOTH });
     expect(await readWorkspaceFolder(options())).toMatchObject({ putBack: false });
   });
 
   it('a `pending` that is not what this smurg writes makes the whole stamp unusable (the writer is unknown; never a put back, never a refusal)', async () => {
     await folderOfV040();
     for (const pending of [[], 'state', [{ document: 'state', from: '0.4.0' }], [{ document: 'state', from: '0.4.0', copy: '../../elsewhere' }], [{ document: 'state', from: '0.4.0', copy: 'suggestions.json.before-upgrade-from-0.4.0' }], [{ document: 'state', from: '0.4.0', copy: 'state.json.before-upgrade-from-0.3.0' }]]) {
-      await put(STAMP_FILE, { smurg: SMURG, shapes: 1, at: 5, pending });
+      await put(STAMP_FILE, { smurg: SMURG, shapes: SHAPES, at: 5, pending });
       expect(await readWorkspaceFolder(options()), JSON.stringify(pending)).toMatchObject({ stamp: null, putBack: false });
     }
   });
@@ -690,13 +693,13 @@ describe('the names of the kept copies are looked at in phase 1 (V1-1a, V2-2, V1
 
 describe('the stamp\'s `shapes` decides alone (V1-3)', () => {
   const NEWER: Readonly<Record<string, { stamp: unknown; mode?: number; writtenBy?: string }>> = {
-    'a version name this smurg does not write': { stamp: { smurg: '0.6.0-rc.1', shapes: 2, at: 5 } },
-    'one more key': { stamp: { smurg: '0.6.0', shapes: 2, at: 5, relay: 'x' }, writtenBy: '0.6.0' },
+    'a version name this smurg does not write': { stamp: { smurg: '0.7.0-rc.1', shapes: HIGHER, at: 5 } },
+    'one more key': { stamp: { smurg: '0.7.0', shapes: HIGHER, at: 5, relay: 'x' }, writtenBy: '0.7.0' },
     'a number above 1,000,000': { stamp: { smurg: '9.0.0', shapes: 1_000_001, at: 5 }, writtenBy: '9.0.0' },
-    'a file others can read (a restore without modes)': { stamp: { smurg: '0.6.0', shapes: 2, at: 5 }, mode: 0o644, writtenBy: '0.6.0' },
-    'nothing but the number': { stamp: { shapes: 2 } },
-    'a number that is no integer': { stamp: { smurg: '0.6.0', shapes: 1.5, at: 5 }, writtenBy: '0.6.0' },
-    'a name with control characters': { stamp: { smurg: `0.6.0${String.fromCharCode(27)}[2J`, shapes: 3, at: 5 } },
+    'a file others can read (a restore without modes)': { stamp: { smurg: '0.7.0', shapes: HIGHER, at: 5 }, mode: 0o644, writtenBy: '0.7.0' },
+    'nothing but the number': { stamp: { shapes: HIGHER } },
+    'a number that is no integer': { stamp: { smurg: '0.7.0', shapes: SHAPES + 0.5, at: 5 }, writtenBy: '0.7.0' },
+    'a name with control characters': { stamp: { smurg: `0.7.0${String.fromCharCode(27)}[2J`, shapes: HIGHER, at: 5 } },
   };
 
   it.each(Object.keys(NEWER))('a stamp with %s and a higher `shapes` refuses the whole folder as `newer`; nothing is read further, nothing is written, the stamp is not lowered', async (how) => {
@@ -716,12 +719,12 @@ describe('the stamp\'s `shapes` decides alone (V1-3)', () => {
   it('what is not a number in a JSON object in a file is no stamp at all: the writer is unknown, as before (never `newer`, never a refusal)', async () => {
     await folderOfToday();
     const cases: [string, () => Promise<void>][] = [
-      ['not JSON', () => put(STAMP_FILE, '{"smurg": "0.6.0", "shapes": 2')],
-      ['a list', () => put(STAMP_FILE, [{ shapes: 2 }])],
-      ['a number as text', () => put(STAMP_FILE, { smurg: '0.6.0', shapes: '2', at: 5 })],
-      ['too large', () => put(STAMP_FILE, `{"smurg":"0.6.0","shapes":2,"at":5,"pad":"${'x'.repeat(5000)}"}`)],
+      ['not JSON', () => put(STAMP_FILE, `{"smurg": "0.7.0", "shapes": ${HIGHER}`)],
+      ['a list', () => put(STAMP_FILE, [{ shapes: HIGHER }])],
+      ['a number as text', () => put(STAMP_FILE, { smurg: '0.7.0', shapes: String(HIGHER), at: 5 })],
+      ['too large', () => put(STAMP_FILE, `{"smurg":"0.7.0","shapes":${HIGHER},"at":5,"pad":"${'x'.repeat(5000)}"}`)],
       ['a link', async () => {
-        await writeFile(join(base, 'elsewhere.json'), serializeDocument({ smurg: '0.6.0', shapes: 2, at: 5 }), { mode: 0o600 });
+        await writeFile(join(base, 'elsewhere.json'), serializeDocument({ smurg: '0.7.0', shapes: HIGHER, at: 5 }), { mode: 0o600 });
         await rm(join(dir, STAMP_FILE), { force: true });
         await symlink(join(base, 'elsewhere.json'), join(dir, STAMP_FILE));
       }],
@@ -734,11 +737,11 @@ describe('the stamp\'s `shapes` decides alone (V1-3)', () => {
 
   it('the other fields are "unknown" when they do not fit: such a stamp of the SAME shapes starts, as a folder whose writer is unknown, and the stamp written over it keeps the number', async () => {
     await folderOfV040();
-    await put(STAMP_FILE, { smurg: '0.6.0', shapes: 1, at: 5, relay: 'x' });
+    await put(STAMP_FILE, { smurg: '0.6.0', shapes: SHAPES, at: 5, relay: 'x' });
     const reading = await readWorkspaceFolder(options());
     expect(reading).toMatchObject({ stamp: null, putBack: false });
     (await writeWorkspaceFolder(reading, { log: silentLogger, clock })).store.close();
-    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: 1, at: clock.now() });
+    expect(await stampOnDisk()).toEqual({ smurg: SMURG, shapes: SHAPES, at: clock.now() });
   });
 
   it('phase 2 never lowers `shapes`: a smurg that reads shapes 2 keeps a 2 it found', async () => {

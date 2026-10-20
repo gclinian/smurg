@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSION_MODES, PERMISSION_WHATS, TOOL_VERBS } from './schema/index.ts';
-import { MAIN_ROOT, worktreeRoot } from './schema/paths.ts';
-import { EDIT_TOOL_NAMES, SMURG_TOOL_PREFIX, defaultPermissionMode, isEditTool, permissionWhat, toolVerb } from './tools.ts';
+import { PERMISSION_MODES, PERMISSION_WHATS, SESSION_MODE_CHOICES, TOOL_VERBS, type PermissionMode, type SessionModeChoice } from './schema/index.ts';
+import { EDIT_TOOL_NAMES, SMURG_TOOL_PREFIX, effectivePermissionMode, isEditTool, isLooserMode, permissionWhat, toolVerb } from './tools.ts';
 
 describe("Claude Code's tools as smurg classifies them: one function for the tool card, the permission card and the gate", () => {
   it('the edit tools', () => {
@@ -33,11 +32,30 @@ describe("Claude Code's tools as smurg classifies them: one function for the too
     for (const verb of TOOL_VERBS) expect(PERMISSION_WHATS).toContain(permissionWhat({ verb }));
   });
 
-  it('the mode a session starts with: only a free session in the main workspace asks before edits', () => {
-    expect(defaultPermissionMode('free', MAIN_ROOT)).toBe('ask-all');
-    expect(defaultPermissionMode('free', worktreeRoot('wt_1'))).toBe('ask-commands');
-    expect(defaultPermissionMode('item', worktreeRoot('wt_1'))).toBe('ask-commands');
-    expect(defaultPermissionMode('discussion', MAIN_ROOT)).toBe('ask-all');
-    expect(PERMISSION_MODES).toContain(defaultPermissionMode('item', MAIN_ROOT));
+  // Changed on purpose in 0.6.0 (protocol 5): `defaultPermissionMode(purpose, root)` is gone. The workspace's mode
+  // applies everywhere, the main workspace included; a session's own choice, else (a work item) its topic's, wins.
+  it('the mode a session runs with: its own choice, else (a work item) its topic\'s, else the workspace\'s; a discussion reads ask-all', () => {
+    const choices: (SessionModeChoice | null)[] = [null, ...SESSION_MODE_CHOICES];
+    for (const workspace of PERMISSION_MODES) {
+      for (const session of choices) {
+        for (const topic of choices) {
+          expect(effectivePermissionMode({ purpose: 'discussion', session, topic, workspace })).toBe('ask-all');
+          expect(effectivePermissionMode({ purpose: 'item', session, topic, workspace })).toBe(session ?? topic ?? workspace);
+          // A free session has no topic: a topic's choice is never read for it.
+          expect(effectivePermissionMode({ purpose: 'free', session, topic, workspace })).toBe(session ?? workspace);
+        }
+      }
+    }
+    expect(effectivePermissionMode({ purpose: 'free', session: null, topic: null, workspace: 'auto' })).toBe('auto');
+    expect(effectivePermissionMode({ purpose: 'item', session: null, topic: 'ask-all', workspace: 'ask-nothing' })).toBe('ask-all');
+    expect(effectivePermissionMode({ purpose: 'item', session: 'auto', topic: 'ask-all', workspace: 'ask-commands' })).toBe('auto');
+  });
+
+  it('strict to loose: ask-all < ask-commands < auto < ask-nothing', () => {
+    const order: PermissionMode[] = ['ask-all', 'ask-commands', 'auto', 'ask-nothing'];
+    expect([...PERMISSION_MODES].sort((a, b) => order.indexOf(a) - order.indexOf(b))).toEqual(order);
+    for (const [i, a] of order.entries()) {
+      for (const [j, b] of order.entries()) expect(isLooserMode(a, b), `${a} looser than ${b}`).toBe(i > j);
+    }
   });
 });

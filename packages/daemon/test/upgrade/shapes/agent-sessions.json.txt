@@ -35,13 +35,20 @@ sessions[].worktreeId: optional
 sessions[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 sessions[].branch: optional
 sessions[].branch: string [min_length minimum=0] [max_length maximum=256] [custom]
-sessions[].mode: enum "ask-all"|"ask-commands"
+sessions[].modeChoice: nullable
+sessions[].modeChoice: enum "auto"|"ask-commands"|"ask-all"
 sessions[].modeChangedBy: optional
 sessions[].modeChangedBy: #9 object strict
 sessions[].modeChangedBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
 sessions[].modeChangedBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+sessions[].model: nullable
+sessions[].model: string [min_length minimum=1] [max_length maximum=256] [string_format format=regex pattern=^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]*$/]
+sessions[].modelChangedBy: optional
+sessions[].modelChangedBy: #10 object strict
+sessions[].modelChangedBy.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+sessions[].modelChangedBy.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
 sessions[].rules: array [max_length maximum=200]
-sessions[].rules[]: #10 object strict
+sessions[].rules[]: #11 object strict
 sessions[].rules[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 sessions[].rules[].tool: enum "Bash"|"WebFetch"
 sessions[].rules[].pattern: string [min_length minimum=1] [max_length maximum=200] [string_format format=regex pattern=^[\x21-\x7e]+(?: [\x21-\x7e]+)*$/]
@@ -56,7 +63,7 @@ sessions[].startFailures: number format=safeint [greater_than value=0 inclusive=
 sessions[].lastTurnOpen: boolean
 sessions[].state: enum "live"|"failed"|"ended"
 sessions[].itemState: optional
-sessions[].itemState: #11 object strict
+sessions[].itemState: #12 object strict
 sessions[].itemState.reportRegistered: boolean
 sessions[].itemState.stalled: optional
 sessions[].itemState.stalled: enum "agent"|"restart"|"stopped"|"error"
@@ -65,7 +72,7 @@ sessions[].createdAt: number format=safeint [greater_than value=0 inclusive=true
 sessions[].endedAt: optional
 sessions[].endedAt: number format=safeint [greater_than value=0 inclusive=true]
 sessions[].endReason: optional
-sessions[].endReason: enum "exit"|"ended"|"terminated"|"kicked"|"left"|"role-changed"|"stopped"|"worktree-removed"|"archived"|"replaced"|"merged"
+sessions[].endReason: enum "exit"|"ended"|"terminated"|"kicked"|"left"|"role-changed"|"stopped"|"worktree-removed"|"archived"|"replaced"|"merged"|"reviewed"
 sessions[].endedBy: optional
 sessions[].endedBy: the same as #5
 sessions[].noteworthyAt: number format=safeint [greater_than value=0 inclusive=true]
@@ -74,10 +81,10 @@ sessions[].claudeVersion: optional
 sessions[].claudeVersion: string [max_length maximum=40]
 sessions[].pending: optional
 sessions[].pending: array [max_length maximum=200]
-sessions[].pending[]: #12 object strict
+sessions[].pending[]: #13 object strict
 sessions[].pending[].messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 sessions[].pending[].text: string [min_length minimum=1] [max_length maximum=4194304]
-sessions[].pending[].turn: #13 object strict
+sessions[].pending[].turn: #14 object strict
 sessions[].pending[].turn.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 sessions[].pending[].turn.kind: enum "person"|"smurg"
 sessions[].pending[].turn.origin: optional

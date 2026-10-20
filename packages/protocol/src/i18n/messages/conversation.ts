@@ -12,6 +12,10 @@ function namesEn(names: readonly string[]): string {
 
 /** `PermissionMode` values, worded as they read inside a sentence. */
 const MODE_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-TW': string }>> = {
+  auto: {
+    en: 'runs what a check allows',
+    'zh-TW': '檢查通過就執行',
+  },
   'ask-commands': {
     en: 'asks before commands',
     'zh-TW': '執行指令前先問',
@@ -20,7 +24,14 @@ const MODE_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-
     en: 'asks before edits and commands',
     'zh-TW': '編輯和執行指令前都先問',
   },
+  'ask-nothing': {
+    en: 'asks for nothing',
+    'zh-TW': '什麼都不問',
+  },
 };
+
+const modeEn = (mode: string): string => MODE_PHRASES[mode]?.en ?? mode;
+const modeZh = (mode: string): string => MODE_PHRASES[mode]?.['zh-TW'] ?? mode;
 
 export const conversation = {
   // ---- how a session began ------------------------------------------------------------------------------------
@@ -51,6 +62,10 @@ export const conversation = {
   'conversation.retry.resumed': message({ name: 'string' }, {
     en: (p) => `${p.name} started this session again`,
     'zh-TW': (p) => `${p.name} 重新啟動了這個 session`,
+  }),
+  'conversation.started.itemDirect': message({ number: 'number' }, {
+    en: (p) => `Work item ${p.number} started directly in the shared folder, without git`,
+    'zh-TW': (p) => `工作項目 ${p.number} 已經直接在分享的資料夾裡開始，沒有 git`,
   }),
 
   // ---- what smurg was asked to tell the agent -------------------------------------------------------------------
@@ -100,6 +115,14 @@ export const conversation = {
     en: (p) => `${p.name} ended this session`,
     'zh-TW': (p) => `${p.name} 結束了這個 session`,
   }),
+  'conversation.ended.reviewed': message({}, {
+    en: () => 'The result was reviewed. This work item is complete',
+    'zh-TW': () => '結果已經看過，這個工作項目完成了',
+  }),
+  'conversation.direct.waits': message({}, {
+    en: () => 'This message waits: another work item is working in the shared folder. It is sent when that one is done',
+    'zh-TW': () => '這則訊息在等待：另一個工作項目正在分享的資料夾裡工作，等它完成後才會送出',
+  }),
   'conversation.interrupted.restart': message({}, {
     en: () => "smurg was restarted on the host's computer. The agent's turn was interrupted",
     'zh-TW': () => '主人電腦上的 smurg 重新啟動了，agent 的這一輪被中斷',
@@ -129,10 +152,38 @@ export const conversation = {
     'zh-TW': (p) => `${p.name} 已被移出，這個 session 已停止，改由主人接手`,
   }),
 
-  // ---- permission mode and always-allowed kinds -----------------------------------------------------------------
+  // ---- permission mode, model and always-allowed kinds -------------------------------------------------------------
   'conversation.mode.changed': message({ by: 'string', mode: 'string' }, {
-    en: (p) => `${p.by} changed the permission mode: ${MODE_PHRASES[p.mode]?.en ?? p.mode}`,
-    'zh-TW': (p) => `${p.by} 變更了權限模式：${MODE_PHRASES[p.mode]?.['zh-TW'] ?? p.mode}`,
+    en: (p) => `${p.by} changed the permission mode: ${modeEn(p.mode)}`,
+    'zh-TW': (p) => `${p.by} 變更了權限模式：${modeZh(p.mode)}`,
+  }),
+  'conversation.mode.followed': message({ by: 'string', mode: 'string' }, {
+    en: (p) => `${p.by} set the permission mode back to the default: ${modeEn(p.mode)}`,
+    'zh-TW': (p) => `${p.by} 把權限模式改回預設：${modeZh(p.mode)}`,
+  }),
+  'conversation.mode.workspace': message({ mode: 'string' }, {
+    en: (p) => `The host changed the workspace's permission mode: ${modeEn(p.mode)}`,
+    'zh-TW': (p) => `主人變更了工作區的權限模式：${modeZh(p.mode)}`,
+  }),
+  'conversation.mode.topic': message({ by: 'string', mode: 'string' }, {
+    en: (p) => `${p.by} changed the permission mode of this topic's work items: ${modeEn(p.mode)}`,
+    'zh-TW': (p) => `${p.by} 變更了這個主題的工作項目的權限模式：${modeZh(p.mode)}`,
+  }),
+  'conversation.model.changed': message({ by: 'string', model: 'string' }, {
+    en: (p) => `${p.by} changed the model: ${p.model}`,
+    'zh-TW': (p) => `${p.by} 變更了模型：${p.model}`,
+  }),
+  'conversation.model.default': message({ by: 'string' }, {
+    en: (p) => `${p.by} set the model back to the host's default`,
+    'zh-TW': (p) => `${p.by} 把模型改回主人的預設`,
+  }),
+  'conversation.model.reset': message({ name: 'string' }, {
+    en: (p) => `The model is back to the host's default: ${p.name}, who chose it, was removed or lost agent access`,
+    'zh-TW': (p) => `模型已恢復為主人的預設：選擇它的 ${p.name} 已被移出或失去 agent 使用權`,
+  }),
+  'conversation.autoMode.blocked': message({ reason: 'string' }, {
+    en: (p) => `Claude Code's check stopped a command: ${p.reason}`,
+    'zh-TW': (p) => `Claude Code 的檢查擋下了一個指令：${p.reason}`,
   }),
   'conversation.mode.reset': message({ name: 'string' }, {
     en: (p) => `The permission mode is back to its default: ${p.name}, who changed it, was removed or lost agent access`,
@@ -216,6 +267,26 @@ export const conversation = {
     en: () => 'The oldest part of this conversation is no longer kept.',
     'zh-TW': () => '這段對話最早的部分已不再保留。',
   }),
+  'notice.modelRefused': message({ model: 'string' }, {
+    en: (p) => `Claude Code could not use the model ${p.model} on the host's account: it may not exist, or the account may not have access to it. Choose another model for this session.`,
+    'zh-TW': (p) => `Claude Code 無法在主人的帳號上使用模型 ${p.model}：它可能不存在，或這個帳號不能使用它。請為這個 session 選擇其他模型。`,
+  }),
+  'notice.modelSubstituted': message({ model: 'string', inUse: 'string' }, {
+    en: (p) => `Claude Code runs this session on ${p.inUse}, not on ${p.model}: the host's Claude Code settings decide which models may be used.`,
+    'zh-TW': (p) => `Claude Code 用 ${p.inUse} 執行這個 session，而不是 ${p.model}：可以用哪些模型，由主人的 Claude Code 設定決定。`,
+  }),
+  'notice.autoUnavailable.model': message({ model: 'string' }, {
+    en: (p) => `Auto mode is not available for ${p.model}. This session asks before commands until it runs on another model.`,
+    'zh-TW': (p) => `${p.model} 不能使用自動模式。在換成其他模型之前，這個 session 執行指令前會先問。`,
+  }),
+  'notice.autoUnavailable.settings': message({}, {
+    en: () => "Claude Code did not start this session in auto mode: the host's Claude Code settings turn it off. This session asks before commands.",
+    'zh-TW': () => 'Claude Code 沒有用自動模式啟動這個 session：主人的 Claude Code 設定把它關掉了。這個 session 執行指令前會先問。',
+  }),
+  'notice.asksNothingRefused': message({}, {
+    en: () => "Claude Code did not let this session run without asking: the host's Claude Code settings do not allow it. The session runs in auto mode.",
+    'zh-TW': () => 'Claude Code 沒有讓這個 session 什麼都不問就執行：主人的 Claude Code 設定不允許。這個 session 改用自動模式。',
+  }),
   'notice.personalSubscription': message({}, {
     en: () =>
       "Agents here use your personal Claude subscription. Anthropic's terms do not allow making a personal account available to other people; for a group, use an API key, a Team or Enterprise plan, or a cloud provider.",
@@ -286,7 +357,11 @@ export const conversation = {
     'zh-TW': (p) => `還不能允許：${joinList('zh-TW', p.holders)} 正在那個檔案輸入`,
   }),
 
-  // ---- the two permission modes, as labels ----------------------------------------------------------------------
+  // ---- the permission modes, as labels ---------------------------------------------------------------------------
+  'permissionMode.auto': message({}, {
+    en: () => 'Auto: runs what a check allows',
+    'zh-TW': () => '自動：檢查通過就執行',
+  }),
   'permissionMode.askCommands': message({}, {
     en: () => 'Asks before commands',
     'zh-TW': () => '執行指令前先問',
@@ -294,5 +369,9 @@ export const conversation = {
   'permissionMode.askAll': message({}, {
     en: () => 'Asks before edits and commands',
     'zh-TW': () => '編輯和執行指令前都先問',
+  }),
+  'permissionMode.askNothing': message({}, {
+    en: () => 'Asks for nothing',
+    'zh-TW': () => '什麼都不問',
   }),
 } as const;

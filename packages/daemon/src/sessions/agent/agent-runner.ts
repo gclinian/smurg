@@ -34,6 +34,7 @@ import {
   type FileRef,
   type LoginState,
   type PayloadInputOf,
+  type PermissionMode,
   type ProjectSettingsState,
   type Question,
   type StreamingBlock,
@@ -105,6 +106,8 @@ export interface RunnerHost {
   rss(pid: number): Promise<number | null>;
   /** An idle moment: the service may park the process (memory, a pending restart). */
   idle(runner: AgentRunner): void;
+  /** The mode the session runs with (`effectivePermissionMode`: its own choice, its topic's, the workspace's). */
+  effectiveMode(runner: AgentRunner): PermissionMode;
 }
 
 interface OpenRequest {
@@ -914,7 +917,7 @@ export class AgentRunner {
    * session's mode; `default` where the session may have `acceptEdits` only asks more.)
    */
   private checkMode(claudeMode: string): void {
-    const expected = claudeModeFor(this.record.purpose, this.record.mode, this.record.root);
+    const expected = claudeModeFor(this.record.purpose, this.host.effectiveMode(this), this.record.root);
     if (claudeMode === expected || claudeMode === 'default') return;
     this.host.ctx.log.warn('an agent runs in a permission mode smurg did not set; it is set back', { session: this.id, mode: claudeMode.slice(0, 40), expected });
     void this.setClaudeMode(expected);

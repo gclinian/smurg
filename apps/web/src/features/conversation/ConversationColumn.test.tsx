@@ -284,7 +284,8 @@ describe('conversation column: what only the host has', () => {
     expect(asked.at(-1)).toEqual({ reviewProjectSettings: { root: MAIN_ROOT } });
     expect(within(screen.getByRole('log')).getByRole('button', { name: "Restart this session's agent now" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Permission mode: Asks before edits and commands' }));
+    // The session follows the workspace's mode (protocol 5: `auto` unless someone chose another).
+    fireEvent.click(screen.getByRole('button', { name: 'Permission mode: Auto: runs what a check allows' }));
     act(() => {
       view.conn.respond('session.rules.get', { rules: [], host: { state: 'applied', rules: ['Bash(git status)', 'Bash(ls *)'] } });
     });
@@ -628,9 +629,9 @@ describe('conversation column: the status bar', () => {
     });
     await settle();
 
-    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 2 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 2 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(status.textContent).toContain("The host's Claude account reached a usage limit.");
-    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 2 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 2 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(status.textContent).toContain("Claude Code is not logged in on the host's computer.");
     fireEvent.click(within(status).getByRole('button', { name: 'Check login again' }));
     expect(view.conn.lastRequest('session.loginStatus')?.payload).toEqual({ sessionId: SID });
@@ -641,7 +642,7 @@ describe('conversation column: the status bar', () => {
     expect(actions.previousElementSibling?.className).toBe('conv-status__line');
     expect([...status.querySelectorAll('button')].every((button) => button.parentElement === actions)).toBe(true);
     // No button: no empty piece.
-    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 2 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'ok', sessions: 2 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     act(() => view.conn.emit('topic.updated', { topic: buildTopic({ id: 't_1', phase: 'plan' }) }));
     expect(within(status).queryAllByRole('button')).toEqual([]);
     expect(status.querySelector('.conv-status__actions')).toBeNull();

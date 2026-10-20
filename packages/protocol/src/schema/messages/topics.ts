@@ -1,7 +1,17 @@
 import { z } from 'zod';
-import { agentSessionSchema, itemIdSchema, mentionsSchema, rememberedRuleToolSchema, rulePatternSchema, suggestionSchema, topicNameSchema, topicSlugSchema } from '../entities.ts';
+import {
+  agentSessionSchema,
+  itemIdSchema,
+  mentionsSchema,
+  rememberedRuleToolSchema,
+  rulePatternSchema,
+  sessionModeChoiceSchema,
+  suggestionSchema,
+  topicNameSchema,
+  topicSlugSchema,
+} from '../entities.ts';
 import { LIST_MAX_ITEMS, PLAN_CHANGES_DIFF_MAX_BYTES, PLAN_INFO_ITEMS_MAX, QUOTE_HEADING_MAX_CHARS, QUOTE_TEXT_MAX_CHARS } from '../limits.ts';
-import { largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
+import { largeTextSchema, lineTextSchema, modelIdSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
 import { planInfoSchema, planModeSchema, reportInfoSchema, reportSummarySchema, startPreflightSchema, topicSchema } from '../topics.ts';
 import { emptyPayloadSchema } from './channel.ts';
 import { messageTextInputSchema } from './sessions.ts';
@@ -10,12 +20,14 @@ import { messageTextInputSchema } from './sessions.ts';
 
 /**
  * The slug defaults from the name (`slugFromName`); refused when a topic uses it or `specs/<slug>` exists. Creates the
- * folder and the discussion session; `firstMessage` is the caller's first message to the agent.
+ * folder and the discussion session; `firstMessage` is the caller's first message to the agent. `model` (protocol 5):
+ * the model of the discussion and of the topic's later sessions (absent: the host's default).
  */
 export const topicCreatePayloadSchema = z.strictObject({
   name: topicNameSchema,
   slug: topicSlugSchema.optional(),
   firstMessage: messageTextInputSchema.optional(),
+  model: modelIdSchema.optional(),
 });
 export const topicWithSessionResultSchema = z.strictObject({ topic: topicSchema, session: agentSessionSchema });
 
@@ -71,6 +83,18 @@ export const messageOrSuggestionResultSchema = z.union([z.strictObject({ message
 export const topicSpecRequestPayloadSchema = z.strictObject({ topicId: opaqueIdSchema });
 export const topicSpecRequestResultSchema = emptyPayloadSchema;
 
+/**
+ * The topic's agent settings (protocol 5): the model of its new sessions and the mode its work items follow; null:
+ * the host's default model / the workspace's mode; a key left out is left as it is. At least one key.
+ */
+export const topicAgentSetPayloadSchema = z
+  .strictObject({
+    topicId: opaqueIdSchema,
+    model: modelIdSchema.nullable().optional(),
+    permissionMode: sessionModeChoiceSchema.nullable().optional(),
+  })
+  .refine((p) => p.model !== undefined || p.permissionMode !== undefined, 'nothing to set');
+
 /** The checked forms only (`rules.ts`). */
 export const topicRuleAddPayloadSchema = z.strictObject({ topicId: opaqueIdSchema, tool: rememberedRuleToolSchema, pattern: rulePatternSchema });
 export const topicRuleRemovePayloadSchema = z.strictObject({ topicId: opaqueIdSchema, ruleId: opaqueIdSchema });
@@ -101,7 +125,10 @@ export const planPreflightResultSchema = z.strictObject({ preflight: startPrefli
 
 /**
  * Without ids: every item of that revision that is not started. The three pins are what the dialog showed
- * (`plan.preflight`): refused with `conflict` reason `plan-changed` when one differs from the files now.
+ * (`plan.preflight`): refused with `conflict` reason `plan-changed` when one differs from the files now. Protocol 5:
+ * `agent` sets the topic's agent settings in the same change that starts the items (a refused Start changes neither);
+ * `direct` confirms that the items change the shared folder directly (required when the preflight said `direct`, and
+ * only the host's).
  */
 export const planStartPayloadSchema = z.strictObject({
   topicId: opaqueIdSchema,
@@ -109,6 +136,8 @@ export const planStartPayloadSchema = z.strictObject({
   planRevision: z.int().min(0),
   specHash: sha256HexSchema,
   planHash: sha256HexSchema,
+  agent: z.strictObject({ model: modelIdSchema.nullable().optional(), permissionMode: sessionModeChoiceSchema.nullable().optional() }).optional(),
+  direct: z.literal(true).optional(),
 });
 
 /**

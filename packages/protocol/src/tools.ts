@@ -1,10 +1,9 @@
 // Claude Code's tools as smurg names them on the wire (ARCHITECTURE §5.9, §7.6): ONE classification for the tool card
 // of a call (`ToolView.verb`, the runner), for its permission card (`PermissionRequest.what`, the conversation module)
-// and for the tool gate (which tools edit files). Also the permission mode a session starts with. Pure and
+// and for the tool gate (which tools edit files). Also the permission mode a session runs with. Pure and
 // dependency-free: only type imports.
 import type { PermissionWhat, ToolVerb, ToolView } from './schema/conversation.ts';
-import type { AgentPurpose, PermissionMode } from './schema/entities.ts';
-import type { RootRef } from './schema/paths.ts';
+import type { AgentPurpose, PermissionMode, SessionModeChoice } from './schema/entities.ts';
 
 /** The tools that edit a file: the tool gate takes the agent lock for them; a permission card shows the diff. */
 export const EDIT_TOOL_NAMES = Object.freeze(['Edit', 'Write', 'MultiEdit', 'NotebookEdit'] as const);
@@ -57,13 +56,25 @@ export function permissionWhat(view: Pick<ToolView, 'verb' | 'outside'>): Permis
 }
 
 /**
- * The permission mode a session starts with, and returns to when a member who loosened it is removed
- * (ARCHITECTURE §7.6 "Profiles"): a work item's session and a free session in a worktree ask before commands
- * (`ask-commands`); a free session in the main workspace asks before edits too (`ask-all`). A discussion session's
- * permissions are fixed (`modeFixed`); its `permissionMode` reads `ask-all`.
+ * The permission mode one session runs with (protocol 5, ARCHITECTURE §7.6 "Profiles"): its own choice, else (a work
+ * item) its topic's, else the workspace's (`HostSettings.permissionMode`). The workspace's mode applies everywhere, the
+ * main workspace included. A discussion session's permissions are fixed (`modeFixed`): it reads `ask-all`, whatever is
+ * chosen. A topic's choice is read only for a work item.
  */
-export function defaultPermissionMode(purpose: AgentPurpose, root: RootRef): PermissionMode {
-  if (purpose === 'discussion') return 'ask-all';
-  if (purpose === 'item') return 'ask-commands';
-  return root.kind === 'main' ? 'ask-all' : 'ask-commands';
+export function effectivePermissionMode(input: {
+  readonly purpose: AgentPurpose;
+  readonly session: SessionModeChoice | null;
+  readonly topic: SessionModeChoice | null;
+  readonly workspace: PermissionMode;
+}): PermissionMode {
+  if (input.purpose === 'discussion') return 'ask-all';
+  return input.session ?? (input.purpose === 'item' ? input.topic : null) ?? input.workspace;
+}
+
+/** From strict to loose (the index is the order). */
+const LOOSENESS: Readonly<Record<PermissionMode, number>> = Object.freeze({ 'ask-all': 0, 'ask-commands': 1, auto: 2, 'ask-nothing': 3 });
+
+/** Strict to loose: ask-all < ask-commands < auto < ask-nothing. True when `a` lets more run without asking than `than`. */
+export function isLooserMode(a: PermissionMode, than: PermissionMode): boolean {
+  return LOOSENESS[a] > LOOSENESS[than];
 }

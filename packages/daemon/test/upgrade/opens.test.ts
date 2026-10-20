@@ -62,13 +62,43 @@ function loadedOf(t: TestDaemon): ReadonlyMap<string, { readonly value: unknown;
 }
 
 // =====================================================================================================================
-// What each fixture's files must become. The only shapes that differ from today's are 0.4.0's state.json and
-// suggestions.json (DESIGN A3, A4); everything else every published smurg wrote is today's shape as it is (0.5.1 and
-// 0.5.2 wrote what 0.5.0 wrote, and stamped the folder).
+// What each fixture's files must become. The shapes that differ from today's: 0.4.0's state.json and suggestions.json
+// (DESIGN A3, A4), and the state.json and agent-sessions.json of 0.5.0, 0.5.1 and 0.5.2 (DESIGN 0.6.0 D6); everything
+// else every published smurg wrote is today's shape as it is (0.5.1 and 0.5.2 wrote what 0.5.0 wrote, and stamped the
+// folder; 0.6.0 only added optional keys to the other documents).
 // =====================================================================================================================
 
 /** The values the step from 0.4.0 adds to the settings: constants of the step (the closed side), and this machine's default. */
 const SETTINGS_ADDED_FROM_V040 = { maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false } as const;
+/**
+ * What the step from 0.5.0 adds (THE OWNER'S DECISION 2, DECISIONS.md 2026-10-20): the workspace switches to auto mode
+ * at the update, and the host is told until they have seen it.
+ */
+const SETTINGS_ADDED_FROM_V050 = { permissionMode: 'auto' } as const;
+const NOTICES_FROM_V050 = ['agents-auto'] as const;
+
+/** state.json of any published version as 0.6.0 reads it: version 2, auto mode, the host's notice; nothing else changes. */
+function stateAsRead(stored: unknown, from: '0.4.0' | '0.5.0'): unknown {
+  const state = stored as { settings: Record<string, unknown> };
+  return { ...state, version: 2, settings: { ...state.settings, ...(from === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...SETTINGS_ADDED_FROM_V050 }, hostNotices: [...NOTICES_FROM_V050] };
+}
+
+/**
+ * agent-sessions.json of 0.5.x as 0.6.0 reads it, written out here (never through the daemon's step): every session
+ * follows the workspace (its own choice null), except one a PERSON made stricter than 0.5.2's default for it (`ask-all`
+ * in a worktree or for a work item, where 0.5.2's default was `ask-commands`): that choice stays, with who made it.
+ * Every model is the host's default (null), as every 0.5.x session ran. Nothing else of a record changes.
+ */
+function agentSessionsAsRead(stored: unknown): unknown {
+  const document = stored as { sessions: Record<string, unknown>[] };
+  return {
+    sessions: document.sessions.map(({ mode, modeChangedBy, ...rest }) => {
+      const root = rest['root'] as { kind: string };
+      const stricter = rest['purpose'] !== 'discussion' && mode === 'ask-all' && modeChangedBy !== undefined && (root.kind === 'worktree' || rest['purpose'] === 'item');
+      return { ...rest, modeChoice: stricter ? 'ask-all' : null, ...(stricter ? { modeChangedBy } : {}), model: null };
+    }),
+  };
+}
 
 interface Upgrades {
   /** The documents a start upgrades, with the published version whose shape the file has. */
@@ -76,14 +106,19 @@ interface Upgrades {
   /** What a stored document must be once it is loaded: the file as it was, and exactly this on top. */
   expected(name: string, stored: unknown): unknown;
 }
+const FROM_V050: Upgrades = {
+  from: { state: '0.5.0', 'agent-sessions': '0.5.0' },
+  expected(name, stored) {
+    if (name === 'state') return stateAsRead(stored, '0.5.0');
+    if (name === 'agent-sessions') return agentSessionsAsRead(stored);
+    return stored;
+  },
+};
 const UPGRADES: Readonly<Record<PublishedVersion, Upgrades>> = {
   '0.4.0': {
     from: { state: '0.4.0', suggestions: '0.4.0' },
     expected(name, stored) {
-      if (name === 'state') {
-        const state = stored as { settings: Record<string, unknown> };
-        return { ...state, settings: { ...state.settings, ...SETTINGS_ADDED_FROM_V040 } };
-      }
+      if (name === 'state') return stateAsRead(stored, '0.4.0');
       if (name === 'suggestions') {
         const document = stored as { suggestions: Record<string, unknown>[] };
         return { ...document, suggestions: document.suggestions.map((entry) => ({ ...entry, origin: 'source' in entry ? 'selection' : 'composer' })) };
@@ -91,10 +126,12 @@ const UPGRADES: Readonly<Record<PublishedVersion, Upgrades>> = {
       return stored;
     },
   },
-  '0.5.0': { from: {}, expected: (_name, stored) => stored },
-  '0.5.1': { from: {}, expected: (_name, stored) => stored },
-  '0.5.2': { from: {}, expected: (_name, stored) => stored },
+  '0.5.0': FROM_V050,
+  '0.5.1': FROM_V050,
+  '0.5.2': FROM_V050,
 };
+/** 0.5.1 is the first published smurg that stamps a folder: the host is told the version that last wrote it. */
+const writerOf = (version: PublishedVersion): string | null => (version === '0.4.0' || version === '0.5.0' ? null : version);
 
 // =====================================================================================================================
 // The story of each fixture (its README and ledger.json), as far as the door is concerned
@@ -229,8 +266,9 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
       expect(document?.upgradedFrom ?? null, `${name}.json: the shape the file had`).toBe(upgrades.from[name] ?? null);
       expect(document?.value, `${name}.json as loaded`).toEqual(upgrades.expected(name, file.value));
     }
-    // What the terminal line is made of.
-    expect(t.daemon.upgraded).toEqual(Object.entries(upgrades.from).map(([document, from]) => ({ document, from, copy: join(copy.workspaceDir, keptCopyName(document, from)) })));
+    // What the terminal line is made of: the documents, the step of each, its kept copy, and who last wrote the folder.
+    const writer = writerOf(version);
+    expect(t.daemon.upgraded).toEqual(Object.entries(upgrades.from).map(([document, from]) => ({ document, from, copy: join(copy.workspaceDir, keptCopyName(document, from)), ...(writer === null ? {} : { writer }) })));
     expect(t.daemon.putBack).toBe(false);
   });
 
@@ -242,9 +280,11 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     // The pins teammates hold (written by the published version's own client code) still name this daemon.
     const pins = [copy.cliMemberHome, ...Object.keys(story.in).map((label) => join(copy.devices, label))];
     for (const home of pins) expect(toHex((await readPinnedDaemonKey(home, copy.workspaceId)) as Uint8Array), `the pin in ${home}`).toBe(toHex(t.daemon.daemonPublicKey));
-    // Every setting the host chose is the one in force; what the step adds is closed (agents get no MCP servers of the host's).
-    expect(t.ctx.settings.get()).toEqual({ ...(version === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...before.settings });
+    // Every setting the host chose is the one in force; what the step from 0.4.0 adds is closed (agents get no MCP
+    // servers of the host's); the step from 0.5.0 switches the workspace to auto mode (the owner's decision).
+    expect(t.ctx.settings.get()).toEqual({ ...(version === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...before.settings, ...SETTINGS_ADDED_FROM_V050 });
     if (version === '0.4.0') expect(t.ctx.settings.get().agentMcp).toBe(false);
+    expect(t.ctx.settings.notices()).toEqual(NOTICES_FROM_V050);
     // Every member with their role and status, removed ones included.
     for (const member of before.members) expect(t.ctx.members.get(member.userId), member.userId).toMatchObject({ role: member.role, status: member.status, displayName: member.displayName });
     expect(before.members.filter((member) => member.status === 'kicked').map((member) => member.userId).sort()).toEqual(Object.keys(story.removed).sort());
@@ -396,7 +436,7 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
       // The document itself is in today's shape on disk now, in this start (not at its next change).
       expect(await readJson(join(copy.workspaceDir, `${document}.json`)), `${document}.json on disk`).not.toEqual(stored.get(document)?.value);
     }
-    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
+    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
     expect((await stat(join(copy.workspaceDir, STAMP_NAME))).mode & 0o777).toBe(0o600);
     expect(Math.abs((await readJson<{ at: number }>(join(copy.workspaceDir, STAMP_NAME))).at - copy.at)).toBeLessThan(60_000);
     // What the start read: the stamp the published smurg wrote (`smurg`, `shapes: 1`, `at`), or none.
@@ -420,7 +460,7 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     expect([...loadedOf(again).entries()].filter(([, document]) => document.upgradedFrom !== null).map(([name]) => name)).toEqual([]);
     // What the first start wrote is what the second one read: today's shapes, file for file.
     for (const [name, file] of onDisk) expect(loadedOf(again).get(name)?.value, `${name}.json`).toEqual(file.value);
-    expect(again.daemon.internals.folder.stamp).toMatchObject({ smurg: DAEMON_VERSION, shapes: 1 });
+    expect(again.daemon.internals.folder.stamp).toMatchObject({ smurg: DAEMON_VERSION, shapes: 2 });
     await stop();
 
     expect((await readdir(copy.workspaceDir)).sort()).toEqual(names);
@@ -429,9 +469,10 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
       expect((await stat(join(copy.workspaceDir, name))).mtimeMs, `${name} was not written again`).toBe(before.mtimeMs);
     }
     // A document that a step upgraded and that no start has a reason of its own to write was not written again.
-    // (state.json is written by every start: the host's new link.)
+    // (state.json is written by every start: the host's new link; agent-sessions.json too: every record is saved as
+    // the sessions module loads it, parked.)
     const mtimesAfter = await mtimesOf(copy.workspaceDir);
-    for (const document of Object.keys(upgrades.from).filter((name) => name !== 'state')) expect(mtimesAfter[`${document}.json`], `${document}.json was not written again`).toBe(mtimesBefore[`${document}.json`]);
+    for (const document of Object.keys(upgrades.from).filter((name) => name !== 'state' && name !== 'agent-sessions')) expect(mtimesAfter[`${document}.json`], `${document}.json was not written again`).toBe(mtimesBefore[`${document}.json`]);
   });
 
   it('what is kept beside the documents is all still there after a start: every audit and activity line, kept conflict versions, interrupted uploads', async () => {

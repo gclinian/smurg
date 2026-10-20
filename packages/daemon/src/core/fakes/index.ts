@@ -16,6 +16,7 @@ import type { Actor, FileRef } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../context.ts';
 import type { FeatureServiceName, FeatureServices } from '../interfaces.ts';
 import { toDisposable } from '../lifecycle.ts';
+import { isStubService } from '../stubs.ts';
 import { registerFakeHandlers } from './handlers.ts';
 import { FakeAgentSessions, FakeHostRules, FakeProjectTrust } from './agents.ts';
 import { FakeConversationService, FakeSuggestionService } from './conversation.ts';
@@ -77,6 +78,9 @@ export function createFakes(env: FakeEnv): Fakes {
   const conversation = new FakeConversationService(env, agents, suggestions);
   const plans = new FakePlanService(env);
   const worktrees = new FakeWorktreeManager(env);
+  const topics = new FakeTopicService(env, agents, conversation, worktrees);
+  // A work item's session follows its topic's mode.
+  agents.topicAgentOf = (topicId) => topics.agent(topicId);
   return {
     agents,
     projectTrust: new FakeProjectTrust(env),
@@ -85,7 +89,7 @@ export function createFakes(env: FakeEnv): Fakes {
     hooks: new FakeHookServer(),
     suggestions,
     conversation,
-    topics: new FakeTopicService(env, agents, conversation, worktrees),
+    topics,
     plans,
     reports: new FakeReportService(env, conversation, plans),
     inbox: new FakeInboxService(env),
@@ -117,6 +121,12 @@ export function fakesModule(options: { readonly except?: readonly FeatureService
     create: (ctx: DaemonContext) => {
       const fakes = createFakes(ctx);
       created.set(ctx, fakes);
+      // A work item's session follows its topic's mode: the topics this daemon has (the real module's, when a test
+      // composes it with these fakes).
+      fakes.agents.topicAgentOf = (topicId) => {
+        const topics = ctx.services.topics;
+        return isStubService(topics) ? fakes.topics.agent(topicId) : topics.agent(topicId);
+      };
       return Object.fromEntries(faked.map((name) => [name, fakes[name]])) as Partial<FeatureServices>;
     },
     register: (router, ctx) => (options.handlers === true ? registerFakeHandlers(router, ctx, new Set<FeatureServiceName>(faked), fakesOf(ctx).sessions) : toDisposable(() => {})),

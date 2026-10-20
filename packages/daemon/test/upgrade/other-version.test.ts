@@ -1,6 +1,8 @@
-// 0.5.2 and this smurg open each other's folders (DESIGN "What 0.5.1 must NOT change": every document is written
+// 0.5.2 and this smurg meet each other's folders (DESIGN "What 0.5.1 must NOT change": every document is written
 // exactly as the published smurg writes it; the stamp says which smurg wrote the folder last, and the kept copies
-// stay as they are).
+// stay as they are). Since 0.6.0 (DESIGN 0.6.0 D2, D6) this smurg writes shapes 2: the tag refuses a folder this smurg
+// wrote as written by a newer smurg ("Run smurg update. Nothing was changed.") and changes nothing in it; this smurg
+// opens what the tag wrote and upgrades it.
 //
 // The other side here is THE CODE OF TAG v0.5.2 itself (the newest published smurg), not a description of it:
 // `git archive v0.5.2` of the daemon and the protocol package into a scratch folder, run with node
@@ -23,7 +25,7 @@ import { promisify } from 'node:util';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { createTempDir, removeTempDir, type TestDaemon } from '../../src/testing/index.ts';
 import { startOn } from './daemon-on.ts';
-import { STAMP_NAME, copyOf, keptCopyName, readJson, snapshotOf, type FixtureCopy, type StoredState } from './fixture.ts';
+import { STAMP_NAME, copyOf, everythingOf, keptCopyName, readJson, snapshotOf, type FixtureCopy, type StoredState } from './fixture.ts';
 
 const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -78,6 +80,8 @@ async function publishedTree(tag: string, into: string): Promise<Tree> {
 
 interface Opened {
   readonly ok: boolean;
+  /** With a refusal: the StateFileError's kind (`newer`, …). */
+  readonly kind?: string;
   readonly smurg?: string;
   readonly workspaceId?: string;
   readonly fingerprint?: string;
@@ -181,51 +185,75 @@ describe(`smurg ${TAG.slice(1)} and this smurg open each other's folders (the co
     });
   });
 
-  it.for(['0.4.0', '0.5.0', '0.5.1', '0.5.2'] as const)('what this smurg wrote over the folder %s left opens in the tag\'s code, and what the tag then wrote opens here again', async (version, context) => {
+  it.for(['0.4.0', '0.5.0', '0.5.1', '0.5.2'] as const)('what this smurg wrote over the folder %s left is refused by the tag\'s code, which changes nothing, and opens here again', async (version, context) => {
     const why = missing(TAG);
     if (why !== null) context.skip(why);
     const copy = await copyOf(version);
     copies.push(copy);
     const before = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
 
-    // ---- This smurg shares the folder and stops.
+    // ---- This smurg shares the folder and stops: it upgrades what the version wrote (0.6.0: auto mode), once.
     let t = (running = await startOn(copy));
     const upgradedHere = t.daemon.upgraded.map((entry) => entry.document);
-    expect(upgradedHere).toEqual(version === '0.4.0' ? ['state', 'suggestions'] : []);
+    expect(upgradedHere).toEqual(version === '0.4.0' ? ['state', 'suggestions'] : ['state', 'agent-sessions']);
     const fingerprint = t.daemon.fingerprint;
     await t.cleanup();
     running = null;
     const written = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
+    expect(written.version).toBe(2);
+    const from = version === '0.4.0' ? '0.4.0' : '0.5.0';
     const kept = await keptOf(copy.workspaceDir);
-    expect(Object.keys(kept).sort()).toEqual([...(version === '0.4.0' ? [`./${keptCopyName('state', '0.4.0')}`, `./${keptCopyName('suggestions', '0.4.0')}`] : []), `./${STAMP_NAME}`].sort());
-
-    // ---- The tag's daemon opens that folder: every document, every member, device and link, the settings.
-    const opened = await openedByTheTag(copy, copy.at + 60_000);
-    expect(opened.message, 'the refusal of the tag\'s daemon').toBeUndefined();
-    expect(opened).toMatchObject({ ok: true, smurg: TAG.slice(1), workspaceId: copy.workspaceId, fingerprint });
-    expect(opened.members).toEqual(membersOf(before));
-    expect(opened.revokedDevices).toEqual(before.devices.filter((device) => device.revoked).map((device) => device.deviceId).sort());
-    expect(opened.devices).toBe(before.devices.length);
-    expect(opened.settings).toEqual(written.settings);
-    for (const invite of before.invites) expect(opened.invites, invite.id).toContain(invite.id);
-    // The kept copies are as this smurg made them; the stamp is the tag's own now (every start writes it).
-    expect(await copiesOf(copy.workspaceDir)).toEqual(Object.fromEntries(Object.entries(kept).filter(([name]) => name !== `./${STAMP_NAME}`)));
+    expect(Object.keys(kept).sort()).toEqual(
+      [...(version === '0.4.0' ? [`./${keptCopyName('state', from)}`, `./${keptCopyName('suggestions', from)}`] : [`./${keptCopyName('state', from)}`, `./${keptCopyName('agent-sessions', from)}`]), `./${STAMP_NAME}`].sort(),
+    );
     const stamp = await readJson<{ smurg: string; shapes: number; at: number }>(join(copy.workspaceDir, STAMP_NAME));
-    expect(stamp).toEqual({ smurg: TAG.slice(1), shapes: 1, at: expect.any(Number) });
-    expect(stamp.at).toBeGreaterThanOrEqual(copy.at + 60_000);
+    expect(stamp).toMatchObject({ shapes: 2 });
 
-    // ---- And the other way round: what the tag's daemon wrote (it writes state.json at every start) opens here,
-    // as a folder of today's shapes: no step, nothing put back, everybody still there.
-    const afterTag = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
-    expect(afterTag.invites.length).toBeGreaterThan(written.invites.length);
+    // ---- The tag's daemon refuses that folder as written by a newer smurg (its stamp's shapes), before it reads a
+    // document, and changes nothing: not the stamp, not a document, not a kept copy (the command then says "Run smurg
+    // update. Nothing was changed.").
+    const untouched = await everythingOf(copy);
+    const opened = await openedByTheTag(copy, copy.at + 60_000);
+    expect(opened).toMatchObject({ ok: false, name: 'StateFileError', kind: 'newer' });
+    expect(opened.message).toMatch(/^this workspace folder was last written by a newer smurg \(/);
+    expect((await everythingOf(copy)).workspace).toEqual(untouched.workspace);
+    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual(stamp);
+
+    // ---- And this smurg opens it again: no step, nothing put back, everybody still there.
     t = running = await startOn(copy);
     expect(t.daemon.upgraded).toEqual([]);
     expect(t.daemon.putBack).toBe(false);
-    expect(t.daemon.internals.folder.loaded.get('state')?.value).toEqual(afterTag);
+    expect(t.daemon.internals.folder.loaded.get('state')?.value).toEqual(written);
     expect(t.daemon.internals.folder.stamp).toEqual(stamp);
     expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(before));
     expect(t.daemon.fingerprint).toBe(fingerprint);
     expect((await stat(join(copy.workspaceDir, STAMP_NAME))).isFile()).toBe(true);
+  });
+
+  it.for(['0.4.0', '0.5.0', '0.5.1', '0.5.2'] as const)('what the tag wrote over the folder %s left opens here: this smurg upgrades it to auto mode, the tag\'s stamp is read', async (version, context) => {
+    const why = missing(TAG);
+    if (why !== null) context.skip(why);
+    const copy = await copyOf(version);
+    copies.push(copy);
+    const before = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
+    // ---- The tag shares it first (0.4.0's folder it upgrades with its own step).
+    const opened = await openedByTheTag(copy, copy.at + 60_000);
+    expect(opened.message, 'the refusal of the tag\'s daemon').toBeUndefined();
+    expect(opened).toMatchObject({ ok: true, smurg: TAG.slice(1), workspaceId: copy.workspaceId });
+    const stamp = await readJson<{ smurg: string; shapes: number; at: number }>(join(copy.workspaceDir, STAMP_NAME));
+    expect(stamp).toEqual({ smurg: TAG.slice(1), shapes: 1, at: expect.any(Number) });
+    const tagState = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
+    expect(tagState.version).toBe(1);
+
+    // ---- This smurg: state.json and agent-sessions.json of the tag's shape, upgraded from 0.5.0, the writer named
+    // (an agent-sessions.json without a session, as the tag makes it for a folder of 0.4.0, is today's shape already).
+    const t = (running = await startOn(copy));
+    expect(t.daemon.internals.folder.stamp).toEqual(stamp);
+    expect(t.daemon.upgraded.map((entry) => `${entry.document} from ${entry.from} by ${entry.writer ?? '?'}`)).toEqual([`state from 0.5.0 by ${TAG.slice(1)}`, ...(version === '0.4.0' ? [] : [`agent-sessions from 0.5.0 by ${TAG.slice(1)}`])]);
+    expect(t.daemon.putBack).toBe(false);
+    expect(t.ctx.settings.get()).toEqual({ ...tagState.settings, permissionMode: 'auto' });
+    expect(t.ctx.settings.notices()).toEqual(['agents-auto']);
+    expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(before));
   });
 
   it('what the daemon of 0.5.0 left behind when it refused a 0.4.0 folder whose owner had added the three settings by hand opens here', async (context) => {
@@ -250,17 +278,18 @@ describe(`smurg ${TAG.slice(1)} and this smurg open each other's folders (the co
     expect(await readdir(copy.workspaceDir)).toEqual(expect.arrayContaining(['agent-sessions.json', 'audit-text.jsonl', 'cards.json', 'claude-trust.json', 'host-rules.json', 'inbox.json']));
     expect((await readFile(join(copy.workspaceDir, 'suggestions.json'))).equals(suggestionsBefore)).toBe(true);
 
-    // This smurg: each document by its own shape. state.json is today's (the owner's values stand, agentMcp too:
-    // no step runs over what a host wrote), suggestions.json is 0.4.0's and is upgraded, the rest is 0.5.0's.
+    // This smurg: each document by its own shape. state.json is 0.5.0's (the owner's values stand, agentMcp too: the
+    // step from 0.4.0 does not run over what a host wrote; the step from 0.5.0 adds auto mode), suggestions.json is
+    // 0.4.0's and is upgraded; the agent-sessions.json 0.5.0 made holds no session: today's shape as it is.
     const t = (running = await startOn(copy));
-    expect(t.daemon.upgraded).toEqual([{ document: 'suggestions', from: '0.4.0', copy: join(copy.workspaceDir, keptCopyName('suggestions', '0.4.0')) }]);
+    expect(t.daemon.upgraded.map((entry) => `${entry.document} from ${entry.from}`)).toEqual(['state from 0.5.0', 'suggestions from 0.4.0']);
     expect(t.daemon.putBack).toBe(false);
     const loaded = t.daemon.internals.folder.loaded;
-    expect(loaded.get('state')?.upgradedFrom).toBeNull();
-    expect((loaded.get('state')?.value as StoredState).settings).toEqual(mended.settings);
-    expect(t.ctx.settings.get()).toMatchObject({ maxLiveAgents: 5, agentMcp: true });
+    expect(loaded.get('state')?.upgradedFrom).toBe('0.5.0');
+    expect((loaded.get('state')?.value as StoredState).settings).toEqual({ ...mended.settings, permissionMode: 'auto' });
+    expect(t.ctx.settings.get()).toMatchObject({ maxLiveAgents: 5, agentMcp: true, permissionMode: 'auto' });
     expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(original));
     expect((await readFile(join(copy.workspaceDir, keptCopyName('suggestions', '0.4.0')))).equals(suggestionsBefore)).toBe(true);
-    expect((await readdir(copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-'))).toEqual([keptCopyName('suggestions', '0.4.0')]);
+    expect((await readdir(copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual([keptCopyName('state', '0.5.0'), keptCopyName('suggestions', '0.4.0')].sort());
   });
 });

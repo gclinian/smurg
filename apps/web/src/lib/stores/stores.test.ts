@@ -64,7 +64,7 @@ function answerEmpty(conn: FakeConnection): void {
     'suggest.list': { suggestions: [], hasMore: false },
     'topic.list': { topics: [], hasMore: false },
     'inbox.list': { items: [], hasMore: false },
-    'session.host.get': { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' },
+    'session.host.get': { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } },
     'activity.list': { events: [] },
     'doc.conflict.list': { conflicts: [] },
     'worktree.list': { worktrees: [] },
@@ -72,7 +72,7 @@ function answerEmpty(conn: FakeConnection): void {
     'admin.member.list': { members: [] },
     'admin.invite.list': { invites: [] },
     'admin.settings.get': {
-      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false },
+      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false, permissionMode: 'auto' },
     },
     'admin.audit.query': { entries: [] },
   };
@@ -161,7 +161,7 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     conn.emit('worktree.updated', { worktree: makeWorktree() });
     conn.emit('worktree.merge.updated', { request: makeMergeRequest() });
     conn.emit('presence.state', { members: [presenceOf(makeMember())], agents: [] });
-    conn.emit('channel.settingsUpdated', { settings: { humanLockIdleMs: 10_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 1024 * 1024, sharedDirs: ['data'] } });
+    conn.emit('channel.settingsUpdated', { settings: { humanLockIdleMs: 10_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 1024 * 1024, sharedDirs: ['data'], permissionMode: 'auto' } });
     expect(stores.sessions.getState().sessions.get('s2')?.status).toBe('exited');
     expect(stores.suggestions.getState().suggestions.has('x1')).toBe(true);
     expect(stores.locks.getState().locks.get(fileRefKey(fileRef('a.txt')))?.kind).toBe('agent');

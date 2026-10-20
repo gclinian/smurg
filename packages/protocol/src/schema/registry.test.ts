@@ -105,6 +105,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['session.restart', 'c→d', '[session.drive]'],
   ['session.responsible.set', 'c→d', '[session.drive]'],
   ['session.mode.set', 'c→d', '[session.drive]'],
+  ['session.model.set', 'c→d', '[session.drive]'],
   ['session.rules.get', 'c→d', '[session.view]'],
   ['session.rule.remove', 'c→d', '[session.drive]'],
   ['session.loginStatus', 'c→d', '[session.drive]'],
@@ -138,6 +139,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['topic.spec.request', 'c→d', '[session.drive]'],
   ['topic.rule.add', 'c→d', '[session.drive]'],
   ['topic.rule.remove', 'c→d', '[session.drive]'],
+  ['topic.agent.set', 'c→d', '[session.drive]'],
   ['plan.generate', 'c→d', '[session.drive]'],
   ['plan.get', 'c→d', '[session.view]'],
   ['plan.updated', 'd→c', ''],
@@ -188,6 +190,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['admin.claudeConfig.decide', 'c→d', '[admin]'],
   ['admin.hostRules.get', 'c→d', '[admin]'],
   ['admin.hostRules.seen', 'c→d', '[admin]'],
+  ['admin.notice.seen', 'c→d', '[admin]'],
   ['admin.transcript.redact', 'c→d', '[admin]'],
 ];
 
@@ -273,7 +276,10 @@ describe('required capability matches ARCHITECTURE', () => {
     expect(MESSAGE_REGISTRY['lock.release'].checks).toContain('human-lock-holder');
     expect(MESSAGE_REGISTRY['file.upload.chunk'].checks).toContain('transfer-connection');
     expect(MESSAGE_REGISTRY['doc.sync'].checks).toContain('doc-content-needs-file.write');
-    expect(MESSAGE_REGISTRY['session.create'].checks).toEqual([]);
+    // Protocol 5: a model named when a session or a topic is opened, at Start or later is one of the host agent's list.
+    expect(MESSAGE_REGISTRY['session.create'].checks).toEqual(['model-offered']);
+    for (const type of ['session.create', 'session.model.set', 'topic.create', 'topic.agent.set', 'plan.start'] as const) expect(MESSAGE_REGISTRY[type].checks, type).toContain('model-offered');
+    expect(MESSAGE_REGISTRY['session.model.set'].checks).toEqual(['agent-session', 'session-open', 'model-offered']);
     // Terminals and agent sessions never share a stream.
     for (const type of ['session.attach', 'exec.input', 'exec.resize'] as const) expect(MESSAGE_REGISTRY[type].checks, type).toContain('terminal-session');
     for (const type of ['session.watch', 'session.history', 'session.cards.get', 'session.message.send', 'session.interrupt', 'session.retry', 'session.restart', 'session.mode.set'] as const) {
@@ -505,8 +511,8 @@ describe('wire types and router checks', () => {
     // ARCHITECTURE §11 D-15: typing into a session and deciding its suggestions is session.drive, for ANY session.
     for (const type of [
       'exec.input', 'suggest.accept', 'suggest.reject', 'session.loginStatus',
-      'session.message.send', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible.set', 'session.mode.set', 'session.rule.remove', 'session.rename',
-      'permission.decide', 'topic.rename', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove',
+      'session.message.send', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible.set', 'session.mode.set', 'session.model.set', 'session.rule.remove', 'session.rename',
+      'permission.decide', 'topic.rename', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove', 'topic.agent.set',
       'plan.generate', 'plan.mode.set', 'plan.assign', 'plan.suggest', 'plan.resume', 'plan.item.continue', 'plan.item.resolve',
     ]) {
       expect(mayInvoke('host', type)).toBe(true);

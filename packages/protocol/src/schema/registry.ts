@@ -56,6 +56,7 @@ export const HANDLER_CHECKS = [
   'retry-host-only', // session.retry after three failed starts in a row: the host only
   'responsible-eligible', // the named person is an active member holding `discuss` (null: nobody)
   'mode-not-fixed', // not a discussion session
+  'model-offered', // a non-null model is the value of an entry of the host agent's current list (session.model.notKnown while it is not known, session.model.notOffered otherwise)
   'suggestion-author-pending', // caller authored the suggestion and it is still pending
   'suggestion-pending', // the suggestion is still pending (accept / reject: any session the caller may drive)
   'suggestion-limit', // at most SUGGESTIONS_PENDING_PER_AUTHOR_MAX pending per author and session
@@ -338,6 +339,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
 
   // ---- session.* and exec.* (§5.5) -----------------------------------------------------------------------------
   'session.create': request(sessions.sessionCreatePayloadSchema, sessions.sessionCreateResultSchema, 'session.create', {
+    checks: ['model-offered'],
     redact: ['firstMessage'],
   }),
   'session.list': request(sessions.sessionListPayloadSchema, sessions.sessionListResultSchema, 'session.view', { sizeRule: 'list' }),
@@ -413,6 +415,9 @@ export const MESSAGE_REGISTRY = Object.freeze({
   }),
   'session.mode.set': request(sessions.sessionModeSetPayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
     checks: ['agent-session', 'mode-not-fixed'],
+  }),
+  'session.model.set': request(sessions.sessionModelSetPayloadSchema, sessions.agentSessionResultSchema, 'session.drive', {
+    checks: ['agent-session', 'session-open', 'model-offered'],
   }),
   'session.rules.get': request(sessions.sessionRulesGetPayloadSchema, sessions.sessionRulesGetResultSchema, 'session.view', {
     checks: ['agent-session'],
@@ -501,6 +506,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
 
   // ---- topic.*, plan.*, report.* (§5.10) ---------------------------------------------------------------------------
   'topic.create': request(topics.topicCreatePayloadSchema, topics.topicWithSessionResultSchema, 'session.create', {
+    checks: ['model-offered'],
     redact: ['firstMessage'],
   }),
   'topic.list': request(topics.topicListPayloadSchema, topics.topicListResultSchema, 'session.view', { sizeRule: 'list' }),
@@ -525,6 +531,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
     checks: ['topic-open', 'rule-form'],
   }),
   'topic.rule.remove': request(topics.topicRuleRemovePayloadSchema, topics.topicResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'topic.agent.set': request(topics.topicAgentSetPayloadSchema, topics.topicResultSchema, 'session.drive', { checks: ['topic-open', 'model-offered'] }),
   'plan.generate': request(topics.planGeneratePayloadSchema, topics.planGenerateResultSchema, 'session.drive', { checks: ['topic-open'] }),
   'plan.get': request(topics.planGetPayloadSchema, topics.planGetResultSchema, 'session.view'),
   'plan.updated': event(topics.planUpdatedPayloadSchema, 'session.view', { checks: ['recipients:all'] }),
@@ -534,7 +541,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   }),
   'plan.suggest': request(topics.planSuggestPayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
   'plan.preflight': request(topics.planPreflightPayloadSchema, topics.planPreflightResultSchema, 'session.create', { checks: ['topic-open'] }),
-  'plan.start': request(topics.planStartPayloadSchema, topics.planResultSchema, 'session.create', { checks: ['topic-open', 'plan-pins'] }),
+  'plan.start': request(topics.planStartPayloadSchema, topics.planResultSchema, 'session.create', { checks: ['topic-open', 'plan-pins', 'model-offered'] }),
   'plan.changes': request(topics.planChangesPayloadSchema, topics.planChangesResultSchema, 'session.view', {
     checks: ['topic-open'],
     resultSensitive: true,
@@ -638,6 +645,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'admin.audit.entry': event(admin.adminAuditEntryPayloadSchema, 'admin', { checks: ['recipients:host'] }),
   'admin.settings.get': request(admin.adminSettingsGetPayloadSchema, admin.hostSettingsResultSchema, 'admin'),
   'admin.settings.set': request(admin.adminSettingsSetPayloadSchema, admin.hostSettingsResultSchema, 'admin'),
+  'admin.notice.seen': request(admin.adminNoticeSeenPayloadSchema, admin.adminNoticeSeenResultSchema, 'admin'),
   'admin.claudeConfig.get': request(admin.adminClaudeConfigGetPayloadSchema, admin.adminClaudeConfigGetResultSchema, 'admin', {
     resultSensitive: true,
     redact: ['text', 'runs', 'permissions'],

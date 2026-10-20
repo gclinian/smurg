@@ -263,7 +263,8 @@ describe('one file of the workspace folder set aside: what smurg 0.5.0 wrote, st
     it(`moved away: the daemon starts; the members, devices, invite links, settings and key are as they were; a new ${name}.json is made; every request answers${sound ? '; nothing a member sees points at something that is gone' : ''}`, async () => {
       const { copy, t, who, view, nowhere } = await startWith((made) => setAside(made, `${name}.json`));
       expect(who).toEqual(whole.who);
-      expect(t.daemon.upgraded).toEqual([]);
+      // 0.6.0 upgrades 0.5.0's state.json and agent-sessions.json (auto mode, DESIGN 0.6.0 D6), whichever is there.
+      expect(t.daemon.upgraded.map((entry) => `${entry.document} from ${entry.from}`)).toEqual(['state from 0.5.0', ...(name === 'agent-sessions' ? [] : ['agent-sessions from 0.5.0'])]);
       expect(view.errors).toEqual([]);
       // The document is there again, made from its `init` (and passes today's schema).
       const document = declared().find((candidate) => candidate.name === name) as DocumentDeclaration;

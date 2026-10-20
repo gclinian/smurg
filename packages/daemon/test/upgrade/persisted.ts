@@ -21,19 +21,44 @@ import type { PublishedVersion } from './fixture.ts';
 
 type Schema = z.ZodType;
 
+/**
+ * The `since` of a kind no published smurg writes yet: shapes 2 is 0.6.0's, the version being built (DESIGN 0.6.0 D6).
+ * When 0.6.0 is published and its fixture made, FIRST_OF_SHAPES says `2: '0.6.0'` (docs/RELEASING.md §4.5).
+ */
+export const NOT_PUBLISHED = 'not published yet';
+
 /** Every document a daemon of the release declares, in module order (the core's `state` first). */
 export function documentsOfThisSmurg(): readonly DocumentDeclaration[] {
   return declaredDocuments({ workspaceId: 'ws_persisted', defaultSettings: defaultHostSettings(totalmem()) });
 }
 
 /**
- * The shape a file of `document` has when smurg `version` wrote it: the frozen shape of the first step that starts
- * at that version or a later one (a version that changed nothing wrote the shape the next step reads), else today's
- * schema. `frozen`: the answer is a frozen shape, not today's schema.
+ * The first smurg that writes TODAY's shape of each document with a step (DESIGN 0.6.0 D6): from that version on a
+ * file of the document is today's schema; before it, the shape of one of its steps. A document that gains a step in a
+ * release is named here with that release's version in the same change (`state`, `agent-sessions`: 0.6.0, which is
+ * being built and not published).
+ */
+const TODAY_SINCE: Readonly<Record<string, string>> = { state: '0.6.0', 'agent-sessions': '0.6.0', suggestions: '0.5.0' };
+
+/**
+ * The shape a file of `document` has when smurg `version` wrote it. A step's shape covers the versions from its `from`
+ * up to (not including) the next step's `from`; the last step's up to (not including) the document's TODAY_SINCE; a
+ * version at or after that writes today's schema. A version before the first step wrote the first step's shape (the
+ * document did not exist then, or had that shape). A document without steps is today's schema for every version.
+ * `frozen`: the answer is a frozen shape, not today's schema. (The rule before 0.6.0 took the first step whose `from`
+ * is at or after the version: with the steps from 0.4.0 and 0.5.0 it gave 0.5.1 and 0.5.2 today's schema, which
+ * neither wrote.)
  */
 export function shapeWrittenBy(document: DocumentDeclaration, version: string): { readonly schema: Schema; readonly frozen: boolean } {
-  const step = (document.steps ?? []).find((candidate) => compareVersionNames(candidate.from, version) >= 0);
-  return step === undefined ? { schema: document.schema, frozen: false } : { schema: step.shape, frozen: true };
+  const steps = document.steps ?? [];
+  if (steps.length === 0) return { schema: document.schema, frozen: false };
+  const since = TODAY_SINCE[document.name];
+  if (since === undefined) throw new Error(`${document.name}.json has steps: say in test/upgrade/persisted.ts (TODAY_SINCE) since which smurg it is written in today's shape`);
+  if (compareVersionNames(version, since) >= 0) return { schema: document.schema, frozen: false };
+  // The newest step whose `from` is at or before the version; before the first step, the first.
+  let step = steps[0] as (typeof steps)[number];
+  for (const candidate of steps) if (compareVersionNames(candidate.from, version) <= 0) step = candidate;
+  return { schema: step.shape, frozen: true };
 }
 
 // ---- Shapes the code reads field by field (no schema in the tree): written here after the reader's own rules.
@@ -82,8 +107,11 @@ export interface PersistedKind {
    */
   readonly pattern: RegExp;
   readonly homes: readonly ('host' | 'member' | 'device')[];
-  /** The first published smurg that writes the kind. */
-  readonly since: PublishedVersion;
+  /**
+   * The first published smurg that writes the kind, or NOT_PUBLISHED: no published smurg writes it yet (the kept
+   * copy of a step that the version being built adds); no fixture may hold one.
+   */
+  readonly since: PublishedVersion | typeof NOT_PUBLISHED;
   /** For a kind whose instances have a schema in the code: the name of its pinned shape (test/upgrade/shapes/<name>.txt). */
   readonly pin?: string;
   /** The schema of an instance as smurg `version` wrote it, or null: bytes or text that no schema describes. */
@@ -104,8 +132,8 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * so the first that can leave its kept copy. A step of a number no published smurg has yet needs its line here when
  * that smurg is published (until then its kept copies are of no published version).
  */
-const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion>> = { 1: '0.5.1' };
-const firstOfShapes = (shapes: number, what: string): PublishedVersion => {
+const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion | typeof NOT_PUBLISHED>> = { 1: '0.5.1', 2: NOT_PUBLISHED };
+const firstOfShapes = (shapes: number, what: string): PublishedVersion | typeof NOT_PUBLISHED => {
   const version = FIRST_OF_SHAPES[shapes];
   if (version === undefined) throw new Error(`no published smurg has shapes ${shapes} yet: say in test/upgrade/persisted.ts (FIRST_OF_SHAPES) since when ${what} is written`);
   return version;

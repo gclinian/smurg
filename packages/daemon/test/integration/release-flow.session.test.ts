@@ -74,7 +74,7 @@ describe('the release composition: one free agent session, four people', { timeo
     // ================================================================================================================
     const { session } = await mei.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Tests' });
     const sessionId = session.id;
-    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: MEI, displayName: 'Mei' }, responsible: null, permissionMode: 'ask-all' });
+    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: MEI, displayName: 'Mei' }, responsible: null, permissionMode: 'auto', modeChoice: null });
     // A Viewer and an Editor cannot open one.
     expect(await refusal(leo.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } }))).toMatchObject({ code: 'forbidden' });
     expect(await refusal(amy.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } }))).toMatchObject({ code: 'forbidden' });
@@ -477,6 +477,6 @@ describe('the release composition: one free agent session, four people', { timeo
     ]) {
       expect(await refusal(attempt)).toMatchObject({ code: 'forbidden' });
     }
-    expect((await ian.conn.request('session.list', {})).sessions.find((entry) => entry.id === sessionId)).toMatchObject({ title: 'Tests', status: 'idle', responsible: { userId: MEI }, permissionMode: 'ask-all' });
+    expect((await ian.conn.request('session.list', {})).sessions.find((entry) => entry.id === sessionId)).toMatchObject({ title: 'Tests', status: 'idle', responsible: { userId: MEI }, permissionMode: 'auto', modeChoice: null });
   });
 });

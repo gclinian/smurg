@@ -16,7 +16,6 @@ import {
   agentTextWithin,
   can,
   checkRememberableRule,
-  defaultPermissionMode,
   folderHoldsPath,
   lineEvent,
   noticeEvent,
@@ -41,6 +40,7 @@ import {
   type SessionInfo,
   type Suggestion,
   type Topic,
+  type TopicAgent,
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
@@ -48,7 +48,8 @@ import type { AttentionFact, MemberChange, OutboundMessage, Principal, Req, Res,
 import { newId } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { userRefOf, type TopicsCore } from './core.ts';
+import { requireModelOffered } from '../sessions/model-offered.ts';
+import { applyTopicAgent, userRefOf, type TopicsCore } from './core.ts';
 import { discussionRolePrompt, restartDiscussionMessage, writeSpecMessage, type EarlierDecision } from './prompts.ts';
 import type { StoredTopic } from './store.ts';
 import { EMPTY_HASH } from './text.ts';
@@ -93,6 +94,7 @@ export class TopicServiceImpl implements TopicService {
 
   async create(input: Req<'topic.create'>, principal: Principal): Promise<{ readonly topic: Topic; readonly session: AgentSession }> {
     const createdBy = userRefOf(principal);
+    requireModelOffered(this.ctx, input.model);
     const topics = this.core.topics();
     if (topics.length >= TOPICS_MAX) throw new SmurgError('conflict', msg('topic.limit', { max: TOPICS_MAX }), { reason: 'topic-limit' });
     if (input.slug !== undefined && !TOPIC_SLUG_PATTERN.test(input.slug)) throw new SmurgError('bad_request', msg('topic.badSlug'), { reason: 'bad-slug' });
@@ -126,6 +128,8 @@ export class TopicServiceImpl implements TopicService {
       rules: [],
       plan: { exists: false, hash: EMPTY_HASH, valid: false, parsed: false, fingerprint: '', revision: 0, mode: 'assigned', paused: false, warnings: [], people: [] },
       items: [],
+      // The model of the discussion and the topic's later sessions (the handler checked it: `model-offered`).
+      ...(input.model === undefined ? {} : { agent: { model: input.model, modelChangedBy: createdBy } }),
     };
     // The topic exists (and is announced) BEFORE its discussion session, so a listener of `session.created` finds it.
     this.core.addTopic(stored);
@@ -145,7 +149,7 @@ export class TopicServiceImpl implements TopicService {
       topic.discussionSessionId = session.id;
       topic.discussionSessions.push(session.id);
     });
-    this.ctx.audit.record({ actor: principal.actor, action: 'topic.create', outcome: 'ok', target: id, detail: { topicId: id, slug, name: input.name, sessionId: session.id } });
+    this.ctx.audit.record({ actor: principal.actor, action: 'topic.create', outcome: 'ok', target: id, detail: { topicId: id, slug, name: input.name, sessionId: session.id, model: input.model ?? null } });
     this.core.publish(id);
     return { topic: this.core.toTopic(this.core.need(id)), session };
   }
@@ -303,7 +307,10 @@ export class TopicServiceImpl implements TopicService {
       openedBy: principal,
       responsible: null,
       workspace: { mode: 'main' },
-      mode: defaultPermissionMode('discussion', MAIN_ROOT),
+      // A discussion's permissions are fixed (it reads ask-all); the host's default model (a topic's model reaches its
+      // sessions with DESIGN 0.6.0 D7).
+      modeChoice: null,
+      model: null,
       rolePrompt: ({ smurgTag }) => discussionRolePrompt({ slug: topic.slug, smurgTag }),
       opening: msg(opening, { name: userRefOf(principal).displayName }),
       ...(firstMessage === undefined ? {} : { firstMessage }),
@@ -449,6 +456,39 @@ export class TopicServiceImpl implements TopicService {
 
   rules(topicId: string): readonly RememberedRule[] {
     return (this.core.topic(topicId)?.rules ?? []).map((rule) => ({ ...rule }));
+  }
+
+  agent(topicId: string): TopicAgent | null {
+    const topic = this.core.topic(topicId);
+    return topic === null ? null : { model: topic.agent?.model ?? null, permissionMode: topic.agent?.permissionMode ?? null };
+  }
+
+  /**
+   * `topic.agent.set` (DESIGN 0.6.0 D3, D4, D12): the model of the topic's new sessions and the mode its work items
+   * follow; null clears one (the host's default model, the workspace's mode); a key left out stays. Who chose each is
+   * kept (a member's looser choice goes back when they go). Audit `topic.agent`; then the topic's live item sessions
+   * that follow it run with the new mode (AgentSessions.topicAgentChanged).
+   */
+  async setAgent(input: Req<'topic.agent.set'>, principal: Principal): Promise<Topic> {
+    const topic = this.core.needOpen(input.topicId);
+    requireModelOffered(this.ctx, input.model);
+    const by = userRefOf(principal);
+    const previous = topic.agent?.permissionMode ?? null;
+    this.core.update(topic.id, (draft) => {
+      draft.agent = applyTopicAgent(draft.agent, input, by);
+      if (Object.keys(draft.agent).length === 0) delete draft.agent;
+    });
+    this.ctx.audit.record({
+      actor: principal.actor,
+      action: 'topic.agent',
+      outcome: 'ok',
+      target: topic.id,
+      detail: { topicId: topic.id, ...(input.model === undefined ? {} : { model: input.model }), ...(input.permissionMode === undefined ? {} : { permissionMode: input.permissionMode }) },
+    });
+    this.core.publish(topic.id);
+    const agents = this.ctx.services.agents;
+    if (input.permissionMode !== undefined && !isStubService(agents)) await agents.topicAgentChanged(topic.id, previous, principal.actor);
+    return this.core.toTopic(this.core.need(topic.id));
   }
 
   // ===================================================================================================================

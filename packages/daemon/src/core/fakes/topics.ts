@@ -4,7 +4,7 @@
 // what was asked of them from `log`.
 import {
   SmurgError,
-  defaultPermissionMode,
+  effectivePermissionMode,
   lineEvent,
   MAIN_ROOT,
   slugFromName,
@@ -19,6 +19,7 @@ import {
   type StartPreflight,
   type Suggestion,
   type Topic,
+  type TopicAgent,
   type UserRef,
   type WorkItem,
 } from '@smurg/protocol';
@@ -213,6 +214,21 @@ export class FakeTopicService implements TopicService {
     return (this.topics.get(topicId)?.rules ?? []).map((rule) => ({ ...rule }));
   }
 
+  agent(topicId: string): TopicAgent | null {
+    const topic = this.topics.get(topicId);
+    return topic === undefined ? null : { ...topic.agent };
+  }
+
+  async setAgent(input: Req<'topic.agent.set'>, principal: Principal): Promise<Topic> {
+    this.log.record('setAgent', input, principal);
+    const topic = this.need(input.topicId);
+    const previous = topic.agent.permissionMode;
+    const agent = { model: input.model === undefined ? topic.agent.model : input.model, permissionMode: input.permissionMode === undefined ? topic.agent.permissionMode : input.permissionMode };
+    const next = this.put({ ...topic, agent });
+    if (input.permissionMode !== undefined) await this.agents?.topicAgentChanged(topic.id, previous, principal.actor);
+    return next;
+  }
+
   memberRemoved(userId: UserId, change: MemberChange, to?: Role): TopicRemoval {
     this.log.record('memberRemoved', userId, change, to);
     return this.removal;
@@ -236,7 +252,8 @@ export class FakeTopicService implements TopicService {
       openedBy: principal,
       responsible: null,
       workspace: { mode: 'main' },
-      mode: defaultPermissionMode('discussion', MAIN_ROOT),
+      modeChoice: null,
+      model: null,
       rolePrompt: ({ smurgTag }) => `fake discussion prompt for specs/${topic.slug}/ [smurg ${smurgTag}]`,
       opening: msg(opening, { name: userRef(principal).displayName }),
       ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),
@@ -330,6 +347,11 @@ export class FakePlanService implements PlanService {
       rules: [],
       sharedDirs: [],
       blockers: [],
+      history: 'folder',
+      direct: null,
+      agent: { model: null, permissionMode: null, effective: effectivePermissionMode({ purpose: 'item', session: null, topic: null, workspace: this.env.settings?.get().permissionMode ?? 'auto' }) },
+      nestedRepos: [],
+      cloudSynced: false,
     };
   }
 

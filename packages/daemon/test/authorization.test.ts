@@ -222,6 +222,7 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'session.restart': NO_SESSION,
   'session.responsible.set': NO_SESSION,
   'session.mode.set': NO_SESSION,
+  'session.model.set': NO_SESSION,
   'session.rules.get': NO_SESSION,
   'session.rule.remove': NO_SESSION,
   'question.vote': NO_QUESTION,
@@ -246,6 +247,7 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'topic.spec.request': NO_TOPIC,
   'topic.rule.add': NO_TOPIC,
   'topic.rule.remove': NO_TOPIC,
+  'topic.agent.set': NO_TOPIC,
   'plan.generate': NO_TOPIC,
   'plan.get': NO_TOPIC,
   'plan.mode.set': NO_TOPIC,
@@ -286,6 +288,7 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'admin.claudeConfig.decide': 'conflict claudeConfig.changed',
   'admin.hostRules.get': 'ok',
   'admin.hostRules.seen': 'ok',
+  'admin.notice.seen': 'ok',
   'admin.transcript.redact': NO_SESSION,
 };
 

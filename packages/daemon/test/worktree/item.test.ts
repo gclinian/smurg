@@ -235,7 +235,7 @@ describe('a work item\'s worktree', { timeout: 60_000 }, () => {
       openedBy: s.principal('dev:mei'),
       responsible: null,
       workspace: { mode: 'worktree', worktreeId: handle.worktree.id },
-      mode: 'ask-commands',
+      modeChoice: 'ask-commands', model: null,
       rolePrompt: () => 'prompt',
     });
     expect(await settleError(mei.conn.request('worktree.remove', { worktreeId: handle.worktree.id }))).toMatchObject({ code: 'conflict', reason: 'worktree-in-use' });

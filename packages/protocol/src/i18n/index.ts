@@ -128,7 +128,7 @@ export function roleLabel(locale: Locale, role: string): string {
   return render(locale, roleRef(role)) ?? String(role);
 }
 
-/** A permission mode as a label: `permissionMode.askCommands` / `permissionMode.askAll`. `undefined` for anything else. */
+/** A permission mode as a label: `permissionMode.auto` / `.askCommands` / `.askAll` / `.askNothing`. `undefined` for anything else. */
 export function permissionModeRef(mode: string): MessageRef | undefined {
   const id = typeof mode === 'string' ? `permissionMode.${camelCase(mode)}` : '';
   return isMessageId(id) && id.startsWith('permissionMode.') ? { id } : undefined;

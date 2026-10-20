@@ -4,8 +4,9 @@
 // checked here with req.requireOwner (audited authz.denied); who may end an agent session is the registry's rule
 // (routing.ts `mayEndSession`).
 //
-// Also here: the wire's `session.host` (the account state and the main folder's trust state, to everyone), what a
-// change of a root's project settings does to its sessions, and the watchers of a channel that is gone.
+// Also here: the wire's `session.host` (the account state, the main folder's trust state, the host's agent and how
+// work items run, to everyone), what a change of a root's project settings or of the workspace's permission mode does
+// to its sessions, and the watchers of a channel that is gone.
 import {
   EVENTS_PAGE_MAX_BYTES,
   MAIN_ROOT,
@@ -25,6 +26,7 @@ import type { RequestContext, Router } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { isStubService } from '../core/stubs.ts';
 import type { AgentSessionsImpl } from './agent/agent-sessions.ts';
+import { requireModelOffered } from './model-offered.ts';
 import type { SessionManagerImpl } from './session-manager.ts';
 
 /** The agent session a request names [agent-session]: a terminal is `not-an-agent`, anything else unknown is `not_found`. */
@@ -63,8 +65,14 @@ function cardsFor(
   return { questions: cards.questions, permissions: cards.permissions, suggestions: suggestions.suggestions, moreCards: [...cards.more, ...suggestions.more] };
 }
 
-function hostState(ctx: DaemonContext): HostState {
-  return { account: ctx.services.agents.account(), mainProjectSettings: isStubService(ctx.services.projectTrust) ? 'none' : ctx.services.projectTrust.state(MAIN_ROOT) };
+export function hostState(ctx: DaemonContext): HostState {
+  return {
+    account: ctx.services.agents.account(),
+    mainProjectSettings: isStubService(ctx.services.projectTrust) ? 'none' : ctx.services.projectTrust.state(MAIN_ROOT),
+    agent: ctx.services.agents.hostAgentState(),
+    // What is known now: a teammate's request never makes smurg run git (DESIGN 0.6.0 D14).
+    work: isStubService(ctx.services.worktrees) ? { history: 'unchecked' } : ctx.services.worktrees.workState(),
+  };
 }
 
 export function registerSessionHandlers(router: Router, ctx: DaemonContext, sessions: SessionManagerImpl, agents: AgentSessionsImpl): Disposable {
@@ -76,8 +84,13 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
     req.requireOwner(owner, 'session');
   };
 
-  // [session.create]: a terminal, or a free agent session; the caller is `openedBy`.
-  stack.add(router.handle('session.create', async (payload, req) => ({ session: await sessions.create(payload, req.conn, req.principal) })));
+  // [session.create] (model-offered): a terminal, or a free agent session; the caller is `openedBy`.
+  stack.add(
+    router.handle('session.create', async (payload, req) => {
+      if (payload.kind === 'agent') requireModelOffered(ctx, payload.model);
+      return { session: await sessions.create(payload, req.conn, req.principal) };
+    }),
+  );
   // [session.view]: every session (with `topicId`: every agent session of that topic), by THE list rule.
   stack.add(
     router.handle('session.list', (payload) => {
@@ -210,11 +223,21 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       return { session: agentSession(ctx, sessions, payload.sessionId) };
     }),
   );
-  // (mode-not-fixed): not for a discussion session.
+  // (mode-not-fixed): not for a discussion session. A choice, or null: follow again.
   stack.add(
     router.handle('session.mode.set', async (payload, req) => {
       if (agentSession(ctx, sessions, payload.sessionId).modeFixed) throw new SmurgError('conflict', msg('session.mode.fixed'), { reason: 'mode-fixed' });
       await agents.setMode(payload.sessionId, payload.mode, req.principal.actor);
+      return { session: agentSession(ctx, sessions, payload.sessionId) };
+    }),
+  );
+  // (agent-session, session-open, model-offered): a model of the host agent's list, or null (the host's default); a
+  // discussion too.
+  stack.add(
+    router.handle('session.model.set', async (payload, req) => {
+      requireOpen(ctx, agentSession(ctx, sessions, payload.sessionId));
+      requireModelOffered(ctx, payload.model);
+      await agents.setModel(payload.sessionId, payload.model, req.principal.actor);
       return { session: agentSession(ctx, sessions, payload.sessionId) };
     }),
   );
@@ -264,10 +287,12 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       if (now !== before) agents.topicRulesChanged(topic.id);
     }),
   );
-  // A host setting that shapes the launch changed: the sessions start again with it at their next idle moment.
+  // A host setting that shapes the launch changed: the sessions start again with it at their next idle moment. The
+  // workspace's permission mode: every session that follows it runs with the new one.
   stack.add(
     ctx.bus.on('settings.changed', ({ settings, previous }) => {
       if (settings.agentMcp !== previous.agentMcp) void agents.restartAll('host').catch(() => {});
+      if (settings.permissionMode !== previous.permissionMode) void agents.workspaceModeChanged(previous.permissionMode).catch(() => {});
     }),
   );
   return stack;

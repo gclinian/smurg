@@ -367,10 +367,10 @@ describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
   it('a session whose worktree is gone cannot continue: a start there is refused, and a message to a session that lost its root ends it (worktree-removed)', async () => {
     const r = await rig();
     const host = r.principal(TEST_HOST_USER);
-    await expect(r.agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'worktree', worktreeId: 'wt_never_was' }, mode: 'ask-commands', rolePrompt: () => '' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.worktreeGone' }, detail: { reason: 'worktree-removed' } });
+    await expect(r.agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'worktree', worktreeId: 'wt_never_was' }, modeChoice: 'ask-commands', model: null, rolePrompt: () => '' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.worktreeGone' }, detail: { reason: 'worktree-removed' } });
     expect(r.agents.list()).toEqual([]);
     const handle = await r.s.fakes.worktrees.acquireForSession({ owner: host, sessionId: 'a-worktree' });
-    const session = await r.agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, mode: 'ask-commands', rolePrompt: () => '' });
+    const session = await r.agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, modeChoice: 'ask-commands', model: null, rolePrompt: () => '' });
     await r.until(session.id, idle, 'the start');
     expect(session).toMatchObject({ root: { kind: 'worktree', worktreeId: handle.worktree.id }, branch: `smurg/x/${handle.worktree.id}`, permissionMode: 'ask-commands' });
     await r.agents.restartProcess(session.id, 'slot');
@@ -460,7 +460,7 @@ describe('what a turn and a start can run into', { timeout: 60_000 }, () => {
     // A runtime that was never started (its records are not loaded) starts nothing either.
     const ctx = noCommand.s.t.ctx;
     const unopened = new AgentSessionsImpl(ctx, { ...noCommand.s.sessions.agentDeps(), trust: ctx.services.projectTrust as ProjectTrustImpl, hostRules: ctx.services.hostRules as HostRulesImpl });
-    await expect(unopened.start({ purpose: 'free', openedBy: noCommand.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', rolePrompt: () => '' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.notStarted' }, detail: { reason: 'not-started' } });
+    await expect(unopened.start({ purpose: 'free', openedBy: noCommand.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, modeChoice: 'ask-all', model: null, rolePrompt: () => '' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.notStarted' }, detail: { reason: 'not-started' } });
   });
 
   it('a Claude Code that lost its login while the session runs: the notice in the conversation, the account state for everyone; "Check login again" finds it back', async () => {
@@ -570,7 +570,7 @@ describe('watchers and what is kept', { timeout: 60_000 }, () => {
     const r = await rig([], { daemon: { agents: { freeSessionRetentionMs: 30 * 60_000, escalationSweepMs: 20, parkAfterMs: 24 * 60 * 60_000 } } });
     const live = (await r.host.conn.request('session.create', AGENT)).session;
     const ended = (await r.host.conn.request('session.create', AGENT)).session;
-    const discussion = await r.agents.start({ purpose: 'discussion', topic: { id: 'tp_checkout', slug: 'checkout', name: 'Checkout' }, openedBy: r.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', rolePrompt: () => 'ROLE' });
+    const discussion = await r.agents.start({ purpose: 'discussion', topic: { id: 'tp_checkout', slug: 'checkout', name: 'Checkout' }, openedBy: r.principal(TEST_HOST_USER), responsible: null, workspace: { mode: 'main' }, modeChoice: 'ask-all', model: null, rolePrompt: () => 'ROLE' });
     for (const id of [live.id, ended.id, discussion.id]) await r.until(id, idle, 'the start');
     await r.host.conn.request('session.end', { sessionId: ended.id });
     await r.agents.end(discussion.id, { by: { kind: 'system' }, reason: 'archived', keepWorktree: true });

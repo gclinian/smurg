@@ -11,9 +11,11 @@ import {
   rootRefKey,
   topicDirPath,
   topicReportPath,
+  wireText,
   worktreeRoot,
   type MergeRequest,
   type UserRef,
+  type WorkState,
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
@@ -230,6 +232,15 @@ export class FakeWorktreeManager implements WorktreeManager {
 
   async headBlobs(paths: readonly string[]): Promise<Record<string, string | null>> {
     return Object.fromEntries(paths.map((path) => [path, this.head.get(path) ?? null]));
+  }
+
+  /** What `workState()` answers; default: from `main` (a repository: `folder`; git unusable: `direct`; else `unchecked`). */
+  work: WorkState | null = null;
+
+  workState(): WorkState {
+    if (this.work !== null) return structuredClone(this.work);
+    if (!this.main.gitOk) return { history: 'direct', reason: wireText(msg('worktree.unavailable.gitCannotRun')) };
+    return this.main.isRepo ? { history: 'folder' } : { history: 'unchecked' };
   }
 
   async mainState(): Promise<MainState> {

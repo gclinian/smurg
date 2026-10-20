@@ -72,8 +72,9 @@ describe('T1.1 a topic and its discussion session', () => {
     // The topic is announced BEFORE its session exists, then again with it.
     expect(order).toEqual(['topic:new:no-session', 'session.created', 'topic:changed:session']);
 
-    const start = test.fakes.agents.log.of('start')[0]?.[0] as { purpose: string; mode: string; title?: string; topic: unknown; workspace: unknown };
-    expect(start).toMatchObject({ purpose: 'discussion', mode: 'ask-all', topic: { id: topic.id, slug: 'checkout', name: 'Checkout' }, workspace: { mode: 'main' } });
+    const start = test.fakes.agents.log.of('start')[0]?.[0] as { purpose: string; modeChoice: string | null; model: string | null; title?: string; topic: unknown; workspace: unknown };
+    // 0.6.0: a discussion's permissions are fixed (it chooses nothing); the host's default model.
+    expect(start).toMatchObject({ purpose: 'discussion', modeChoice: null, model: null, topic: { id: topic.id, slug: 'checkout', name: 'Checkout' }, workspace: { mode: 'main' } });
     expect(start.title).toBeUndefined();
     const prompt = test.fakes.agents.rolePromptOf(session.id);
     expect(prompt.rolePrompt).toContain('You are the discussion agent of one topic in a shared smurg workspace. The topic\'s files are in specs/checkout/.');

@@ -21,7 +21,7 @@
 <1>.text: the same as #3
 <1>.fallback: string [min_length minimum=0] [max_length maximum=1000] [custom]
 <1>.action: optional
-<1>.action: enum "restart-agent"|"retry"
+<1>.action: enum "restart-agent"|"retry"|"choose-model"
 <1>.seq: number format=safeint [greater_than value=1 inclusive=true]
 <1>.at: number format=safeint [greater_than value=0 inclusive=true]
 <2>: #6 object strict

@@ -29,6 +29,7 @@ import { stateDocument } from '../src/core/workspace-state.ts';
 import { classifyText, encodeText } from '../src/docs/text-codec.ts';
 import { planBatch, planFolders } from '../src/files/upload.ts';
 import { stateShapeV040, suggestionsShapeV040 } from '../src/frozen/v0.4.0.ts';
+import { agentSessionsShapeV050, stateShapeV050 } from '../src/frozen/v0.5.0.ts';
 import { looseKey } from '../src/files/util.ts';
 import { bashPlaces, judgePlaces, type BashReading, type ResolvedPlace } from '../src/hooks/bash-guard.ts';
 import { daemonUnreachableReason, gateDenyReason, pathDeniedReason } from '../src/hooks/deny-text.ts';
@@ -217,6 +218,23 @@ const suggestionsWith = (text: string): unknown => ({
   version: 1,
   suggestions: [{ id: 'sg_1', sessionId: 'ses_1', author: { userId: 'dev:amy', displayName: text }, text, finalText: text, rejectReason: text, source: { file: { root: { kind: 'main' }, path: text }, startLine: 1, endLine: 1 }, status: 'pending', createdAt: 1, sessionOwnerUserId: 'dev:amy' }],
 });
+/** state.json as 0.5.0, 0.5.1 and 0.5.2 wrote it: 0.4.0's, with the three settings 0.5.0 added. */
+const stateOfV050With = (text: string): unknown => {
+  const state = stateWith(text) as { settings: Record<string, unknown> };
+  return { ...state, settings: { ...state.settings, maxLiveAgents: 4, escalateAfterMs: 300_000, agentMcp: false } };
+};
+/** agent-sessions.json as 0.5.x wrote it: every text a member or an agent put into a session's record. */
+const agentSessionsOfV050With = (text: string): unknown => ({
+  sessions: [{
+    id: 'ses_1', purpose: 'item', topic: { id: 'tp_1', slug: 'cart', name: text }, item: { id: 'cart-api', number: 1, title: text, attempt: 1 },
+    openedBy: { userId: 'dev:amy', displayName: text }, ownerUserId: 'dev:amy', pathRights: 'member', responsible: { userId: 'dev:amy', displayName: text }, fallbackDecider: null,
+    title: text, root: { kind: 'worktree', worktreeId: 'wt_1' }, worktreeId: 'wt_1', branch: text, mode: 'ask-all', modeChangedBy: { userId: 'dev:amy', displayName: text },
+    rules: [{ id: 'ru_1', tool: 'Bash', pattern: text, scope: 'session', addedBy: { userId: 'dev:amy', displayName: text }, addedAt: 1 }],
+    claudeSessionId: '00000000-0000-4000-8000-000000000000', hasConversation: true, turnCounter: 1, smurgTag: 'abcd', startFailures: 0, lastTurnOpen: false, state: 'live',
+    untrustedSaid: false, createdAt: 1, noteworthyAt: 1, lastActivityAt: 1, claudeVersion: text,
+    pending: [{ messageId: 'msg_1', text, turn: { messageId: 'msg_1', kind: 'person', from: { userId: 'dev:amy', displayName: text } }, fromUserId: 'dev:amy' }],
+  }],
+});
 const stateOfToday = stateDocument('ws_test_0123456789abcdef', defaultHostSettings(16 * 1024 * 1024 * 1024));
 /** A refused state file: what the problems of a file with `text` as a key, as a value and as a path cost. */
 function refuse(text: string): void {
@@ -234,6 +252,10 @@ function refuse(text: string): void {
 const UPGRADE_LOOKS: Readonly<Record<string, Look>> = {
   'the frozen shapes of smurg 0.4.0 (state.json, suggestions.json: every text and every path)': {
     run: (text) => void [stateShapeV040.safeParse(stateWith(text)), suggestionsShapeV040.safeParse(suggestionsWith(text))],
+    fronts: ['a/', '/', 'C:', 'dev:', '#'],
+  },
+  'the frozen shapes of smurg 0.5.0, 0.5.1 and 0.5.2 (state.json, agent-sessions.json: every text and every path)': {
+    run: (text) => void [stateShapeV050.safeParse(stateOfV050With(text)), agentSessionsShapeV050.safeParse(agentSessionsOfV050With(text))],
     fronts: ['a/', '/', 'C:', 'dev:', '#'],
   },
   'loadDocumentValue and escapeForTerminal (a refused state file: zod names unknown keys as they are)': { run: (text) => void [refuse(text), escapeForTerminal(text)] },
@@ -532,6 +554,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'files/upload-store.ts': 4,
   'files/watcher.ts': 2,
   'frozen/v0.4.0.ts': 16,
+  // (0.5.0's own rules, as 0.4.0's above: the same scalars and paths, and a mark run read without HFS+'s ignorables.)
+  'frozen/v0.5.0.ts': 19,
   'hooks/bash-guard.ts': 6,
   'hooks/deny-text.ts': 3,
   'hooks/schemas.ts': 1,
@@ -596,6 +620,7 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'files/upload.ts': 1,
   'files/zip.ts': 1,
   'frozen/v0.4.0.ts': 1,
+  'frozen/v0.5.0.ts': 1, // its `normalize` of a path (below)
   'hooks/settings-writer.ts': 2,
   'inbox/derive.ts': 2,
   'inbox/inbox-service.ts': 2,
@@ -622,11 +647,12 @@ describe('the regular expressions, normalisations and sorts of packages/daemon',
     const found = countInSources(SOURCES);
     expect(found.expressions).toEqual(EXPRESSIONS);
     expect(found.orderings).toEqual(ORDERINGS);
-    // ONE file normalises by itself: the frozen shapes of smurg 0.4.0 (src/frozen/), which are a literal copy of what
-    // that version accepted and import nothing of today's code. 0.4.0 normalised a path before it measured its names;
-    // the copy answers 'segment-too-long' for a run of marks no name can hold BEFORE it normalises (the one line that
-    // is not 0.4.0's, and it changes no answer), so no run of more than 1,020 marks reaches `normalize` there, and no
-    // text of more than 16,384 units. It reads the host's own files, once, at a start (LOOKS measures it).
-    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual(['frozen/v0.4.0.ts']);
+    // TWO files normalise by themselves: the frozen shapes of smurg 0.4.0 and 0.5.0 (src/frozen/), which are literal
+    // copies of what those versions accepted and import nothing of today's code. 0.4.0 normalised a path before it
+    // measured its names; the copy answers 'segment-too-long' for a run of marks no name can hold BEFORE it normalises
+    // (the one line that is not 0.4.0's, and it changes no answer), so no run of more than 1,020 marks reaches
+    // `normalize` there, and no text of more than 16,384 units. 0.5.0 refused a run of more than 30 marks before it
+    // normalised, as the copy does. Each reads the host's own files, once, at a start (UPGRADE_LOOKS measures them).
+    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual(['frozen/v0.4.0.ts', 'frozen/v0.5.0.ts']);
   });
 });

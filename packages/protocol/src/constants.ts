@@ -15,10 +15,11 @@ const GiB = 1024 * MiB;
 /**
  * Version of the encrypted application protocol, sent in `ClientHello.protocolVersion` (ARCHITECTURE §4.2, §4.3).
  * 4 since agent sessions are conversations (smurg 0.5.0): `SessionInfo` is a union of terminal and agent sessions,
- * and topics, plans, result reports, questions, permission requests and the inbox joined the catalog. A daemon
- * answers another version with the verdict `version`; there is no compatibility code.
+ * and topics, plans, result reports, questions, permission requests and the inbox joined the catalog.
+ * 5 since 0.6.0: permission modes, models, the host's agent and history state. A daemon answers another version with
+ * the verdict `version`; there is no compatibility code.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /** Leading bytes of every Noise prologue: `"smurg-noise/1" ‖ 0x00 ‖ u8 len(workspaceId) ‖ workspaceId ‖ …`. */
 export const NOISE_PROLOGUE_TAG = 'smurg-noise/1';

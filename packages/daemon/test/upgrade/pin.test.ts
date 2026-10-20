@@ -66,12 +66,18 @@ const sha256 = (bytes: string | Uint8Array): string => createHash('sha256').upda
 // The pinned values
 // =====================================================================================================================
 
-/** The number the pins below were taken at. Raised together with WORKSPACE_SHAPES, or not at all. */
-const PINNED_AT_SHAPES = 1;
+/**
+ * The number the pins below were taken at. Raised together with WORKSPACE_SHAPES, or not at all. 2 since 0.6.0 (the
+ * question was answered: YES, it changes what stored files accept: state.json version 2 and agent-sessions.json, each
+ * with a step from 0.5.0 that reads src/frozen/v0.5.0.ts; optional keys in topics.json and worktrees.json; wider enums
+ * in reports.json, cards.json, transcripts and the audit; DESIGN 0.6.0 D6).
+ */
+const PINNED_AT_SHAPES = 2;
 
 /** src/frozen/<file>: what a published smurg accepted. NEVER changes; a new file is added with the step that reads it. */
 const FROZEN: Readonly<Record<string, string>> = {
   'v0.4.0.ts': '4084b3352d4938af13ec617ab2ab09570004f3cb65611125034453d590612f3c',
+  'v0.5.0.ts': 'cb5ecec470ec5187ce040f5f6d7bec09dbdf4ff2109ada562c76e9a67271f474',
 };
 
 /**
@@ -79,22 +85,22 @@ const FROZEN: Readonly<Record<string, string>> = {
  * that declares a document, and the six of the persisted things that are no document).
  */
 const DAEMON_SOURCES: Readonly<Record<string, string>> = {
-'conversation/cards-store.ts': 'dd4d4571457ea824abcad95178254af2a33ad38e91806947b222ed5121261cb2',
+  'conversation/cards-store.ts': 'dd4d4571457ea824abcad95178254af2a33ad38e91806947b222ed5121261cb2',
   'core/audit-text.ts': '0b2e0d943504846ef14182f96517ee0bdf9211c954e9d702265043ae955089fd',
   'core/audit.ts': '9bd9267c2855afaea489e9b4f52e8688e02faccc829b70f4fe9af604e510227c',
-  'core/workspace-state.ts': '5b977f1e738a59aba41b0b6f0a89940038bc10994fc29edf443566eb81f7d605',
+  'core/workspace-state.ts': '7c783a6d89d01f69bf5371f13a33772545b58a30292e22fb68a6e5b0c99b2b1c',
   'docs/conflicts.ts': 'dd9624cf4cc4f3f39f33efba03f02d94fdf61fdb853c02b2f8b9f1d98fa4e42d',
   'files/upload-store.ts': '65fa65d9bf0cbee656df6297dc1e473bb85228084fed32826ea1cb497bb574d2',
   'inbox/store.ts': 'fc38d2189ca8f97082e265db571f8f508f88de95809fc36a27adff544612aa5a',
   'locks/activity-log.ts': '85817194e1a6430fc4671a5e2a6361cf1d51f0e90a777314fffad6ed6ac2fd46',
   'sessions/agent/host-rules.ts': '8589139325f1f56eb73898d6b456ab36f85850e37e427b12a0ef1369eaee034e',
   'sessions/agent/project-settings.ts': 'f78365de979f27c4f678a6f4bc0df7544b3225c530a12acbad2b9f713c38b0af',
-  'sessions/agent/store.ts': '46b82739817fff5f0e0d7126bce53faebefd502b8b4c518ef072932d3ed98baf',
+  'sessions/agent/store.ts': '1f84217f697b7d5c73e60cc7165c987228b39f65277d679e4aa447826ffd7949',
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
-  'sessions/session-manager.ts': '50273ba913a35bc74b1e30580666bfb17cff99d9f39ab965cb93f81d0374b050',
+  'sessions/session-manager.ts': '8a2bbeb0680450666c80d80926e2366fbb8c50686835e1adb4334e9170786d6f',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
-  'topics/store.ts': 'f8bfabd3c6f6fe5156d5f1fb75735f26b45533c5733e717faa4623fb9831c051',
-  'worktree/store.ts': '88ae30c96388adf7aa8054821fa98e807026d5617e1fe53cd2494bd1b8425a11',
+  'topics/store.ts': 'fe58c04f8c4702a5400bf16a5c7a836d376d6e93aa0e89848911b51ce4d70905',
+  'worktree/store.ts': 'a874b9817f4b0abfb9672182fdfcea32f18a47189f0a9db9395adb3ed84d8393',
 };
 
 /**
@@ -102,13 +108,16 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * everything those modules import (the walk below finds them). Taken for 0.5.1: all but two are byte for byte the
  * files of tag v0.5.0; codec.ts (what decodeClientHello RETURNS for another protocol version) and node/key-file.ts
  * (assertPrivateDirectory, which creates nothing) changed in 0.5.1, and neither changes what a stored file accepts.
+ * Taken again for 0.6.0 (protocol 5, DESIGN D6): YES, what stored files accept changed (the four permission modes and
+ * the workspace's in state.json's settings, the topic's agent settings, wider enums, smurg's own history), with the
+ * steps from 0.5.0 and the points of NOT_PUBLISHED_YET; tools.ts left the walk (no schema file imports from it now).
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
-'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
+  'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
   'bytes.ts': '7fc163368b2d2a82d5ce3d834922c96611f20331e61bff91b5ad22276391fa1c',
   'channel/identity-binding.ts': '57e7cbac993b088e66a8193dfca6054b5d6a8cfb5d95175c9eaf4d42c786e6dd',
   'codec.ts': '377cf872871c2185149f8b9cead0cf36bb19d0e7e3cf966c2b92988e5a25422a',
-  'constants.ts': '22ff489650daef1108b99390553e12293bd71fd5fad29a30d22f568f5dc6a26b',
+  'constants.ts': 'cd78047e1a4767a37a33a6daa8bcb4801b95e5090d2fb61b31a298110ef8afac',
   'errors.ts': '0f2a058bb5226b4aad03f32560712ba9ca35838eb999e73ea2bd8e9611fddbf4',
   'i18n/define.ts': 'e6d7dd5a5ea9a26cbdf32dc3e2b118d8d8e13998360301089d4d17e81f4f4188',
   'mask.ts': '3bd5168fc9d394dbb72b0cc76d1e44e8867f16b07ee2fa139eb50abd57fbf48e',
@@ -121,33 +130,32 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'roles.ts': 'aefbcc4c97c5d783c99a6a3c5b1e9cb15668796446f5b3927c0655bcd23b6da2',
   'routing.ts': '56c564a2d69a5a46d93fadd30eb509ff820fe36622e7af37a1bc81cb01879973',
   'schema/awareness.ts': '15f7202e552ced9496fb7ff62ccb1702eb4d1a808be278acf09e78999cdc768a',
-  'schema/conversation.ts': '09fa69867c6defe0d893c615c70edb61195f348781afc576c4ea2cb03f0c5efa',
-  'schema/entities.ts': '002be307850d418c4eb49e3d9829cc0cfc7b816ff3b71fdcda1bfdd67e600034',
+  'schema/conversation.ts': 'd9c2dca8012258c2212a437cd967f705ffa0e4d5f0b4c78363aaf677adb783d7',
+  'schema/entities.ts': 'e1238b4f319efc04d0e83d30cb8be659db6f73eee93c086ae8a1052074713b6e',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '31915fe6680b6a0c7c593eb4e338c7e8e571cda0aeef84b45d280f9aa255ab68',
-  'schema/inbox.ts': 'e67c396ab13d0d4f72972b1993c3bf73ec01433317f04c37503a77df8635f8f1',
+  'schema/inbox.ts': '55fc4965bc4e89cf358c92f2697afc4fbca4875dd9afce7a38f4673b45603ad5',
   'schema/index.ts': 'df8271d00f6e162c550c0a42e99d02e489f3c526342bff8208b3a99d10419f88',
-  'schema/limits.ts': '2dd2114938ff6699b8c0544edb457479ed5f7a87edec0ce307fe895f9c11698a',
+  'schema/limits.ts': '2292eb507485d7a4e612f3087c207cc4c2b4bfb6e00b9c280a01242803c9e549',
   'schema/message-ref.ts': 'ee4c2d08adecc61772f0da565141c2af9adf9fc32a7eb157ac8f9bf37d3a3019',
-  'schema/messages/admin.ts': '092a5cbe67fdf0eafe618a55d9687448110d0546c92987ae5c81a1328fc5acbe',
+  'schema/messages/admin.ts': '100c58a4a888c409c34cef41786480d2dbf078b27d270422a96cf61ff9899dbb',
   'schema/messages/channel.ts': '5652ac0034cf595cb6148c863713352672eb4e669630a269048eff1e07e1275c',
   'schema/messages/conversation.ts': 'a1bbf190335ec77d332c544f61cd9786bc92878fdcb8399a576433fa5f8df7c9',
   'schema/messages/docs.ts': '39780943cf092425ba44b52352fe1a72b375405a6a00903ca54a668ac558946e',
   'schema/messages/files.ts': '80131236ef63575912af25e0e66300e82c253f2197fa57235e480b0f70dacd96',
   'schema/messages/inbox.ts': 'ca34d41770beb621beb629b4290cb7a6d934fde52229b368f4059c0c6c1b174f',
   'schema/messages/presence.ts': 'b072fa7f56d76819acf58811ff698efb3cf8c2dd87c80fee42a5f8938ec11c10',
-  'schema/messages/sessions.ts': '16adc7ef6af856579001bc44e470f44b3e06704f38154fb1f217f6ec6975410a',
+  'schema/messages/sessions.ts': '2b5ff7a0bd5e1665a44d62389510e10f00e9750736d30f786db0f2399b88ae58',
   'schema/messages/suggestions.ts': 'db0a00d60c70ae8b4c92a228a7f1ef48e3b484bdb20b692e6056d9428a2cfd3c',
-  'schema/messages/topics.ts': '31341ad6c57ff3d32020e934aa6b72981cdcb4a507fcb07197d3af8c50dba987',
+  'schema/messages/topics.ts': 'b76510dd47294926d00d119894652bf32649874e18bb38ba7da19b5a73afc5f7',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
   'schema/messages/worktrees.ts': 'eaa11a57ec6ac2071cde8f50c96be484d6ce7be7f4554789556ba4d1350faac8',
   'schema/paths.ts': '0ee840e274f57501b9c49baa8e4f16150ce0a3a543ee17bf49e2730777a6f6ca',
-  'schema/primitives.ts': '7affdb6e9c22167df7607cf5dd6c7d66888d4e05d5058d4e8e9617555f62b549',
+  'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
-  'schema/registry.ts': '97c8ad28aa474727d0f8e729e861c03385d11b1ec17e5aecb06851716bbb336f',
-  'schema/topics.ts': '9f6fc7c85117054f3f3e7e74dc175fb3096ad6997071ab5bc6683778f9197d0f',
-  'tools.ts': '642019f6d7ada05cc529fc4c1c45f93f30bb29bb1f56d958170da999e18f3ecf',
-  'wire-text.ts': '94433b186a53ed9eb78f0757b92bdc4731478410b5451d7f3a6f4fbc0eeb0bb2',
+  'schema/registry.ts': '33e909dac94820a8cd8a8a1d7990791f0047a63f08fe9d3085271fbc905be3ca',
+  'schema/topics.ts': '09397b1d877d7b247aea25f8c87466600d7c4395e134832439d81909280facab',
+  'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
 
 /**
@@ -341,7 +349,7 @@ describe('the pin of everything smurg persists', () => {
 
     it('every step reads a frozen shape, the one of the version it is named after; none is derived from today\'s schema', async () => {
       const steps = documentsOfThisSmurg().flatMap((document) => (document.steps ?? []).map((step) => ({ document: document.name, step })));
-      expect(steps.map((entry) => `${entry.document} from ${entry.step.from}`)).toEqual(['state from 0.4.0', 'suggestions from 0.4.0']);
+      expect(steps.map((entry) => `${entry.document} from ${entry.step.from}`)).toEqual(['state from 0.4.0', 'state from 0.5.0', 'agent-sessions from 0.5.0', 'suggestions from 0.4.0']);
       for (const { document, step } of steps) {
         expect(files, `the step of ${document} from ${step.from}`).toContain(`v${step.from}.ts`);
         const frozen = (await import(join(dir, `v${step.from}.ts`))) as Record<string, unknown>;

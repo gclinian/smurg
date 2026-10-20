@@ -59,7 +59,7 @@ export function topicConnection(world: TopicWorld = {}): FakeConnection {
   conn.handle('session.list', () => ({ sessions: [...(world.sessions ?? [])], hasMore: false }));
   conn.handle('worktree.list', () => ({ worktrees: [...(world.worktrees ?? [])] }));
   conn.handle('worktree.merge.list', () => ({ requests: [...(world.requests ?? [])] }));
-  conn.handle('session.host.get', () => world.host ?? { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' });
+  conn.handle('session.host.get', () => world.host ?? { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } });
   return conn;
 }
 

@@ -361,6 +361,7 @@ export const t = defineStrings(
     'report.noChanges.host-only-paths': 'The changes are not shown: they touch files only the host may change. The host looks at the worktree directly.',
     'report.noChanges.spec-files': 'The changes are not shown: they touch the spec or the plan, which a work item must not change.',
     'report.noChanges.conflict-markers': 'The changes are not shown: files still contain merge conflict markers.',
+    'report.noChanges.no-history': 'Without git, smurg keeps no history: this item changed the shared folder directly, and there is no diff to show. Its conversation and the activity feed show what its agent did.',
     'report.question.cut': 'Shortened here. The whole text is in the session.',
     'report.question.waiting': 'Claude has not answered yet.',
     'report.state.reviewed': 'Reviewed by {name}, {time}',

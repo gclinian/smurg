@@ -95,6 +95,7 @@ describe('the topic screens in zh-TW', () => {
       rules: [],
       sharedDirs: [],
       blockers: [{ text: msg('plan.start.invalid'), fallback: 'Fix PLAN.md before you start.' }],
+      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
     };
     const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
     expect(text).toEqual([
@@ -146,6 +147,7 @@ describe('the topic screens in zh-TW', () => {
       rules: [],
       sharedDirs: [],
       blockers: [],
+      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
     };
     for (const reason of Object.keys(GIT_REASONS) as GitReason[]) {
       const lines = startLines({ ...base, blockers: [{ text: GIT_REASONS[reason], fallback: `fallback of ${reason}` }] }, PLAN, MEI.userId);

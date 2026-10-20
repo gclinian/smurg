@@ -62,6 +62,7 @@ export const SETTINGS: HostSettings = {
   maxLiveAgents: 8,
   escalateAfterMs: 600_000,
   agentMcp: false,
+  permissionMode: 'auto',
 };
 
 export function makeAudit(index: number, overrides: Partial<AuditEntry> = {}): AuditEntry {
@@ -97,7 +98,7 @@ export function makeConfigFile(overrides: Partial<ClaudeConfigFile> = {}): Claud
   };
 }
 
-export const OK_HOST_STATE: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' };
+export const OK_HOST_STATE: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } };
 
 export interface ConsoleFixture {
   members: MemberWithDevices[];

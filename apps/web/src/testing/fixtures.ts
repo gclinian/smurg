@@ -54,7 +54,7 @@ export function makeWelcome(options: { role?: Role; userId?: string; displayName
       displayName: options.displayName ?? (role === 'host' ? 'Ian' : 'Amy'),
     }),
     workspace: { id: WORKSPACE_ID, name: 'class-project', hostUserId: HOST_USER, hostName: 'Ian', platform: 'darwin', isGitRepo: true },
-    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] },
+    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto' },
     serverTime: options.serverTime ?? Date.now(),
   };
 }
@@ -92,7 +92,9 @@ export function makeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
     root: MAIN_ROOT,
     status: 'idle',
     permissionMode: 'ask-all',
+    modeChoice: null,
     modeFixed: false,
+    model: null,
     ruleCount: 0,
     login: 'logged-in',
     projectSettings: 'none',

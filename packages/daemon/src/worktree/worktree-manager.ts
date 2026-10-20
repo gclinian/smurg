@@ -60,10 +60,12 @@ import {
   mergeMessageSchema,
   opaqueIdSchema,
   topicReportPath,
+  wireText,
   type MergeRequest,
   type PayloadOf,
   type ResultInputOf,
   type UserRef,
+  type WorkState,
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
@@ -1653,6 +1655,13 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const repo = this.available.repo;
     const head = await mainHead(repo);
     return head === null ? none() : blobsAt(repo, head, paths, this.limits.gitTimeoutMs);
+  }
+
+  workState(): WorkState {
+    // Only what is known: never a git run (a teammate's request must not make smurg look for git, DESIGN 0.6.0 D14).
+    const binary = this.gitBinary === null ? null : binaryUnavailable(this.gitBinary);
+    if (binary !== null) return { history: 'direct', reason: wireText(binary.error.text ?? msg('worktree.unavailable.gitCannotRun')) };
+    return this.ctx.workspace.info.isGitRepo ? { history: 'folder' } : { history: 'unchecked' };
   }
 
   async mainState(): Promise<MainState> {

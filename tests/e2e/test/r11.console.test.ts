@@ -213,9 +213,9 @@ describe('R11 host console', () => {
       const SUGGEST_ACTIONS: readonly AuditAction[] = ['suggest.create', 'suggest.edit', 'suggest.accept', 'suggest.reject', 'suggest.withdraw']; // R6
       // What protocol 4 added for agent sessions, questions, permission requests, topics, plans and reports.
       const AGENT_ACTIONS: readonly AuditAction[] = [
-        'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible', 'session.mode', 'session.rule.remove', 'session.handover', 'responsible.fallback',
+        'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible', 'session.mode', 'session.model', 'session.rule.remove', 'session.handover', 'responsible.fallback',
         'question.submit', 'question.remind', 'permission.decide', 'permission.auto', 'permission.auto-deny', 'agent.command',
-        'topic.create', 'topic.rename', 'topic.archive', 'topic.delete', 'topic.discussion.restart', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove',
+        'topic.create', 'topic.rename', 'topic.archive', 'topic.delete', 'topic.discussion.restart', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove', 'topic.agent',
         'plan.generate', 'plan.start', 'plan.resume', 'plan.assign', 'plan.mode', 'plan.item.retry', 'plan.item.continue', 'plan.item.resolve', 'scheduler.start', 'scheduler.disarm',
         'report.register', 'report.review', 'spec.commit',
       ];
@@ -233,7 +233,10 @@ describe('R11 host console', () => {
         'auth.join', 'auth.connect', 'auth.disconnect', 'auth.rejected', 'authz.denied', 'path.denied',
         'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change', 'claude-config.decide', 'transcript.redact',
       ]);
-      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action)).sort());
+      // Protocol 5 names one action before this smurg writes it: Claude Code's auto mode stopping an agent's command
+      // (DESIGN 0.6.0 D9). It joins AGENT_ACTIONS when the daemon launches auto mode and writes it.
+      const notWrittenYet = new Set<AuditAction>(['agent.command.blocked']);
+      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notWrittenYet.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;
@@ -332,6 +335,7 @@ describe('R11 host console', () => {
       expect(one('session.interrupt', free)).toMatchObject({ actor: carolUser });
       expect(one('session.restart', free)).toMatchObject({ actor: carolUser });
       expect(one('session.mode', free)).toMatchObject({ actor: carolUser, detail: { mode: 'ask-commands' } });
+      expect(one('session.model', free)).toMatchObject({ actor: carolUser, detail: { sessionId: free, model: null } });
       expect(one('session.rule.remove', free)).toMatchObject({ actor: carolUser, detail: { rule: 'Bash(pnpm test *)' } });
       expect(one('session.responsible', free)).toMatchObject({ actor: hostUser, detail: { responsible: dave.userId } });
       // Dave left: who decides in the session he was responsible for falls back, and the log says what went with him.
@@ -350,6 +354,7 @@ describe('R11 host console', () => {
       expect(one('topic.spec.request', topicId)).toMatchObject({ actor: carolUser, detail: { sessionId: discussion } });
       expect(one('plan.generate', topicId)).toMatchObject({ actor: carolUser });
       expect(one('plan.mode', topicId)).toMatchObject({ actor: carolUser, detail: { mode: 'everyone' } });
+      expect(one('topic.agent', topicId)).toMatchObject({ actor: carolUser, detail: { topicId, model: null } });
       expect(one('plan.assign', topicId)).toMatchObject({ actor: carolUser });
       expect(all.filter((e) => e.action === 'plan.start').map((e) => `${e.actor.kind === 'user' ? e.actor.userId : e.actor.kind} ${JSON.stringify(e.detail?.['itemIds'])}`).reverse()).toEqual([`${carol.userId} ["cart-api","checkout-page","receipt-email"]`, `${carol.userId} ["checkout-page"]`]);
       expect(all.filter((e) => e.action === 'spec.commit').map((e) => `${e.outcome} ${e.actor.kind === 'user' ? e.actor.userId : e.actor.kind}`)).toEqual([`ok ${carol.userId}`, `ok ${carol.userId}`]);
@@ -488,6 +493,8 @@ async function agentSessionsAndATopic(stack: Stack, people: { host: Member; caro
   const [rule] = (await carol.conn.request('session.rules.get', { sessionId: free.id })).rules;
   await carol.conn.request('session.rule.remove', { sessionId: free.id, ruleId: rule?.id ?? '' });
   await carol.conn.request('session.mode.set', { sessionId: free.id, mode: 'ask-commands' });
+  // Protocol 5: the host's default model (while the host agent's list is not known, the only model there is to choose).
+  await carol.conn.request('session.model.set', { sessionId: free.id, model: null });
   // A turn that waits for a person is stopped; the session's agent is started again; Dave is made responsible.
   await carol.conn.request('session.message.send', { sessionId: free.id, text: 'Please clean up.' });
   await permissionAt(host, (request) => request.sessionId === free.id && request.status === 'open', 'the request of the turn that is stopped');
@@ -527,6 +534,7 @@ async function agentSessionsAndATopic(stack: Stack, people: { host: Member; caro
   await statusIs(host, discussion, 'idle');
   await planIs(host, topicId, (plan) => plan.items.length === 3, 'the plan');
   await carol.conn.request('plan.mode.set', { topicId, mode: 'everyone' });
+  await carol.conn.request('topic.agent.set', { topicId, model: null });
   await carol.conn.request('plan.assign', { topicId, itemId: 'cart-api', userId: carol.userId });
   await carol.conn.request('plan.assign', { topicId, itemId: 'checkout-page', userId: carol.userId });
   await carol.conn.request('plan.assign', { topicId, itemId: 'receipt-email', userId: host.userId });

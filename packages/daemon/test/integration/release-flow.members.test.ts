@@ -97,14 +97,14 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     await mei.conn.request('question.vote', { questionId: payment.id, part: 0, options: [1] });
     await amy.conn.request('question.vote', { questionId: payment.id, part: 0, options: [0] });
     await waitFor(() => leo.got('question.changed').filter((change) => change.questionId === payment.id && change.vote !== undefined).length === 2, { what: 'both votes' });
-    // A free session of the host's whose mode Mei loosened; a free session of her own.
+    // A free session of the host's whose mode Mei chose (it ran in the workspace's mode); a free session of her own.
     const notes = (await ian.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Notes' })).session as AgentSession;
     const hers = (await mei.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Mine' })).session as AgentSession;
     await sessionReady(leo, notes.id);
     await sessionReady(leo, hers.id);
     for (const member of [ian, mei, amy, leo]) await member.watch(notes.id);
-    expect(notes.permissionMode).toBe('ask-all');
-    expect((await mei.conn.request('session.mode.set', { sessionId: notes.id, mode: 'ask-commands' })).session).toMatchObject({ permissionMode: 'ask-commands' });
+    expect(notes).toMatchObject({ permissionMode: 'auto', modeChoice: null });
+    expect((await mei.conn.request('session.mode.set', { sessionId: notes.id, mode: 'ask-commands' })).session).toMatchObject({ permissionMode: 'ask-commands', modeChoice: 'ask-commands' });
     const worktreeBefore = (await leo.conn.request('worktree.list', {})).worktrees.find((worktree) => worktree.id === cartWt);
     expect(worktreeBefore).toMatchObject({ ownerUserId: MEI, itemId: 'cart-api' });
     const launchesBefore = await launches(flow);
@@ -129,8 +129,9 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     expect(itemOf(disarmed, 'checkout-page')).toMatchObject({ state: 'not-started', armed: false, disarmed: 'starter-removed', startError: { text: { id: 'plan.item.disarmed.starter', params: { name: 'Mei' } } }, responsible: null });
     expect(await inboxItem(ian, (item) => item.subject === 'item-not-started', 'the item that will not start')).toMatchObject({ topicId, itemId: 'checkout-page', target: { kind: 'plan', topicId } });
 
-    // ---- the mode she loosened in the host's session: back to its default
-    await waitFor(async () => (await sessionOf(leo, notes.id)).permissionMode === 'ask-all', { what: 'the mode to be reset' });
+    // ---- the mode she chose in the host's session: back to the workspace's (the choice of a member who goes is reset)
+    await waitFor(async () => (await sessionOf(leo, notes.id)).modeChoice === null, { what: 'the mode to be reset' });
+    expect(await sessionOf(leo, notes.id)).toMatchObject({ permissionMode: 'auto', modeChoice: null });
     expect(kinds(leo.events(notes.id))).toEqual(['line', 'line', 'line']);
     expect(leo.events(notes.id).map((event) => (event.kind === 'line' ? event.text.id : ''))).toEqual(['conversation.started.free', 'conversation.mode.changed', 'conversation.mode.reset']);
 
@@ -154,7 +155,7 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     await waitFor(async () => (await sessionOf(leo, cartId)).responsible === null, { timeoutMs: 30_000, what: 'nobody to be responsible for the session that passed to the host' });
     const handed = await sessionOf(leo, cartId);
     // `openedBy` stays the record of who started it; nobody is responsible any more.
-    expect(handed).toMatchObject({ status: 'stalled', openedBy: { userId: MEI }, responsible: null, ruleCount: 0, permissionMode: 'ask-commands' });
+    expect(handed).toMatchObject({ status: 'stalled', openedBy: { userId: MEI }, responsible: null, ruleCount: 0, permissionMode: 'auto' });
     // Its open question was withdrawn with the turn (first it had become the host's to decide).
     expect(await questionAt(leo, (question) => question.id === colour.id && question.status === 'withdrawn', 'the withdrawn question')).toMatchObject({ withdrawn: { reason: 'stopped' }, decider: { userId: IAN } });
     await eventOf(leo, cartId, (event) => event.kind === 'line' && event.text.id === 'conversation.responsible.fallback', 'the line about who decides now');
@@ -187,7 +188,7 @@ describe('the release composition when a member is removed', { timeout: 480_000 
     expect((await leo.conn.request('topic.list', {})).topics[0]?.rules).toEqual([]);
     expect((await leo.conn.request('session.rules.get', { sessionId: cartId })).rules).toEqual([]);
     expect(itemOf((await leo.conn.request('plan.get', { topicId })).plan, 'checkout-page')).toMatchObject({ armed: false, disarmed: 'starter-removed' });
-    expect(await sessionOf(leo, notes.id)).toMatchObject({ permissionMode: 'ask-all' });
+    expect(await sessionOf(leo, notes.id)).toMatchObject({ permissionMode: 'auto', modeChoice: null });
     expect(await sessionOf(leo, hers.id)).toMatchObject({ status: 'ended' });
     expect((await leo.conn.request('worktree.list', {})).worktrees).toMatchObject([{ ownerUserId: IAN }]);
     // She may press "Continue" (she has agent access again). The session's question is the HOST'S to decide, not hers:
@@ -326,7 +327,7 @@ describe('the release composition: a free agent session in a worktree, and what 
     // Mei's free session in a worktree of its own
     // ================================================================================================================
     const { session } = await mei.conn.request('session.create', { kind: 'agent', workspace: { mode: 'worktree' }, title: 'Spike', firstMessage: 'Please try it.' });
-    expect(session).toMatchObject({ purpose: 'free', title: 'Spike', openedBy: { userId: MEI }, root: { kind: 'worktree' }, permissionMode: 'ask-commands' });
+    expect(session).toMatchObject({ purpose: 'free', title: 'Spike', openedBy: { userId: MEI }, root: { kind: 'worktree' }, permissionMode: 'auto', modeChoice: null });
     const worktreeId = session.root.kind === 'worktree' ? session.root.worktreeId : '';
     for (const member of [ian, mei, amy, leo]) await member.watch(session.id);
     const worktree = (await leo.conn.request('worktree.list', {})).worktrees.find((entry) => entry.id === worktreeId);

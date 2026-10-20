@@ -85,7 +85,9 @@ describe('T4.1 items start when they can', () => {
       openedBy: { userId: 'dev:mei' },
       responsible: { userId: 'dev:host' },
       workspace: { mode: 'worktree', worktreeId: cart.worktreeId },
-      mode: 'ask-commands',
+      // 0.6.0: an item follows its topic's mode, else the workspace's (no choice of its own); the host's default model.
+      modeChoice: null,
+      model: null,
       opening: { id: 'conversation.started.item', params: { number: 1, branch: 'smurg/checkout/cart-api' } },
       firstMessage: { kind: 'smurg', purpose: 'start-item', text: 'Start work item 1 (id cart-api). Its title and description are in specs/checkout/PLAN.md. Responsible for this item: Host.' },
     });
@@ -98,7 +100,8 @@ describe('T4.1 items start when they can', () => {
       { itemId: 'payment-form' },
     ]);
     const session = test.fakes.agents.get(cart.sessionId as string);
-    expect(session).toMatchObject({ purpose: 'item', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1, permissionMode: 'ask-commands' });
+    // 0.6.0: the item follows the workspace (auto, on the wire), launched as 0.5.2's item sessions were (acceptEdits).
+    expect(session).toMatchObject({ purpose: 'item', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1, permissionMode: 'auto', modeChoice: null });
     const prompt = test.fakes.agents.rolePromptOf(cart.sessionId as string).rolePrompt;
     expect(prompt).toContain('the item with the id cart-api in\nspecs/checkout/PLAN.md');
     expect(prompt).toContain('on the branch smurg/checkout/cart-api');

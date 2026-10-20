@@ -26,7 +26,7 @@ import {
   agentSessionName,
   agentText,
   checkRememberableRule,
-  defaultPermissionMode,
+  effectivePermissionMode,
   encodedSize,
   frameMessage,
   lineEvent,
@@ -42,6 +42,7 @@ import {
   worktreeRoot,
   type AccountInfo,
   type Actor,
+  type AgentHostState,
   type AgentSession,
   type ConversationEvent,
   type ConversationEventInput,
@@ -52,6 +53,7 @@ import {
   type Role,
   type RootRef,
   type SessionEndReason,
+  type SessionModeChoice,
   type UserRef,
 } from '@smurg/protocol';
 import { msg, renderEnglish, type MessageRef } from '@smurg/protocol/i18n';
@@ -190,6 +192,7 @@ export class AgentSessionsImpl implements AgentSessions {
       rootGone: (runner) => this.rootGone(runner),
       rss: (pid) => this.rss(pid),
       idle: (runner) => this.idle(runner),
+      effectiveMode: (runner) => this.effectiveMode(runner.record),
     };
   }
 
@@ -294,6 +297,24 @@ export class AgentSessionsImpl implements AgentSessions {
     }
   }
 
+  /** The topic's own mode choice for its work items (null: none, or no topic). */
+  private topicModeChoice(topicId: string | undefined): SessionModeChoice | null {
+    if (topicId === undefined || isStubService(this.ctx.services.topics)) return null;
+    try {
+      return this.ctx.services.topics.agent(topicId)?.permissionMode ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The mode the session runs with (DESIGN 0.6.0 D3): its own choice, else (a work item) its topic's, else the
+   * workspace's; a discussion reads `ask-all`. What the process is launched with follows from it (`claudeModeFor`).
+   */
+  private effectiveMode(record: AgentRecord): PermissionMode {
+    return effectivePermissionMode({ purpose: record.purpose, session: record.modeChoice, topic: this.topicModeChoice(record.topic?.id), workspace: this.ctx.settings.get().permissionMode });
+  }
+
   private wire(entry: Entry): AgentSession {
     const { runner, transcript } = entry;
     const record = runner.record;
@@ -319,8 +340,10 @@ export class AgentSessionsImpl implements AgentSessions {
       ...(runner.runningSince !== undefined && !ended ? { runningSince: runner.runningSince } : {}),
       ...(runner.doing === undefined ? {} : { doing: runner.doing }),
       ...(status === 'failed' && record.startFailures >= this.config.startFailuresHostOnly ? { retryHostOnly: true as const } : {}),
-      permissionMode: record.mode,
+      permissionMode: this.effectiveMode(record),
+      modeChoice: record.purpose === 'discussion' ? null : record.modeChoice,
       modeFixed: record.purpose === 'discussion',
+      model: record.model,
       ruleCount: record.rules.length + this.topicRules(record.topic?.id).length,
       login: runner.login,
       ...(record.claudeVersion === undefined ? {} : { claudeVersion: record.claudeVersion }),
@@ -386,6 +409,7 @@ export class AgentSessionsImpl implements AgentSessions {
       pathRights: record.pathRights,
       fallbackDecider: record.fallbackDecider,
       ...(record.modeChangedBy === undefined ? {} : { modeChangedBy: record.modeChangedBy.userId }),
+      ...(record.modelChangedBy === undefined ? {} : { modelChangedBy: record.modelChangedBy.userId }),
       hasProcess: entry.runner.hasProcess,
     };
   }
@@ -690,6 +714,11 @@ export class AgentSessionsImpl implements AgentSessions {
     return this.claudeStatus === null ? null : { ...this.claudeStatus };
   }
 
+  hostAgentState(): AgentHostState {
+    // 0.6.0 S1: the host's model list is not asked for yet (S3's probe and each process's `initialize` fill it).
+    return { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' };
+  }
+
   attention(): AttentionFact[] {
     const host = this.ctx.members.hostUserId();
     const out: AttentionFact[] = [];
@@ -784,7 +813,7 @@ export class AgentSessionsImpl implements AgentSessions {
     try {
       profile = buildProfile({
         purpose: record.purpose,
-        mode: record.mode,
+        mode: this.effectiveMode(record),
         root: record.root,
         rootRealPath: root.realPath,
         ...(record.topic === undefined ? {} : { topicSlug: record.topic.slug }),
@@ -929,7 +958,10 @@ export class AgentSessionsImpl implements AgentSessions {
       root,
       ...(worktreeId === undefined ? {} : { worktreeId }),
       ...(branch === undefined || branch.length === 0 ? {} : { branch }),
-      mode: input.purpose === 'discussion' ? 'ask-all' : input.mode,
+      modeChoice: input.purpose === 'discussion' ? null : input.modeChoice,
+      ...(input.purpose === 'discussion' || input.modeChoice === null || input.modeChangedBy === undefined ? {} : { modeChangedBy: { ...input.modeChangedBy } }),
+      model: input.model,
+      ...(input.model === null || input.modelChangedBy === undefined ? {} : { modelChangedBy: { ...input.modelChangedBy } }),
       rules: [],
       claudeSessionId: randomUUID(),
       hasConversation: false,
@@ -1059,28 +1091,91 @@ export class AgentSessionsImpl implements AgentSessions {
   // AgentSessions: what people change
   // =================================================================================================================
 
-  async setMode(sessionId: string, mode: PermissionMode, by: Actor): Promise<void> {
+  async setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void> {
     const entry = this.need(sessionId);
     const record = entry.runner.record;
     if (record.purpose === 'discussion') throw agentError('conflict', msg('session.mode.fixed'), 'mode-fixed');
+    const before = claudeModeFor(record.purpose, this.effectiveMode(record), record.root);
     const person = userOf(by);
+    const resetFrom = record.modeChangedBy;
+    record.modeChoice = mode;
+    if (person !== null && mode !== null) record.modeChangedBy = person;
+    else delete record.modeChangedBy;
+    const effective = this.effectiveMode(record);
     if (person !== null) {
-      this.push(entry, lineEvent(msg('conversation.mode.changed', { by: person.displayName, mode })));
+      this.push(entry, lineEvent(mode === null ? msg('conversation.mode.followed', { by: person.displayName, mode: effective }) : msg('conversation.mode.changed', { by: person.displayName, mode })));
       this.ctx.audit.record({ actor: by, action: 'session.mode', outcome: 'ok', target: sessionId, detail: { sessionId, mode } });
-      // Remembered while the mode is not the default.
-      if (mode === defaultPermissionMode(record.purpose, record.root)) delete record.modeChangedBy;
-      else record.modeChangedBy = person;
-    } else {
-      // The system puts a loosened mode back: the line names who had changed it.
-      if (record.modeChangedBy !== undefined) this.push(entry, lineEvent(msg('conversation.mode.reset', { name: record.modeChangedBy.displayName })));
-      delete record.modeChangedBy;
+    } else if (resetFrom !== undefined) {
+      // The system puts a member's choice back (they went): the line names who had chosen it.
+      this.push(entry, lineEvent(msg('conversation.mode.reset', { name: resetFrom.displayName })));
     }
-    const before = claudeModeFor(record.purpose, record.mode, record.root);
-    record.mode = mode;
     this.save(entry.runner);
     this.touch(entry, false);
-    const after = claudeModeFor(record.purpose, mode, record.root);
+    const after = claudeModeFor(record.purpose, effective, record.root);
     if (before !== after) await entry.runner.setClaudeMode(after);
+  }
+
+  async setModel(sessionId: string, model: string | null, by: Actor): Promise<void> {
+    const entry = this.need(sessionId);
+    const record = entry.runner.record;
+    const person = userOf(by);
+    const resetFrom = record.modelChangedBy;
+    record.model = model;
+    if (person !== null && model !== null) record.modelChangedBy = person;
+    else delete record.modelChangedBy;
+    if (person !== null) {
+      this.push(entry, lineEvent(model === null ? msg('conversation.model.default', { by: person.displayName }) : msg('conversation.model.changed', { by: person.displayName, model })));
+      this.ctx.audit.record({ actor: by, action: 'session.model', outcome: 'ok', target: sessionId, detail: { sessionId, model } });
+    } else if (resetFrom !== undefined) {
+      this.push(entry, lineEvent(msg('conversation.model.reset', { name: resetFrom.displayName })));
+    }
+    // Stored only (0.6.0 S1): a running process keeps its model until its next start; the live switch is S3's.
+    this.save(entry.runner);
+    this.touch(entry, false);
+  }
+
+  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void> {
+    const person = userOf(by);
+    const workspace = this.ctx.settings.get().permissionMode;
+    for (const entry of [...this.entries.values()]) {
+      const record = entry.runner.record;
+      if (record.topic?.id !== topicId || record.state === 'ended') continue;
+      // Only a work item follows its topic's mode, and only while it has no choice of its own.
+      if (record.purpose === 'item' && record.modeChoice === null) {
+        const before = effectivePermissionMode({ purpose: record.purpose, session: null, topic: previous, workspace });
+        const after = this.effectiveMode(record);
+        if (before !== after && person !== null) this.push(entry, lineEvent(msg('conversation.mode.topic', { by: person.displayName, mode: after })));
+        await this.followMode(entry, before, after);
+      }
+      this.touch(entry, false);
+    }
+  }
+
+  /**
+   * The workspace's mode changed (the host's setting): every live session that follows it (its own choice null, and
+   * for a work item its topic's choice null) runs with the new effective mode; the line `conversation.mode.workspace`
+   * in each. (0.6.0 S1: what is launched stays 0.5.2's two Claude modes; S4 maps the four modes and restarts a session
+   * that loosens into `ask-nothing` at its next idle moment.)
+   */
+  async workspaceModeChanged(previous: PermissionMode): Promise<void> {
+    for (const entry of [...this.entries.values()]) {
+      const record = entry.runner.record;
+      if (record.state === 'ended' || record.purpose === 'discussion' || record.modeChoice !== null) continue;
+      if (record.purpose === 'item' && this.topicModeChoice(record.topic?.id) !== null) continue;
+      const after = this.effectiveMode(record);
+      if (after === previous) continue;
+      this.push(entry, lineEvent(msg('conversation.mode.workspace', { mode: after })));
+      this.touch(entry, false);
+      await this.followMode(entry, previous, after);
+    }
+  }
+
+  /** A live process takes the Claude mode its new effective mode launches with, when that is another one. */
+  private async followMode(entry: Entry, before: PermissionMode, after: PermissionMode): Promise<void> {
+    const record = entry.runner.record;
+    const was = claudeModeFor(record.purpose, before, record.root);
+    const now = claudeModeFor(record.purpose, after, record.root);
+    if (was !== now) await entry.runner.setClaudeMode(now);
   }
 
   async setRules(sessionId: string, rules: readonly RememberedRule[], by: Actor): Promise<void> {

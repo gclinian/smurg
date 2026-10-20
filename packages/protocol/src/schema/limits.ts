@@ -97,6 +97,15 @@ export const MERGE_FILES_MAX = 10_000;
 export const DEVICES_PER_MEMBER_MAX = 100;
 /** Shared read-only directories (D12) in the host settings. */
 export const SHARED_DIRS_MAX = 64;
+
+// Models (protocol 5) ------------------------------------------------------------------------------------------
+
+/** An opaque model id as the agent lists it (an alias, a full id, a cloud ARN, `name@version`). */
+export const MODEL_ID_MAX_CHARS = 256;
+/** Models one host's agent offers (`HostState.agent.models`). */
+export const AGENT_MODELS_MAX = 32;
+/** The agent's own line about a model (prices included). */
+export const MODEL_DESCRIPTION_MAX_CHARS = 512;
 /** Keys in an audit entry's `detail`. */
 export const AUDIT_DETAIL_MAX_KEYS = 64;
 
@@ -220,6 +229,8 @@ export const REVIEWERS_MAX = 20;
 export const PREFLIGHT_BLOCKERS_MAX = 10;
 export const PREFLIGHT_ALSO_IN_FOLDER_MAX = 20;
 export const PREFLIGHT_EDITING_NOW_MAX = 20;
+/** Nested git repositories a Start dialog names (smurg's own history does not copy them into work items). */
+export const PREFLIGHT_NESTED_REPOS_MAX = 20;
 /** `plan.changes`: the diff of SPEC.md or PLAN.md since the last Start, UTF-8 bytes; the daemon truncates and sets `truncated`. */
 export const PLAN_CHANGES_DIFF_MAX_BYTES = 512 * KiB;
 /** Worktrees named in the refusal of an archive that has unmerged changes (one per work item). */

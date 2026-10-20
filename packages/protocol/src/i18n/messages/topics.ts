@@ -146,6 +146,18 @@ export const topics = {
     en: (p) => `The spec and the plan could not be committed (${p.step}).`,
     'zh-TW': (p) => `無法提交 spec 和計畫（${p.step}）`,
   }),
+  'plan.start.directUnconfirmed': message({}, {
+    en: () => 'Without git, work items change the shared folder directly. Confirm that in the Start dialog first.',
+    'zh-TW': () => '沒有 git 時，工作項目會直接改動分享的資料夾。請先在開始對話框裡確認這一點。',
+  }),
+  'plan.start.directHostOnly': message({}, {
+    en: () => 'Without git, only the host can start work items: they run directly in the shared folder.',
+    'zh-TW': () => '沒有 git 時，只有主人能讓工作項目開始：它們會直接在分享的資料夾裡執行。',
+  }),
+  'plan.start.historyChanged': message({}, {
+    en: () => "How smurg keeps this folder's history changed since Start. Look at the plan and start the item again.",
+    'zh-TW': () => '從按下開始到現在，smurg 保存這個資料夾版本紀錄的方式變了。請看過計畫，再重新開始這個項目。',
+  }),
   'plan.paused': message({}, {
     en: () => "smurg was restarted on the host's computer. This plan is paused.",
     'zh-TW': () => '主人電腦上的 smurg 重新啟動了，這份計畫已暫停',

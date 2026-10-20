@@ -42,8 +42,10 @@ worktrees[].handEdits[].by: array [max_length maximum=20]
 worktrees[].handEdits[].by[]: #6 object strict
 worktrees[].handEdits[].by[].userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
 worktrees[].handEdits[].by[].displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+worktrees[].repo: optional
+worktrees[].repo: literal "smurg"
 merges: array [max_length maximum=1000]
-merges[]: #7 object strict
+merges[]: #7 object [custom] strict
 merges[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/] [string_format format=regex pattern=^mr_[0-9a-f]{24}$/]
 merges[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 merges[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
@@ -73,3 +75,12 @@ merges[].rejectReason: optional
 merges[].rejectReason: string [min_length minimum=0] [max_length maximum=1000] [custom]
 merges[].mergeCommit: optional
 merges[].mergeCommit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+merges[].repo: optional
+merges[].repo: literal "smurg"
+merges[].base: optional
+merges[].base: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+hidden: optional
+hidden: #8 object strict
+hidden.createdAt: number format=safeint [greater_than value=0 inclusive=true]
+hidden.configHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+hidden.headHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]

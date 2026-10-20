@@ -5,6 +5,7 @@ import {
   ENVELOPE_ID_MAX_CHARS,
   ETAG_MAX_CHARS,
   IDENTITY_TOKEN_MAX_CHARS,
+  MODEL_ID_MAX_CHARS,
   OPAQUE_ID_MAX_CHARS,
   SHORT_TEXT_MAX_CHARS,
 } from './limits.ts';
@@ -51,6 +52,16 @@ export const displayNameSchema = relayDisplayNameSchema;
 export const avatarUrlSchema = relayAvatarUrlSchema;
 /** Workspace ids: URL-safe, 16–64 characters. */
 export const workspaceIdSchema = z.string().regex(WORKSPACE_ID_PATTERN, 'not a workspace id');
+
+/**
+ * An opaque model id as the agent lists it (protocol 5): an alias (`sonnet`, `sonnet[1m]`), a full id, a cloud ARN or
+ * `name@version`. smurg never reads meaning into it: it is a value of the agent's own list, passed back to the agent.
+ */
+export const modelIdSchema = z
+  .string()
+  .min(1)
+  .max(MODEL_ID_MAX_CHARS)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]*$/, 'not a model id');
 
 // ---------------------------------------------------------------------------------------------------------------
 // Text

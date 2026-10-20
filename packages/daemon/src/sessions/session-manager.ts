@@ -19,7 +19,6 @@ import {
   LIST_MAX_ITEMS,
   SmurgError,
   can,
-  defaultPermissionMode,
   lineEvent,
   mayEndSession,
   rootRefKey,
@@ -403,9 +402,10 @@ export class SessionManagerImpl implements SessionManager {
   }
 
   /**
-   * A free agent session (no topic): the caller is `openedBy`, nobody is responsible. In the main workspace it asks
-   * before edits and commands; in a worktree of its own before commands (`defaultPermissionMode`). Its conversation
-   * opens with the line `conversation.started.free`. Audited `session.create`.
+   * A free agent session (no topic): the caller is `openedBy`, nobody is responsible. Its permission mode is the
+   * caller's choice, else it follows the workspace's (DESIGN 0.6.0 D3); its model the caller's, else the host's default
+   * (the handler checked it: `model-offered`). Its conversation opens with the line `conversation.started.free`.
+   * Audited `session.create` (with the mode it runs with and the model, null for the host's default).
    */
   private async createFree(input: Extract<PayloadOf<'session.create'>, { kind: 'agent' }>, principal: Principal): Promise<AgentSession> {
     const ctx = this.ctx;
@@ -423,7 +423,9 @@ export class SessionManagerImpl implements SessionManager {
       release = () => ctx.services.worktrees.releaseFromSession(handle.worktree.id, id, { keep: !made });
     }
     const root: RootRef = workspace.mode === 'main' ? { kind: 'main' } : worktreeRoot(workspace.worktreeId);
-    const mode = defaultPermissionMode('free', root);
+    const modeChoice = input.permissionMode ?? null;
+    const model = input.model ?? null;
+    const by = principal.actor.kind === 'user' ? { userId: principal.actor.userId, displayName: principal.actor.displayName } : undefined;
     const name = principal.actor.kind === 'user' ? principal.actor.displayName : 'Host';
     const startInput = {
       purpose: 'free' as const,
@@ -431,7 +433,10 @@ export class SessionManagerImpl implements SessionManager {
       responsible: null,
       ...(input.title !== undefined ? { title: input.title } : {}),
       workspace,
-      mode,
+      modeChoice,
+      ...(modeChoice !== null && by !== undefined ? { modeChangedBy: by } : {}),
+      model,
+      ...(model !== null && by !== undefined ? { modelChangedBy: by } : {}),
       rolePrompt: ({ smurgTag }: { readonly smurgTag: string }) => freeRolePrompt(smurgTag),
       opening: msg('conversation.started.free', { name }),
       ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),
@@ -454,7 +459,9 @@ export class SessionManagerImpl implements SessionManager {
         kind: 'agent',
         purpose: 'free',
         root: rootRefKey(root),
-        mode,
+        mode: session.permissionMode,
+        ...(modeChoice === null ? {} : { modeChoice }),
+        model,
         ...(workspace.mode === 'worktree' ? { worktreeId: workspace.worktreeId } : {}),
         projectSettings: { state: trust?.state(root) ?? 'none', files: trust?.hashes(root) ?? [] },
         hostRules: isStubService(ctx.services.hostRules) ? 0 : ctx.services.hostRules.applied().length,

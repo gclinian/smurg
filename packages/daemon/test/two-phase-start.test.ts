@@ -8,7 +8,7 @@ import { totalmem } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMaxLiveAgents } from '../src/core/config.ts';
-import { STAMP_FILE, keptCopyPath, serializeDocument } from '../src/core/state-store.ts';
+import { STAMP_FILE, WORKSPACE_SHAPES, keptCopyPath, serializeDocument } from '../src/core/state-store.ts';
 import type { WorkspaceState } from '../src/core/workspace-state.ts';
 import { DAEMON_VERSION } from '../src/daemon.ts';
 import { sessionFilesRoot } from '../src/hooks/settings-writer.ts';
@@ -57,13 +57,14 @@ async function home(): Promise<Home> {
 const readJson = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8')) as T;
 
 /**
- * Turns the folder today's smurg wrote into what 0.4.0 left: state.json without the three settings 0.5.0 added,
- * suggestions.json with entries that have no `origin`, no stamp. Returns the state as 0.4.0 held it.
+ * Turns the folder today's smurg wrote into what 0.4.0 left: state.json without what 0.6.0 added (version 2, the
+ * workspace's permission mode, the host's notices) and without the three settings 0.5.0 added, suggestions.json with
+ * entries that have no `origin`, no stamp. Returns the state as 0.4.0 held it.
  */
 async function asV040Left(h: Home): Promise<Record<string, unknown>> {
-  const state = await readJson<WorkspaceState>(join(h.dir, 'state.json'));
-  const { maxLiveAgents: _a, escalateAfterMs: _b, agentMcp: _c, ...six } = state.settings;
-  const old = { ...state, settings: { ...six, humanLockIdleMs: 45_000, sharedDirs: [] } };
+  const { hostNotices: _notices, ...state } = await readJson<WorkspaceState>(join(h.dir, 'state.json'));
+  const { maxLiveAgents: _a, escalateAfterMs: _b, agentMcp: _c, permissionMode: _d, ...six } = state.settings;
+  const old = { ...state, version: 1, settings: { ...six, humanLockIdleMs: 45_000, sharedDirs: [] } };
   await writeFile(join(h.dir, 'state.json'), serializeDocument(old), { mode: 0o600 });
   await writeFile(join(h.dir, 'suggestions.json'), serializeDocument(suggestionsOfV040()), { mode: 0o600 });
   await rm(join(h.dir, STAMP_FILE), { force: true });
@@ -100,14 +101,14 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     expect(t.daemon.upgraded).toEqual([]);
     expect(t.daemon.putBack).toBe(false);
     expect(t.daemon.internals.folder).toMatchObject({ isNew: true, stamp: null, keyPair: null });
-    expect(await readJson(join(h.dir, STAMP_FILE))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
+    expect(await readJson(join(h.dir, STAMP_FILE))).toEqual({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES, at: expect.any(Number) });
     const names = await readdir(h.dir);
     expect(names).toEqual(expect.arrayContaining(['identity.key', 'state.json', 'audit.jsonl', 'audit-text.jsonl', 'inbox.json', 'suggestions.json', STAMP_FILE]));
     expect(names.some((name) => name.includes('before-upgrade'))).toBe(false);
     await h.stop();
     // The next start reads what this one wrote: an existing folder, nothing to upgrade.
     const again = await h.start();
-    expect(again.daemon.internals.folder).toMatchObject({ isNew: false, stamp: { smurg: DAEMON_VERSION, shapes: 1 }, putBack: false });
+    expect(again.daemon.internals.folder).toMatchObject({ isNew: false, stamp: { smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES }, putBack: false });
     expect(again.daemon.upgraded).toEqual([]);
     expect(Buffer.from(again.daemon.daemonPublicKey).equals(Buffer.from(t.daemon.daemonPublicKey))).toBe(true);
   });
@@ -116,9 +117,9 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     // V1-6. The folder holds one file, the stamp, exactly as phase 2 of a first start leaves it before the key.
     const h = await home();
     await mkdir(h.dir, { recursive: true, mode: 0o700 });
-    await writeFile(join(h.dir, STAMP_FILE), serializeDocument({ smurg: DAEMON_VERSION, shapes: 1, at: 5 }), { mode: 0o600 });
+    await writeFile(join(h.dir, STAMP_FILE), serializeDocument({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES, at: 5 }), { mode: 0o600 });
     const t = await h.start();
-    expect(t.daemon.internals.folder).toMatchObject({ isNew: true, keyPair: null, stamp: { smurg: DAEMON_VERSION, shapes: 1 } });
+    expect(t.daemon.internals.folder).toMatchObject({ isNew: true, keyPair: null, stamp: { smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES } });
     expect(t.daemon.upgraded).toEqual([]);
     expect(t.daemon.putBack).toBe(false);
     expect(await readdir(h.dir)).toEqual(expect.arrayContaining(['identity.key', 'state.json', STAMP_FILE]));
@@ -183,8 +184,9 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     expect(loaded).toMatchObject({ upgradedFrom: '0.4.0' });
     const { settings, ...rest } = loaded?.value as WorkspaceState;
     const { settings: oldSettings, ...oldRest } = old;
-    expect(rest).toEqual(oldRest);
-    expect(settings).toMatchObject({ ...(oldSettings as object), escalateAfterMs: 300_000, agentMcp: false });
+    // Both steps ran: 0.4.0's settings got 0.5.0's three, and 0.5.0's state got 0.6.0's mode and the notice.
+    expect(rest).toEqual({ ...oldRest, version: 2, hostNotices: ['agents-auto'] });
+    expect(settings).toMatchObject({ ...(oldSettings as object), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
     expect(settings.maxLiveAgents).toBe(defaultMaxLiveAgents(totalmem()));
     // What the members see: carried settings, the member who joined under "0.4.0".
     expect(t.ctx.settings.get()).toMatchObject({ humanLockIdleMs: 45_000, agentMcp: false, escalateAfterMs: 300_000 });

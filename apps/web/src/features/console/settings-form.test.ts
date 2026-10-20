@@ -13,6 +13,7 @@ const SETTINGS: HostSettings = {
   maxLiveAgents: 8,
   escalateAfterMs: 600_000,
   agentMcp: false,
+  permissionMode: 'auto',
 };
 
 const draft = (overrides: Partial<SettingsDraft> = {}): SettingsDraft => ({ ...draftFromSettings(SETTINGS), ...overrides });

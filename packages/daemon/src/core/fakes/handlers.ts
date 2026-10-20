@@ -55,6 +55,8 @@ function hostState(ctx: DaemonContext): HostState {
   return {
     account: ctx.services.agents.account(),
     mainProjectSettings: isStubService(ctx.services.projectTrust) ? 'none' : ctx.services.projectTrust.state(MAIN_ROOT),
+    agent: ctx.services.agents.hostAgentState(),
+    work: isStubService(ctx.services.worktrees) ? { history: 'unchecked' } : ctx.services.worktrees.workState(),
   };
 }
 
@@ -164,6 +166,13 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
       }),
     );
     stack.add(
+      router.handle('session.model.set', async (payload, req) => {
+        agentSession(ctx, payload.sessionId);
+        await s.agents.setModel(payload.sessionId, payload.model, req.principal.actor);
+        return { session: agentSession(ctx, payload.sessionId) };
+      }),
+    );
+    stack.add(
       router.handle('session.rules.get', (payload, req) => {
         const session = agentSession(ctx, payload.sessionId);
         const topicRules = session.topicId === undefined || isStubService(s.topics) ? [] : s.topics.rules(session.topicId);
@@ -241,6 +250,7 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
     );
     stack.add(router.handle('topic.rule.add', async (payload, req) => ({ topic: await s.topics.addRule(payload, req.principal) })));
     stack.add(router.handle('topic.rule.remove', async (payload, req) => ({ topic: await s.topics.removeRule(payload, req.principal) })));
+    stack.add(router.handle('topic.agent.set', async (payload, req) => ({ topic: await s.topics.setAgent(payload, req.principal) })));
     // d→c `topic.updated` / `topic.removed`, to everyone.
     stack.add(ctx.bus.on('topic.changed', (event) => void ctx.hub.broadcast('topic.updated', { topic: event.topic })));
     stack.add(ctx.bus.on('topic.removed', (event) => void ctx.hub.broadcast('topic.removed', { topicId: event.topicId })));

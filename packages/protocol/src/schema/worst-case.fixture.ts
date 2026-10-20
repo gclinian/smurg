@@ -1,4 +1,4 @@
-// Test fixture: the LARGEST sample of every protocol 4 message, for worst-case.test.ts. A sample is built at the
+// Test fixture: the LARGEST sample of every protocol 4 and 5 message, for worst-case.test.ts. A sample is built at the
 // schema's own maxima (arrays at their maximum length, character-limited strings at their maximum length in
 // three-byte characters, byte-limited strings at their byte limit), EXCEPT where the registry names a size rule: then
 // the daemon bounds the message and the sample is the largest one that rule lets through.
@@ -36,6 +36,9 @@ const ref = ((): { id: string; params: Record<string, string> } => {
 })();
 const wireText = { text: ref, fallback: wide(L.FALLBACK_TEXT_MAX_CHARS) };
 
+/** The longest model id (MODEL_ID_MAX_CHARS, ASCII: a model id is ASCII). */
+const MODEL = `m${'x'.repeat(L.MODEL_ID_MAX_CHARS - 1)}`;
+
 const rule = (index: number): unknown => ({ id: id('rl', index), tool: 'WebFetch', pattern: `domain:${'a'.repeat(L.RULE_PATTERN_MAX_CHARS - 7)}`, scope: 'topic', addedBy: user, addedAt: T });
 
 export const worstSession = {
@@ -58,7 +61,12 @@ export const worstSession = {
   doing: 'compacting',
   retryHostOnly: true,
   permissionMode: 'ask-commands',
+  modeChoice: 'ask-commands',
+  modeInUse: 'ask-all',
+  modeFallback: 'ask-nothing-off',
   modeFixed: false,
+  model: MODEL,
+  modelInUse: MODEL,
   ruleCount: 100,
   login: 'logged-out',
   claudeVersion: '9'.repeat(32),
@@ -202,6 +210,7 @@ export const worstTopic = {
   handEdits: { spec: many(L.HAND_EDITS_MAX, () => ({ by: user, at: T })), plan: many(L.HAND_EDITS_MAX, () => ({ by: user, at: T })) },
   plan: { exists: true, valid: false, error: { ...wireText, line: 9e6 }, generating: true, stale: true, mode: 'everyone', paused: true, changedAt: T, changedBy: actor, items: 80, started: 80, reviewed: 80, merged: 80 },
   rules: many(L.REMEMBERED_RULES_MAX, rule),
+  agent: { model: MODEL, permissionMode: 'ask-commands' },
 };
 const workItem = (index: number): unknown => ({
   id: itemId(index),
@@ -277,7 +286,17 @@ export const worstPreflight = {
   rules: many(L.REMEMBERED_RULES_MAX, rule),
   sharedDirs: many(SHARED_DIRS_MAX, () => PATH),
   blockers: many(L.PREFLIGHT_BLOCKERS_MAX, () => wireText),
+  // The folder's own repository: the largest variant (its commit names 22 paths; smurg's history names at most 20
+  // nested repositories and has no commit; `direct` has one sentence and no commit).
+  history: 'folder',
+  direct: null,
+  agent: { model: MODEL, permissionMode: 'ask-commands', effective: 'ask-commands' },
+  nestedRepos: [],
+  cloudSynced: false,
 };
+/** The other two variants of a Start dialog (protocol 5), at their own maxima. */
+export const worstSmurgPreflight = { ...worstPreflight, history: 'smurg', commit: null, nestedRepos: many(L.PREFLIGHT_NESTED_REPOS_MAX, () => PATH), cloudSynced: true };
+export const worstDirectPreflight = { ...worstPreflight, history: 'direct', commit: null, direct: { reason: wireText, hostOnly: true } };
 
 // ---- inbox ---------------------------------------------------------------------------------------------------------
 /** The kind with the most fields (INBOX_KIND_FIELDS): a question of a work item's session, escalated. */
@@ -334,7 +353,20 @@ function list<V>(count: number, make: (index: number) => V): V[] {
 }
 
 const itemPayload = { topicId: id('tp'), itemId: itemId(0) };
-const hostState = { account: { state: 'usage-limit', resetsAt: T, sessions: 9e6 }, mainProjectSettings: 'ignored' };
+/** Protocol 5: 32 models with the longest names and descriptions (DESIGN 0.6.0 D5). */
+export const worstHostState = {
+  account: { state: 'usage-limit', resetsAt: T, sessions: 9e6 },
+  mainProjectSettings: 'ignored',
+  agent: {
+    models: many(L.AGENT_MODELS_MAX, () => ({ value: MODEL, name: wide(256), description: wide(L.MODEL_DESCRIPTION_MAX_CHARS), resolved: MODEL, auto: true, billing: 'usage-credits' })),
+    modelsKnown: true,
+    hostDefault: MODEL,
+    autoMode: 'off',
+    asksNothing: 'root',
+  },
+  work: { history: 'direct', reason: wireText },
+};
+const hostState = worstHostState;
 const text = wide(L.MESSAGE_TEXT_MAX_CHARS);
 const mentions = many(L.MENTIONS_PER_TEXT_MAX, () => USER_ID);
 const messageOrSuggestion = { suggestion: worstSuggestion };
@@ -343,7 +375,7 @@ export type WorstCase = { readonly payload: unknown; readonly result?: unknown }
 
 /** The protocol 4 messages (ARCHITECTURE §5.5 agent part, §5.9–§5.11, the §5.8 additions, and the reshaped §5.5–§5.7 ones). */
 export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
-  'session.create': { payload: { kind: 'agent', workspace: { mode: 'worktree', worktreeId: id('wt') }, title: wide(256), firstMessage: text }, result: { session: agentSession } },
+  'session.create': { payload: { kind: 'agent', workspace: { mode: 'worktree', worktreeId: id('wt') }, title: wide(256), firstMessage: text, model: MODEL, permissionMode: 'ask-commands' }, result: { session: agentSession } },
   'session.list': { payload: { topicId: id('tp'), after: id('s') }, result: { sessions: list(L.LIST_MAX_ITEMS, () => agentSession), hasMore: true } },
   'session.state': { payload: { session: agentSession } },
   'session.host.get': { payload: {}, result: hostState },
@@ -364,6 +396,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'session.restart': { payload: { sessionId: id('s') }, result: { session: agentSession } },
   'session.responsible.set': { payload: { sessionId: id('s'), userId: USER_ID }, result: { session: agentSession } },
   'session.mode.set': { payload: { sessionId: id('s'), mode: 'ask-commands' }, result: { session: agentSession } },
+  'session.model.set': { payload: { sessionId: id('s'), model: MODEL }, result: { session: agentSession } },
   'session.rules.get': {
     payload: { sessionId: id('s') },
     result: { rules: many(2 * L.REMEMBERED_RULES_MAX, rule), host: { state: 'applied', rules: many(L.HOST_RULES_MAX, () => wide(L.HOST_RULE_MAX_CHARS)) } },
@@ -384,7 +417,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'suggest.create': { payload: { sessionId: id('s'), text: wide(L.SUGGESTION_TEXT_MAX_CHARS), source: { file, startLine: 1, endLine: 9e9 }, mentions }, result: { suggestion: worstSuggestion } },
   'suggest.list': { payload: { sessionId: id('s'), after: id('sg') }, result: { suggestions: list(L.LIST_MAX_ITEMS, () => worstSuggestion), hasMore: true } },
   'suggest.updated': { payload: { suggestion: worstSuggestion } },
-  'topic.create': { payload: { name: wide(L.TOPIC_NAME_MAX_CHARS), slug: 'a'.repeat(L.TOPIC_SLUG_MAX_CHARS), firstMessage: text }, result: { topic: worstTopic, session: agentSession } },
+  'topic.create': { payload: { name: wide(L.TOPIC_NAME_MAX_CHARS), slug: 'a'.repeat(L.TOPIC_SLUG_MAX_CHARS), firstMessage: text, model: MODEL }, result: { topic: worstTopic, session: agentSession } },
   'topic.list': { payload: { archived: true, after: id('tp') }, result: { topics: list(L.TOPICS_MAX, () => worstTopic), hasMore: true } },
   'topic.updated': { payload: { topic: worstTopic } },
   'topic.removed': { payload: { topicId: id('tp') } },
@@ -396,6 +429,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'topic.spec.request': { payload: { topicId: id('tp') }, result: {} },
   'topic.rule.add': { payload: { topicId: id('tp'), tool: 'WebFetch', pattern: `domain:${'a'.repeat(L.RULE_PATTERN_MAX_CHARS - 7)}` }, result: { topic: worstTopic } },
   'topic.rule.remove': { payload: { topicId: id('tp'), ruleId: id('rl') }, result: { topic: worstTopic } },
+  'topic.agent.set': { payload: { topicId: id('tp'), model: MODEL, permissionMode: 'ask-commands' }, result: { topic: worstTopic } },
   'plan.generate': { payload: { topicId: id('tp') }, result: {} },
   'plan.get': { payload: { topicId: id('tp') }, result: { plan: worstPlan } },
   'plan.updated': { payload: { plan: worstPlan } },
@@ -403,7 +437,10 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'plan.assign': { payload: { ...itemPayload, userId: USER_ID }, result: { plan: worstPlan } },
   'plan.suggest': { payload: { topicId: id('tp') }, result: { plan: worstPlan } },
   'plan.preflight': { payload: { topicId: id('tp'), itemIds: many(L.PLAN_INFO_ITEMS_MAX, itemId) }, result: { preflight: worstPreflight } },
-  'plan.start': { payload: { topicId: id('tp'), itemIds: many(L.PLAN_INFO_ITEMS_MAX, itemId), planRevision: 9e6, specHash: HASH, planHash: HASH }, result: { plan: worstPlan } },
+  'plan.start': {
+    payload: { topicId: id('tp'), itemIds: many(L.PLAN_INFO_ITEMS_MAX, itemId), planRevision: 9e6, specHash: HASH, planHash: HASH, agent: { model: MODEL, permissionMode: 'ask-commands' }, direct: true },
+    result: { plan: worstPlan },
+  },
   'plan.changes': { payload: { topicId: id('tp') }, result: { files: [{ target: 'spec', diff: big(L.PLAN_CHANGES_DIFF_MAX_BYTES), truncated: true }, { target: 'plan', diff: big(L.PLAN_CHANGES_DIFF_MAX_BYTES), truncated: true }] } },
   'plan.resume': { payload: { topicId: id('tp') }, result: { plan: worstPlan } },
   'plan.item.retry': { payload: itemPayload, result: { plan: worstPlan } },
@@ -421,5 +458,6 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'admin.claudeConfig.decide': { payload: { root, files: many(L.CLAUDE_CONFIG_FILES_MAX, () => ({ path: PATH, hash: HASH })), decision: 'trust', acknowledged: ['credentials', 'allows-tools', 'incomplete'] }, result: {} },
   'admin.hostRules.get': { payload: {}, result: { rules: many(L.HOST_RULES_MAX, () => ({ rule: wide(L.HOST_RULE_MAX_CHARS), source: 'managed' })), seen: true } },
   'admin.hostRules.seen': { payload: {}, result: {} },
+  'admin.notice.seen': { payload: { notice: 'agents-auto' }, result: {} },
   'admin.transcript.redact': { payload: { sessionId: id('s'), seq: 9e6 }, result: {} },
 };

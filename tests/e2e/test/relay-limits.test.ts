@@ -48,7 +48,7 @@ let daemonCtx: DaemonContext | null = null;
 let echoed: Uint8Array | null = null;
 
 /** The protocol 4 requests the daemon's core answers itself, through the services this module puts in their slots. */
-const CORE_HANDLED = ['admin.claudeConfig.get', 'admin.claudeConfig.decide', 'admin.hostRules.get', 'admin.hostRules.seen', 'admin.transcript.redact'];
+const CORE_HANDLED = ['admin.claudeConfig.get', 'admin.claudeConfig.decide', 'admin.hostRules.get', 'admin.hostRules.seen', 'admin.transcript.redact', 'admin.notice.seen'];
 
 const worstCases: FeatureModule = {
   name: 'worst-cases',

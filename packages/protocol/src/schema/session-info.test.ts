@@ -5,6 +5,7 @@ import {
   AGENT_STATUSES,
   PERMISSION_MODES,
   SESSION_END_REASONS,
+  SESSION_MODE_CHOICES,
   SESSION_KINDS,
   agentSessionSchema,
   hostSettingsPatchSchema,
@@ -44,7 +45,8 @@ describe('SessionInfo end reason', () => {
   });
 
   it('uses the same words as the daemon', () => {
-    expect([...SESSION_END_REASONS]).toEqual(['exit', 'ended', 'terminated', 'kicked', 'left', 'role-changed', 'stopped', 'worktree-removed', 'archived', 'replaced', 'merged']);
+    // `reviewed` (protocol 5): a work item that ran directly in the shared folder ends when its report was reviewed.
+    expect([...SESSION_END_REASONS]).toEqual(['exit', 'ended', 'terminated', 'kicked', 'left', 'role-changed', 'stopped', 'worktree-removed', 'archived', 'replaced', 'merged', 'reviewed']);
   });
 });
 
@@ -96,12 +98,19 @@ describe('the union (protocol 4)', () => {
     expect(agentSessionSchema.parse(itemSession).runningSince).toBe(itemSession.runningSince);
   });
 
-  it('statuses and permission modes are closed sets; there is no mode that asks for nothing', () => {
+  // Changed on purpose in protocol 5 (DESIGN 0.6.0 D3): smurg's own four modes; a person chooses among three
+  // (`ask-nothing` is the host's, workspace-wide); Claude Code's names never travel.
+  it('statuses and permission modes are closed sets; nobody chooses "asks for nothing" for one session; no agent\'s own mode names travel', () => {
     expect([...AGENT_STATUSES]).toEqual(['starting', 'running', 'waiting-answer', 'waiting-permission', 'idle', 'stalled', 'done', 'failed', 'ended']);
-    expect([...PERMISSION_MODES]).toEqual(['ask-all', 'ask-commands']);
-    for (const mode of ['bypassPermissions', 'acceptEdits', 'default', 'ask-nothing']) {
+    expect([...PERMISSION_MODES]).toEqual(['auto', 'ask-commands', 'ask-all', 'ask-nothing']);
+    expect([...SESSION_MODE_CHOICES]).toEqual(['auto', 'ask-commands', 'ask-all']);
+    for (const mode of ['bypassPermissions', 'acceptEdits', 'default', 'plan', 'dontAsk']) {
       expect(agentSessionSchema.safeParse({ ...itemSession, permissionMode: mode }).success, mode).toBe(false);
+      expect(agentSessionSchema.safeParse({ ...itemSession, modeInUse: mode }).success, mode).toBe(false);
     }
+    // A session that follows a workspace that asks for nothing runs as such; nobody chooses it for one session.
+    expect(agentSessionSchema.safeParse({ ...itemSession, permissionMode: 'ask-nothing', modeInUse: 'ask-nothing', modeFallback: undefined }).success).toBe(true);
+    expect(agentSessionSchema.safeParse({ ...itemSession, modeChoice: 'ask-nothing' }).success).toBe(false);
     expect(agentSessionSchema.safeParse({ ...itemSession, status: 'exited' }).success).toBe(false);
     expect(agentSessionSchema.safeParse({ ...itemSession, doing: 'thinking' }).success).toBe(false);
     expect(agentSessionSchema.safeParse({ ...itemSession, retryHostOnly: false }).success).toBe(false);
@@ -111,7 +120,7 @@ describe('the union (protocol 4)', () => {
 // ARCHITECTURE §11 D-15 (owner decision 2026-10-01): no guest sandbox, no guest login process, no guest API key, no
 // guest switches. Every session runs like the host's own; SessionInfo names who opened it (`openedBy`).
 describe('no guest sandbox (D-15)', () => {
-  const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] };
+  const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto' };
 
   it('sessions are agents or terminals; SessionInfo has no sandboxed flag', () => {
     expect([...SESSION_KINDS]).toEqual(['agent', 'terminal']);
@@ -120,14 +129,19 @@ describe('no guest sandbox (D-15)', () => {
     expect(sessionInfoSchema.safeParse({ ...agentSession, sandboxed: false }).success).toBe(false);
   });
 
-  it('session.create carries no API key, no login kind, no model and nothing that could choose a sandbox or a permission bypass', () => {
+  // Changed on purpose in protocol 5: a session may name a model of the host's list and one of the three choices.
+  it('session.create carries no API key, no login kind and nothing that could choose a sandbox or a permission bypass; a model and a mode choice are allowed', () => {
     const create = { kind: 'agent', workspace: { mode: 'main' } };
     expect(sessionCreatePayloadSchema.safeParse(create).success).toBe(true);
     expect(sessionCreatePayloadSchema.safeParse({ ...create, kind: 'login' }).success).toBe(false);
     expect(sessionCreatePayloadSchema.safeParse({ ...create, apiKey: 'sk-ant-api03-x' }).success).toBe(false);
     expect(sessionCreatePayloadSchema.safeParse({ ...create, sandboxed: true }).success).toBe(false);
     expect(sessionCreatePayloadSchema.safeParse({ ...create, mode: 'ask-commands' }).success).toBe(false);
-    expect(sessionCreatePayloadSchema.safeParse({ ...create, model: 'opus' }).success).toBe(false);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, model: 'opus' }).success).toBe(true);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, permissionMode: 'ask-commands' }).success).toBe(true);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, permissionMode: 'ask-nothing' }).success).toBe(false);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, permissionMode: 'bypassPermissions' }).success).toBe(false);
+    expect(sessionCreatePayloadSchema.safeParse({ ...create, model: '--dangerously-skip-permissions' }).success).toBe(false);
     expect(sessionCreatePayloadSchema.safeParse({ ...create, purpose: 'discussion', topicId: 'tp_1' }).success).toBe(false);
     expect(sessionCreatePayloadSchema.safeParse({ kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 }).success).toBe(true);
   });
@@ -137,6 +151,10 @@ describe('no guest sandbox (D-15)', () => {
     expect(publicSettingsSchema.safeParse({ ...base, guestSubscriptionLogin: false }).success).toBe(false);
     expect(publicSettingsSchema.safeParse({ ...base, guestMainWorkspace: true }).success).toBe(false);
     expect(publicSettingsSchema.safeParse({ ...base, maxLiveAgents: 8 }).success).toBe(false);
+    // Protocol 5: every member learns the workspace's mode (it is one of smurg's four, never Claude Code's own name).
+    expect(publicSettingsSchema.safeParse({ ...base, permissionMode: undefined }).success).toBe(false);
+    expect(publicSettingsSchema.safeParse({ ...base, permissionMode: 'bypassPermissions' }).success).toBe(false);
+    for (const mode of PERMISSION_MODES) expect(publicSettingsSchema.safeParse({ ...base, permissionMode: mode }).success, mode).toBe(true);
     const host = { ...base, diskReserveBytes: 1, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 300_000, agentMcp: false };
     expect(hostSettingsSchema.safeParse(host).success).toBe(true);
     expect(hostSettingsSchema.safeParse({ ...host, allowedDomains: [] }).success).toBe(false);

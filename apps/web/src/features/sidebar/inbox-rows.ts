@@ -130,6 +130,8 @@ function attention(item: InboxItem, ctx: InboxRowContext, where: string): InboxR
       return { title: renderWireText(msg('attention.hostRules'), 'Your own Claude Code rules apply here'), where };
     case 'storage':
       return { title: renderWireText(msg('attention.storage'), 'Conversations use more disk space than the limit'), where };
+    case 'agents-auto':
+      return { title: renderWireText(msg('attention.agentsAuto'), 'Agents now run in auto mode'), where };
     case undefined:
       return { title: kindLabel('attention'), where };
   }

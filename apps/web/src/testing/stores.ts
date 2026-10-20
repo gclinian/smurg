@@ -49,7 +49,7 @@ export const EMPTY_LOADS = {
   'suggest.list': { suggestions: [], hasMore: false },
   'topic.list': { topics: [], hasMore: false },
   'inbox.list': { items: [], hasMore: false },
-  'session.host.get': { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' },
+  'session.host.get': { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } },
   'activity.list': { events: [] },
   'doc.conflict.list': { conflicts: [] },
   'worktree.list': { worktrees: [] },

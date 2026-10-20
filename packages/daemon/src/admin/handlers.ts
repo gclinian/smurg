@@ -109,6 +109,13 @@ export function registerAdminHandlers(router: Router, ctx: DaemonContext): Dispo
   stack.add(router.handle('admin.audit.query', async (payload) => ({ entries: await ctx.audit.query(payload) })));
   stack.add(router.handle('admin.settings.get', () => ({ settings: ctx.settings.get() })));
   stack.add(router.handle('admin.settings.set', async (payload, req) => ({ settings: await ctx.settings.update(payload, req.principal) })));
+  // The host has seen a notice (DESIGN 0.6.0 D13): it leaves state.json and the host's inbox.
+  stack.add(
+    router.handle('admin.notice.seen', async (payload, req) => {
+      await ctx.settings.seeNotice(payload.notice, req.principal);
+      return {};
+    }),
+  );
 
   // ---- Claude Code on the host (ARCHITECTURE §5.8): the trust gate, the host's own rules, redaction ---------------
   stack.add(router.handle('admin.claudeConfig.get', (payload) => ctx.services.projectTrust.describe(payload)));

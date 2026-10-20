@@ -76,7 +76,9 @@ export const agentSession = {
   root: MAIN,
   status: 'idle',
   permissionMode: 'ask-all',
+  modeChoice: null,
   modeFixed: true,
+  model: null,
   ruleCount: 0,
   login: 'logged-in',
   claudeVersion: '2.1.288',
@@ -100,8 +102,14 @@ export const itemSession = {
   status: 'waiting-permission',
   waitingSince: T,
   runningSince: T,
-  permissionMode: 'ask-commands',
+  // Protocol 5: the workspace's auto, and what really runs (the model has no auto mode: smurg's own fallback).
+  permissionMode: 'auto',
+  modeChoice: null,
+  modeInUse: 'ask-commands',
+  modeFallback: 'model-no-auto',
   modeFixed: false,
+  model: 'haiku',
+  modelInUse: 'claude-haiku-4-5-20251001',
   ruleCount: 2,
   projectSettings: 'used',
 };
@@ -249,6 +257,7 @@ export const topic = {
   handEdits: { spec: [{ by: AMY_REF, at: T }, { by: 'outside', at: T }], plan: [] },
   plan: { exists: true, valid: false, error: { ...wireText, line: 12 }, generating: false, stale: true, mode: 'assigned', paused: false, changedAt: T, changedBy: { kind: 'user', ...AMY_REF }, items: 3, started: 1, reviewed: 0, merged: 0 },
   rules: [rule],
+  agent: { model: 'sonnet', permissionMode: null },
 };
 export const workItem = {
   id: 'cart-api',
@@ -335,6 +344,20 @@ export const preflight = {
   rules: [rule],
   sharedDirs: ['data'],
   blockers: [{ text: { id: 'plan.paused' }, fallback: "smurg was restarted on the host's computer. This plan is paused." }],
+  history: 'folder',
+  direct: null,
+  agent: { model: 'sonnet', permissionMode: null, effective: 'auto' },
+  nestedRepos: [],
+  cloudSynced: false,
+};
+/** Protocol 5: the Start dialog of a folder without .git (smurg's own history) and of a host without git (direct). */
+export const smurgHistoryPreflight = { ...preflight, history: 'smurg', commit: null, nestedRepos: ['frontend'], cloudSynced: true };
+export const directPreflight = {
+  ...preflight,
+  history: 'direct',
+  commit: null,
+  direct: { reason: { text: { id: 'worktree.unavailable.gitCannotRun' }, fallback: 'git does not run on the host.' }, hostOnly: true },
+  agent: { model: null, permissionMode: 'ask-all', effective: 'ask-all' },
 };
 const CART_ITEM = { number: 1, title: 'Cart API' };
 /** A question I decide (kind `question`). */
@@ -526,9 +549,42 @@ export const resultItem = {
   excerpt: 'Use the session store',
   result: 'rejected',
 };
+/** Protocol 5: the host's notice of the 0.6.0 update, until the host has seen it (it stops no work). */
+export const agentsAutoItem = {
+  key: 'attention:agents-auto:workspace',
+  kind: 'attention',
+  subject: 'agents-auto',
+  at: T,
+  unread: true,
+  waiting: false,
+  target: { kind: 'console', section: 'settings' },
+  excerpt: '',
+};
 /** One valid item of every kind (and of the attention subjects that differ). */
-export const INBOX_SAMPLES = [inboxItem, voteItem, permissionItem, suggestionItem, reportItem, attentionItem, accountItem, hostRulesItem, pausedItem, mergeItem, requestedMergeItem, mentionItem, resultItem];
-export const hostState = { account: { state: 'usage-limit', resetsAt: T + 3_600_000, sessions: 4 }, mainProjectSettings: 'ignored' };
+export const INBOX_SAMPLES = [inboxItem, voteItem, permissionItem, suggestionItem, reportItem, attentionItem, accountItem, hostRulesItem, pausedItem, mergeItem, requestedMergeItem, mentionItem, resultItem, agentsAutoItem];
+/** Protocol 5: the host's agent (the list Claude Code 2.1.288 answered, U1 E3) and how work items run. */
+export const agentModels = [
+  { value: 'opus', name: 'Opus', description: 'Opus 5.5 · Most capable for complex work · $15/$75 per Mtok', resolved: 'claude-opus-5-5', auto: true },
+  { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5 · Best for everyday tasks', resolved: 'claude-sonnet-5', auto: true },
+  { value: 'sonnet[1m]', name: 'Sonnet (1M context)', description: '', resolved: 'claude-sonnet-5[1m]', auto: true },
+  { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 · Fastest for quick answers', resolved: 'claude-haiku-4-5-20251001', auto: false },
+  { value: 'fable', name: 'Fable', description: 'Fable · Research preview', resolved: 'claude-fable-1', auto: true, billing: 'usage-credits' },
+];
+export const agentHostState = { models: agentModels, modelsKnown: true, hostDefault: 'claude-opus-5-5', autoMode: 'ok', asksNothing: 'ok' };
+export const unknownAgentHostState = { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' };
+export const hostState = {
+  account: { state: 'usage-limit', resetsAt: T + 3_600_000, sessions: 4 },
+  mainProjectSettings: 'ignored',
+  agent: agentHostState,
+  work: { history: 'folder' },
+};
+/** The host has no usable git: items run directly in the folder. */
+export const directHostState = {
+  account: { state: 'ok', sessions: 0 },
+  mainProjectSettings: 'none',
+  agent: { ...unknownAgentHostState, autoMode: 'off', asksNothing: 'root' },
+  work: { history: 'direct', reason: { text: { id: 'worktree.unavailable.gitNotFound', params: { minVersion: '2.42.0' } }, fallback: 'git was not found on the host.' } },
+};
 export const claudeConfigFile = {
   path: '.claude/settings.json',
   hash: HASH,
@@ -608,6 +664,7 @@ export const publicSettings = {
   agentLockTimeoutMs: 60_000,
   uploadChunkSize: 4 * MiB,
   sharedDirs: ['data', 'checkpoints'],
+  permissionMode: 'auto' as const,
 };
 export const hostSettings = {
   ...publicSettings,
@@ -631,6 +688,9 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       invalid: [
         { settings: hostSettings },
         { settings: { ...publicSettings, uploadChunkSize: 16 * MiB } },
+        // protocol 5: every member learns the workspace's mode; it is one of smurg's four
+        { settings: { ...publicSettings, permissionMode: undefined } },
+        { settings: { ...publicSettings, permissionMode: 'bypassPermissions' } },
         // the guest switches of protocol 1 are gone with the guest sandbox (ARCHITECTURE §11 D-15)
         { settings: { ...publicSettings, guestSubscriptionLogin: false } },
         { settings: { ...publicSettings, guestMainWorkspace: true } },
@@ -953,8 +1013,17 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { kind: 'agent', workspace: { mode: 'main' } },
         { kind: 'terminal', workspace: { mode: 'worktree', worktreeId: 'wt_1' }, cols: 80, rows: 24, title: 'shell' },
         { kind: 'agent', workspace: { mode: 'worktree' }, title: 'Try the cache', firstMessage: 'Look at src/cache.ts\n​please' },
+        { kind: 'agent', workspace: { mode: 'main' }, model: 'sonnet[1m]', permissionMode: 'ask-commands' },
+        { kind: 'agent', workspace: { mode: 'worktree' }, model: 'arn:aws:bedrock:us-east-1:123456789012:inference-profile/us.anthropic.claude-opus-5-5', permissionMode: 'auto' },
       ],
       invalid: [
+        // protocol 5: never `ask-nothing` for one session (the host's, workspace-wide); a model id is an id
+        { kind: 'agent', workspace: { mode: 'main' }, permissionMode: 'ask-nothing' },
+        { kind: 'agent', workspace: { mode: 'main' }, permissionMode: null },
+        { kind: 'agent', workspace: { mode: 'main' }, model: '' },
+        { kind: 'agent', workspace: { mode: 'main' }, model: '--dangerously-skip-permissions' },
+        { kind: 'agent', workspace: { mode: 'main' }, model: 'x'.repeat(257) },
+        { kind: 'terminal', workspace: { mode: 'main' }, cols: 80, rows: 24, model: 'sonnet' },
         { kind: 'agent', workspace: { mode: 'main' }, sandboxed: false },
         // an agent session is a conversation: it has no terminal size
         { kind: 'agent', workspace: { mode: 'main' }, cols: 120, rows: 40 },
@@ -984,6 +1053,15 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { session: { ...itemSession, attempt: undefined } },
         { session: { ...agentSession, purpose: 'free', topicId: undefined } },
         { session: { ...agentSession, item: { number: 1, title: 'Cart API' } } },
+        // protocol 5: a discussion follows nothing and reads ask-all; a fallback goes with the mode in use
+        { session: { ...agentSession, modeChoice: 'auto' } },
+        { session: { ...agentSession, permissionMode: 'auto' } },
+        { session: { ...itemSession, modeInUse: undefined } },
+        { session: { ...itemSession, modeChoice: 'ask-nothing' } },
+        { session: { ...itemSession, modeFallback: 'tired' } },
+        { session: { ...itemSession, model: undefined } },
+        { session: { ...itemSession, modelInUse: '' } },
+        { session: { ...agentSession, modeChoice: undefined } },
       ],
     },
   },
@@ -1000,19 +1078,38 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'session.host.get': {
     payload: emptyOnly,
     result: {
-      valid: [{ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' }, hostState],
-      invalid: [{ account: { state: 'ok' }, mainProjectSettings: 'none' }, { account: { state: 'rate-limited', sessions: 1 }, mainProjectSettings: 'used' }, { account: { state: 'ok', sessions: 0 } }],
+      valid: [
+        { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: unknownAgentHostState, work: { history: 'unchecked' } },
+        hostState,
+        directHostState,
+        { ...hostState, work: { history: 'smurg' } },
+      ],
+      invalid: [
+        { account: { state: 'ok' }, mainProjectSettings: 'none', agent: unknownAgentHostState, work: { history: 'folder' } },
+        { account: { state: 'rate-limited', sessions: 1 }, mainProjectSettings: 'used', agent: unknownAgentHostState, work: { history: 'folder' } },
+        { account: { state: 'ok', sessions: 0 } },
+        // protocol 4's host state (no agent, no work) is refused: protocol 5 is exact
+        { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' },
+        { ...hostState, work: { history: 'folder', reason: directHostState.work.reason } },
+        { ...hostState, work: { history: 'git' } },
+        { ...hostState, agent: { ...agentHostState, models: Array.from({ length: 33 }, () => agentModels[0]) } },
+        { ...hostState, agent: { ...agentHostState, models: [{ ...agentModels[0], value: 'opus 5' }] } },
+        { ...hostState, agent: { ...agentHostState, models: [{ ...agentModels[0], billing: 'credits' }] } },
+        { ...hostState, agent: { ...agentHostState, models: [{ ...agentModels[0], name: '' }] } },
+        { ...hostState, agent: { ...agentHostState, asksNothing: 'yes' } },
+        { ...hostState, agent: { ...agentHostState, hostDefault: undefined } },
+      ],
     },
   },
   'session.host': {
     payload: {
-      valid: [hostState, { account: { state: 'logged-out', sessions: 2 }, mainProjectSettings: 'used' }],
-      invalid: [{ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'trusted' }, { ...hostState, login: 'logged-out' }],
+      valid: [hostState, directHostState, { account: { state: 'logged-out', sessions: 2 }, mainProjectSettings: 'used', agent: unknownAgentHostState, work: { history: 'unchecked' } }],
+      invalid: [{ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'trusted', agent: unknownAgentHostState, work: { history: 'folder' } }, { ...hostState, login: 'logged-out' }],
     },
   },
   'session.state': {
     payload: {
-      valid: [{ session }, { session: { ...itemSession, status: 'ended', endedAt: T, endReason: 'merged' } }],
+      valid: [{ session }, { session: { ...itemSession, status: 'ended', endedAt: T, endReason: 'merged' } }, { session: { ...itemSession, status: 'ended', endedAt: T, endReason: 'reviewed' } }],
       invalid: [{ session: { ...session, cols: 1001 } }, { session: { ...agentSession, endReason: 'crashed' } }],
     },
   },
@@ -1168,8 +1265,18 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     result: { valid: [{ session: itemSession }], invalid: [{ session }] },
   },
   'session.mode.set': {
-    payload: { valid: [{ sessionId: 'sess_i', mode: 'ask-all' }], invalid: [{ sessionId: 'sess_i', mode: 'ask-nothing' }, { sessionId: 'sess_i', mode: 'bypassPermissions' }] },
-    result: { valid: [{ session: { ...itemSession, permissionMode: 'ask-all' } }], invalid: [{}] },
+    payload: {
+      valid: [{ sessionId: 'sess_i', mode: 'ask-all' }, { sessionId: 'sess_i', mode: 'auto' }, { sessionId: 'sess_i', mode: null }],
+      invalid: [{ sessionId: 'sess_i', mode: 'ask-nothing' }, { sessionId: 'sess_i', mode: 'bypassPermissions' }, { sessionId: 'sess_i' }],
+    },
+    result: { valid: [{ session: { ...itemSession, permissionMode: 'ask-all', modeChoice: 'ask-all', modeInUse: 'ask-all', modeFallback: undefined } }], invalid: [{}] },
+  },
+  'session.model.set': {
+    payload: {
+      valid: [{ sessionId: 'sess_i', model: 'sonnet' }, { sessionId: 'sess_a', model: null }, { sessionId: 'sess_i', model: 'claude-opus-5-5@20261001' }],
+      invalid: [{ sessionId: 'sess_i' }, { sessionId: 'sess_i', model: '' }, { sessionId: 'sess_i', model: 'sonnet; rm -rf /' }, { sessionId: 'sess_i', model: '-p' }],
+    },
+    result: { valid: [{ session: { ...itemSession, model: 'sonnet', modelInUse: undefined } }], invalid: [{}, { session }] },
   },
   'session.rules.get': {
     payload: { valid: [{ sessionId: 'sess_i' }], invalid: [{}] },
@@ -1345,8 +1452,17 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   // ---- topic.* / plan.* / report.* --------------------------------------------------------------------------------
   'topic.create': {
     payload: {
-      valid: [{ name: 'Checkout' }, { name: '結帳流程', slug: 'topic-3', firstMessage: 'We need a cart.' }],
-      invalid: [{ name: '' }, { name: '   ' }, { name: 'x'.repeat(121) }, { name: 'Checkout', slug: 'Check Out' }, { name: 'Checkout', slug: '../x' }, { name: 'Checkout', slug: '-a' }],
+      valid: [{ name: 'Checkout' }, { name: '結帳流程', slug: 'topic-3', firstMessage: 'We need a cart.' }, { name: 'Checkout', model: 'fable' }],
+      invalid: [
+        { name: '' },
+        { name: '   ' },
+        { name: 'x'.repeat(121) },
+        { name: 'Checkout', slug: 'Check Out' },
+        { name: 'Checkout', slug: '../x' },
+        { name: 'Checkout', slug: '-a' },
+        { name: 'Checkout', model: null },
+        { name: 'Checkout', permissionMode: 'auto' },
+      ],
     },
     result: { valid: [{ topic, session: agentSession }], invalid: [{ topic }, { topic, session }] },
   },
@@ -1391,6 +1507,13 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     result: { valid: [{ topic }], invalid: [{}] },
   },
   'topic.rule.remove': { payload: { valid: [{ topicId: 'tp_1', ruleId: 'rl_1' }], invalid: [{ topicId: 'tp_1' }] }, result: { valid: [{ topic }], invalid: [{}] } },
+  'topic.agent.set': {
+    payload: {
+      valid: [{ topicId: 'tp_1', model: 'opus' }, { topicId: 'tp_1', permissionMode: 'ask-commands' }, { topicId: 'tp_1', model: null, permissionMode: null }],
+      invalid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', permissionMode: 'ask-nothing' }, { topicId: 'tp_1', model: 'not a model' }, { topicId: 'tp_1', model: 'opus', extra: 1 }],
+    },
+    result: { valid: [{ topic: { ...topic, agent: { model: 'opus', permissionMode: 'ask-commands' } } }], invalid: [{}, { topic: { ...topic, agent: { model: 'opus' } } }] },
+  },
   'plan.generate': { payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}] }, result: emptyOnly },
   'plan.get': {
     payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}] },
@@ -1408,12 +1531,42 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'plan.suggest': { payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}] }, result: { valid: [{ plan }], invalid: [{}] } },
   'plan.preflight': {
     payload: { valid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', itemIds: ['cart-api'] }], invalid: [{ topicId: 'tp_1', itemIds: [] }] },
-    result: { valid: [{ preflight }, { preflight: { ...preflight, commit: null } }], invalid: [{ preflight: { ...preflight, planHash: undefined } }, { preflight: { ...preflight, invisibleCharacters: ['report'] } }] },
+    result: {
+      valid: [{ preflight }, { preflight: { ...preflight, commit: null } }, { preflight: smurgHistoryPreflight }, { preflight: directPreflight }],
+      invalid: [
+        { preflight: { ...preflight, planHash: undefined } },
+        { preflight: { ...preflight, invisibleCharacters: ['report'] } },
+        // protocol 5: what goes with each history
+        { preflight: { ...preflight, history: 'unchecked' } },
+        { preflight: { ...preflight, history: undefined } },
+        { preflight: { ...preflight, direct: directPreflight.direct } },
+        { preflight: { ...directPreflight, direct: null } },
+        { preflight: { ...smurgHistoryPreflight, commit: preflight.commit } },
+        { preflight: { ...preflight, nestedRepos: ['frontend'] } },
+        { preflight: { ...preflight, cloudSynced: true } },
+        { preflight: { ...preflight, nestedRepos: Array.from({ length: 21 }, (_, i) => `repo-${i}`), history: 'smurg', commit: null } },
+        { preflight: { ...preflight, agent: { model: null, permissionMode: 'ask-nothing', effective: 'ask-nothing' } } },
+        { preflight: { ...preflight, agent: { model: null, permissionMode: null } } },
+      ],
+    },
   },
   'plan.start': {
     payload: {
-      valid: [{ topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH }, { topicId: 'tp_1', itemIds: ['cart-api'], planRevision: 4, specHash: HASH, planHash: HASH }],
-      invalid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', planRevision: 4, specHash: HASH }, { topicId: 'tp_1', planRevision: 4, specHash: 'x', planHash: HASH }],
+      valid: [
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH },
+        { topicId: 'tp_1', itemIds: ['cart-api'], planRevision: 4, specHash: HASH, planHash: HASH },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: 'sonnet', permissionMode: 'ask-commands' } },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: null }, direct: true },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: {} },
+      ],
+      invalid: [
+        { topicId: 'tp_1' },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH },
+        { topicId: 'tp_1', planRevision: 4, specHash: 'x', planHash: HASH },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, direct: false },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { permissionMode: 'ask-nothing' } },
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: 'opus', mode: 'auto' } },
+      ],
     },
     result: { valid: [{ plan }], invalid: [{}] },
   },
@@ -1434,7 +1587,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'report.get': {
     payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] },
     result: {
-      valid: [{ report }, { report: { ...report, changes: undefined, noChanges: 'spec-files', questions: [] } }],
+      valid: [{ report }, { report: { ...report, changes: undefined, noChanges: 'spec-files', questions: [] } }, { report: { ...report, changes: undefined, noChanges: 'no-history', questions: [] } }],
       invalid: [{ report: reportSummary }, { report: { ...report, outcome: 'done' } }, { report: { ...report, sections: { ...report.sections, verified: [{ text: 'x' }] } } }],
     },
   },
@@ -1483,6 +1636,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         // `waiting` follows the kind; the key names the kind (and the subject)
         { items: [{ ...reportItem, waiting: true }], hasMore: false },
         { items: [{ ...hostRulesItem, waiting: true }], hasMore: false },
+        { items: [{ ...agentsAutoItem, waiting: true }], hasMore: false },
         { items: [{ ...voteItem, key: 'question:q_1' }], hasMore: false },
         { items: [{ ...accountItem, key: 'attention:storage:workspace' }], hasMore: false },
         // a console target names one of the console's sections
@@ -1606,8 +1760,10 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'admin.settings.set': {
     payload: {
-      valid: [{}, { diskReserveBytes: 10 * GiB }, { sharedDirs: ['data'] }, { maxLiveAgents: 2, escalateAfterMs: 60_000, agentMcp: true }],
+      valid: [{}, { diskReserveBytes: 10 * GiB }, { sharedDirs: ['data'] }, { maxLiveAgents: 2, escalateAfterMs: 60_000, agentMcp: true }, { permissionMode: 'ask-nothing' }, { permissionMode: 'ask-commands' }],
       invalid: [
+        { permissionMode: 'bypassPermissions' },
+        { permissionMode: null },
         { diskReservePercent: 101 },
         { maxLiveAgents: 1 },
         { maxLiveAgents: 33 },
@@ -1677,5 +1833,6 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     },
   },
   'admin.hostRules.seen': { payload: emptyOnly, result: emptyOnly },
+  'admin.notice.seen': { payload: { valid: [{ notice: 'agents-auto' }], invalid: [{}, { notice: 'host-rules' }, { notice: 'agents-auto', also: 1 }] }, result: emptyOnly },
   'admin.transcript.redact': { payload: { valid: [{ sessionId: 'sess_a', seq: 7 }], invalid: [{ sessionId: 'sess_a', seq: 0 }, { sessionId: 'sess_a' }] }, result: emptyOnly },
 };

@@ -10,9 +10,16 @@
 // 0.4.0's daemon answers, as a later one might, never, or with something that is no answer at all). Nothing is
 // started and nothing is signalled. The strict side (what the daemon sends) is untouched: its own tests are
 // packages/daemon/test/local/**.
-import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
+//
+// Since 0.6.0 (protocol 5, DESIGN 0.6.0 D2) the attach answer is where two versions meet on one computer: it embeds
+// the Welcome, whose settings gained `permissionMode`, so a local attach across versions ends with these words at
+// once, both ways (one welcome sample per protocol below; the other way is checked with the code of tag v0.5.2).
+import { execFile } from 'node:child_process';
+import { chmod, cp, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   CTL_FRAME_KIND,
@@ -43,6 +50,7 @@ import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { CLI_VERSION } from '../src/version.ts';
 import { makeDirs, testIo, type Dirs } from './helpers.ts';
 
+const run = promisify(execFile);
 const cleanups: (() => Promise<void> | void)[] = [];
 afterEach(async () => {
   while (cleanups.length > 0) await Promise.resolve((cleanups.pop() as () => Promise<void> | void)()).catch(() => {});
@@ -583,8 +591,12 @@ describe('smurg host, update and uninstall treat a folder shared by another vers
 
 // ── B2: a local attach ──────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A welcome every published version accepts (the schema did not change between 0.4.0 and 0.5.0: W/U6/p2). */
-const WELCOME = (workspaceId: string): Record<string, unknown> => ({
+/**
+ * The welcome of protocol 4, which every published version sends and accepts (0.4.0 to 0.5.2: the schema did not
+ * change between 0.4.0 and 0.5.0, W/U6/p2, nor after). The attach answer of the control socket embeds it, read with
+ * the protocol's strict schema (DESIGN 0.6.0 D2: the one place where the local socket changes with protocol 5).
+ */
+const WELCOME_V4 = (workspaceId: string): Record<string, unknown> => ({
   channelId: 'ch_0123456789abcdef0123456789abcdef',
   resumed: false,
   member: { userId: 'google:1234567890', displayName: 'Host', role: 'host', color: '#3366cc', online: true, joinedAt: 1_759_000_000_000 },
@@ -592,6 +604,40 @@ const WELCOME = (workspaceId: string): Record<string, unknown> => ({
   settings: { humanLockIdleMs: 60_000, agentLockTimeoutMs: 120_000, uploadChunkSize: 1_048_576, sharedDirs: [] },
   serverTime: 1_759_000_000_000,
 });
+/** The welcome of protocol 5 (smurg 0.6.0): every member learns the workspace's permission mode. */
+const WELCOME_V5 = (workspaceId: string): Record<string, unknown> => {
+  const welcome = WELCOME_V4(workspaceId);
+  return { ...welcome, settings: { ...(welcome['settings'] as object), permissionMode: 'auto' } };
+};
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
+const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
+
+/**
+ * The protocol package of tag v0.5.2 (the newest published smurg) in a scratch folder: `git archive`, as
+ * packages/daemon/test/upgrade/other-version.test.ts gets that tag's code, or `$SMURG_PUBLISHED_TREES/v0.5.2/`; its
+ * dependencies are this checkout's. Or why it cannot be had (a shallow clone has no tags).
+ */
+async function protocolOfV052(into: string): Promise<{ readonly src: string } | { readonly missing: string }> {
+  const given = process.env['SMURG_PUBLISHED_TREES'];
+  try {
+    if (given !== undefined && given !== '') {
+      await cp(join(given, 'v0.5.2', 'packages', 'protocol'), join(into, 'packages', 'protocol'), { recursive: true, filter: (source) => !source.split('/').includes('node_modules') });
+      // The package's tsconfig extends the repository's (the test runner reads it to compile the tag's TypeScript).
+      await cp(join(given, 'v0.5.2', 'tsconfig.base.json'), join(into, 'tsconfig.base.json')).catch(() => cp(join(REPO, 'tsconfig.base.json'), join(into, 'tsconfig.base.json')));
+    } else {
+      const archive = join(into, 'tag.tar');
+      await run('git', ['-C', REPO, 'archive', '--format=tar', '-o', archive, 'v0.5.2', 'packages/protocol', 'tsconfig.base.json'], { maxBuffer: 64 * 1024 * 1024 });
+      await run('tar', ['-xf', archive, '-C', into]);
+    }
+  } catch (err) {
+    return { missing: `the protocol package of v0.5.2 could not be had (no tag: a shallow checkout?): ${err instanceof Error ? err.message.split('\n')[0] : 'unknown'}` };
+  }
+  await symlink(join(REPO, 'packages', 'protocol', 'node_modules'), join(into, 'packages', 'protocol', 'node_modules'));
+  const version = (JSON.parse(await readFile(join(into, 'packages', 'protocol', 'package.json'), 'utf8')) as { version: string }).version;
+  if (version !== '0.5.2') return { missing: `the tree for v0.5.2 says it is ${version}` };
+  return { src: join(into, 'packages', 'protocol', 'src') };
+}
 
 /** msgpack by hand for `{ type, id, seq: 1, payload: { sessions: [] } }`: the `session.list.ok` 0.4.0's daemon sends (no `hasMore`). */
 function sessionListOkOf040(id: string): Uint8Array {
@@ -604,20 +650,62 @@ function sessionListOkOf040(id: string): Uint8Array {
 }
 
 describe('smurg attach on the host and a daemon of another version', () => {
-  it('the welcome sample is one today\'s protocol accepts, and the 0.4.0 session list is one it does not', () => {
-    expect(welcomeSchema.safeParse(WELCOME('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
+  it('the welcome samples: protocol 5\'s is the one today\'s protocol accepts, protocol 4\'s is not; the 0.4.0 session list is not either', () => {
+    expect(welcomeSchema.safeParse(WELCOME_V5('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
+    expect(welcomeSchema.safeParse(WELCOME_V4('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(false);
     const decoded = decodeEnvelope(sessionListOkOf040('l123456-1'), { from: 'daemon', channel: 'interactive' });
     expect(decoded.ok).toBe(false);
   });
 
-  it("a daemon that answers as 0.4.0's does: the attach is accepted, the first answer cannot be decoded, and the command ends AT ONCE saying another version is sharing (it used to wait 30 s)", async () => {
+  it('the other way round: the strict welcome schema of v0.5.2 (the code of the tag) accepts protocol 4\'s sample and refuses protocol 5\'s, so a command of 0.5.x cannot read the attach answer of a 0.6.0 daemon and ends with its own other-version words', async (context) => {
+    const { dirs } = await setup();
+    const tree = await protocolOfV052(dirs.home);
+    if ('missing' in tree) {
+      if (RELEASE_GATE) throw new Error(tree.missing);
+      console.warn(`SKIPPED: ${tree.missing}`);
+      context.skip();
+      return;
+    }
+    const { welcomeSchema: welcomeOfV052 } = (await import(join(tree.src, 'schema', 'handshake.ts'))) as { welcomeSchema: typeof welcomeSchema };
+    expect(welcomeOfV052.safeParse(WELCOME_V4('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
+    const refused = welcomeOfV052.safeParse(WELCOME_V5('ws_AAAAAAAAAAAAAAAAAAAAAA'));
+    expect(refused.success).toBe(false);
+    expect(refused.error?.issues).toMatchObject([{ code: 'unrecognized_keys', keys: ['permissionMode'], path: ['settings'] }]);
+  });
+
+  it('a daemon of protocol 4 (0.4.0 to 0.5.2): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', async () => {
+    const { env } = await setup();
+    const id = 'ws_other_attach_000';
+    const host = await standIn(env, id, (socket, request, self) => {
+      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V4(id) }));
+      else answering(STATUS_050, {}, id)(socket, request, self);
+    });
+    for (const args of [[], ['--workspace', id]]) {
+      const io = testIo({ env });
+      const started = Date.now();
+      const failure = await runAttach(args, commandContext(io)).then(
+        () => null,
+        (err: unknown) => formatFailure(err, 'en'),
+      );
+      expect(Date.now() - started, 'no 30 s wait').toBeLessThan(10_000);
+      expect(failure).toEqual({
+        text:
+          `smurg: Another version of smurg is sharing here (this smurg is ${CLI_VERSION}): its answer is not one this smurg can read\n` +
+          '  Stop it (smurg stop, or Ctrl-C in the terminal that runs smurg host), then start it again with smurg host.\n',
+        exitCode: 1,
+      });
+    }
+    expect(host.requests.filter((request) => (request as { op?: unknown }).op === 'attach')).toHaveLength(2);
+  }, 60_000);
+
+  it("a daemon whose welcome this smurg reads and whose first answer it cannot decode (0.4.0's session list): the command ends AT ONCE saying another version is sharing (it used to wait 30 s)", async () => {
     const { env } = await setup();
     const id = 'ws_other_attach_001';
     const host = await standIn(
       env,
       id,
       (socket, request, self) => {
-        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME(id) }));
+        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V5(id) }));
         else answering(STATUS_040, {}, id)(socket, request, self);
       },
       (socket, body) => {
@@ -657,7 +745,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
       env,
       id,
       (socket, request, self) => {
-        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME(id) }));
+        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V5(id) }));
         else answering(STATUS_050, {}, id)(socket, request, self);
       },
       (socket) => socket.write(new Uint8Array([0, 0, 0, 2, 0x09, 0x00])),
@@ -672,7 +760,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
     const other = 'ws_other_attach_003';
     const { env: env2 } = await setup();
     await standIn(env2, other, (socket, request, self) => {
-      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: { ...WELCOME(other), features: ['x'] } }));
+      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: { ...WELCOME_V5(other), features: ['x'] } }));
       else answering(STATUS_050, {}, other)(socket, request, self);
     });
     const welcome = await runAttach([], commandContext(testIo({ env: env2 }))).then(

@@ -21,7 +21,7 @@ import { appendFileSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, rename, rm, symlink, truncate, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, StateFileError, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
+import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, StateFileError, WORKSPACE_SHAPES, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
 import { MemoryRelay, TestIdentityIssuer, createTempDir, createTempRunDir, removeTempDir, removeTempRunDir, waitFor } from '@smurg/daemon/testing';
 import { PROTOCOL_VERSION, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, type AdmitContext } from '@smurg/protocol';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
@@ -63,6 +63,15 @@ const GUIDE_BACK: Readonly<Record<Lang, string>> = {
   en: 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to',
   'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#94-如果你照-smurg-050-的指示把狀態資料夾移走了',
 };
+/**
+ * The ONE line of a start that upgraded what smurg `from` wrote (0.5.1's words). Since 0.6.0 (shapes 2: the
+ * workspace's permission mode, a session's mode choice and model) the folders of 0.5.0, 0.5.1 and 0.5.2 are upgraded
+ * too: the first start of this smurg on the 0.5.0 fixture says it.
+ */
+const upgradedLine = (lang: Lang, from: string): string =>
+  lang === 'en'
+    ? `This workspace was last shared with smurg ${from}: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}`
+    : `這個工作區上次是用 smurg ${from} 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT['zh-TW']}`;
 /** The line about a folder set aside beside the workspace's own (`more`: how many more there are). */
 const asideLine = (lang: Lang, path: string, more = 0): string =>
   lang === 'en'
@@ -312,10 +321,7 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
       });
       expect(first.started).toBe(true);
       expect(first.code).toBe(0);
-      const line =
-        lang === 'en'
-          ? `This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}`
-          : `這個工作區上次是用 smurg 0.4.0 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT['zh-TW']}`;
+      const line = upgradedLine(lang, '0.4.0');
       // The whole terminal: the one line, then exactly the start summary of every other start.
       expect(first.out).toBe(`${line}\n${cleanStart(lang, first.out)}`);
       // The fixture holds no shared folder: its two worktree folders are not there, and the daemon says so twice. Nothing else.
@@ -328,7 +334,7 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
       expect((await readFile(join(ws, 'state.json.before-upgrade-from-0.4.0'))).equals(old.state)).toBe(true);
       expect((await readFile(join(ws, 'suggestions.json.before-upgrade-from-0.4.0'))).equals(old.suggestions)).toBe(true);
       expect((await lstat(join(ws, 'state.json.before-upgrade-from-0.4.0'))).mode & 0o777).toBe(0o600);
-      expect(JSON.parse(await readFile(join(ws, 'written-by.json'), 'utf8'))).toMatchObject({ shapes: 1 });
+      expect(JSON.parse(await readFile(join(ws, 'written-by.json'), 'utf8'))).toMatchObject({ shapes: WORKSPACE_SHAPES });
       // The host log gets the same line (in English: the log is not translated).
       expect(await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8')).toContain('This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over.');
 
@@ -340,14 +346,20 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
     }
   }, 120_000);
 
-  it('the folder smurg 0.5.0 left needs no step: exactly the two links, no line, no copy', async () => {
+  it('the folder smurg 0.5.0 left is upgraded too since 0.6.0 (its state and its agent sessions): the same ONE line, then the two links; the old files kept; a second start says nothing', async () => {
     for (const lang of LANGS) {
       const shared = await onFixture('0.5.0');
-      const t = await smurgHost(shared, lang, 'a clean start (the folder 0.5.0 left)', { during: (daemon) => expect(daemon.upgraded).toEqual([]) });
+      const ws = shared.copy.workspaceDir;
+      const old = { state: await readFile(join(ws, 'state.json')), sessions: await readFile(join(ws, 'agent-sessions.json')) };
+      const t = await smurgHost(shared, lang, 'an upgrading start (the folder 0.5.0 left)', { during: (daemon) => expect(daemon.upgraded.map((entry) => [entry.document, entry.from])).toEqual([['state', '0.5.0'], ['agent-sessions', '0.5.0']]) });
       expect(t.code).toBe(0);
-      expect(t.out).toBe(cleanStart(lang, t.out, PAUSED_050));
+      expect(t.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${cleanStart(lang, t.out, PAUSED_050)}`);
       expect(stderrOf(t).said).toBe('');
-      expect((await readdir(shared.copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-'))).toEqual([]);
+      expect((await readdir(ws)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual(['agent-sessions.json.before-upgrade-from-0.5.0', 'state.json.before-upgrade-from-0.5.0']);
+      expect((await readFile(join(ws, 'state.json.before-upgrade-from-0.5.0'))).equals(old.state)).toBe(true);
+      expect((await readFile(join(ws, 'agent-sessions.json.before-upgrade-from-0.5.0'))).equals(old.sessions)).toBe(true);
+      const second = await smurgHost(shared, lang, 'a clean start (the same folder, a second time)', { during: (daemon) => expect(daemon.upgraded).toEqual([]) });
+      expect(second.out).toBe(cleanStart(lang, second.out, PAUSED_050));
     }
   }, 120_000);
 });
@@ -372,7 +384,7 @@ interface Refusal {
 
 const mv = (copy: FixtureCopy): string => `mv ${copy.workspaceDir} ${copy.workspaceDir}.old-${NOW_NAME}`;
 const stampOf = (copy: FixtureCopy): string => join(copy.workspaceDir, 'written-by.json');
-const newerStamp = (copy: FixtureCopy): Promise<void> => writeFile(stampOf(copy), JSON.stringify({ smurg: '0.9.0', shapes: 2, at: 1 }), { mode: 0o600 });
+const newerStamp = (copy: FixtureCopy): Promise<void> => writeFile(stampOf(copy), JSON.stringify({ smurg: '0.9.0', shapes: WORKSPACE_SHAPES + 1, at: 1 }), { mode: 0o600 });
 /** `x` and 31 combining acute accents: a path 0.4.0 accepted and 0.5.x refuses (more than 30 marks in a row). */
 const MARK_RUN = `x${String.fromCodePoint(0x301).repeat(31)}`;
 const notRoot = process.getuid?.() !== 0;
@@ -446,7 +458,7 @@ const REFUSALS: Readonly<Record<string, Refusal>> = {
   },
   'newer, by a document\'s version, in a folder without a stamp': {
     fixture: '0.4.0',
-    damage: (copy) => editJson(join(copy.workspaceDir, 'state.json'), (state) => void (state['version'] = 2)),
+    damage: (copy) => editJson(join(copy.workspaceDir, 'state.json'), (state) => void (state['version'] = 3)), // today's is 2 (0.6.0)
     logged: ['kind=newer'],
     lastResort: false,
     says: (copy, lang) =>
@@ -755,7 +767,8 @@ describe('smurg host on a workspace folder it refuses: one text per kind and cau
     execFileSync('/bin/sh', ['-c', command]);
     const again = await smurgHost(shared, 'en', 'after the chmod');
     expect(again.started).toBe(true);
-    expect(again.out).toBe(cleanStart('en', again.out, PAUSED_050));
+    // The refused start wrote nothing: this one is the first of this smurg on the folder.
+    expect(again.out).toBe(`${upgradedLine('en', '0.5.0')}\n${cleanStart('en', again.out, PAUSED_050)}`);
   }, 120_000);
 });
 
@@ -1007,7 +1020,7 @@ describe('a damaged file that is not the workspace itself: that ONE file is set 
       const again = await smurgHost(shared, lang, 'after that one file was set aside', { during: (daemon) => void (members = daemon.ctx.members.list().map((member) => member.userId)) });
       expect(again.started).toBe(true);
       expect(again.code).toBe(0);
-      expect(again.out).toBe(cleanStart(lang, again.out, PAUSED_050));
+      expect(again.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${cleanStart(lang, again.out, PAUSED_050)}`);
       // The workspace is the one it was: the same people, devices and key; every invite link it had is still there.
       const has = JSON.parse(await readFile(join(ws, 'state.json'), 'utf8')) as Core;
       expect(members.length).toBeGreaterThan(5);
@@ -1049,7 +1062,7 @@ describe('a folder named <workspace id>.old* beside the one that is opened (0.5.
 
       const first = await smurgHost(shared, lang, 'a <workspace id>.old folder beside the one that is opened');
       const line = asideLine(lang, `${ws}.old`, 1);
-      expect(first.out).toBe(`${line}\n${cleanStart(lang, first.out, PAUSED_050)}`);
+      expect(first.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${line}\n${cleanStart(lang, first.out, PAUSED_050)}`);
       expect(await picture(`${ws}.old`)).toEqual(oldPicture);
       expect(await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8')).toContain('An earlier state folder of this workspace lies beside the one in use');
 
@@ -1069,7 +1082,7 @@ describe('a name from the disk is never printed as it is (sceptic V1-4)', () => 
       await mkdir(name, { mode: 0o700 });
       const t = await smurgHost(shared, lang, 'a folder set aside whose name holds control characters');
       expect(t.started).toBe(true);
-      expect(t.out).toBe(`${asideLine(lang, `${ws}.old\\u{1b}[2J\\u{1b}]0;pwned\\u{7}\\u{202e}`)}\n${cleanStart(lang, t.out, PAUSED_050)}`);
+      expect(t.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${asideLine(lang, `${ws}.old\\u{1b}[2J\\u{1b}]0;pwned\\u{7}\\u{202e}`)}\n${cleanStart(lang, t.out, PAUSED_050)}`);
       // The whole terminal, line by line: no character that acts on a terminal instead of being read.
       for (const line of `${t.out}\n${t.err}`.split('\n')) expect(LOG_UNSAFE_CHARACTER.test(line), JSON.stringify(line)).toBe(false);
       // The host's log has the line too (the log quotes what it writes), and holds no such character either.
@@ -1175,7 +1188,9 @@ describe('a page or smurg of another protocol version that the daemon turned awa
       // Under the links, each ONCE (as the other notices of a running share: a blank line, then the sentence), then the stop.
       const clean = cleanStart(lang, t.out, PAUSED_050);
       const stopAt = clean.indexOf(lang === 'en' ? '\nReceived SIGTERM' : '\n收到 SIGTERM');
-      expect(t.out).toBe(`${clean.slice(0, stopAt)}\n${newer}\n\n${older}\n${clean.slice(stopAt)}`);
+      // The first start (in the first language) is the one that upgraded the folder 0.5.0 left.
+      const upgraded = lang === LANGS[0] ? `${upgradedLine(lang, '0.5.0')}\n` : '';
+      expect(t.out).toBe(`${upgraded}${clean.slice(0, stopAt)}\n${newer}\n\n${older}\n${clean.slice(stopAt)}`);
     }
   }, 120_000);
 });

@@ -35,7 +35,7 @@ import {
 } from '@smurg/protocol/client';
 import type { TransferLink } from '../engine/link.ts';
 
-const WELCOME_SETTINGS = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] as string[] };
+const WELCOME_SETTINGS = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [] as string[], permissionMode: 'auto' as const };
 
 export interface FakeUpload {
   readonly uploadId: string;

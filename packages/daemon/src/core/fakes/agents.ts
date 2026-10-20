@@ -4,7 +4,7 @@
 // without each other. Nothing here spawns a process or touches the disk.
 //
 //   const agents = new FakeAgentSessions(env);
-//   const session = await agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', rolePrompt: () => '' });
+//   const session = await agents.start({ purpose: 'free', openedBy: host, responsible: null, workspace: { mode: 'main' }, modeChoice: null, model: null, rolePrompt: () => '' });
 //   agents.raise(session.id, { id: 'rq_1', kind: 'question', toolUseId: 'tu_1', parts });   // → bus 'agent.request'
 //   agents.finishTurn(session.id, { outcome: 'completed' });                                // → bus 'agent.turn.finished'
 //   agents.sentTo(session.id)                                                               // what an agent was told
@@ -18,6 +18,7 @@ import {
   SmurgError,
   agentDisplayName,
   agentSafeName,
+  effectivePermissionMode,
   encodedSize,
   lineEvent,
   noticeEvent,
@@ -29,6 +30,7 @@ import {
   worktreeRoot,
   type AccountInfo,
   type Actor,
+  type AgentHostState,
   type AgentSession,
   type CardRef,
   type CardWithdrawnReason,
@@ -41,7 +43,9 @@ import {
   type RememberedRule,
   type RootRef,
   type SessionEndReason,
+  type SessionModeChoice,
   type StreamingBlock,
+  type TopicAgent,
   type TurnOutcome,
   type UserRef,
 } from '@smurg/protocol';
@@ -88,8 +92,10 @@ interface FakeRecord {
   turn: number;
   turnOpen: string | null;
   turnMessages: TurnMessage[];
-  /** The display name of who loosened the mode (`conversation.mode.reset` names them). */
+  /** The display name of who chose the mode (`conversation.mode.reset` names them). */
   modeChangedByName: string | null;
+  /** The display name of who chose the model (`conversation.model.reset` names them). */
+  modelChangedByName: string | null;
 }
 
 function clone<T>(value: T): T {
@@ -112,6 +118,10 @@ export class FakeAgentSessions implements AgentSessions {
   attentionFacts: AttentionFact[] = [];
   /** Topics that are archived: their sessions are not in `list()` without a topic (FakeTopicService keeps it current). */
   readonly archivedTopics = new Set<string>();
+  /** A topic's agent settings (createFakes wires FakeTopicService.agent; a test may set its own). */
+  topicAgentOf: (topicId: string) => TopicAgent | null = () => null;
+  /** What `hostAgentState()` answers (the model list is not known unless a test says so). */
+  hostAgent: AgentHostState = { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' };
   private readonly env: FakeEnv;
   private readonly records = new Map<string, FakeRecord>();
 
@@ -155,8 +165,10 @@ export class FakeAgentSessions implements AgentSessions {
       root,
       branch,
       status: 'idle',
-      permissionMode: input.mode,
+      permissionMode: this.effective(input.purpose, input.purpose === 'discussion' ? null : input.modeChoice, input.topic?.id),
+      modeChoice: input.purpose === 'discussion' ? null : input.modeChoice,
       modeFixed: input.purpose === 'discussion',
+      model: input.model,
       noteworthyAt: now,
       lastActivityAt: now,
       createdAt: now,
@@ -175,6 +187,8 @@ export class FakeAgentSessions implements AgentSessions {
         ownerUserId: openedBy.userId,
         pathRights: input.openedBy.role === 'host' ? 'host' : 'member',
         fallbackDecider: openedBy.userId,
+        ...(input.purpose !== 'discussion' && input.modeChoice !== null && input.modeChangedBy !== undefined ? { modeChangedBy: input.modeChangedBy.userId } : {}),
+        ...(input.model !== null && input.modelChangedBy !== undefined ? { modelChangedBy: input.modelChangedBy.userId } : {}),
         hasProcess: true,
       },
       rolePrompt: input.rolePrompt({ smurgTag, ...(branch === undefined ? {} : { branch }) }),
@@ -190,7 +204,8 @@ export class FakeAgentSessions implements AgentSessions {
       turn: 0,
       turnOpen: null,
       turnMessages: [],
-      modeChangedByName: null,
+      modeChangedByName: input.purpose !== 'discussion' && input.modeChoice !== null ? (input.modeChangedBy?.displayName ?? null) : null,
+      modelChangedByName: input.model !== null ? (input.modelChangedBy?.displayName ?? null) : null,
     };
     this.records.set(id, record);
     this.env.bus.emit('session.created', { session: clone(record.session) });
@@ -305,22 +320,60 @@ export class FakeAgentSessions implements AgentSessions {
     this.settle(sessionId, requestId, decision);
   }
 
-  async setMode(sessionId: string, mode: PermissionMode, by: Actor): Promise<void> {
+  /** The mode a session runs with: its own choice, else (a work item) its topic's, else the workspace's. */
+  private effective(purpose: AgentSession['purpose'], choice: SessionModeChoice | null, topicId: string | undefined): PermissionMode {
+    const topic = topicId === undefined ? null : (this.topicAgentOf(topicId)?.permissionMode ?? null);
+    return effectivePermissionMode({ purpose, session: choice, topic, workspace: this.env.settings?.get().permissionMode ?? 'auto' });
+  }
+
+  async setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void> {
     this.log.record('setMode', sessionId, mode, by);
+    const record = this.need(sessionId);
+    if (record.session.purpose === 'discussion') throw new SmurgError('conflict', msg('session.mode.fixed'), { reason: 'mode-fixed' });
+    const person = userOf(by);
+    const effective = this.effective(record.session.purpose, mode, record.session.topicId);
+    if (person !== null) {
+      this.push(record, lineEvent(mode === null ? msg('conversation.mode.followed', { by: person.displayName, mode: effective }) : msg('conversation.mode.changed', { by: person.displayName, mode })));
+    } else if (record.modeChangedByName !== null) {
+      // The system puts a member's choice back (ConversationService.memberRemoved): the line names who had chosen it.
+      this.push(record, lineEvent(msg('conversation.mode.reset', { name: record.modeChangedByName })));
+    }
+    const { modeChangedBy: _gone, ...facts } = record.facts;
+    record.facts = person !== null && mode !== null ? { ...facts, modeChangedBy: person.userId } : facts;
+    record.modeChangedByName = person !== null && mode !== null ? person.displayName : null;
+    this.update(record, { modeChoice: mode, permissionMode: effective });
+  }
+
+  async setModel(sessionId: string, model: string | null, by: Actor): Promise<void> {
+    this.log.record('setModel', sessionId, model, by);
     const record = this.need(sessionId);
     const person = userOf(by);
     if (person !== null) {
-      this.push(record, lineEvent(msg('conversation.mode.changed', { by: person.displayName, mode })));
-      record.facts = { ...record.facts, modeChangedBy: person.userId };
-      record.modeChangedByName = person.displayName;
-    } else {
-      // The system puts a loosened mode back (ConversationService.memberRemoved): the line names who had changed it.
-      if (record.modeChangedByName !== null) this.push(record, lineEvent(msg('conversation.mode.reset', { name: record.modeChangedByName })));
-      const { modeChangedBy: _gone, ...facts } = record.facts;
-      record.facts = facts;
-      record.modeChangedByName = null;
+      this.push(record, lineEvent(model === null ? msg('conversation.model.default', { by: person.displayName }) : msg('conversation.model.changed', { by: person.displayName, model })));
+    } else if (record.modelChangedByName !== null) {
+      this.push(record, lineEvent(msg('conversation.model.reset', { name: record.modelChangedByName })));
     }
-    this.update(record, { permissionMode: mode });
+    const { modelChangedBy: _gone, ...facts } = record.facts;
+    record.facts = person !== null && model !== null ? { ...facts, modelChangedBy: person.userId } : facts;
+    record.modelChangedByName = person !== null && model !== null ? person.displayName : null;
+    this.update(record, { model });
+  }
+
+  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void> {
+    this.log.record('topicAgentChanged', topicId, previous, by);
+    const person = userOf(by);
+    for (const record of this.records.values()) {
+      if (record.session.topicId !== topicId || record.session.status === 'ended') continue;
+      const effective = this.effective(record.session.purpose, record.session.modeChoice, topicId);
+      if (record.session.purpose === 'item' && record.session.modeChoice === null && effective !== record.session.permissionMode && person !== null) {
+        this.push(record, lineEvent(msg('conversation.mode.topic', { by: person.displayName, mode: effective })));
+      }
+      this.update(record, { permissionMode: effective });
+    }
+  }
+
+  hostAgentState(): AgentHostState {
+    return structuredClone(this.hostAgent);
   }
 
   async setRules(sessionId: string, rules: readonly RememberedRule[], by: Actor): Promise<void> {
@@ -753,6 +806,7 @@ export class FakeAgentSessions implements AgentSessions {
       turnOpen: null,
       turnMessages: [],
       modeChangedByName: null,
+      modelChangedByName: null,
     });
   }
 

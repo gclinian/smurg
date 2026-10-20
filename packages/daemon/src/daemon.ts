@@ -179,9 +179,12 @@ export interface Daemon {
   /**
    * What this start upgraded (empty when nothing): a document that an earlier published smurg wrote in another shape
    * was read, upgraded in memory, kept as it was in `copy` and written in today's shape, before the daemon did
-   * anything else. `from`: the step's name (`0.4.0`); `copy`: the absolute path of the kept copy.
+   * anything else. `from`: the step's name (`0.4.0`); `copy`: the absolute path of the kept copy. `writer` (0.6.0,
+   * DESIGN D6): the smurg that last wrote the folder, as its stamp said (0.5.1 and later stamp a folder), so that the
+   * host reads "last shared with smurg 0.5.2" and not the step's name; absent when the stamp did not say it (no stamp,
+   * a put-back file, or an upgrade a start before this one left unfinished).
    */
-  readonly upgraded: readonly { readonly document: string; readonly from: string; readonly copy: string }[];
+  readonly upgraded: readonly { readonly document: string; readonly from: string; readonly copy: string; readonly writer?: string }[];
   /**
    * A step ran although the folder's stamp already named a smurg that upgrades this shape itself (0.5.1 or later): an
    * OLDER file was put back. Everything decided since that file was written (kicks, revoked devices and links, role
@@ -382,6 +385,8 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       audit,
       bus,
       mainRealPath: roots.main.realPath,
+      hostUserId: () => members.hostUserId(),
+      now: () => clock.now(),
     });
     const invites = new InviteServiceImpl({
       state,
@@ -678,6 +683,9 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       return out;
     };
 
+    // Who last wrote the folder: the stamp's `smurg`, when the stamp is one this smurg can use and names no upgrade under
+    // way (then it names the start that left it unfinished) and nothing older was put back (then the file is older).
+    const writer = reading.stamp !== null && reading.stamp.pending === undefined && !reading.putBack ? reading.stamp.smurg : null;
     const daemon: Daemon = {
       ctx,
       config,
@@ -687,7 +695,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       get hostInviteUrl() {
         return hostInviteUrl;
       },
-      upgraded,
+      upgraded: upgraded.map((entry) => (writer === null ? entry : { ...entry, writer })),
       putBack: upgraded.length > 0 && reading.putBack,
       internals: { hub, channelServer, members, invites, links, identityKeys, store, folder: reading },
 

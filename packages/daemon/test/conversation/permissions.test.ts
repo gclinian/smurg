@@ -432,7 +432,7 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
 
   it('an edit tool in a main-workspace session in ask-commands is allowed by the daemon, after the host-only check and the lock', async () => {
     const s = await startStack({ before: [locksModule], project: { files: { 'src/cart.ts': 'a\n', '.vscode/settings.json': '{}\n' } } });
-    const session = await openSession(s, MEI, { mode: 'ask-commands' });
+    const session = await openSession(s, MEI, { modeChoice: 'ask-commands', model: null });
     s.fakes.agents.raise(session.id, editRequest('e1', 'src/cart.ts', { kind: 'write', text: 'b\n' }));
     await quiet(s);
     expect(s.service.permission('e1', true)).toBeNull();

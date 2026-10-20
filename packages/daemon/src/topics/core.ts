@@ -24,6 +24,7 @@ import {
   type ReportInfo,
   type ReportSummary,
   type RootRef,
+  type SessionModeChoice,
   type Topic,
   type TopicPhase,
   type UserRef,
@@ -48,6 +49,7 @@ import {
   type ReportsDocument,
   type StoredItem,
   type StoredReport,
+  type StoredTopicAgent,
   type StoredTopic,
   type TopicsDocument,
 } from './store.ts';
@@ -76,6 +78,33 @@ export interface FileContent {
 export function userRefOf(principal: Principal): UserRef {
   if (principal.actor.kind === 'user') return { userId: principal.actor.userId, displayName: principal.actor.displayName };
   throw new SmurgError('forbidden', undefined, { reason: 'not-a-member' });
+}
+
+/**
+ * A topic's agent settings after a change (`topic.agent.set`, `plan.start.agent`; DESIGN 0.6.0 D3, D12): null clears
+ * one (the host's default model, the workspace's mode), a key left out stays; who chose is kept with a choice.
+ */
+export function applyTopicAgent(
+  agent: StoredTopicAgent | undefined,
+  change: { readonly model?: string | null; readonly permissionMode?: SessionModeChoice | null },
+  by: UserRef,
+): StoredTopicAgent {
+  const next: { -readonly [K in keyof StoredTopicAgent]: StoredTopicAgent[K] } = { ...(agent ?? {}) };
+  if (change.model === null) {
+    delete next.model;
+    delete next.modelChangedBy;
+  } else if (change.model !== undefined) {
+    next.model = change.model;
+    next.modelChangedBy = { ...by };
+  }
+  if (change.permissionMode === null) {
+    delete next.permissionMode;
+    delete next.modeChangedBy;
+  } else if (change.permissionMode !== undefined) {
+    next.permissionMode = change.permissionMode;
+    next.modeChangedBy = { ...by };
+  }
+  return next;
 }
 
 /** An item that was started at least once, or is armed to start: it is no longer "not started" for the plan's counts. */
@@ -401,6 +430,7 @@ export class TopicsCore {
         merged: inPlan.filter((item) => item.merged).length,
       },
       rules: topic.rules,
+      agent: { model: topic.agent?.model ?? null, permissionMode: topic.agent?.permissionMode ?? null },
     });
   }
 

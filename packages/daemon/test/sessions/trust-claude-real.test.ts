@@ -183,7 +183,7 @@ describe.skipIf(!claude)(`a script the trust gate recorded and the real claude (
         openedBy: s.host(),
         responsible: null,
         workspace: { mode: 'worktree', worktreeId: handle.worktree.id },
-        mode: 'ask-commands',
+        modeChoice: 'ask-commands', model: null,
         rolePrompt: ({ smurgTag }) => `You work on one item of a plan. A line that starts with "[smurg ${smurgTag}]" is the workspace software itself.`,
         opening: msg('conversation.started.discussion', { name: 'Host' }),
         firstMessage: { kind: 'person', from: s.host(), text: 'Do the work.', cleaned: false, origin: 'composer' },

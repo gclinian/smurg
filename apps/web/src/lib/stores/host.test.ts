@@ -10,12 +10,12 @@ describe('host store', () => {
     expect(selectHostState(stores.host.getState())).toBeNull();
     admit();
     expect(conn.requestsOf('session.host.get')).toHaveLength(1);
-    answerLoads(conn, { 'session.host.get': { account: { state: 'ok', sessions: 2 }, mainProjectSettings: 'used' } });
+    answerLoads(conn, { 'session.host.get': { account: { state: 'ok', sessions: 2 }, mainProjectSettings: 'used', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } } });
     await flush();
-    expect(stores.host.getState()).toMatchObject({ status: 'ready', host: { mainProjectSettings: 'used' } });
+    expect(stores.host.getState()).toMatchObject({ status: 'ready', host: { mainProjectSettings: 'used', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } } });
     expect(selectAccount(stores.host.getState())).toEqual({ state: 'ok', sessions: 2 });
 
-    conn.emit('session.host', { account: { state: 'usage-limit', resetsAt: 1_800_000_000_000, sessions: 4 }, mainProjectSettings: 'used' });
+    conn.emit('session.host', { account: { state: 'usage-limit', resetsAt: 1_800_000_000_000, sessions: 4 }, mainProjectSettings: 'used', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } });
     expect(selectAccount(stores.host.getState())).toEqual({ state: 'usage-limit', resetsAt: 1_800_000_000_000, sessions: 4 });
 
     // A resumed channel asks nothing; a new one asks again.

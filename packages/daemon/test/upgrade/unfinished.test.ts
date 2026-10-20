@@ -1,5 +1,6 @@
 // An upgrade that did not finish, on what the published 0.4.0 really left (0.5.1, the last fixes: V1-1, V2-2, V1-3,
-// V1-5, V1-6).
+// V1-5, V1-6), and on what the published 0.5.2 left (0.6.0: its state.json and agent-sessions.json are upgraded, the
+// owner's decision; a kill between the two is the same story, DESIGN 0.6.0 D21).
 //
 // The first `smurg host` after the update is the one start that upgrades. When it ended between its writes (a kill,
 // a full disk, something in the way of a kept copy), the host met two untruths: the refused start said "Nothing was
@@ -41,9 +42,22 @@ afterEach(async () => {
   }
 });
 
-/** What 0.4.0 left while it was running (what a crash leaves): live sessions, launch files, pending suggestions. */
-async function left(): Promise<FixtureCopy> {
-  const copy = await copyOf('0.4.0', 'running');
+/** The published folders whose first start of this smurg upgrades two documents, and what each one's start upgrades. */
+interface Upgraded {
+  readonly version: '0.4.0' | '0.5.2';
+  /** The two documents, in the order a start writes them. */
+  readonly documents: readonly [string, string];
+  /** The step they are upgraded from (the kept copies' name). */
+  readonly from: '0.4.0' | '0.5.0';
+}
+const UPGRADED: readonly Upgraded[] = [
+  { version: '0.4.0', documents: ['state', 'suggestions'], from: '0.4.0' },
+  { version: '0.5.2', documents: ['state', 'agent-sessions'], from: '0.5.0' },
+];
+
+/** What a version left while it was running (what a crash leaves): live sessions, launch files, pending suggestions. */
+async function left(version: Upgraded['version'] = '0.4.0'): Promise<FixtureCopy> {
+  const copy = await copyOf(version, 'running');
   copies.push(copy);
   await mkdir(join(copy.project, '.smurg', 'uploads'), { recursive: true, mode: 0o700 }); // a start makes it before it reads anything
   return copy;
@@ -74,22 +88,28 @@ async function refusalOf(copy: FixtureCopy): Promise<Json> {
   throw new Error('the daemon STARTED on a folder it must refuse');
 }
 
-const BOTH = (copy: FixtureCopy): unknown[] => ['state', 'suggestions'].map((document) => ({ document, from: '0.4.0', copy: join(copy.workspaceDir, keptCopyName(document, '0.4.0')) }));
 const membersOf = (state: StoredState): string[] => state.members.map((member) => `${member.userId} ${member.role} ${member.status}`);
 
-/** The next `smurg host`: it upgrades, says so, and everybody is who they were. */
-async function theNextStartIsTheUpgrade(copy: FixtureCopy, asLeft: StoredState, oldBytes: { readonly state: Buffer; readonly suggestions: Buffer }): Promise<void> {
+type OldBytes = Readonly<Record<string, Buffer>>;
+
+/**
+ * The next `smurg host`: it upgrades, says so, and everybody is who they were. (Who wrote the folder before is not
+ * said: the stamp named a start that did not finish, or the folder had none.)
+ */
+async function theNextStartIsTheUpgrade(copy: FixtureCopy, asLeft: StoredState, oldBytes: OldBytes, upgraded: Upgraded = UPGRADED[0] as Upgraded): Promise<void> {
   const t = (running = await startOn(copy));
   expect(t.daemon.putBack, 'NOTHING WAS PUT BACK: this is the first upgrade of the folder').toBe(false);
-  expect(t.daemon.upgraded).toEqual(BOTH(copy));
+  expect(t.daemon.upgraded.map(({ writer: _writer, ...entry }) => entry)).toEqual(upgraded.documents.map((document) => ({ document, from: upgraded.from, copy: join(copy.workspaceDir, keptCopyName(document, upgraded.from)) })));
   expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(asLeft));
   expect(t.ctx.members.list({ includeKicked: true }).flatMap((member) => t.daemon.internals.members.devicesOf(member.userId)).filter((device) => device.revoked).map((device) => device.deviceId).sort()).toEqual(asLeft.devices.filter((device) => device.revoked).map((device) => device.deviceId).sort());
   for (const invite of asLeft.invites) expect(t.ctx.invites.list().map((listed) => listed.id), invite.id).toContain(invite.id);
-  // The files as 0.4.0 left them are kept, once each, whichever start made the copy.
-  expect((await readFile(join(copy.workspaceDir, keptCopyName('state', '0.4.0')))).equals(oldBytes.state)).toBe(true);
-  expect((await readFile(join(copy.workspaceDir, keptCopyName('suggestions', '0.4.0')))).equals(oldBytes.suggestions)).toBe(true);
-  expect((await readdir(copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual([keptCopyName('state', '0.4.0'), keptCopyName('suggestions', '0.4.0')]);
-  expect(await readJson<Json>(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 1, at: expect.any(Number) });
+  // The files as the version left them are kept, once each, whichever start made the copy.
+  for (const document of upgraded.documents) expect((await readFile(join(copy.workspaceDir, keptCopyName(document, upgraded.from)))).equals(oldBytes[document] as Buffer), document).toBe(true);
+  expect((await readdir(copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual(upgraded.documents.map((document) => keptCopyName(document, upgraded.from)).sort());
+  expect(await readJson<Json>(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
+  // The workspace's mode is auto now, and the host is told (DESIGN 0.6.0 D6, D13).
+  expect(t.ctx.settings.get().permissionMode).toBe('auto');
+  expect(t.ctx.settings.notices()).toEqual(['agents-auto']);
   await t.cleanup();
   running = null;
   // And the start after that is an ordinary one.
@@ -98,32 +118,33 @@ async function theNextStartIsTheUpgrade(copy: FixtureCopy, asLeft: StoredState, 
   expect(again.daemon.putBack).toBe(false);
 }
 
-const oldBytesOf = async (copy: FixtureCopy): Promise<{ state: Buffer; suggestions: Buffer }> => ({ state: await readFile(join(copy.workspaceDir, 'state.json')), suggestions: await readFile(join(copy.workspaceDir, 'suggestions.json')) });
+const oldBytesOf = async (copy: FixtureCopy, upgraded: Upgraded = UPGRADED[0] as Upgraded): Promise<OldBytes> =>
+  Object.fromEntries(await Promise.all(upgraded.documents.map(async (document) => [document, await readFile(join(copy.workspaceDir, `${document}.json`))] as const)));
 
-describe('the first upgrade of what smurg 0.4.0 left, when the start that does it does not finish', { timeout: 120_000 }, () => {
+describe.each(UPGRADED)('the first upgrade of what smurg $version left, killed after each of its writes', { timeout: 120_000 }, (upgraded) => {
+  const [first, second] = upgraded.documents;
   it.each([
     ['stamp', 'between the stamp and the first document'],
-    ['copy:state', 'after the kept copy of state.json, before state.json'],
-    ['document:state', 'between the two documents'],
-    ['copy:suggestions', 'after the kept copy of suggestions.json, before suggestions.json'],
-    ['document:suggestions', 'after the last document, before the stamp was written again'],
+    [`copy:${first}`, `after the kept copy of ${first}.json, before ${first}.json`],
+    [`document:${first}`, 'between the two documents'],
+    [`copy:${second}`, `after the kept copy of ${second}.json, before ${second}.json`],
+    [`document:${second}`, 'after the last document, before the stamp was written again'],
   ])('killed after %s (%s): the next start finishes the upgrade and says UPGRADE, never "an older file was put back"', async (write) => {
-    const copy = await left();
+    const copy = await left(upgraded.version);
     const asLeft = await readJson<StoredState>(join(copy.workspaceDir, 'state.json'));
-    const old = await oldBytesOf(copy);
+    const old = await oldBytesOf(copy, upgraded);
     await startThatDiesAfter(copy, write);
     // The stamp of the start that died names what it had under way.
     expect(await readJson<Json>(join(copy.workspaceDir, STAMP_NAME))).toMatchObject({
       smurg: DAEMON_VERSION,
-      shapes: 1,
-      pending: [
-        { document: 'state', from: '0.4.0', copy: keptCopyName('state', '0.4.0') },
-        { document: 'suggestions', from: '0.4.0', copy: keptCopyName('suggestions', '0.4.0') },
-      ],
+      shapes: 2,
+      pending: upgraded.documents.map((document) => ({ document, from: upgraded.from, copy: keptCopyName(document, upgraded.from) })),
     });
-    await theNextStartIsTheUpgrade(copy, asLeft, old);
+    await theNextStartIsTheUpgrade(copy, asLeft, old, upgraded);
   });
+});
 
+describe('the first upgrade of what smurg 0.4.0 left, when the start that does it does not finish', { timeout: 120_000 }, () => {
   describe.each(['state', 'suggestions'])('something is in the way of the kept copy of %s.json', (document) => {
     const ways: Readonly<Record<string, { make(path: string, copy: FixtureCopy): Promise<void>; refusal: Json; cure(path: string): Promise<void> }>> = {
       'a symlink to a file of the host': {
@@ -173,7 +194,7 @@ describe('the first upgrade of what smurg 0.4.0 left, when the start that does i
       expect(after.workspace).toEqual(before.workspace);
       expect(after.all).toEqual(before.all);
       expect(await readdir(copy.workspaceDir)).not.toContain(STAMP_NAME);
-      expect((await readFile(join(copy.workspaceDir, 'state.json'))).equals(old.state)).toBe(true);
+      expect((await readFile(join(copy.workspaceDir, 'state.json'))).equals(old['state'] as Buffer)).toBe(true);
 
       await way.cure(path);
       await theNextStartIsTheUpgrade(copy, asLeft, old);
@@ -195,7 +216,7 @@ describe('the first upgrade of what smurg 0.4.0 left, when the start that does i
     const copy = await left();
     const old = await oldBytesOf(copy);
     await (await startOn(copy)).cleanup();
-    await writeFile(join(copy.workspaceDir, 'state.json'), old.state, { mode: 0o600 });
+    await writeFile(join(copy.workspaceDir, 'state.json'), old['state'] as Buffer, { mode: 0o600 });
     const t = (running = await startOn(copy));
     expect(t.daemon.putBack).toBe(true);
     expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.4.0', copy: join(copy.workspaceDir, keptCopyName('state', '0.4.0')) }]);
@@ -203,12 +224,13 @@ describe('the first upgrade of what smurg 0.4.0 left, when the start that does i
 });
 
 describe('the stamp and the kept copies, on what a published smurg left', { timeout: 120_000 }, () => {
+  // Shapes 3: one above this smurg's (0.6.0 writes 2).
   it.each([
-    ['a version name of another form', { smurg: '0.6.0-rc.1', shapes: 2, at: 5 }, 0o600],
-    ['one more key', { smurg: '0.6.0', shapes: 2, at: 5, relay: 'x' }, 0o600],
+    ['a version name of another form', { smurg: '0.7.0-rc.1', shapes: 3, at: 5 }, 0o600],
+    ['one more key', { smurg: '0.7.0', shapes: 3, at: 5, relay: 'x' }, 0o600],
     ['a number above 1,000,000', { smurg: '9.0.0', shapes: 1_000_001, at: 5 }, 0o600],
-    ['mode 0644 (a restore without modes)', { smurg: '0.6.0', shapes: 2, at: 5 }, 0o644],
-  ] as const)('a stamp of shapes 2 with %s: the folder is refused as `newer` and the stamp is NOT written over (V1-3)', async (_how, stamp, mode) => {
+    ['mode 0644 (a restore without modes)', { smurg: '0.7.0', shapes: 3, at: 5 }, 0o644],
+  ] as const)('a stamp of shapes 3 with %s: the folder is refused as `newer` and the stamp is NOT written over (V1-3)', async (_how, stamp, mode) => {
     const copy = await left();
     const path = join(copy.workspaceDir, STAMP_NAME);
     await writeFile(path, `${JSON.stringify(stamp, null, 2)}\n`, { mode });

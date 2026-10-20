@@ -1,4 +1,4 @@
-// The worst case of every protocol 4 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
+// The worst case of every protocol 4 and 5 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
 // string below MSGPACK_MAX_STR_LENGTH. The samples are in worst-case.fixture.ts: at the schema's own maxima, or, where
 // the registry names a size rule, the largest message that rule lets through.
 import { describe, expect, it } from 'vitest';
@@ -6,7 +6,24 @@ import { collectPages, decodeEnvelope, encodeEnvelope, encodedSize, takeListPage
 import { MAX_APP_MESSAGE, MSGPACK_MAX_STR_LENGTH } from '../constants.ts';
 import { EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES } from './limits.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES, type MessageType } from './registry.ts';
-import { WORST_CASES, worstConfigRoot, worstEvent, worstInboxItem, worstPermission, worstPlan, worstQuestion, worstReport, worstSession, worstSuggestion, worstTopic } from './worst-case.fixture.ts';
+import { startPreflightSchema } from './topics.ts';
+import {
+  WORST_CASES,
+  worstConfigRoot,
+  worstDirectPreflight,
+  worstEvent,
+  worstHostState,
+  worstInboxItem,
+  worstPermission,
+  worstPlan,
+  worstPreflight,
+  worstQuestion,
+  worstReport,
+  worstSession,
+  worstSmurgPreflight,
+  worstSuggestion,
+  worstTopic,
+} from './worst-case.fixture.ts';
 
 /** The types protocol 3 already had and that kept their shape: their bounds are those of their own tests. */
 const UNCHANGED_PREFIXES = ['channel.', 'file.', 'doc.', 'lock.', 'presence.', 'activity.', 'exec.', 'worktree.'];
@@ -22,7 +39,7 @@ function longestString(value: unknown): number {
   return longest;
 }
 
-describe('worst-case sizes of the protocol 4 messages', () => {
+describe('worst-case sizes of the protocol 4 and 5 messages', () => {
   const newTypes = MESSAGE_TYPES.filter(isNew);
 
   it('there is a worst case for exactly the new and reshaped types', () => {
@@ -76,6 +93,28 @@ describe('worst-case sizes of the protocol 4 messages', () => {
     // Single entities that travel whole.
     expect(encodedSize(worstPlan)).toBeLessThan(MAX_APP_MESSAGE);
     expect(encodedSize(worstReport)).toBeLessThan(MAX_APP_MESSAGE);
+  });
+});
+
+describe('worst-case sizes of what protocol 5 added (DESIGN 0.6.0 D4, D5)', () => {
+  it('the host state with 32 models of the longest names and descriptions is valid and fits one Envelope, as a result and as an event', () => {
+    for (const type of ['session.host', 'session.host.get'] as const) {
+      const spec = MESSAGE_REGISTRY[type];
+      const schema = spec.dir === 'd2c' ? spec.payload : (spec.result as NonNullable<typeof spec.result>);
+      const parsed = schema.safeParse(worstHostState);
+      expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
+    }
+    expect(worstHostState.agent.models).toHaveLength(32);
+    // The host state goes to every member at every change: it stays small next to the Envelope.
+    expect(encodedSize(worstHostState)).toBeLessThan(MAX_APP_MESSAGE / 64);
+  });
+
+  it('each variant of the Start dialog (the folder\'s own git, smurg\'s own history, direct) is valid at its maxima and fits', () => {
+    for (const preflight of [worstPreflight, worstSmurgPreflight, worstDirectPreflight]) {
+      const parsed = startPreflightSchema.safeParse(preflight);
+      expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
+      expect(encodedSize({ preflight })).toBeLessThan(MAX_APP_MESSAGE);
+    }
   });
 });
 

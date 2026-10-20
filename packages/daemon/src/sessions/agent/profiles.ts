@@ -88,7 +88,13 @@ export function fileRule(tool: 'Read' | 'Edit', rootRealPath: string, relPattern
   return `${tool}(/${rootRealPath.replace(/\/+$/, '').replace(/[[\]]/g, '\\$&')}/${relPattern})`;
 }
 
-/** Claude Code's own mode for a session (DESIGN §2.5 table): a session rooted in the main workspace never runs in `acceptEdits`. */
+/**
+ * Claude Code's own mode for a session (DESIGN §2.5 table): a session rooted in the main workspace never runs in
+ * `acceptEdits`. As 0.6.0's first step launches (0.5.2's two Claude modes): an effective `auto` or `ask-nothing`
+ * launches as 0.5.2's default for that session did (a work item or a worktree session `acceptEdits`, a free session in
+ * the main workspace `default`, where the daemon allows no edit: that is `ask-commands` only); `ask-commands` and
+ * `ask-all` launch as themselves. DESIGN 0.6.0 D8 maps the four modes to Claude Code's own.
+ */
 export function claudeModeFor(purpose: AgentPurpose, mode: PermissionMode, root: RootRef): 'default' | 'acceptEdits' {
   if (purpose === 'discussion' || mode === 'ask-all') return 'default';
   return root.kind === 'worktree' ? 'acceptEdits' : 'default';

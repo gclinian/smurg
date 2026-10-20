@@ -266,7 +266,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'schema/inbox.ts': 1,
   'schema/messages/admin.ts': 1,
   'schema/paths.ts': 7,
-  'schema/primitives.ts': 10,
+  // 11 since protocol 5: modelIdSchema's, anchored, one class repeated once (linear), on at most 256 characters.
+  'schema/primitives.ts': 11,
   'testing/text-cost.ts': 3,
   'wire-text.ts': 1,
 };

@@ -55,14 +55,15 @@ describe('when a member goes', { timeout: 60_000 }, () => {
     await s.host.conn.request('admin.member.kick', { userId: MEI });
     await quiet(s);
 
-    // The always-allowed kind she added is gone, by the system, and the conversation says whose it was.
+    // The always-allowed kind she added is gone, by the system, and the conversation says whose it was. Her mode
+    // choice goes too: the session follows the workspace again (0.6.0: auto, launched as 0.5.2's default was).
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'ask-all', ruleCount: 0 });
+    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'auto', modeChoice: null, ruleCount: 0 });
     expect(s.fakes.agents.facts(shared)?.modeChangedBy).toBeUndefined();
     // (Those two lines are the agent runtime's own: `setRules` and `setMode` by the system write them.)
     expect(lines(s, shared)).toEqual(['conversation.rule.added', 'conversation.mode.changed', 'conversation.rule.removed.member', 'conversation.agent.restarting', 'conversation.mode.reset']);
     expect(s.fakes.agents.log.of('setRules')).toEqual([[shared, [], { kind: 'system' }]]);
-    expect(s.fakes.agents.log.of('setMode')).toEqual([[shared, 'ask-all', { kind: 'system' }]]);
+    expect(s.fakes.agents.log.of('setMode')).toEqual([[shared, null, { kind: 'system' }]]);
     // Her vote left the open question; the watchers saw it go; Amy's stays.
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId)).toEqual([AMY]);
     await waitFor(() => changes.some((change) => change.voteRemoved?.userId === MEI), { what: 'voteRemoved for a watcher' });
@@ -109,7 +110,7 @@ describe('when a member goes', { timeout: 60_000 }, () => {
     await s.host.conn.request('admin.member.setRole', { userId: MEI, role: 'editor' });
     await quiet(s);
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('ask-all');
+    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('auto');
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId).sort()).toEqual([AMY, MEI].sort());
     // An Editor may still be the one who decides: her own item's question stays hers (the session passed to the host, running).
     expect(s.service.question('q-own')).toMatchObject({ status: 'open', decider: { userId: MEI } });
@@ -132,7 +133,7 @@ describe('when a member goes', { timeout: 60_000 }, () => {
     await s.mei.conn.request('channel.leave', {});
     await quiet(s);
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('ask-all');
+    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('auto');
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId)).toEqual([AMY]);
     expect(s.fakes.agents.log.of('interrupt')).toEqual([]);
     expect(s.service.question('q-own')?.status).toBe('open');

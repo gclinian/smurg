@@ -7,7 +7,7 @@
 // compose a test daemon: `createTestDaemon({ modules: [fakesModule({ except: [...], handlers: true }), yourModule] })`.
 import type { Role } from '@smurg/protocol';
 import { TypedEventBus } from '../bus.ts';
-import type { EventBus, Hub, MemberDirectory, Principal, RootRegistry, UserId } from '../interfaces.ts';
+import type { EventBus, Hub, MemberDirectory, Principal, RootRegistry, SettingsService, UserId } from '../interfaces.ts';
 import { ManualClock, type Clock } from '../lifecycle.ts';
 import { silentLogger } from '../logger.ts';
 
@@ -19,6 +19,8 @@ export interface FakeEnv {
   readonly members?: Pick<MemberDirectory, 'userRef' | 'hostUserId' | 'routing'>;
   /** With the registry (a real daemon), the fake worktree manager makes real directories and registers them. */
   readonly roots?: RootRegistry;
+  /** The host settings (a real daemon): the workspace's permission mode a session follows. Without: `auto`. */
+  readonly settings?: Pick<SettingsService, 'get'>;
 }
 
 /** A bus and a manual clock for tests of the fakes themselves (never a module's context: see above). */

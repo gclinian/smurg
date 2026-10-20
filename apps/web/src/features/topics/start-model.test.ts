@@ -42,6 +42,8 @@ function preflight(overrides: Partial<StartPreflight> = {}): StartPreflight {
     rules: [],
     sharedDirs: [],
     blockers: [],
+    // protocol 5: the folder's own git; the topic's agent settings (none chosen) and the mode its items would run with
+    history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
     ...overrides,
   };
 }

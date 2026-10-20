@@ -405,18 +405,18 @@ describe('host console: sessions and suggestions', () => {
     const section = (await screen.findByRole('heading', { name: 'All sessions (2)' })).closest('section') as HTMLElement;
     expect(await within(section).findByText('Your Claude account: no problem reported.')).toBeTruthy();
 
-    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 4 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', sessions: 4 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     const banner = within(section).getByText('Your Claude account').closest('.ui-banner') as HTMLElement;
     expect(within(banner).getByText('Your Claude account has reached a usage limit.')).toBeTruthy();
     expect(within(banner).getByText('4 agent sessions wait for it.')).toBeTruthy();
     expect(within(section).queryByText('Your Claude account: no problem reported.')).toBeNull();
 
     const resetsAt = Date.UTC(2026, 9, 7, 12, 30);
-    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', resetsAt, sessions: 1 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'usage-limit', resetsAt, sessions: 1 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(within(section).getByText(/^Your Claude account has reached a usage limit\. It resets at .+\.$/)).toBeTruthy();
     expect(within(section).getByText('1 agent session waits for it.')).toBeTruthy();
 
-    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 0 }, mainProjectSettings: 'none' }));
+    act(() => view.conn.emit('session.host', { account: { state: 'logged-out', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } }));
     expect(within(section).getByText('Claude Code is not logged in on your computer. Run claude in your own terminal and log in.')).toBeTruthy();
     expect(within(section).queryByText(/wait for it|waits for it/)).toBeNull();
   });

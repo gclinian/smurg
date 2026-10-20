@@ -107,7 +107,8 @@ describe('the release composition (DEFAULT_FEATURE_MODULES with the stand-in cla
         {
           steps: [
             { text: 'I will write down what I found.' },
-            // An edit in a main-workspace session asks first (ask-all): the stand-in raises the permission request
+            // An edit in a main-workspace session asks first (the workspace's `auto` still launches as Claude Code's
+            // `default` there, as 0.5.2's ask-all did): the stand-in raises the permission request
             // and waits. Allowed, it runs the real PreToolUse / PostToolUse hook commands (the tool gate, the agent
             // lock) around a real write.
             { tool: 'Write', input: { file_path: NOTE, content: CONTENT } },
@@ -134,7 +135,7 @@ describe('the release composition (DEFAULT_FEATURE_MODULES with the stand-in cla
     const hostInbox = recorder(host.conn, 'inbox.changed');
     const amyInbox = recorder(amy.conn, 'inbox.changed');
     const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Tests' });
-    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: HOST }, permissionMode: 'ask-all' });
+    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: HOST }, permissionMode: 'auto', modeChoice: null });
     const sessionId = session.id;
     await waitFor(() => d.ctx.services.agents.get(sessionId)?.status === 'idle', { timeoutMs: 20_000, what: 'the agent session to be ready' });
     // Claude Code as the runtime found it at this first start: `smurg status` has its line now.

@@ -49,8 +49,11 @@ export function buildAgentSession(overrides?: Overrides<AgentSession>): AgentSes
       responsible: null,
       root: MAIN_ROOT,
       status: 'idle',
-      permissionMode: 'ask-all',
+      // Protocol 5: a session nobody chose a mode for follows the workspace, whose default is auto.
+      permissionMode: 'auto',
+      modeChoice: null,
       modeFixed: false,
+      model: null,
       ruleCount: 0,
       login: 'logged-in',
       projectSettings: 'none',
@@ -65,6 +68,8 @@ export function buildAgentSession(overrides?: Overrides<AgentSession>): AgentSes
   if (session.topicId !== undefined && !('topicName' in given)) session.topicName = 'Checkout';
   if (session.itemId !== undefined && !('item' in given)) session.item = { number: 1, title: 'Cart API' };
   if (session.itemId !== undefined && !('attempt' in given)) session.attempt = 1;
+  // A discussion's permissions are fixed: it reads ask-all (the schema's refine).
+  if (session.modeFixed && !('permissionMode' in given)) session.permissionMode = 'ask-all';
   return session;
 }
 
@@ -146,6 +151,7 @@ export function buildTopic(overrides?: Overrides<Topic>): Topic {
       handEdits: { spec: [], plan: [] },
       plan: { exists: false, valid: false, generating: false, stale: false, mode: 'assigned', paused: false, items: 0, started: 0, reviewed: 0, merged: 0 },
       rules: [],
+      agent: { model: null, permissionMode: null },
     },
     overrides,
   );

@@ -108,7 +108,7 @@ async function freeSession(team: Team, responsible: string | null, openedBy: str
     openedBy: principal(team, openedBy),
     responsible: responsible === null ? null : refOf(team, responsible),
     workspace: { mode: 'main' },
-    mode: 'ask-all',
+    modeChoice: 'ask-all', model: null,
     rolePrompt: () => 'prompt',
   });
 }
@@ -123,7 +123,7 @@ async function itemSession(team: Team, topicId: string, responsible: string | nu
     openedBy: principal(team, MEI),
     responsible: responsible === null ? null : refOf(team, responsible),
     workspace: { mode: 'main' },
-    mode: 'ask-commands',
+    modeChoice: 'ask-commands', model: null,
     rolePrompt: () => 'prompt',
   });
   team.fakes.plans.putPlan(buildPlan({ topicId, items: [buildWorkItem({ state: 'done', sessionId: session.id, attempt: 1 })] }));

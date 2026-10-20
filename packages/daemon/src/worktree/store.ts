@@ -1,6 +1,10 @@
 // `worktrees.json` in the workspace state dir (ARCHITECTURE §7.1): every worktree the
 // daemon created, what it must look like on disk (integrity.ts), and every merge request, drafts included. Loaded with
 // its schema: a file that does not match stops the daemon (StateStore), it is never reset.
+//
+// 0.6.0 (DESIGN D6, D14): records say which repository they belong to (`repo: 'smurg'`: smurg's own history in
+// `.smurg/git` of a folder without `.git`; absent: the folder's own `.git`, which is what every 0.5.x record means),
+// and the document records smurg's own history (`hidden`). Optional keys only: a 0.5.x file passes as it is.
 import { z } from 'zod';
 import { declareDocument } from '../core/state-store.ts';
 import {
@@ -71,6 +75,8 @@ export const storedWorktreeSchema = z.strictObject({
   merge: z.strictObject({ parent: gitCommitSchema, conflicted: z.array(resultPathSchema).max(MERGE_FILES_MAX) }).optional(),
   /** Item worktrees: the files people edited there by hand, oldest first. */
   handEdits: z.array(storedHandEditSchema).max(HAND_EDIT_PATHS_MAX).optional(),
+  /** Made from smurg's own history of the folder (`.smurg/git`); absent: from the folder's own `.git`. */
+  repo: z.literal('smurg').optional(),
 });
 export type StoredWorktree = z.infer<typeof storedWorktreeSchema>;
 
@@ -96,13 +102,27 @@ export const storedMergeSchema = z.strictObject({
   rejectReason: reasonTextSchema.optional(),
   /** The merge commit written into the main workspace (status merged; absent when it was already up to date). */
   mergeCommit: gitCommitSchema.optional(),
-});
+  /** Of smurg's own history (`.smurg/git`); absent: of the folder's own `.git`. */
+  repo: z.literal('smurg').optional(),
+  /** With `repo: 'smurg'`: the merge base the review showed (every diff view and the approval check it again). */
+  base: gitCommitSchema.optional(),
+})
+  .refine((merge) => merge.base === undefined || merge.repo === 'smurg', 'a recorded merge base only for smurg\'s own history');
 export type StoredMerge = z.infer<typeof storedMergeSchema>;
+
+/**
+ * smurg's own history of a folder without `.git` (`<share>/.smurg/git`), as smurg created it: when, and the hashes of
+ * its `config` and `HEAD` (the integrity check compares them before every command; a `.smurg/git` without this record
+ * is never adopted).
+ */
+export const storedHiddenRepoSchema = z.strictObject({ createdAt: epochMsSchema, configHash: sha256HexSchema, headHash: sha256HexSchema });
+export type StoredHiddenRepo = z.infer<typeof storedHiddenRepoSchema>;
 
 export const worktreesDocumentSchema = z.strictObject({
   version: z.literal(WORKTREES_VERSION),
   worktrees: z.array(storedWorktreeSchema).max(256),
   merges: z.array(storedMergeSchema).max(1_000),
+  hidden: storedHiddenRepoSchema.optional(),
 });
 export type WorktreesDocument = z.infer<typeof worktreesDocumentSchema>;
 

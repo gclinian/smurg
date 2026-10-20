@@ -51,6 +51,8 @@ export function defaultHostSettings(memoryBytes = 24 * GiB): HostSettings {
     maxLiveAgents: defaultMaxLiveAgents(memoryBytes),
     escalateAfterMs: ESCALATE_AFTER_MS_DEFAULT,
     agentMcp: false,
+    // 0.6.0 (the owner's decision): agents run in auto mode unless the host chooses a mode that asks.
+    permissionMode: 'auto',
   });
 }
 

@@ -21,7 +21,7 @@ import {
   type LoginState,
   type PayloadInputOf,
   type PayloadOf,
-  type PermissionMode,
+  type SessionModeChoice,
   type ResultOf,
   type SessionInfo,
   type TerminalSession,
@@ -76,7 +76,8 @@ export interface SessionsStore extends ReadableStore<SessionsState> {
   restart(sessionId: string): Promise<AgentSession>;
   /** `null`: nobody is responsible (everyone watches). */
   setResponsible(sessionId: string, userId: string | null): Promise<AgentSession>;
-  setMode(sessionId: string, mode: PermissionMode): Promise<AgentSession>;
+  /** The session's own permission mode; `null`: it follows its topic and the workspace again. */
+  setMode(sessionId: string, mode: SessionModeChoice | null): Promise<AgentSession>;
   /** The always-allowed kinds of the session and what the host's own Claude Code rules add (session.view). */
   rules(sessionId: string): Promise<ResultOf<'session.rules.get'>>;
   removeRule(sessionId: string, ruleId: string): Promise<AgentSession>;

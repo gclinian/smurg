@@ -120,7 +120,7 @@ function valid(schema: { safeParse(value: unknown): { success: boolean; error?: 
 }
 
 function freeStart(openedBy = mei): Parameters<Fakes['agents']['start']>[0] {
-  return { purpose: 'free', openedBy, responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', rolePrompt: ({ smurgTag }) => `You work in a shared folder. [smurg ${smurgTag}]` };
+  return { purpose: 'free', openedBy, responsible: null, workspace: { mode: 'main' }, modeChoice: 'ask-all', model: null, rolePrompt: ({ smurgTag }) => `You work in a shared folder. [smurg ${smurgTag}]` };
 }
 
 /** A permission request as the runner raises it: the ToolView of the call beside Claude Code's raw input. */
@@ -271,7 +271,7 @@ describe('FakeAgentSessions', () => {
     await fakes.agents.restartProcess(session.id, 'slot');
     await fakes.agents.end(session.id, { by: { kind: 'system' }, reason: 'archived', keepWorktree: true }); // parked: no process to lose
     expect(changes()).toEqual([[true, 'started'], [false, 'parked'], [true, 'started'], [false, 'failed'], [true, 'started'], [false, 'parked']]);
-    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: 'tp_1', slug: 'login', name: 'Login' }, item: { id: 't2', number: 2, title: 'Token store', attempt: 1 }, workspace: { mode: 'worktree', worktreeId: 'wt_1' }, mode: 'ask-commands' });
+    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: 'tp_1', slug: 'login', name: 'Login' }, item: { id: 't2', number: 2, title: 'Token store', attempt: 1 }, workspace: { mode: 'worktree', worktreeId: 'wt_1' }, modeChoice: 'ask-commands', model: null });
     await fakes.agents.end(item.id, { by: mei.actor, reason: 'ended', keepWorktree: true });
     expect((payloads['agent.process'] ?? []).slice(-2)).toEqual([
       { sessionId: item.id, purpose: 'item', topicId: 'tp_1', hasProcess: true, reason: 'started' },
@@ -285,7 +285,7 @@ describe('FakeAgentSessions', () => {
     await expect(fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: 'tp_1', slug: 'login', name: 'Login' } })).rejects.toThrow(/item/);
     await expect(fakes.agents.start({ ...freeStart(), purpose: 'discussion' })).rejects.toThrow(/topic/);
     await expect(fakes.agents.start({ ...freeStart(), topic: { id: 'tp_1', slug: 'login', name: 'Login' } })).rejects.toThrow(/free/);
-    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: 'tp_1', slug: 'login', name: 'Login' }, item: { id: 't2', number: 2, title: 'Token store', attempt: 3 }, workspace: { mode: 'worktree', worktreeId: 'wt_1' }, mode: 'ask-commands', opening: { id: 'conversation.started.item', params: { number: 2, branch: 'smurg/login/t2' } } });
+    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: 'tp_1', slug: 'login', name: 'Login' }, item: { id: 't2', number: 2, title: 'Token store', attempt: 3 }, workspace: { mode: 'worktree', worktreeId: 'wt_1' }, modeChoice: 'ask-commands', model: null, opening: { id: 'conversation.started.item', params: { number: 2, branch: 'smurg/login/t2' } } });
     valid(agentSessionSchema, item);
     // What a client names the session with, and no title: a title is only what a person gave.
     expect(item).toMatchObject({ topicId: 'tp_1', topicName: 'Login', itemId: 't2', item: { number: 2, title: 'Token store' }, attempt: 3, branch: 'smurg/login/t2' });
@@ -794,18 +794,20 @@ describe('FakeInboxService, FakeWorktreeManager, FakeSessionManager, FakeHookSer
     expect(fakes.sessions.get(terminal.id)).toMatchObject({ status: 'exited' });
     expect(events.filter((name) => name === 'session.created')).toHaveLength(2);
     expect(events).toContain('session.exited');
-    // A free session opens with its line, takes its title from the first message and starts in its default mode.
-    expect(agent).toMatchObject({ purpose: 'free', title: 'hello', permissionMode: 'ask-all' });
+    // A free session opens with its line, takes its title from the first message and runs in the workspace's mode
+    // (protocol 5: `auto` by default, no choice of its own).
+    expect(agent).toMatchObject({ purpose: 'free', title: 'hello', permissionMode: 'auto', modeChoice: null, model: null });
     expect(fakes.agents.eventsOf(agent.id).map((event) => (event.kind === 'line' ? event.text.id : event.kind))).toEqual(['conversation.started.free', 'message']);
     const inWorktree = await fakes.sessions.create({ kind: 'agent', workspace: { mode: 'worktree' }, title: 'Try the cache' }, {} as never, mei);
-    expect(inWorktree).toMatchObject({ title: 'Try the cache', permissionMode: 'ask-commands' });
+    // In a worktree too (it is launched with 0.5.2's `acceptEdits`: profiles.ts claudeModeFor).
+    expect(inWorktree).toMatchObject({ title: 'Try the cache', permissionMode: 'auto', modeChoice: null });
   });
 
   it('a member who goes: their topic sessions pass to the host with a line, an item\'s worktree with them; the rights of the session stay', async () => {
     const { fakes } = bare();
     const { topic, session: discussion } = await fakes.topics.create({ name: 'Login' }, mei);
     const handle = await fakes.worktrees.acquireForItem({ topic: { id: topic.id, slug: topic.slug }, itemId: 't2', owner: mei });
-    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: topic.id, slug: topic.slug, name: topic.name }, item: { id: 't2', number: 2, title: 'Token store', attempt: 1 }, responsible: { userId: 'dev:mei', displayName: 'Mei' }, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, mode: 'ask-commands' });
+    const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: topic.id, slug: topic.slug, name: topic.name }, item: { id: 't2', number: 2, title: 'Token store', attempt: 1 }, responsible: { userId: 'dev:mei', displayName: 'Mei' }, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, modeChoice: 'ask-commands', model: null });
     fakes.agents.startTurn(item.id);
     const result = await fakes.sessions.teardownUser('dev:mei', 'kicked');
     expect(result.handedOver).toEqual([{ sessionId: discussion.id, topicId: topic.id, stopped: true }, { sessionId: item.id, topicId: topic.id, stopped: true }]);
@@ -943,11 +945,13 @@ describe('in a test daemon', () => {
     // What every member may know of the host's side, and its changes.
     const hostStates: unknown[] = [];
     eddieClient.conn.on('session.host', (payload) => hostStates.push(payload));
-    expect(await eddieClient.conn.request('session.host.get', {})).toEqual({ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none' });
+    // Protocol 5: the host's agent (no model list known yet) and how work items run here.
+    const agentAndWork = { agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } };
+    expect(await eddieClient.conn.request('session.host.get', {})).toEqual({ account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', ...agentAndWork });
     fakes.agents.setAccount({ state: 'logged-out', sessions: 1 });
     fakes.projectTrust.set(MAIN_ROOT, 'ignored');
     await waitFor(() => hostStates.length === 2, { what: 'two session.host events' });
-    expect(hostStates.at(-1)).toEqual({ account: { state: 'logged-out', sessions: 1 }, mainProjectSettings: 'ignored' });
+    expect(hostStates.at(-1)).toEqual({ account: { state: 'logged-out', sessions: 1 }, mainProjectSettings: 'ignored', ...agentAndWork });
 
     // Restart, rename, the inbox, a plan and its changes: each request reaches its fake.
     expect(await rita.conn.request('session.restart', { sessionId: session.id })).toMatchObject({ session: { id: session.id } });

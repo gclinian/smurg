@@ -14,10 +14,13 @@ import {
   MERGE_MESSAGE_MAX_CHARS,
   REASON_MAX_CHARS,
   ESCALATE_AFTER_MS_RANGE,
+  AGENT_MODELS_MAX,
+  FALLBACK_TEXT_MAX_CHARS,
   ITEM_ID_MAX_CHARS,
   ITEM_TITLE_MAX_CHARS,
   MAX_LIVE_AGENTS_RANGE,
   MENTIONS_PER_TEXT_MAX,
+  MODEL_DESCRIPTION_MAX_CHARS,
   RULE_PATTERN_MAX_CHARS,
   SHARED_DIRS_MAX,
   SUGGESTION_TEXT_MAX_CHARS,
@@ -25,6 +28,7 @@ import {
   TERMINAL_ROWS_MAX,
   TOPIC_NAME_MAX_CHARS,
   TOPIC_SLUG_MAX_CHARS,
+  WIRE_TEXT_REF_MAX_CHARS,
 } from './limits.ts';
 import { messageRefSchema } from './message-ref.ts';
 import { entryPathSchema, entryRefSchema, fileRefSchema, pathSegmentSchema, relPathSchema, rootRefSchema } from './paths.ts';
@@ -38,6 +42,7 @@ import {
   indexSchema,
   largeTextSchema,
   lineTextSchema,
+  modelIdSchema,
   multilineTextSchema,
   opaqueIdSchema,
   shortTextSchema,
@@ -48,6 +53,24 @@ import {
 // Shared types of the message catalog (ARCHITECTURE §3 and §5). Where the architecture abbreviates a field
 // (`{ id; at; actor }`), the precise rule is the one in primitives.ts: ids are strings, times are epoch ms,
 // sizes/offsets/counts are non-negative safe integers, text is bounded.
+
+// ---------------------------------------------------------------------------------------------------------------
+// Sentences the daemon originates (here, not in conversation.ts, which imports this module: the host's work state
+// carries one too)
+// ---------------------------------------------------------------------------------------------------------------
+
+/** The English rendering that travels next to a message reference. */
+export const fallbackTextSchema = lineTextSchema(FALLBACK_TEXT_MAX_CHARS);
+
+/**
+ * A message reference that rides inside events and lists: bounded as a whole (its JSON is at most
+ * WIRE_TEXT_REF_MAX_CHARS characters), where a bare MessageRef may carry sixteen parameters of a thousand characters.
+ */
+export const wireRefSchema = messageRefSchema.refine((ref) => JSON.stringify(ref).length <= WIRE_TEXT_REF_MAX_CHARS, 'message reference too large');
+
+/** A sentence the daemon originated: a wire catalog reference with its English rendering (`wireText()` builds one). */
+export const wireTextSchema = z.strictObject({ text: wireRefSchema, fallback: fallbackTextSchema });
+export type WireText = z.infer<typeof wireTextSchema>;
 
 // ---------------------------------------------------------------------------------------------------------------
 // Identity
@@ -91,6 +114,10 @@ export const workspaceInfoSchema = z.strictObject({
   hostUserId: userIdSchema,
   hostName: displayNameSchema,
   platform: platformSchema,
+  /**
+   * The shared folder has a git repository of its own (a `.git` that git takes). Nothing decides how work items run
+   * from it any more (protocol 5): `HostState.work` says that.
+   */
   isGitRepo: z.boolean(),
 });
 export type WorkspaceInfo = z.infer<typeof workspaceInfoSchema>;
@@ -99,19 +126,42 @@ export type WorkspaceInfo = z.infer<typeof workspaceInfoSchema>;
 // Settings
 // ---------------------------------------------------------------------------------------------------------------
 
+/**
+ * What an agent session may do without asking (protocol 5; smurg's own values: the daemon's agent profile maps them
+ * to the agent's own modes). `auto`: the agent's auto mode decides (a check by the agent, not by a person);
+ * `ask-commands`: edits run, commands ask; `ask-all`: edits ask too; `ask-nothing`: everything runs, the host's
+ * workspace-wide choice only. A discussion session has none of them (`modeFixed`; its `permissionMode` reads `ask-all`).
+ */
+export const PERMISSION_MODES = ['auto', 'ask-commands', 'ask-all', 'ask-nothing'] as const;
+export const permissionModeSchema = z.enum(PERMISSION_MODES);
+export type PermissionMode = z.infer<typeof permissionModeSchema>;
+/** What a person may choose for a topic's work items or for a session: never `ask-nothing` (the host's, workspace-wide). */
+export const SESSION_MODE_CHOICES = ['auto', 'ask-commands', 'ask-all'] as const;
+export const sessionModeChoiceSchema = z.enum(SESSION_MODE_CHOICES);
+export type SessionModeChoice = z.infer<typeof sessionModeChoiceSchema>;
+/**
+ * Why the mode that runs differs from the one smurg asked for: the model has no auto mode, the host's agent settings
+ * turn auto off, or they do not allow running without asking.
+ */
+export const MODE_FALLBACKS = ['model-no-auto', 'auto-off', 'ask-nothing-off'] as const;
+export const modeFallbackSchema = z.enum(MODE_FALLBACKS);
+export type ModeFallback = z.infer<typeof modeFallbackSchema>;
+
 export const HUMAN_LOCK_IDLE_MS_RANGE = { min: 1_000, max: 3_600_000 } as const;
 export const AGENT_LOCK_TIMEOUT_MS_RANGE = { min: 1_000, max: 600_000 } as const;
 
 /**
  * Settings every member receives in the Welcome. `sharedDirs` are paths in the main root (D12). (Protocol 2,
  * ARCHITECTURE §11 D-15: the guest switches `guestSubscriptionLogin` and `guestMainWorkspace` of protocol 1 are gone
- * with the guest sandbox.)
+ * with the guest sandbox. Protocol 5: `permissionMode`, the workspace's default for agent sessions, which every
+ * member's dialogs name; only the host sets it, and only the host may set `ask-nothing`.)
  */
 export const publicSettingsSchema = z.strictObject({
   humanLockIdleMs: z.int().min(HUMAN_LOCK_IDLE_MS_RANGE.min).max(HUMAN_LOCK_IDLE_MS_RANGE.max),
   agentLockTimeoutMs: z.int().min(AGENT_LOCK_TIMEOUT_MS_RANGE.min).max(AGENT_LOCK_TIMEOUT_MS_RANGE.max),
   uploadChunkSize: z.int().min(MIN_CHUNK_SIZE).max(MAX_CHUNK_SIZE),
   sharedDirs: z.array(entryPathSchema).max(SHARED_DIRS_MAX),
+  permissionMode: permissionModeSchema,
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
@@ -275,7 +325,8 @@ export type LoginState = z.infer<typeof loginStateSchema>;
  * host did, in the console; `kicked` / `left` / `role-changed`: the member who opened it went (terminals and free
  * sessions; topic sessions pass to the host instead); `stopped`: the daemon stopped (terminals); `worktree-removed`;
  * `archived`: its topic was archived; `replaced`: a new discussion was started for its topic; `merged`: its work item
- * was merged and reviewed.
+ * was merged and reviewed; `reviewed` (protocol 5): its work item ran directly in the shared folder (no git) and its
+ * report was reviewed: nothing was merged.
  */
 export const SESSION_END_REASONS = [
   'exit',
@@ -289,17 +340,13 @@ export const SESSION_END_REASONS = [
   'archived',
   'replaced',
   'merged',
+  'reviewed',
 ] as const;
 export const sessionEndReasonSchema = z.enum(SESSION_END_REASONS);
 export type SessionEndReason = z.infer<typeof sessionEndReasonSchema>;
 
 export const terminalColsSchema = z.int().min(1).max(TERMINAL_COLS_MAX);
 export const terminalRowsSchema = z.int().min(1).max(TERMINAL_ROWS_MAX);
-
-/** `ask-commands`: edits are automatic, commands ask. `ask-all`: edits ask too. A discussion session has neither (`modeFixed`). */
-export const PERMISSION_MODES = ['ask-all', 'ask-commands'] as const;
-export const permissionModeSchema = z.enum(PERMISSION_MODES);
-export type PermissionMode = z.infer<typeof permissionModeSchema>;
 
 export const REMEMBERED_RULE_TOOLS = ['Bash', 'WebFetch'] as const;
 export const rememberedRuleToolSchema = z.enum(REMEMBERED_RULE_TOOLS);
@@ -402,9 +449,23 @@ export const agentSessionSchema = z
     doing: z.literal('compacting').optional(),
     /** It failed to start three times in a row: only the host may try again. */
     retryHostOnly: z.literal(true).optional(),
+    /**
+     * The effective mode: what smurg asks the agent to run with (`effectivePermissionMode`: the session's own choice,
+     * else (a work item) its topic's, else the workspace's). A discussion reads `ask-all`.
+     */
     permissionMode: permissionModeSchema,
+    /** The session's own choice; null: it follows (its topic, the workspace). */
+    modeChoice: sessionModeChoiceSchema.nullable(),
+    /** What the agent reported for its running process (absent: nothing reported yet, or no process). */
+    modeInUse: permissionModeSchema.optional(),
+    /** With a `modeInUse` other than `permissionMode`: why. */
+    modeFallback: modeFallbackSchema.optional(),
     /** A discussion session: its permissions are fixed. */
     modeFixed: z.boolean(),
+    /** The model chosen for the session (a value of `HostState.agent.models`); null: the host's default. */
+    model: modelIdSchema.nullable(),
+    /** The model the agent reported for its latest turn. */
+    modelInUse: modelIdSchema.optional(),
     /** How many always-allowed kinds apply (the session's and its topic's). */
     ruleCount: indexSchema,
     login: loginStateSchema,
@@ -420,7 +481,9 @@ export const agentSessionSchema = z
   .refine((s) => (s.purpose === 'item') === (s.itemId !== undefined), 'exactly an item session has itemId')
   .refine((s) => (s.topicId === undefined) === (s.topicName === undefined), 'topicName goes with topicId')
   .refine((s) => (s.itemId === undefined) === (s.item === undefined), 'item goes with itemId')
-  .refine((s) => (s.purpose === 'item') === (s.attempt !== undefined), 'exactly an item session has attempt');
+  .refine((s) => (s.purpose === 'item') === (s.attempt !== undefined), 'exactly an item session has attempt')
+  .refine((s) => !s.modeFixed || (s.modeChoice === null && s.permissionMode === 'ask-all'), 'a discussion follows nothing and reads ask-all')
+  .refine((s) => s.modeFallback === undefined || s.modeInUse !== undefined, 'a fallback goes with the mode in use');
 export type AgentSession = z.infer<typeof agentSessionSchema>;
 
 /**
@@ -433,12 +496,70 @@ export type AccountState = z.infer<typeof accountStateSchema>;
 export const accountInfoSchema = z.strictObject({ state: accountStateSchema, resetsAt: epochMsSchema.optional(), sessions: indexSchema });
 export type AccountInfo = z.infer<typeof accountInfoSchema>;
 
+/** One model the host's agent offers (Claude Code: an entry of `initialize.models` other than `default`). */
+export const agentModelSchema = z.strictObject({
+  /** What is passed to the agent (and what `model` of a session, a topic or a request names). */
+  value: modelIdSchema,
+  /** The agent's display name ("Opus"). */
+  name: shortTextSchema.pipe(z.string().min(1)),
+  /** The agent's own line about it, prices included, or ''. */
+  description: lineTextSchema(MODEL_DESCRIPTION_MAX_CHARS),
+  /** The id it runs as (`claude-opus-5-5`). */
+  resolved: modelIdSchema.optional(),
+  /** Auto mode can run with it. */
+  auto: z.boolean(),
+  /** The agent may bill it to usage credits without asking (the dialogs say so). */
+  billing: z.enum(['usage-credits']).optional(),
+});
+export type AgentModel = z.infer<typeof agentModelSchema>;
+
+/** The host's agent as every member may know it (protocol 5): its models, its default, what can run. */
+export const agentHostStateSchema = z.strictObject({
+  models: z.array(agentModelSchema).max(AGENT_MODELS_MAX),
+  /** false: the host's agent was not asked yet, or could not be (then `models` is empty). */
+  modelsKnown: z.boolean(),
+  /** The model the host's own settings choose when a session names none (resolved id); null: not known. */
+  hostDefault: modelIdSchema.nullable(),
+  /** `off`: the agent refused auto mode for a model that supports it (the host's or the organization's settings). */
+  autoMode: z.enum(['ok', 'off']),
+  /** `off`: the agent refused to run without asking (its settings); `root`: smurg runs as the root user. */
+  asksNothing: z.enum(['ok', 'off', 'root']),
+});
+export type AgentHostState = z.infer<typeof agentHostStateSchema>;
+
+/**
+ * How work items run here (protocol 5). `folder`: the shared folder's own git repository; `smurg`: smurg's own history
+ * in `.smurg/git` (the folder has no `.git`); `direct`: the git program cannot be used, items run in the folder itself;
+ * `unchecked`: no `.git`, and git was not looked for yet (the first Start dialog or the host's worktree request looks).
+ */
+export const WORK_HISTORIES = ['folder', 'smurg', 'direct', 'unchecked'] as const;
+export type WorkHistory = (typeof WORK_HISTORIES)[number];
+export const workStateSchema = z
+  .strictObject({
+    history: z.enum(WORK_HISTORIES),
+    /** With `direct`: why git cannot be used (the `worktree.unavailable.git*` sentence). */
+    reason: wireTextSchema.optional(),
+  })
+  .refine((work) => work.reason === undefined || work.history === 'direct', 'only `direct` has a reason');
+export type WorkState = z.infer<typeof workStateSchema>;
+
 /**
  * What every member may know about the host's side of agent sessions before a session exists (`session.host.get`,
- * `session.host`): the account state, and whether the MAIN folder's Claude Code project settings are used.
+ * `session.host`): the account state, whether the MAIN folder's Claude Code project settings are used, the host's
+ * agent (its models, its default, what can run) and how work items run (protocol 5).
  */
-export const hostStateSchema = z.strictObject({ account: accountInfoSchema, mainProjectSettings: projectSettingsStateSchema });
+export const hostStateSchema = z.strictObject({
+  account: accountInfoSchema,
+  mainProjectSettings: projectSettingsStateSchema,
+  agent: agentHostStateSchema,
+  work: workStateSchema,
+});
 export type HostState = z.infer<typeof hostStateSchema>;
+
+/** Notices the host has not seen yet (`state.json`, `admin.notice.seen`): `agents-auto`, the 0.6.0 update's. */
+export const HOST_NOTICES = ['agents-auto'] as const;
+export const hostNoticeSchema = z.enum(HOST_NOTICES);
+export type HostNotice = z.infer<typeof hostNoticeSchema>;
 
 /** A session: discriminated by `kind`. */
 export const sessionInfoSchema = z.union([terminalSessionSchema, agentSessionSchema]);
@@ -723,6 +844,7 @@ export const AUDIT_ACTIONS = [
   'session.restart',
   'session.responsible',
   'session.mode',
+  'session.model',
   'session.rule.remove',
   'session.handover',
   'responsible.fallback',
@@ -732,6 +854,7 @@ export const AUDIT_ACTIONS = [
   'permission.auto',
   'permission.auto-deny',
   'agent.command',
+  'agent.command.blocked',
   'topic.create',
   'topic.rename',
   'topic.archive',
@@ -740,6 +863,7 @@ export const AUDIT_ACTIONS = [
   'topic.spec.request',
   'topic.rule.add',
   'topic.rule.remove',
+  'topic.agent',
   'plan.generate',
   'plan.start',
   'plan.resume',

@@ -185,7 +185,7 @@ describe('the agent checks its own plan (MCP check_plan, propose_split)', () => 
     const { topic } = await topicWithPlan(test, [{ id: 'cart-api' }]);
     await startPlan(test, topic.id);
     const itemSession = itemOf(test.plan(topic.id), 'cart-api').sessionId as string;
-    const free = await test.fakes.agents.start({ purpose: 'free', openedBy: test.principals.mei, responsible: null, workspace: { mode: 'main' }, mode: 'ask-all', rolePrompt: () => '' });
+    const free = await test.fakes.agents.start({ purpose: 'free', openedBy: test.principals.mei, responsible: null, workspace: { mode: 'main' }, modeChoice: 'ask-all', model: null, rolePrompt: () => '' });
     for (const sessionId of [itemSession, free.id]) {
       expect(await checkPlan(test, sessionId)).toEqual({ ok: false, errors: [{ message: 'This tool is for the discussion session of a topic. This session is not one.' }] });
       expect(() => test.t.ctx.services.plans.recordSplit(mcpContext(test, sessionId), { items: [], reason: '' })).toThrow(SmurgError);
@@ -463,5 +463,99 @@ describe('what the wire carries of a plan', () => {
     await test.write(topicPlanPath(topic.slug), planText(items.map((item, index) => (index === 0 ? { ...item, dependsOn: [items[39]?.id as string] } : item))));
     await waitFor(() => test.topic(topic.id).plan.error?.text.id === 'plan.error.cycle', { what: 'the cycle' });
     expect(JSON.stringify(test.topic(topic.id).plan.error?.text).length).toBeLessThan(2_000);
+  });
+});
+
+// ── protocol 5 (smurg 0.6.0): a topic's agent settings and the Start dialog's new facts (DESIGN 0.6.0 D3, D4, D5) ────
+
+/** The host agent's list as Claude Code answered it (U1 E3), for the tests that need a model to be offered. */
+const OFFERED = {
+  models: [
+    { value: 'opus', name: 'Opus', description: 'Most capable', auto: true },
+    { value: 'sonnet', name: 'Sonnet', description: 'Everyday tasks', auto: true },
+  ],
+  modelsKnown: true,
+  hostDefault: 'opus',
+  autoMode: 'ok',
+  asksNothing: 'ok',
+} as const;
+
+describe('a topic\'s agent settings (topic.agent.set, plan.start `agent`)', () => {
+  it('a new topic has none (the host\'s default model, the workspace\'s mode); topic.agent.set stores either, audited, and the topic\'s sessions are told', async () => {
+    test = await setupTopics();
+    const { topic } = await createTopic(test);
+    expect(topic.agent).toEqual({ model: null, permissionMode: null });
+    const set = await test.mei.conn.request('topic.agent.set', { topicId: topic.id, permissionMode: 'ask-commands' });
+    expect(set.topic.agent).toEqual({ model: null, permissionMode: 'ask-commands' });
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: 'ask-commands' });
+    expect(test.fakes.agents.log.of('topicAgentChanged')).toEqual([[topic.id, null, test.principals.mei.actor]]);
+    expect((await test.audit('topic.agent')).map((entry) => entry.detail)).toEqual([{ topicId: topic.id, permissionMode: 'ask-commands' }]);
+    // Back to the workspace's mode.
+    await test.mei.conn.request('topic.agent.set', { topicId: topic.id, permissionMode: null });
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: null });
+    // An Editor cannot; a request that sets nothing is no request.
+    expect(await refusal(test.amy.conn.request('topic.agent.set', { topicId: topic.id, permissionMode: 'ask-all' }))).toMatchObject({ code: 'forbidden' });
+    expect(await refusal(test.mei.conn.request('topic.agent.set', { topicId: topic.id } as never))).toMatchObject({ code: 'bad_request' });
+    // `ask-nothing` is the workspace's alone.
+    expect(await refusal(test.mei.conn.request('topic.agent.set', { topicId: topic.id, permissionMode: 'ask-nothing' } as never))).toMatchObject({ code: 'bad_request' });
+  });
+
+  it('a model must be one of the host agent\'s list: while it is not known every model is refused, then only what it offers', async () => {
+    test = await setupTopics();
+    const { topic } = await createTopic(test);
+    expect(await refusal(test.mei.conn.request('topic.agent.set', { topicId: topic.id, model: 'sonnet' }))).toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' }, text: { id: 'session.model.notKnown' } });
+    expect(await refusal(test.mei.conn.request('topic.create', { name: 'Billing', model: 'sonnet' }))).toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' } });
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: null });
+    expect(await test.audit('topic.agent')).toEqual([]);
+
+    test.fakes.agents.hostAgent = structuredClone(OFFERED) as never;
+    expect(await refusal(test.mei.conn.request('topic.agent.set', { topicId: topic.id, model: 'haiku' }))).toMatchObject({ code: 'bad_request', detail: { reason: 'model-not-offered' }, text: { id: 'session.model.notOffered', params: { model: 'haiku' } } });
+    await test.mei.conn.request('topic.agent.set', { topicId: topic.id, model: 'sonnet' });
+    expect(test.topic(topic.id).agent).toEqual({ model: 'sonnet', permissionMode: null });
+    // Only the model was set: no session follows a mode that did not change.
+    expect(test.fakes.agents.log.of('topicAgentChanged')).toEqual([]);
+    const billing = await test.mei.conn.request('topic.create', { name: 'Billing', model: 'opus' });
+    expect(billing.topic.agent).toEqual({ model: 'opus', permissionMode: null });
+    // null is the host's default, and always passes.
+    await test.mei.conn.request('topic.agent.set', { topicId: topic.id, model: null });
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: null });
+  });
+
+  it('the Start dialog says how its items will run (the folder\'s history, the topic\'s settings, the mode in effect)', async () => {
+    test = await setupTopics();
+    const { topic } = await topicWithPlan(test, THREE);
+    const { preflight } = await test.mei.conn.request('plan.preflight', { topicId: topic.id });
+    expect(startPreflightSchema.safeParse(preflight).success).toBe(true);
+    expect(preflight).toMatchObject({ history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false });
+    await test.mei.conn.request('topic.agent.set', { topicId: topic.id, permissionMode: 'ask-all' });
+    expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.agent).toEqual({ model: null, permissionMode: 'ask-all', effective: 'ask-all' });
+  });
+
+  it('plan.start `agent` changes the topic in the update that arms the items; a Start refused at the checkpoint leaves the topic\'s agent settings unchanged', async () => {
+    test = await setupTopics();
+    const { topic } = await topicWithPlan(test, THREE);
+    const specPath = topicSpecPath(topic.slug);
+    // Refused AFTER the checkpoint commit: HEAD does not hold what the dialog showed.
+    const pins = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
+    test.fakes.worktrees.mainDiffs.set(specPath, { diff: '+someone else\n' });
+    const refused = await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: pins.planRevision, specHash: pins.specHash, planHash: pins.planHash, agent: { permissionMode: 'ask-commands' } }));
+    expect(refused).toMatchObject({ code: 'conflict', detail: { reason: 'plan-changed' } });
+    expect(test.fakes.worktrees.log.of('commitMainPaths')).toHaveLength(1);
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: null });
+    expect(test.fakes.agents.log.of('topicAgentChanged')).toEqual([]);
+    // Refused for a model nobody offers: before anything is done.
+    expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: pins.planRevision, specHash: pins.specHash, planHash: pins.planHash, agent: { model: 'sonnet' } }))).toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' } });
+    expect(test.fakes.worktrees.log.of('commitMainPaths')).toHaveLength(1);
+
+    test.fakes.worktrees.mainDiffs.clear();
+    const { preflight } = await test.mei.conn.request('plan.preflight', { topicId: topic.id });
+    const { plan } = await test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, agent: { permissionMode: 'ask-commands' } });
+    expect(plan.items.map((item) => item.state)).toEqual(['running', 'running', 'waiting']);
+    expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: 'ask-commands' });
+    expect(test.fakes.agents.log.of('topicAgentChanged')).toEqual([[topic.id, null, test.principals.mei.actor]]);
+    expect((await test.audit('plan.start')).at(-1)?.detail).toMatchObject({ topicId: topic.id, agent: { permissionMode: 'ask-commands' } });
+    // The items it started run in the topic's mode.
+    const cart = test.fakes.agents.get(itemOf(test.plan(topic.id), 'cart-api').sessionId as string);
+    expect(cart).toMatchObject({ purpose: 'item', permissionMode: 'ask-commands', modeChoice: null, model: null });
   });
 });

@@ -3,11 +3,11 @@ import {
   agentSessionSchema,
   hostStateSchema,
   loginStateSchema,
-  permissionModeSchema,
   personTextSchema,
   mentionsSchema,
   rememberedRuleSchema,
   sessionInfoSchema,
+  sessionModeChoiceSchema,
   suggestionSchema,
   terminalColsSchema,
   terminalRowsSchema,
@@ -30,7 +30,7 @@ import {
   STREAMING_BLOCKS_MAX,
   TERMINAL_ATTACH_MAX_BYTES,
 } from '../limits.ts';
-import { byteCountSchema, bytesSchema, indexSchema, largeTextSchema, lineTextSchema, opaqueIdSchema, shortTextSchema, userIdSchema } from '../primitives.ts';
+import { byteCountSchema, bytesSchema, indexSchema, largeTextSchema, lineTextSchema, modelIdSchema, opaqueIdSchema, shortTextSchema, userIdSchema } from '../primitives.ts';
 import { emptyPayloadSchema } from './channel.ts';
 
 // session.* and exec.* (ARCHITECTURE §5.5, §5.9). A session is a TERMINAL (a plain shell in a PTY: attach, exec.*,
@@ -49,7 +49,8 @@ export const messageTextInputSchema = personTextSchema(MESSAGE_TEXT_MAX_CHARS);
 /**
  * Needs `session.create` (host, Agent access). The session runs like the host's own whoever opens it (ARCHITECTURE §11
  * D-15). The caller is `openedBy`. An agent session made here is a FREE session (no topic): `responsible` is null,
- * `firstMessage` is the caller's first message.
+ * `firstMessage` is the caller's first message. Protocol 5: `model` (a value of `HostState.agent.models`; absent: the
+ * host's default) and `permissionMode` (the session's own choice; absent: it follows the workspace).
  */
 export const sessionCreatePayloadSchema = z.discriminatedUnion('kind', [
   z.strictObject({
@@ -64,6 +65,8 @@ export const sessionCreatePayloadSchema = z.discriminatedUnion('kind', [
     workspace: sessionWorkspaceSchema,
     title: shortTextSchema.optional(),
     firstMessage: messageTextInputSchema.optional(),
+    model: modelIdSchema.optional(),
+    permissionMode: sessionModeChoiceSchema.optional(),
   }),
 ]);
 export const sessionCreateResultSchema = z.strictObject({ session: sessionInfoSchema });
@@ -281,8 +284,18 @@ export const sessionRestartPayloadSchema = z.strictObject({ sessionId: opaqueIdS
 export const sessionResponsibleSetPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema, userId: userIdSchema.nullable() });
 export const agentSessionResultSchema = z.strictObject({ session: agentSessionSchema });
 
-/** Refused for a discussion session (`session.mode.fixed`). */
-export const sessionModeSetPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema, mode: permissionModeSchema });
+/**
+ * The session's own permission mode; null: it follows again (its topic, the workspace). Never `ask-nothing` (the
+ * host's, workspace-wide). Refused for a discussion session (`session.mode.fixed`).
+ */
+export const sessionModeSetPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema, mode: sessionModeChoiceSchema.nullable() });
+
+/**
+ * The session's model (protocol 5): a value of `HostState.agent.models` (`session.model.notKnown` while the list is not
+ * known, `session.model.notOffered` for another value); null: the host's default. A discussion too. A live process
+ * switches at its next turn; a parked session stores it.
+ */
+export const sessionModelSetPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema, model: modelIdSchema.nullable() });
 
 export const sessionRulesGetPayloadSchema = z.strictObject({ sessionId: opaqueIdSchema });
 /**

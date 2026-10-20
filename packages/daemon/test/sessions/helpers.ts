@@ -146,6 +146,11 @@ export class FakeWorktrees {
     return this.acquired.some((entry) => entry.worktreeId === worktreeId) ? { branch: `smurg/x/${worktreeId}` } : null;
   }
 
+  /** `HostState.work` (protocol 5): the shared folder of these tests is a git repository as far as anyone knows. */
+  workState(): { readonly history: 'folder' } {
+    return { history: 'folder' };
+  }
+
   readonly owners: { worktreeId: string; ownerUserId: string | null }[] = [];
   async setOwner(worktreeId: string, owner: { userId: string | null }): Promise<void> {
     this.owners.push({ worktreeId, ownerUserId: owner.userId });

@@ -178,7 +178,7 @@ export async function openSession(s: Pick<Stack, 'fakes'>, opener: string = MEI,
     openedBy: fakePrincipal(opener, ROLES[opener] ?? 'agent', NAMES[opener]),
     responsible: null,
     workspace: { mode: 'main' },
-    mode: 'ask-all',
+    modeChoice: 'ask-all', model: null,
     rolePrompt: () => 'role prompt',
     ...input,
   });
@@ -203,7 +203,7 @@ export async function openItemSession(
   if (s.fakes.topics.get(topic.id) === null) s.fakes.topics.put(buildTopic({ id: topic.id, slug: topic.slug, name: topic.name }));
   const owner = fakePrincipal(opener, ROLES[opener] ?? 'agent', NAMES[opener]);
   const handle = await s.fakes.worktrees.acquireForItem({ topic, itemId: item.id, owner });
-  return openSession(s, opener, { purpose: 'item', topic, item: { ...item, attempt: 1 }, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, mode: 'ask-commands' });
+  return openSession(s, opener, { purpose: 'item', topic, item: { ...item, attempt: 1 }, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, modeChoice: 'ask-commands', model: null });
 }
 
 export async function watch(client: TestClient, sessionId: string): Promise<ResultOf<'session.watch'>> {

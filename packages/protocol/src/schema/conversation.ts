@@ -2,12 +2,14 @@ import { z } from 'zod';
 import { roleSchema } from '../roles.ts';
 import {
   cleanedTextSchema,
+  fallbackTextSchema,
   itemIdSchema,
   mentionsSchema,
   messageOriginSchema,
   rememberedRuleToolSchema,
   rulePatternSchema,
   userRefSchema,
+  wireRefSchema,
 } from './entities.ts';
 import {
   ANSWER_NOTE_MAX_CHARS,
@@ -15,7 +17,6 @@ import {
   COMMENT_MAX_CHARS,
   DENY_MESSAGE_MAX_CHARS,
   EVENT_TEXT_MAX_BYTES,
-  FALLBACK_TEXT_MAX_CHARS,
   MESSAGE_TEXT_MAX_CHARS,
   OPTION_DESCRIPTION_MAX_CHARS,
   OPTION_LABEL_MAX_CHARS,
@@ -31,9 +32,7 @@ import {
   SMURG_TEXT_MAX_BYTES,
   TOOL_NAME_MAX_CHARS,
   URL_MAX_CHARS,
-  WIRE_TEXT_REF_MAX_CHARS,
 } from './limits.ts';
-import { messageRefSchema } from './message-ref.ts';
 import { fileRefSchema, rootRefSchema } from './paths.ts';
 import { displayNameSchema, epochMsSchema, indexSchema, largeTextSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema, userIdSchema } from './primitives.ts';
 
@@ -46,18 +45,8 @@ import { displayNameSchema, epochMsSchema, indexSchema, largeTextSchema, lineTex
 // Events
 // ---------------------------------------------------------------------------------------------------------------
 
-/** The English rendering that travels next to a message reference. */
-export const fallbackTextSchema = lineTextSchema(FALLBACK_TEXT_MAX_CHARS);
-
-/**
- * A message reference that rides inside events and lists: bounded as a whole (its JSON is at most
- * WIRE_TEXT_REF_MAX_CHARS characters), where a bare MessageRef may carry sixteen parameters of a thousand characters.
- */
-export const wireRefSchema = messageRefSchema.refine((ref) => JSON.stringify(ref).length <= WIRE_TEXT_REF_MAX_CHARS, 'message reference too large');
-
-/** A sentence the daemon originated: a wire catalog reference with its English rendering (`wireText()` builds one). */
-export const wireTextSchema = z.strictObject({ text: wireRefSchema, fallback: fallbackTextSchema });
-export type WireText = z.infer<typeof wireTextSchema>;
+// The English rendering, the bounded message reference and the sentence the daemon originates (`fallbackTextSchema`,
+// `wireRefSchema`, `wireTextSchema`) are defined in entities.ts (protocol 5: the host's work state carries one).
 
 /** What smurg itself told the agent (`topics/prompts.ts` holds the fixed texts). */
 export const SMURG_PURPOSES = [
@@ -122,7 +111,8 @@ export type TurnOutcome = z.infer<typeof turnOutcomeSchema>;
 
 export const DELIVERY_STATES = ['queued', 'started', 'completed', 'cancelled'] as const;
 export const NOTICE_LEVELS = ['info', 'warning', 'error'] as const;
-export const NOTICE_ACTIONS = ['restart-agent', 'retry'] as const;
+/** `choose-model` (protocol 5): opens the session's model dialog (the agent could not use the model). */
+export const NOTICE_ACTIONS = ['restart-agent', 'retry', 'choose-model'] as const;
 export const POINTER_TARGETS = ['spec', 'plan', 'report'] as const;
 
 /** The text of a person's message as stored and sent: the output of `agentText()`. */
@@ -369,7 +359,12 @@ export type NoAlwaysReason = (typeof NO_ALWAYS_REASONS)[number];
  * scripts is (the script, or a folder that holds it); `may-reach-settings-script`, smurg cannot tell whether the
  * command leaves them alone.
  */
-export const PERMISSION_GATE_REASONS = ['writes-settings-script', 'may-reach-settings-script'] as const;
+/**
+ * Why smurg's own gate asked (the card says so). Protocol 5: `writes-host-only` (in auto mode, a shell command of a
+ * teammate's session in the main workspace writes a file only the host may change) and `writes-outside` (in auto
+ * mode, a shell command of a teammate's session writes outside its own folder); both are host-only cards.
+ */
+export const PERMISSION_GATE_REASONS = ['writes-settings-script', 'may-reach-settings-script', 'writes-host-only', 'writes-outside'] as const;
 export type PermissionGateReason = (typeof PERMISSION_GATE_REASONS)[number];
 export const ALWAYS_SCOPES = ['session', 'topic'] as const;
 export const alwaysScopeSchema = z.enum(ALWAYS_SCOPES);
