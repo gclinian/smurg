@@ -315,6 +315,9 @@ export async function autoShellVerdict(ctx: DaemonContext, session: HookSessionR
   const writes: { real: string; folder: boolean }[] = [];
   for (const place of reading.places) {
     if (place.kind !== 'write') continue;
+    // A device is judged by its name as written: on Linux `/dev/stdout` and `/dev/fd/<n>` lead to `/proc/<pid>/fd/…` of
+    // whichever process resolves them (here the daemon's, not the command's), which is no place of anyone's.
+    if (isHarmlessDevice(place.path)) continue;
     let real: string;
     try {
       real = await onDisk(place.path);
