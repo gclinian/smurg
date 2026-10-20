@@ -361,10 +361,11 @@ export type NoAlwaysReason = (typeof NO_ALWAYS_REASONS)[number];
  */
 /**
  * Why smurg's own gate asked (the card says so). Protocol 5: `writes-host-only` (in auto mode, a shell command of a
- * teammate's session in the main workspace writes a file only the host may change) and `writes-outside` (in auto
- * mode, a shell command of a teammate's session writes outside its own folder); both are host-only cards.
+ * teammate's session in the main workspace writes a file only the host may change), `writes-outside` (in auto mode, a
+ * shell command of a teammate's session writes outside its own folder) and `writes-unknown` (in auto mode, smurg
+ * cannot tell where a shell command of a teammate's session writes); all three are host-only cards.
  */
-export const PERMISSION_GATE_REASONS = ['writes-settings-script', 'may-reach-settings-script', 'writes-host-only', 'writes-outside'] as const;
+export const PERMISSION_GATE_REASONS = ['writes-settings-script', 'may-reach-settings-script', 'writes-host-only', 'writes-outside', 'writes-unknown'] as const;
 export type PermissionGateReason = (typeof PERMISSION_GATE_REASONS)[number];
 export const ALWAYS_SCOPES = ['session', 'topic'] as const;
 export const alwaysScopeSchema = z.enum(ALWAYS_SCOPES);

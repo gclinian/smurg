@@ -1351,7 +1351,7 @@ type PermissionRequest = {
   outside?: true; path?: string;                                                       // `path`: the host's copy only
   root: RootRef; reason?: string;                                                      // Claude Code's own English reason; with `gate`, the gate's English sentence
   gate?: 'writes-settings-script' | 'may-reach-settings-script'                        // smurg's own tool gate asked for this card (§7.7 G10, G11, G12), and why; `reason` then holds the gate's English sentence
-    | 'writes-host-only' | 'writes-outside';                                           // protocol 5: in auto mode (G11a, G12); both host-only
+    | 'writes-host-only' | 'writes-outside' | 'writes-unknown';                        // protocol 5: in auto mode (G11a, G12, a target smurg cannot read); all host-only
   hostOnly: boolean;
   alwaysRule?: { tool: 'Bash' | 'WebFetch'; pattern };                                 // what "always allow" would add
   noAlways?: 'interpreter' | 'fetches-code' | 'one-word' | 'host-only' | 'no-suggestion';
@@ -3136,13 +3136,13 @@ and the audit around it are the hook server's (`hook-events.ts`), and so is row 
 | G11 | 0.6.0: `Bash` of a session rooted in the MAIN workspace while its Claude mode in use is `auto`: the command's write places (`bashPlaces` with `onDisk`, as G10) that lie in the root. (a) In a session with `pathRights: 'member'`, a place PathGuard refuses to its principal as a write (a host-only path, a script the trust gate recorded, `.smurg`, or a folder that holds one; a tree too big to look through counts as holding one); (b) in every session, a file a person is typing in, or a folder that holds one | (a) **ask**, host-only, card `gate: 'writes-host-only'` (`BASH_ASK_REASONS.writesHostOnly`); (b) **deny**, "Refused by smurg: <names> is typing in <path>. …" (`bashWhileTypingReason`), bus `agent.tool.gate` row `G11` |
 | G12 | 0.6.0: `Bash` of a session with `pathRights: 'member'` (a session a teammate opened, or a work item a teammate started) while its Claude mode in use is `auto`, whatever its root: a write place outside the session's own root (from a worktree: also the main folder and other checkouts), and outside the system's temporary folders (`os.tmpdir()`'s realpath, `/tmp`, `/private/tmp`, never when one of them holds the shared folder, the host's home or the state folder) and `/dev/null`-like devices | **ask**, host-only, card `gate: 'writes-outside'` (`BASH_ASK_REASONS.writesOutside`) |
 
-- **G11 and G12 read only what smurg can read in a command** (the places `bashPlaces` finds). A reading that is
-  `unsure` (a variable, a substitution, `sh -c`, `xargs`, a script: places the gate cannot follow) asks the host, for
-  a `member` session only, while `GATE_ASKS_WHEN_UNSURE = true` (`BASH_ASK_REASONS.unsureAuto`, host-only, no gate
-  label). The constant is `true` because 2.1.288 runs a command whose target is a variable on its fast path, with no
-  check at all (`F=gone.md; rm "$F"` removed the file; `$(…)`, `sh -c` and `xargs` went to its classifier:
-  `test/sessions/modes-claude-real.test.ts` R4). A command of the host's own sessions that smurg cannot read is
-  Claude Code's check's to decide. Neither row runs outside auto mode (in the ask modes Claude Code itself asks
+- **G11 and G12 read only what smurg can read in a command** (the places `bashPlaces` finds). A reading that is `unsure`
+  (a variable, a substitution, `sh -c`, `xargs`, a script: places the gate cannot follow) asks the host, for a `member`
+  session only, while `GATE_ASKS_WHEN_UNSURE = true` (`BASH_ASK_REASONS.unsureAuto`, host-only, card
+  `gate: 'writes-unknown'`). The constant is `true` because 2.1.288 runs a command whose target is a variable on its
+  fast path, with no check at all (`F=gone.md; rm "$F"` removed the file; `$(…)`, `sh -c` and `xargs` went to its
+  classifier: `test/sessions/modes-claude-real.test.ts` R4). A command of the host's own sessions that smurg cannot read
+  is Claude Code's check's to decide. Neither row runs outside auto mode (in the ask modes Claude Code itself asks
   before the writes they would ask about; in `ask-nothing` the host chose no question), and G11 does not run in a
   worktree, where the merge review covers the fast path.
 - G1 and G9 together are the liveness check: a command of an orphaned agent, or of an agent whose daemon hangs, does
@@ -3473,7 +3473,7 @@ with a repository: each snapshot records the folder as it is, a worktree is a sh
   (`worktree.hidden.tooLarge` with the three largest top-level entries). The commands of a snapshot get 240 s; the
   page waits 5 minutes for `plan.start`, a `session.create` with a new worktree and `worktree.merge.approve`, and for
   what waits behind them on the worktree module's queue (`plan.preflight`, `plan.item.resolve`,
-  `worktree.merge.reject`); the
+  `worktree.merge.request` after its commit, `worktree.merge.reject`); the
   Start dialog's preflight warms the history up (`git add -A` with no commit) while the dialog is read; a stale
   `G/index.lock` at the start of a command on the queue is removed (only smurg runs git in G). Free disk space is
   checked before each clone against the last listing's bytes and the host's reserve (`worktree.hidden.noSpace`);

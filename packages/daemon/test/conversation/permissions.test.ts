@@ -302,7 +302,7 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     expect((await s.host.conn.request('permission.decide', { requestId: 'writes', decision: 'deny' })).request).toMatchObject({ status: 'denied', gate: 'writes-settings-script' });
   });
 
-  it('DESIGN 0.6.0 D10: the two rows that still ask in auto mode say so on the card, and each is the HOST\'s to answer: a teammate\'s session writing a file only the host may change (G11a), or outside its own folder (G12)', async () => {
+  it('DESIGN 0.6.0 D10: the rows that still ask in auto mode say so on the card, and each is the HOST\'s to answer: a teammate\'s session writing a file only the host may change (G11a), outside its own folder (G12), or where smurg cannot tell', async () => {
     const s = await startStack();
     const session = await openSession(s, MEI, { modeChoice: 'auto', model: null });
     s.fakes.agents.raise(session.id, bashRequest('host-only', 'echo x >> CLAUDE.md', { reasonType: 'hook', reason: BASH_ASK_REASONS.writesHostOnly }));
@@ -318,10 +318,14 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     // The same sentences from anything but a hook are no gate's.
     s.fakes.agents.raise(session.id, bashRequest('rule', 'echo y >> CLAUDE.md', { reasonType: 'rule', reason: BASH_ASK_REASONS.writesHostOnly }));
     expect(await card(s, 'rule')).not.toHaveProperty('gate');
-    // A command whose writes the gate cannot follow (GATE_ASKS_WHEN_UNSURE): the host's too, its sentence the reason.
+    // A command whose writes the gate cannot follow (GATE_ASKS_WHEN_UNSURE): the host's too, with a label of its own
+    // (0.6.0's review: until then the card showed the gate's English sentence as its reason).
     s.fakes.agents.raise(session.id, bashRequest('unsure', 'F=CLAUDE.md; rm "$F"', { reasonType: 'hook', reason: BASH_ASK_REASONS.unsureAuto }));
-    expect(await card(s, 'unsure')).toMatchObject({ status: 'open', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.unsureAuto });
-    expect(await card(s, 'unsure')).not.toHaveProperty('gate');
+    expect(await card(s, 'unsure')).toMatchObject({ status: 'open', gate: 'writes-unknown', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.unsureAuto });
+    expect(await refusal(s.mei.conn.request('permission.decide', { requestId: 'unsure', decision: 'allow' }))).toMatchObject({ code: 'host_only' });
+    expect((await s.host.conn.request('permission.decide', { requestId: 'unsure', decision: 'deny' })).request).toMatchObject({ status: 'denied', gate: 'writes-unknown' });
+    s.fakes.agents.raise(session.id, bashRequest('unsure-rule', 'F=CLAUDE.md; rm "$F"', { reasonType: 'rule', reason: BASH_ASK_REASONS.unsureAuto }));
+    expect(await card(s, 'unsure-rule')).not.toHaveProperty('gate');
   });
 
   it('S6 a request that cannot be shown whole is denied', async () => {

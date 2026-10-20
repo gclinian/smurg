@@ -90,6 +90,7 @@ const GATE_REASONS: ReadonlyMap<string, NonNullable<PermissionRequest['gate']>> 
   [BASH_ASK_REASONS.unsure, 'may-reach-settings-script'],
   [BASH_ASK_REASONS.writesHostOnly, 'writes-host-only'],
   [BASH_ASK_REASONS.writesOutside, 'writes-outside'],
+  [BASH_ASK_REASONS.unsureAuto, 'writes-unknown'],
 ]);
 
 /** The label of a file a card cannot name (outside every root, or the host's private data). */
@@ -333,14 +334,11 @@ export class Permissions {
 
     // smurg's own gate asked (hooks/bash-guard.ts, hook-events.ts): the request carries the gate's sentence back as a
     // hook's reason. A command that writes where a script of the project settings is, is the host's to answer, like
-    // any other request that names such a script; so are the two rows that still ask in auto mode (DESIGN 0.6.0 D10):
-    // a teammate's session writing a file only the host may change (G11a) or outside its own folder (G12). (A hook of
-    // the host's own that used the same words gets the same label.)
+    // any other request that names such a script; so are the rows that still ask in auto mode (DESIGN 0.6.0 D10): a
+    // teammate's session writing a file only the host may change (G11a), outside its own folder (G12), or where smurg
+    // cannot tell (GATE_ASKS_WHEN_UNSURE). (A hook of the host's own that used the same words gets the same label.)
     const gate: PermissionRequest['gate'] = request.reasonType !== 'hook' ? undefined : GATE_REASONS.get(request.reason ?? '');
-    if (gate === 'writes-settings-script' || gate === 'writes-host-only' || gate === 'writes-outside') hostOnly = true;
-    // A teammate's command in auto mode whose writes smurg cannot follow (GATE_ASKS_WHEN_UNSURE): the host's too. The
-    // card has no label of its own for it (protocol 5 has none): it shows the gate's sentence as its reason.
-    if (request.reasonType === 'hook' && request.reason === BASH_ASK_REASONS.unsureAuto) hostOnly = true;
+    if (gate === 'writes-settings-script' || gate === 'writes-host-only' || gate === 'writes-outside' || gate === 'writes-unknown') hostOnly = true;
 
     // A rule of the session's topic that this process does not have yet: what a click on "Always allow" would send.
     // Only for a request that IS of that kind as the daemon reads it (one plain command that starts with the rule's

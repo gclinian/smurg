@@ -421,6 +421,8 @@ const QUOTES: readonly Quote[] = [
   // What smurg's own gate says when it asks in auto mode (G11, G12), and the audit entry of a command the check stopped.
   webQuote('conversation.perm.gate.writes-host-only', ['HOSTING']),
   webQuote('conversation.perm.gate.writes-outside', ['HOSTING']),
+  // A teammate's command smurg cannot read (GATE_ASKS_WHEN_UNSURE): its own label since 0.6.0's review.
+  webQuote('conversation.perm.gate.writes-unknown', ['HOSTING']),
   webQuote('console.audit.action.agent.command.blocked', ['HOSTING']),
   { what: 'wire conversation.autoMode.blocked', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.autoMode.blocked', { reason: '[Rule]' }), part: { en: "Claude Code's check stopped a command", 'zh-TW': 'Claude Code 的檢查擋下了一個指令' } },
   // A model that cannot be used, a mode that cannot run, a model choice that goes with its member.

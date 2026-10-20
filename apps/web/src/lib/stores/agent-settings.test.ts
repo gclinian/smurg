@@ -57,7 +57,7 @@ describe('the stores: protocol 5 requests', () => {
     await seen;
   });
 
-  it('a Start, a session in a new worktree, a merge, the Start dialog, Resolve and a rejection wait longer than the daemon may take; nothing else does', async () => {
+  it('a Start, a session in a new worktree, a merge, the Start dialog, Resolve, a merge request and a rejection wait longer than the daemon may take; nothing else does', async () => {
     const { conn, stores } = await ready();
     void stores.topics.start({ topicId: 'tp_1', planRevision: 1, specHash: 'a'.repeat(64), planHash: 'b'.repeat(64) });
     expect(conn.lastRequest('plan.start')?.options).toEqual({ timeoutMs: LONG_REQUEST_TIMEOUT_MS });
@@ -79,6 +79,9 @@ describe('the stores: protocol 5 requests', () => {
     expect(conn.lastRequest('plan.item.resolve')?.options).toEqual({ timeoutMs: 300_000 });
     void stores.worktrees.reject(makeMergeRequest().id);
     expect(conn.lastRequest('worktree.merge.reject')?.options).toEqual({ timeoutMs: 300_000 });
+    // A merge request commits the worktree, then waits on the same queue to bring that commit in (until then 30 s).
+    void stores.worktrees.requestMerge('wt_1');
+    expect(conn.lastRequest('worktree.merge.request')?.options).toEqual({ timeoutMs: 300_000 });
     void stores.topics.resume('tp_1');
     expect(conn.lastRequest('plan.resume')?.options).toBeUndefined();
     conn.respond('plan.start', { plan: buildPlan() });

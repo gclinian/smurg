@@ -12,9 +12,10 @@ are right.
   commit command gives the author's address as a placeholder.
 - `DESIGN.md`: the design (D1 to D22, the security review, the risks, what was left for the lead or the owner, and
   the appendices: the wire diff of protocol 5, every catalog text in both languages, the evidence), revised after
-  two reviews (security and honesty, engineering and upgrade), unchanged here. Where the build took a side the
-  design left open, `docs/ARCHITECTURE.md` says what was built (for example `GATE_ASKS_WHEN_UNSURE`, which the real
-  Claude Code 2.1.288 set to true, §7.7).
+  two reviews (security and honesty, engineering and upgrade), unchanged here except where it lists the reasons a
+  permission card gives for smurg's own gate: they also name `writes-unknown`, added after the build's review, and
+  say so. Where the build took a side the design left open, `docs/ARCHITECTURE.md` says what was built (for example
+  `GATE_ASKS_WHEN_UNSURE`, which the real Claude Code 2.1.288 set to true, §7.7).
 
 Not kept here: the five understanding reports, the two reviews and their experiments, and the build plan with each
 step's notes. The documents above name them (`U1` to `U5`, `R-SEC`, `R-ENG`, `D/ANSWERS.md`) as the evidence they

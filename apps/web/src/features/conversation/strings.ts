@@ -259,6 +259,7 @@ export const t = defineStrings(
     'perm.gate.may-reach-settings-script': "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone.",
     'perm.gate.writes-host-only': 'smurg asks because this command changes a file only the host may change, and in auto mode nothing else would ask before it runs.',
     'perm.gate.writes-outside': "smurg asks because this command of a teammate's session writes outside its own folder, and in auto mode nothing else would ask before it runs.",
+    'perm.gate.writes-unknown': "smurg asks because it cannot tell where this command of a teammate's session writes, and in auto mode it could run with no check at all.",
     'perm.more': { one: '{count} line: scroll this box to read all of it.', other: '{count} lines: scroll this box to read all of them.' },
     'perm.readFirst': 'Allow is available once you have scrolled to the end of what is asked.',
     'perm.allow': 'Allow once',

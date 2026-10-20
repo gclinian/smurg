@@ -1389,7 +1389,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'permission.updated': {
     payload: {
-      valid: [{ request: permission }, { request: outsidePermission }, { request: { ...outsidePermission, path: undefined } }, { request: { ...permission, hostOnly: true, gate: 'writes-settings-script' } }, { request: { ...permission, gate: 'may-reach-settings-script' } }],
+      valid: [{ request: permission }, { request: outsidePermission }, { request: { ...outsidePermission, path: undefined } }, { request: { ...permission, hostOnly: true, gate: 'writes-settings-script' } }, { request: { ...permission, gate: 'may-reach-settings-script' } }, { request: { ...permission, hostOnly: true, gate: 'writes-unknown' } }],
       invalid: [{ request: { ...permission, noAlways: 'because' } }, { request: { ...permission, hostOnly: undefined } }, { request: { ...permission, gate: 'because' } }],
     },
   },

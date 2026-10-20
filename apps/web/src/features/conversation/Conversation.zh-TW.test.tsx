@@ -179,6 +179,8 @@ describe('conversation column in zh-TW', () => {
     for (const [gate, sentence] of [
       ['writes-settings-script', 'smurg 會先問，是因為這個指令會更動這個資料夾的 Claude Code 專案設定所執行的腳本所在的位置（腳本本身，或放腳本的資料夾）。這些腳本會以主人的身分執行。'],
       ['may-reach-settings-script', 'smurg 會先問，是因為這個資料夾的 Claude Code 專案設定會執行腳本，而 smurg 無法確定這個指令不會動到它們。'],
+      // 0.6.0's review: a teammate's command in auto mode whose writes smurg cannot follow.
+      ['writes-unknown', 'smurg 會先問，是因為它看不出組員的 session 的這個指令會寫到哪裡，而在自動模式下，這個指令可能完全不經過檢查就執行。'],
     ] as const) {
       const view = await openConversation({
         role: 'host',

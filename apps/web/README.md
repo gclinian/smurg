@@ -1309,8 +1309,8 @@ screen is built to.
   the host's computer cannot run git (only the host starts them, after a tick in the Start dialog). The New session
   dialog, the Start dialog and the plan read it; `plan.start`, a `session.create` with a new worktree and
   `worktree.merge.approve` wait 5 minutes (`LONG_REQUEST_TIMEOUT_MS`), longer than the daemon's own deadline for the
-  first snapshot of a big folder, and so do `plan.preflight`, `plan.item.resolve` and `worktree.merge.reject`, which
-  wait behind such a snapshot on the worktree module's queue.
+  first snapshot of a big folder, and so do `plan.preflight`, `plan.item.resolve`, `worktree.merge.request` and
+  `worktree.merge.reject`, which wait behind such a snapshot on the worktree module's queue.
 - **The host's side that everyone may know** (`host` store): whether the host's Claude Code is logged in or has
   reached a usage limit, and whether the main folder's Claude Code project settings are used. Until the host has
   confirmed those settings, sessions run without them and say so; the confirmation dialog is the console feature's

@@ -414,10 +414,11 @@ and holds whatever your Claude Code settings allow. What then runs without a per
     a teammate's session and only when it can read where the command writes (below), and refuses only the places listed
     below for every mode, and only commands that name them;
   - commands smurg cannot read (a script, an interpreter, `sh -c`, a variable): smurg cannot see where they write. In a
-    session a teammate opened or started, smurg asks you first, and only you can allow it. In your own sessions such a
-    command runs when Claude Code's check allows it, and Claude Code 2.1.288 runs one whose target is a variable
-    (`F=notes.md; rm "$F"`) with no check at all: a command of that kind can change a file only you may change without
-    anyone being asked;
+    session a teammate opened or started, smurg asks you first, and only you can allow it; the card says
+    "smurg asks because it cannot tell where this command of a teammate's session writes, and in auto mode it could run with no check at all."
+    In your own sessions such a command runs when Claude Code's check allows it, and Claude Code 2.1.288 runs one
+    whose target is a variable (`F=notes.md; rm "$F"`) with no check at all: a command of that kind can change a file
+    only you may change without anyone being asked;
   - reads: an agent reads every file of the folder, and in auto mode whatever Claude Code's check lets it read
     elsewhere, except the files teammates cannot see (§4) and smurg's state folder, which smurg refuses to commands that
     name them;

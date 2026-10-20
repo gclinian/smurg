@@ -466,7 +466,8 @@ its person wanted more of. Every record is carried; nothing is dropped.)
   worktree `repo?: 'smurg'`; merge `repo?: 'smurg'` (absent: the folder's own `.git`) and, with `repo: 'smurg'`,
   `base?: gitCommit` (the merge base the review showed, D14).
 - `reports.json`: `noChanges` gains `no-history` (wider enum of the wire schema it extends).
-- per-session `cards.json`: `gate` gains `writes-host-only`.
+- per-session `cards.json`: `gate` gains `writes-host-only` (also `writes-outside`, G12; and, added after the build's
+  review, `writes-unknown`: a teammate's command whose target smurg cannot read, `GATE_ASKS_WHEN_UNSURE`).
 - transcripts: notice `action` gains `choose-model`; new line and notice ids are free-form (`wireRefSchema`).
 - `audit*.jsonl`: `AUDIT_ACTIONS` gains `session.model`, `topic.agent`, `agent.command.blocked`.
 - `host-rules.json`, `inbox.json`, `claude-trust.json`, uploads, conflicts, activity: unchanged.
@@ -1624,7 +1625,8 @@ For the owner (decided already, named here only so that nothing surprises them a
 `no-history`; `startPreflightSchema` + `history`, `direct` (with `reason`, `hostOnly`), `agent`, `nestedRepos`,
 `cloudSynced`.
 
-`conversation.ts`: `NOTICE_ACTIONS` + `choose-model`; `PERMISSION_GATE_REASONS` + `writes-host-only`, `writes-outside`.
+`conversation.ts`: `NOTICE_ACTIONS` + `choose-model`; `PERMISSION_GATE_REASONS` + `writes-host-only`, `writes-outside`
+(and, added after the build's review, `writes-unknown`).
 
 `inbox.ts`: `ATTENTION_SUBJECTS` + `agents-auto`; `inboxKindWaits` false for it; `CONSOLE_SECTIONS` unchanged
 (`settings` exists).
@@ -1742,6 +1744,7 @@ B.2 Web catalogs (`apps/web/src/features/*/strings.ts` and `strings.zh-TW.ts`).
 | `mode.workspaceAsksNothing` | The host lets this workspace's agents ask for nothing. You can choose a stricter mode for this session. | 主人讓這個工作區的 agent 什麼都不問。你可以為這個 session 選擇更嚴格的模式。 |
 | `card.gate.writes-host-only` (conversation) | smurg asks because this command changes a file only the host may change, and in auto mode nothing else would ask before it runs. | smurg 會先問，是因為這個指令會改到只有主人能改的檔案，而在自動模式下，沒有其他檢查會在它執行前先問。 |
 | `card.gate.writes-outside` (conversation) | smurg asks because this command of a teammate's session writes outside its own folder, and in auto mode nothing else would ask before it runs. | smurg 會先問，是因為組員的 session 的這個指令會寫到它自己資料夾以外的地方，而在自動模式下，沒有其他檢查會在它執行前先問。 |
+| `card.gate.writes-unknown` (conversation; added after the build's review) | smurg asks because it cannot tell where this command of a teammate's session writes, and in auto mode it could run with no check at all. | smurg 會先問，是因為它看不出組員的 session 的這個指令會寫到哪裡，而在自動模式下，這個指令可能完全不經過檢查就執行。 |
 | `notice.action.choose-model` | Choose a model | 選擇模型 |
 | `settings.permissionMode` (console) | What agents may do without asking | agent 不用問就能做的事 |
 | `settings.permissionModeHint` | The default of every agent session and work item of this workspace. You and members with agent access can choose another mode for a topic or a session, except Asks for nothing. A topic's discussion only reads code and writes its spec and plan. | 這個工作區每個 agent session 和工作項目的預設。你和可使用 agent 的成員可以為一個主題或一個 session 選擇其他模式，但不能選「什麼都不問」。主題的討論只會讀程式碼、寫自己的 spec 和計畫。 |

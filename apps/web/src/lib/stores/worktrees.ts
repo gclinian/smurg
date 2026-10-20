@@ -107,7 +107,8 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
       await context().conn.request('worktree.remove', { worktreeId });
     },
     async requestMerge(worktreeId, message) {
-      return upsertRequest((await context().conn.request('worktree.merge.request', message === undefined ? { worktreeId } : { worktreeId, message })).request);
+      // After its commit the request waits on the worktree module's queue too, behind a snapshot of the folder (0.6.0's review).
+      return upsertRequest((await context().conn.request('worktree.merge.request', message === undefined ? { worktreeId } : { worktreeId, message }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).request);
     },
     diff(requestId) {
       return context().conn.request('worktree.merge.diff', { requestId });

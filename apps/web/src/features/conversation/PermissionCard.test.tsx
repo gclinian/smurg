@@ -167,6 +167,23 @@ describe('permission card: a request smurg\u2019s own gate asked for (review R3-
     expect(plain.card.querySelector('.conv-card__who--gate')).toBeNull();
     expect(plain.card.textContent).toContain("Claude Code's reason: It runs the tests.");
   });
+
+  it('a teammate\u2019s command in auto mode whose writes smurg cannot follow has a label of its own, and only the host answers it (0.6.0\u2019s review)', async () => {
+    const DAEMON = 'smurg asks: smurg cannot tell where this command writes, and in auto mode it could run with no check at all. Only the host may allow it for a session a teammate opened or started.';
+    const LABEL = "smurg asks because it cannot tell where this command of a teammate's session writes, and in auto mode it could run with no check at all.";
+    const unknown = { command: 'F=CLAUDE.md; rm "$F"', gate: 'writes-unknown' as const, reason: DAEMON, hostOnly: true, alwaysRule: undefined, noAlways: 'host-only' as const };
+    const mei = await openPermission(unknown, { role: 'agent', session: { responsible: MEI } });
+    expect(mei.card.querySelector('.conv-card__who--gate')?.textContent).toBe(LABEL);
+    expect(mei.card.textContent).not.toContain(DAEMON);
+    expect(mei.card.textContent).not.toContain("Claude Code's reason");
+    expect(within(mei.card).queryByRole('button')).toBeNull();
+    mei.unmount();
+
+    const host = await openPermission(unknown, { role: 'host' });
+    expect(host.card.querySelector('.conv-card__who--gate')?.textContent).toBe(LABEL);
+    expect(within(host.card).getByRole('button', { name: 'Allow once' })).toBeTruthy();
+    expect(within(host.card).queryByRole('button', { name: 'Always allow this kind' })).toBeNull();
+  });
 });
 
 describe('permission card: the others', () => {

@@ -130,7 +130,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'roles.ts': 'aefbcc4c97c5d783c99a6a3c5b1e9cb15668796446f5b3927c0655bcd23b6da2',
   'routing.ts': '56c564a2d69a5a46d93fadd30eb509ff820fe36622e7af37a1bc81cb01879973',
   'schema/awareness.ts': '15f7202e552ced9496fb7ff62ccb1702eb4d1a808be278acf09e78999cdc768a',
-  'schema/conversation.ts': 'd9c2dca8012258c2212a437cd967f705ffa0e4d5f0b4c78363aaf677adb783d7',
+  'schema/conversation.ts': '0d60ca9c7cdc02eb7b018b7d1bb0bf9416f3dde22adf036bd639039aaf448d86',
   'schema/entities.ts': 'e1238b4f319efc04d0e83d30cb8be659db6f73eee93c086ae8a1052074713b6e',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '31915fe6680b6a0c7c593eb4e338c7e8e571cda0aeef84b45d280f9aa255ab68',
