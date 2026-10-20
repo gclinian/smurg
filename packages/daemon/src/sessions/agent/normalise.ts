@@ -22,7 +22,8 @@ function num(value: unknown): number | undefined {
 }
 
 export type RunnerEvent =
-  | { readonly kind: 'control.response'; readonly requestId: string; readonly ok: boolean; readonly response: unknown; readonly error?: string }
+  /** `code`: Claude Code's `error_code` of a refusal, when it is a short token (ERROR_CODE). */
+  | { readonly kind: 'control.response'; readonly requestId: string; readonly ok: boolean; readonly response: unknown; readonly error?: string; readonly code?: string }
   | {
       readonly kind: 'init';
       readonly claudeSessionId: string;
@@ -30,11 +31,14 @@ export type RunnerEvent =
       readonly tools: readonly string[];
       readonly permissionMode?: string;
       readonly apiKeySource?: string;
+      /** The model this turn runs on, as Claude Code resolved it (`claude-sonnet-5-5`; U1 E3: an `init` starts every turn). */
+      readonly model?: string;
     }
   /** Text of a block that is streaming. `blockKey`: the same key its finished `text` has. */
   | { readonly kind: 'delta'; readonly blockKey: string; readonly text: string; readonly parentToolUseId?: string }
   | { readonly kind: 'thinking'; readonly blockKey: string; readonly parentToolUseId?: string }
-  | { readonly kind: 'text'; readonly blockKey: string; readonly text: string; readonly aborted: boolean; readonly synthetic: boolean; readonly parentToolUseId?: string }
+  /** `apiError`: Claude Code's top-level `error` of the assistant line an API error made (`model_not_found`, U1 E4). */
+  | { readonly kind: 'text'; readonly blockKey: string; readonly text: string; readonly aborted: boolean; readonly synthetic: boolean; readonly parentToolUseId?: string; readonly apiError?: string }
   | { readonly kind: 'tool.use'; readonly toolUseId: string; readonly name: string; readonly input: unknown; readonly parentToolUseId?: string }
   | { readonly kind: 'tool.result'; readonly toolUseId: string; readonly ok: boolean; readonly text: string; readonly structured: unknown }
   /** Claude Code echoed our own message: a turn took it. */
@@ -61,6 +65,14 @@ export type RunnerEvent =
   | { readonly kind: 'result'; readonly outcome: TurnOutcome; readonly durationMs: number; readonly uuids: readonly string[]; readonly apiError: boolean };
 
 const LIFECYCLE_STATES = new Set(['queued', 'started', 'completed', 'cancelled']);
+
+/** A code of Claude Code's (`error_code` of a control response, `error` of an assistant line): a short ASCII token. */
+const ERROR_CODE = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** The code when it is one smurg can branch on; anything else is dropped (DESIGN 0.6.0 D7). */
+function codeOf(value: unknown): string | undefined {
+  return typeof value === 'string' && ERROR_CODE.test(value) ? value : undefined;
+}
 
 /** `result` → the turn's outcome (subtype and terminal_reason; runtime/HANDOVER.md "The protocol"). */
 export function outcomeOfResult(message: Json): TurnOutcome {
@@ -110,7 +122,8 @@ export class Normaliser {
         const requestId = str(response['request_id']);
         if (requestId === undefined) return [];
         const ok = response['subtype'] === 'success';
-        return [{ kind: 'control.response', requestId, ok, response: response['response'] ?? {}, ...(ok ? {} : { error: str(response['error']) ?? 'control request failed' }) }];
+        const code = ok ? undefined : codeOf(response['error_code']);
+        return [{ kind: 'control.response', requestId, ok, response: response['response'] ?? {}, ...(ok ? {} : { error: str(response['error']) ?? 'control request failed' }), ...(code === undefined ? {} : { code }) }];
       }
       case 'control_request': {
         const requestId = str(message['request_id']);
@@ -171,6 +184,7 @@ export class Normaliser {
         const inner = isObject(message['message']) ? message['message'] : {};
         const id = str(inner['id']) ?? 'unknown';
         const synthetic = inner['model'] === '<synthetic>';
+        const apiError = codeOf(message['error']);
         const out: RunnerEvent[] = [];
         for (const block of Array.isArray(inner['content']) ? inner['content'] : []) {
           if (!isObject(block)) continue;
@@ -178,7 +192,7 @@ export class Normaliser {
           this.finished.set(id, index + 1);
           const blockKey = `${id}:${index}`;
           if (block['type'] === 'text') {
-            out.push({ kind: 'text', blockKey, text: str(block['text']) ?? '', aborted: message['aborted'] === true, synthetic, ...withParent });
+            out.push({ kind: 'text', blockKey, text: str(block['text']) ?? '', aborted: message['aborted'] === true, synthetic, ...withParent, ...(apiError === undefined ? {} : { apiError }) });
           } else if (block['type'] === 'tool_use') {
             const toolUseId = str(block['id']);
             if (toolUseId !== undefined) out.push({ kind: 'tool.use', toolUseId, name: str(block['name']) ?? '', input: block['input'], ...withParent });
@@ -230,6 +244,7 @@ export class Normaliser {
         const tools = Array.isArray(message['tools']) ? message['tools'].filter((tool): tool is string => typeof tool === 'string') : [];
         const permissionMode = str(message['permissionMode']);
         const apiKeySource = str(message['apiKeySource']);
+        const model = str(message['model']);
         return [
           {
             kind: 'init',
@@ -238,6 +253,7 @@ export class Normaliser {
             tools,
             ...(permissionMode === undefined ? {} : { permissionMode }),
             ...(apiKeySource === undefined ? {} : { apiKeySource }),
+            ...(model === undefined ? {} : { model }),
           },
         ];
       }

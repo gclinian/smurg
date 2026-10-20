@@ -118,14 +118,20 @@ export function buildMcpConfig(command: SelfCommand): JsonObject {
 
 /**
  * The PROFILE flags of one process start (the stream flags are the runner's constant). The sessions module checks them
- * against its allow-list before the spawn. Never a bypass flag, never `--model`, never `--allowedTools`.
+ * against its allow-list before the spawn. Never a bypass flag, never `--allowedTools`. `--model` when the session
+ * has a model (DESIGN 0.6.0 D7: only `--model` on every start, the resume included, decides the model; without it the
+ * host's own default applies, as for every session of 0.5.2).
  */
-export function claudeArgsFor(files: { readonly settingsPath: string; readonly mcpConfigPath: string; readonly rolePromptPath?: string }, profile?: Pick<LaunchProfile, 'mode' | 'tools' | 'strictMcp' | 'settingSources'>): string[] {
+export function claudeArgsFor(
+  files: { readonly settingsPath: string; readonly mcpConfigPath: string; readonly rolePromptPath?: string },
+  profile?: Pick<LaunchProfile, 'mode' | 'tools' | 'strictMcp' | 'settingSources'> & { readonly model?: string | null },
+): string[] {
   const args = ['--permission-mode', profile?.mode ?? 'default', '--settings', files.settingsPath, '--mcp-config', files.mcpConfigPath];
   if (profile !== undefined) args.push('--tools', profile.tools.join(','));
   if (files.rolePromptPath !== undefined) args.push('--append-system-prompt-file', files.rolePromptPath);
   if (profile?.strictMcp === true) args.push('--strict-mcp-config');
   if (profile?.settingSources === 'user') args.push('--setting-sources', 'user');
+  if (typeof profile?.model === 'string') args.push('--model', profile.model);
   return args;
 }
 

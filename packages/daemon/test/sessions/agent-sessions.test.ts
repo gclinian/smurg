@@ -2,15 +2,18 @@
 // sessions module, a real `claude`-shaped child per live session, the control protocol on its pipes, the conversation
 // log on disk. What the conversation, topics and inbox modules would do is done here by hand through the service.
 import { existsSync } from 'node:fs';
-import { readFile, realpath, rm } from 'node:fs/promises';
+import { chmod, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { MAIN_ROOT, type AgentSession, type ConversationEvent, type PayloadOf } from '@smurg/protocol';
+import { MAIN_ROOT, type AgentSession, type ConversationEvent, type HostState, type PayloadOf } from '@smurg/protocol';
 import type { AgentRequest, DaemonEvents, Principal } from '../../src/core/interfaces.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
 import { SYSTEM_ACTOR } from '../../src/core/permissions.ts';
-import { TEST_HOST_USER, createTempRunDir, createTestDaemon, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
+import { PROBE_DIR_NAME, PROBE_SETTINGS } from '../../src/sessions/agent/models.ts';
+import { STREAM_ARGS, checkLaunchArgs } from '../../src/sessions/agent/profiles.ts';
+import { sessionFilesRoot } from '../../src/hooks/settings-writer.ts';
+import { TEST_HOST_USER, createTempDir, createTempRunDir, createTestDaemon, removeTempDir, waitFor, type FakeClaudeScenario, type FakeClaudeStep, type TestClient } from '../../src/testing/index.ts';
 import { createFakes, fakeServicesModule } from './helpers.ts';
 import { startSessionStack, type SessionStack, type SessionStackOptions } from './setup.ts';
 
@@ -474,10 +477,10 @@ describe('refusals before a start, and the limits', { timeout: 60_000 }, () => {
   });
 });
 
-// ── protocol 5 (smurg 0.6.0): what a session runs with (DESIGN 0.6.0 D3, D4). S1 stores the choices; what is launched
-// is still 0.5.2's (`default` or `acceptEdits`, never `--model`).
+// ── protocol 5 (smurg 0.6.0): what a session runs with (DESIGN 0.6.0 D3, D4). The mode choice is stored; what is
+// launched for it is still 0.5.2's (`default` or `acceptEdits`) until DESIGN D8. The model: the describe below.
 
-describe('a session\'s mode choice and model, stored (protocol 5)', { timeout: 60_000 }, () => {
+describe('a session\'s mode choice, stored (protocol 5)', { timeout: 60_000 }, () => {
   const linesOf = async (r: Rig, sessionId: string): Promise<unknown[]> => (await r.events(sessionId)).flatMap((event) => (event.kind === 'line' ? [event.text] : []));
   const audited = async (r: Rig, action: string): Promise<unknown[]> => {
     await r.s.t.ctx.audit.flush();
@@ -501,39 +504,349 @@ describe('a session\'s mode choice and model, stored (protocol 5)', { timeout: 6
     await expect(r.host.conn.request('session.mode.set', { sessionId: session.id, mode: 'ask-nothing' } as never)).rejects.toMatchObject({ code: 'bad_request' });
   });
 
-  it('session.model.set: while the agent\'s list is not known every model is refused and nothing changes; null (the host\'s default) is stored, said and audited', async () => {
-    const r = await rig();
-    expect((await r.host.conn.request('session.host.get', {})).agent).toEqual({ models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' });
-    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'sonnet' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' }, text: { id: 'session.model.notKnown' } });
-    const { session } = await r.host.conn.request('session.create', AGENT);
-    await r.until(session.id, idle, 'the session to be ready');
-    const before = (await r.events(session.id)).length;
-    await expect(r.host.conn.request('session.model.set', { sessionId: session.id, model: 'sonnet' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' } });
-    expect(r.agents.get(session.id)).toMatchObject({ model: null });
-    expect((await r.events(session.id)).length).toBe(before);
-    expect(await audited(r, 'session.model')).toEqual([]);
-    const reset = (await r.host.conn.request('session.model.set', { sessionId: session.id, model: null })).session;
-    expect(reset).toMatchObject({ model: null });
-    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.default' });
-    expect(await audited(r, 'session.model')).toEqual([{ sessionId: session.id, model: null }]);
+});
+
+// ── smurg 0.6.0: models (DESIGN 0.6.0 D7) with the stand-in ─────────────────────────────────────────────────────────
+
+/** What the probe ran as and did, one entry per line its `claude` noted (probeWrapper). */
+type ProbeNote = Readonly<Record<string, string>>;
+
+interface ProbeWrapper {
+  /** The `claude` the sessions module is pointed at. */
+  readonly path: string;
+  /** Which stand-in it runs (the stack's own; known only once the stack exists). */
+  use(standIn: string): Promise<void>;
+  /** What the next probe does: `fail` (exit 3), `slow-fail` (exit 3 after a second), `hang` (never answers, a child in its group), '' the stand-in. */
+  behave(behaviour: '' | 'fail' | 'slow-fail' | 'hang'): Promise<void>;
+  notes(): Promise<ProbeNote[]>;
+}
+
+const wrappers: string[] = [];
+afterEach(async () => {
+  for (const dir of wrappers.splice(0)) await removeTempDir(dir);
+});
+
+/**
+ * A `claude` in front of the stand-in that recognises THE PROBE (the one process smurg starts with `--tools Read`):
+ * it notes what the probe ran as (its pid, its folder, whether that folder was private and empty, HOME, a hook
+ * socket) and does what the behaviour file says (read at every run). Every other run (`--version`, a session) is the
+ * stand-in's.
+ */
+async function probeWrapper(): Promise<ProbeWrapper> {
+  const dir = await createTempDir('probe-wrapper');
+  wrappers.push(dir);
+  const path = join(dir, 'claude');
+  const notes = join(dir, 'probe-notes.log');
+  const quote = (text: string): string => `'${text.replaceAll("'", "'\\''")}'`;
+  await writeFile(
+    path,
+    [
+      '#!/bin/sh',
+      'probe=no',
+      'prev=',
+      'for arg in "$@"; do if [ "$prev" = "--tools" ] && [ "$arg" = "Read" ]; then probe=yes; fi; prev=$arg; done',
+      'if [ "$probe" = yes ]; then',
+      `  behaviour=$(cat ${quote(join(dir, 'behaviour'))} 2>/dev/null)`,
+      `  printf 'kind=run pid=%s cwd=%s mode=%s entries=%s home=%s hook=%s\\n' "$$" "$(pwd -P)" "$(ls -ld . | cut -c1-10)" "$(ls -A | wc -l | tr -d ' ')" "$HOME" "\${SMURG_HOOK_SOCKET:-none}" >> ${quote(notes)}`,
+      '  case "$behaviour" in',
+      '    fail) exit 3 ;;',
+      '    slow-fail) sleep 1; exit 3 ;;',
+      `    hang) sleep 300 & printf 'kind=child pid=%s\\n' "$!" >> ${quote(notes)}; exec sleep 300 ;;`,
+      '  esac',
+      'fi',
+      `exec "$(cat ${quote(join(dir, 'stand-in'))})" "$@"`,
+      '',
+    ].join('\n'),
+  );
+  await chmod(path, 0o755);
+  await writeFile(notes, '');
+  return {
+    path,
+    use: (standIn) => writeFile(join(dir, 'stand-in'), standIn),
+    behave: (behaviour) => writeFile(join(dir, 'behaviour'), behaviour),
+    notes: async () =>
+      (await readFile(notes, 'utf8'))
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line) => Object.fromEntries([...line.matchAll(/(\w+)=(\S*)/g)].map((match) => [match[1] as string, match[2] as string]))),
+  };
+}
+
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+describe('models (DESIGN 0.6.0 D7): the list, --model on every start, the live change, what Claude Code refuses or replaces', { timeout: 90_000 }, () => {
+  const linesOf = async (r: Rig, sessionId: string): Promise<{ id: string; params?: Record<string, unknown> }[]> =>
+    (await r.events(sessionId)).flatMap((event) => (event.kind === 'line' ? [event.text as { id: string; params?: Record<string, unknown> }] : []));
+  const noticesOf = async (r: Rig, sessionId: string): Promise<Extract<ConversationEvent, { kind: 'notice' }>[]> => (await r.events(sessionId)).filter((event): event is Extract<ConversationEvent, { kind: 'notice' }> => event.kind === 'notice');
+  const audited = async (r: Rig, action: string): Promise<unknown[]> => {
+    await r.s.t.ctx.audit.flush();
+    return (await r.s.t.ctx.audit.query({ limit: 200 })).filter((entry) => entry.action === action).map((entry) => entry.detail).reverse();
+  };
+  const argvsOf = async (r: Rig, sessionId: string): Promise<string[][]> => (await r.s.fakeClaude.echoed()).filter((entry) => entry.kind === 'argv' && entry.session === sessionId).map((entry) => entry.value as string[]);
+  const controlsOf = async (r: Rig, sessionId: string, subtype: string): Promise<Record<string, unknown>[]> =>
+    (await r.s.fakeClaude.echoed())
+      .filter((entry) => entry.kind === 'stdin' && entry.session === sessionId)
+      .map((entry) => entry.value as { type?: string; request?: Record<string, unknown> })
+      .filter((line) => line.type === 'control_request' && line.request?.['subtype'] === subtype)
+      .map((line) => line.request as Record<string, unknown>);
+  /** The host agent's list is known (the probe asked the stand-in). */
+  const knownModels = async (r: Rig): Promise<void> => {
+    await r.host.conn.request('session.host.get', {});
+    await r.agents.modelsSettled();
+    expect(r.agents.hostAgentState().modelsKnown).toBe(true);
+  };
+
+  it('the probe: the first session.host.get asks the host\'s Claude Code with the flags U1 E7 measured, in a private empty folder, hooks off, no hook socket; the list and the host\'s default reach every member as session.host; it runs once and leaves nothing', async () => {
+    const wrapper = await probeWrapper();
+    const r = await rig([], { claudePath: wrapper.path });
+    await wrapper.use(r.s.fakeClaude.path);
+    const leo = await r.s.t.connect({ userId: 'dev:leo', displayName: 'Leo', role: 'viewer' });
+    const told: HostState[] = [];
+    leo.conn.on('session.host', (payload) => told.push(payload));
+    const first = await leo.conn.request('session.host.get', {});
+    // Nothing waits for the answer: the first reply says what is known now.
+    expect(first.agent).toMatchObject({ models: [], modelsKnown: false, hostDefault: null });
+    await waitFor(() => told.some((state) => state.agent.modelsKnown), { timeoutMs: 15_000, what: 'everyone to be told the list' });
+    await r.agents.modelsSettled();
+    const known = (told.at(-1) as HostState).agent;
+    // Claude Code 2.1.288's list without `default` (smurg's null is the host's default); the host's default is what a
+    // process that names no model runs on (the stand-in's `claude-fake`).
+    expect(known.models.map((entry) => [entry.value, entry.name, entry.resolved, entry.auto, entry.billing ?? null])).toEqual([
+      ['opus', 'Opus', 'claude-opus-5-5', true, null],
+      ['fable', 'Fable', 'claude-fable-5-1', true, 'usage-credits'],
+      ['sonnet', 'Sonnet', 'claude-sonnet-5-5', true, null],
+      ['haiku', 'Haiku', 'claude-haiku-4-5-20251001', false, null],
+    ]);
+    expect(known).toMatchObject({ modelsKnown: true, hostDefault: 'claude-fake' });
+    expect((await r.host.conn.request('session.host.get', {})).agent).toEqual(known);
+    // What ran: exactly the flags U1 E7 measured, after the runner's stream flags and a fresh conversation id.
+    const ran = (await r.s.fakeClaude.echoed()).filter((entry) => typeof entry.session === 'string' && entry.session.startsWith('smurg-probe-'));
+    const dir = join(sessionFilesRoot(r.s.t.ctx.config.stateDir, r.s.t.ctx.config.workspaceId), PROBE_DIR_NAME);
+    const argv = ran.find((entry) => entry.kind === 'argv')?.value as string[];
+    expect(argv.slice(0, 10)).toEqual([...STREAM_ARGS]);
+    expect(argv[10]).toBe('--session-id');
+    expect(argv[11]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(argv.slice(12)).toEqual(['--permission-mode', 'default', '--settings', join(dir, 'settings.json'), '--mcp-config', join(dir, 'mcp.json'), '--tools', 'Read', '--strict-mcp-config', '--setting-sources', 'user']);
+    expect(checkLaunchArgs(argv.slice(12))).toBeNull();
+    expect(ran.find((entry) => entry.kind === 'settings')?.value).toEqual(PROBE_SETTINGS);
+    // Two control requests, no message: no turn, so no conversation either.
+    const asked = ran.filter((entry) => entry.kind === 'stdin').map((entry) => entry.value as { type: string; request?: { subtype?: string } });
+    expect(asked.map((line) => `${line.type}:${line.request?.subtype ?? ''}`)).toEqual(['control_request:initialize', 'control_request:get_settings']);
+    expect(existsSync(join(r.s.hostHome, '.claude', 'fake-claude', `${argv[11] as string}.json`))).toBe(false);
+    // As the host, in its own private empty folder, without the gate's socket; nothing of it is left.
+    const notes = (await wrapper.notes()).filter((note) => note['kind'] === 'run');
+    expect(notes).toHaveLength(1);
+    const note = notes[0] as ProbeNote;
+    expect(note).toMatchObject({ cwd: await realpath(join(dir, 'cwd')).catch(() => join(dir, 'cwd')), mode: 'drwx------', entries: '0', home: r.s.hostHome, hook: 'none' });
+    await waitFor(() => !alive(Number(note['pid'])), { timeoutMs: 5_000, what: 'the probe to be gone' });
+    expect(existsSync(dir)).toBe(false);
+    // Known: no second probe. Sessions keep the list fresh with their own `initialize`.
+    await r.host.conn.request('session.host.get', {});
+    await r.agents.modelsSettled();
+    expect((await wrapper.notes()).filter((entry) => entry['kind'] === 'run')).toHaveLength(1);
   });
 
-  it('a model chosen (as S3\'s list will let a person) is kept in agent-sessions.json and on the wire; the launch does not pass it yet; smurg putting it back names who chose it', async () => {
+  it('a probe that fails: every model is refused while the list is not known (models-not-known), one probe at a time, not again for a minute; then a model of the list is accepted and one it does not hold is refused', async () => {
+    const wrapper = await probeWrapper();
+    const r = await rig([{ steps: [{ text: 'ok' }] }], { claudePath: wrapper.path });
+    await wrapper.use(r.s.fakeClaude.path);
+    await wrapper.behave('slow-fail');
+    const runs = async (): Promise<number> => (await wrapper.notes()).filter((note) => note['kind'] === 'run').length;
+    // Three pages ask at once: one probe.
+    const gets = await Promise.all([0, 1, 2].map(() => r.host.conn.request('session.host.get', {})));
+    for (const got of gets) expect(got.agent.modelsKnown).toBe(false);
+    await r.agents.modelsSettled();
+    expect(await runs()).toBe(1);
+    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'sonnet' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'models-not-known' }, text: { id: 'session.model.notKnown' } });
+    expect(r.agents.list()).toEqual([]);
+    // Within a minute of the failure nothing asks again (neither a page nor a refused model).
+    r.s.t.advanceClock(59_000);
+    await r.host.conn.request('session.host.get', {});
+    await r.agents.modelsSettled();
+    expect(await runs()).toBe(1);
+    // After it, a request that names a model while the list is not known asks again.
+    r.s.t.advanceClock(2_000);
+    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'sonnet' })).rejects.toMatchObject({ detail: { reason: 'models-not-known' } });
+    await r.agents.modelsSettled();
+    expect(await runs()).toBe(2);
+    // The host's Claude Code answers now.
+    await wrapper.behave('');
+    r.s.t.advanceClock(61_000);
+    await r.host.conn.request('session.host.get', {});
+    await r.agents.modelsSettled();
+    expect(await runs()).toBe(3);
+    expect(r.agents.hostAgentState()).toMatchObject({ modelsKnown: true, hostDefault: 'claude-fake' });
+    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad_request', detail: { reason: 'model-not-offered' }, text: { id: 'session.model.notOffered', params: { model: 'gpt-5' } } });
+    // `default` is Claude Code's own name for the host's default, which is smurg's null: not a model of the list.
+    await expect(r.host.conn.request('session.create', { ...AGENT, model: 'default' })).rejects.toMatchObject({ detail: { reason: 'model-not-offered' } });
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, model: 'sonnet' });
+    expect(session).toMatchObject({ model: 'sonnet' });
+  });
+
+  it('a daemon stop during a probe that never answers ends it and what it started, and awaits it (no process is left)', async () => {
+    const wrapper = await probeWrapper();
+    const r = await rig([], { claudePath: wrapper.path });
+    await wrapper.use(r.s.fakeClaude.path);
+    await wrapper.behave('hang');
+    await r.host.conn.request('session.host.get', {});
+    await waitFor(async () => (await wrapper.notes()).some((note) => note['kind'] === 'child'), { timeoutMs: 15_000, what: 'the probe and its child to run' });
+    const pids = (await wrapper.notes()).map((note) => Number(note['pid']));
+    expect(pids).toHaveLength(2);
+    for (const pid of pids) expect(alive(pid), String(pid)).toBe(true);
+    const started = Date.now();
+    await r.s.cleanup();
+    current = null;
+    // Well within the 30 s an `initialize` may take: the stop does not wait for the answer that never comes.
+    expect(Date.now() - started).toBeLessThan(20_000);
+    await waitFor(() => pids.every((pid) => !alive(pid)), { timeoutMs: 5_000, what: 'the probe and its child to be gone' });
+  });
+
+  it('--model on every start, the resume included, and none for the host\'s default; what runs is the `init`\'s model on the wire; audited and kept in agent-sessions.json; a parked session only stores a change, its next start passes it', async () => {
     const r = await rig([{ steps: [{ text: 'ok' }] }]);
-    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'hello' });
-    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 6, 'the first turn to end');
-    await r.agents.setModel(session.id, 'sonnet', r.hostPrincipal().actor);
-    expect(r.agents.get(session.id)).toMatchObject({ model: 'sonnet' });
-    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.changed', params: { model: 'sonnet' } });
+    await knownModels(r);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, model: 'sonnet', firstMessage: 'hello' });
+    expect(session).toMatchObject({ model: 'sonnet' });
+    const ran = await r.until(session.id, (now) => now.status === 'idle' && now.modelInUse !== undefined && now.lastSeq >= 8, 'the first turn');
+    expect(ran.modelInUse).toBe('claude-sonnet-5-5');
+    const [first] = await argvsOf(r, session.id);
+    expect(first?.slice(-2)).toEqual(['--model', 'sonnet']);
+    expect(first?.filter((arg) => arg === '--model')).toHaveLength(1);
+    expect((await audited(r, 'session.create')).at(-1)).toMatchObject({ sessionId: session.id, model: 'sonnet' });
     type Stored = { sessions: { id: string; model: string | null; modelChangedBy?: { userId: string } }[] };
     const stored = async (): Promise<Stored['sessions'][number] | undefined> => (JSON.parse(await readFile(join(r.s.t.ctx.state.dir, 'agent-sessions.json'), 'utf8')) as Stored).sessions.find((entry) => entry.id === session.id);
     await waitFor(async () => (await stored())?.model === 'sonnet', { what: 'the model in agent-sessions.json' });
     expect(await stored()).toMatchObject({ model: 'sonnet', modelChangedBy: { userId: TEST_HOST_USER } });
-    const argvs = (await r.s.fakeClaude.echoed()).filter((entry) => entry.kind === 'argv').map((entry) => entry.value as string[]);
-    expect(argvs.length).toBeGreaterThan(0);
-    for (const argv of argvs) expect(argv).not.toContain('--model');
-    await r.agents.setModel(session.id, null, SYSTEM_ACTOR);
-    expect(r.agents.get(session.id)).toMatchObject({ model: null });
-    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.reset' });
+
+    // A session nobody chose a model for: no `--model`, it runs on the host's own default.
+    const plain = (await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'hello' })).session;
+    expect(plain).toMatchObject({ model: null });
+    expect((await r.until(plain.id, (now) => now.status === 'idle' && now.modelInUse !== undefined, 'the plain turn')).modelInUse).toBe('claude-fake');
+    expect((await argvsOf(r, plain.id))[0]).not.toContain('--model');
+    expect((await audited(r, 'session.create')).at(-1)).toMatchObject({ sessionId: plain.id, model: null });
+
+    // Parked, then resumed: `--resume` AND `--model` (U1 E6: only that decides the model of a resumed conversation).
+    await r.agents.restartProcess(session.id, 'asked');
+    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the process to be parked' });
+    const second = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'again', cleaned: false, origin: 'composer' });
+    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= second.seq + 6, 'the resumed turn');
+    const resumed = (await argvsOf(r, session.id))[1] as string[];
+    expect(resumed).toContain('--resume');
+    expect(resumed.slice(-2)).toEqual(['--model', 'sonnet']);
+
+    // A change while parked: stored, nothing sent (there is no process); the next start passes it.
+    await r.agents.restartProcess(session.id, 'asked');
+    await waitFor(() => r.agents.facts(session.id)?.hasProcess === false, { what: 'the process to be parked again' });
+    const changed = (await r.host.conn.request('session.model.set', { sessionId: session.id, model: 'opus' })).session;
+    expect(changed).toMatchObject({ model: 'opus' });
+    expect(await controlsOf(r, session.id, 'set_model')).toEqual([]);
+    const third = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'and again', cleaned: false, origin: 'composer' });
+    const after = await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= third.seq + 6, 'the turn after the change');
+    expect((await argvsOf(r, session.id))[2]?.slice(-2)).toEqual(['--model', 'opus']);
+    expect(after.modelInUse).toBe('claude-opus-5-5');
+  });
+
+  it('session.model.set on a running process: Claude Code\'s set_model, the next turn\'s `init` shows the model; a line and an audit entry each; null goes back to the host\'s default; a model the list does not hold is refused', async () => {
+    const r = await rig([{ steps: [{ text: 'ok' }] }]);
+    await knownModels(r);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'one' });
+    expect((await r.until(session.id, (now) => now.status === 'idle' && now.modelInUse !== undefined, 'the first turn')).modelInUse).toBe('claude-fake');
+    const set = (await r.host.conn.request('session.model.set', { sessionId: session.id, model: 'haiku' })).session;
+    // What runs changes with the next turn.
+    expect(set).toMatchObject({ model: 'haiku', modelInUse: 'claude-fake' });
+    expect(await controlsOf(r, session.id, 'set_model')).toEqual([{ subtype: 'set_model', model: 'haiku' }]);
+    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.changed', params: { by: 'Host', model: 'haiku' } });
+    expect(await audited(r, 'session.model')).toEqual([{ sessionId: session.id, model: 'haiku' }]);
+    expect(r.agents.facts(session.id)?.modelChangedBy).toBe(TEST_HOST_USER);
+    const two = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'two', cleaned: false, origin: 'composer' });
+    expect((await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= two.seq + 5, 'the second turn')).modelInUse).toBe('claude-haiku-4-5-20251001');
+    // The same process all along.
+    expect(await argvsOf(r, session.id)).toHaveLength(1);
+    // Back to the host's default: `set_model` without a model.
+    const back = (await r.host.conn.request('session.model.set', { sessionId: session.id, model: null })).session;
+    expect(back).toMatchObject({ model: null });
+    expect((await controlsOf(r, session.id, 'set_model')).at(-1)).toEqual({ subtype: 'set_model' });
+    expect((await linesOf(r, session.id)).at(-1)).toMatchObject({ id: 'conversation.model.default', params: { by: 'Host' } });
+    expect((await audited(r, 'session.model')).at(-1)).toEqual({ sessionId: session.id, model: null });
+    expect(r.agents.facts(session.id)?.modelChangedBy).toBeUndefined();
+    const three = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'three', cleaned: false, origin: 'composer' });
+    expect((await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= three.seq + 5, 'the third turn')).modelInUse).toBe('claude-fake');
+    // Not on the list: refused before anything is sent.
+    const before = (await r.events(session.id)).length;
+    await expect(r.host.conn.request('session.model.set', { sessionId: session.id, model: 'gpt-5' })).rejects.toMatchObject({ code: 'bad_request', detail: { reason: 'model-not-offered' } });
+    expect((await r.events(session.id)).length).toBe(before);
+    expect(await controlsOf(r, session.id, 'set_model')).toHaveLength(2);
+  });
+
+  it('an organization\'s restriction: a model replaced at the start is said once per process (notice.modelSubstituted); a live switch Claude Code refuses (restricted_by_org, or any other error) changes nothing', async () => {
+    const r = await rig([{ steps: [{ text: 'ok' }] }], { scenario: { refuseSwitch: ['fable'] } });
+    await knownModels(r);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, model: 'fable', firstMessage: 'one' });
+    const ran = await r.until(session.id, (now) => now.status === 'idle' && now.modelInUse !== undefined && now.lastSeq >= 8, 'the first turn');
+    expect((await argvsOf(r, session.id))[0]?.slice(-2)).toEqual(['--model', 'fable']);
+    // Claude Code runs another model (U4 N): the session says which, naming the model as the list does.
+    expect(ran).toMatchObject({ model: 'fable', modelInUse: 'claude-fake' });
+    const substituted = (await noticesOf(r, session.id)).filter((notice) => notice.text.id === 'notice.modelSubstituted');
+    expect(substituted).toEqual([expect.objectContaining({ level: 'warning', text: { id: 'notice.modelSubstituted', params: { model: 'Fable', inUse: 'claude-fake' } } })]);
+    const two = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'two', cleaned: false, origin: 'composer' });
+    await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= two.seq + 5, 'the second turn');
+    expect((await noticesOf(r, session.id)).filter((notice) => notice.text.id === 'notice.modelSubstituted')).toHaveLength(1);
+
+    // The live switch back to it: Claude Code refuses with `restricted_by_org`; nothing changes, nothing is said.
+    const plain = (await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'one' })).session;
+    await r.until(plain.id, (now) => now.status === 'idle' && now.modelInUse !== undefined, 'the plain turn');
+    const before = (await r.events(plain.id)).length;
+    await expect(r.host.conn.request('session.model.set', { sessionId: plain.id, model: 'fable' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'model-restricted' }, text: { id: 'session.model.refused', params: { model: 'Fable' } } });
+    expect(await controlsOf(r, plain.id, 'set_model')).toEqual([{ subtype: 'set_model', model: 'fable' }]);
+    expect(r.agents.get(plain.id)).toMatchObject({ model: null });
+    expect((await r.events(plain.id)).length).toBe(before);
+    expect(await audited(r, 'session.model')).toEqual([]);
+    // A model it does allow: switched live.
+    await r.host.conn.request('session.model.set', { sessionId: plain.id, model: 'sonnet' });
+    expect(r.agents.get(plain.id)).toMatchObject({ model: 'sonnet' });
+    // Any other refusal (no error code at all): the same words, the generic branch; nothing changes.
+    await r.s.fakeClaude.setScenario({ refuseSwitch: ['fable'], turns: [{ steps: [{ text: 'ok' }] }], controlErrors: { set_model: { error: 'Something else went wrong' } } });
+    await expect(r.host.conn.request('session.model.set', { sessionId: plain.id, model: 'opus' })).rejects.toMatchObject({ code: 'conflict', detail: { reason: 'model-refused' }, text: { id: 'session.model.refused', params: { model: 'Opus' } } });
+    expect(r.agents.get(plain.id)).toMatchObject({ model: 'sonnet' });
+    expect(await audited(r, 'session.model')).toEqual([{ sessionId: plain.id, model: 'sonnet' }]);
+    // smurg itself puts the model back (DESIGN D12: who chose it went) and the process refuses the switch: the record
+    // changes all the same, the line names who had chosen it, and the process starts again (without `--model`).
+    await r.agents.setModel(plain.id, null, SYSTEM_ACTOR);
+    expect(r.agents.get(plain.id)).toMatchObject({ model: null });
+    expect((await linesOf(r, plain.id)).at(-1)).toMatchObject({ id: 'conversation.model.reset', params: { name: 'Host' } });
+    await waitFor(() => r.agents.facts(plain.id)?.hasProcess === false, { what: 'the process to start again' });
+    const again = await r.agents.send(plain.id, { kind: 'person', from: r.hostPrincipal(), text: 'again', cleaned: false, origin: 'composer' });
+    const after = await r.until(plain.id, (now) => now.status === 'idle' && now.lastSeq >= again.seq + 6, 'the turn after the reset');
+    expect(after.modelInUse).toBe('claude-fake');
+    expect((await argvsOf(r, plain.id)).at(-1)).not.toContain('--model');
+  });
+
+  it('a model the API refuses: Claude Code\'s own sentence is not shown as the agent\'s words; the session says which model, once, with "Choose a model" and no second error notice; the process stays and a model change rescues it', async () => {
+    const r = await rig([{ steps: [{ text: 'ok' }] }], { scenario: { refuseModels: ['claude-sonnet-5-5'] } });
+    await knownModels(r);
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, model: 'sonnet', firstMessage: 'one' });
+    await waitFor(async () => (await r.events(session.id)).some((event) => event.kind === 'turn.finished'), { timeoutMs: 15_000, what: 'the refused turn' });
+    await r.until(session.id, (now) => now.status === 'idle', 'the session to be idle');
+    const events = await r.events(session.id);
+    expect(events.filter((event) => event.kind === 'text')).toEqual([]);
+    expect(events.find((event) => event.kind === 'turn.finished')).toMatchObject({ outcome: 'error' });
+    const notices = await noticesOf(r, session.id);
+    expect(notices.map((notice) => notice.text.id)).toEqual(['notice.modelRefused']);
+    expect(notices[0]).toMatchObject({ level: 'error', action: 'choose-model', text: { params: { model: 'Sonnet' } } });
+    expect(r.agents.facts(session.id)?.hasProcess).toBe(true);
+    // Another model: the same process takes it, and the next turn goes through.
+    await r.host.conn.request('session.model.set', { sessionId: session.id, model: 'opus' });
+    const two = await r.agents.send(session.id, { kind: 'person', from: r.hostPrincipal(), text: 'two', cleaned: false, origin: 'composer' });
+    const after = await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= two.seq + 5, 'the rescued turn');
+    expect(after.modelInUse).toBe('claude-opus-5-5');
+    expect((await r.events(session.id)).filter((event) => event.kind === 'text').map((event) => (event.kind === 'text' ? event.text : ''))).toEqual(['ok']);
+    expect((await noticesOf(r, session.id)).map((notice) => notice.text.id)).toEqual(['notice.modelRefused']);
+    expect(await argvsOf(r, session.id)).toHaveLength(1);
   });
 });

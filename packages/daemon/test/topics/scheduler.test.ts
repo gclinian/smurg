@@ -880,3 +880,72 @@ describe('S20 text under smurg\'s own voice', () => {
     expect(restarted.session.id).not.toBe(session.id);
   });
 });
+
+// ── smurg 0.6.0: the model of a topic's sessions (DESIGN 0.6.0 D7) ──────────────────────────────────────────────────
+
+describe("the models of a topic's sessions (DESIGN 0.6.0 D7)", () => {
+  /** What the host's Claude Code offers (the fakes' list; the sessions module fills it from Claude Code's `initialize`). */
+  const OFFERED = {
+    models: [
+      { value: 'opus', name: 'Opus', description: 'Opus 5.5', resolved: 'claude-opus-5-5', auto: true },
+      { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5.5', resolved: 'claude-sonnet-5-5', auto: true },
+      { value: 'fable', name: 'Fable', description: 'Fable 5.1', resolved: 'claude-fable-5-1', auto: true, billing: 'usage-credits' as const },
+    ],
+    modelsKnown: true,
+    hostDefault: 'claude-opus-5-5',
+    autoMode: 'ok' as const,
+    asksNothing: 'ok' as const,
+  };
+  const discussionStarts = (itemTest: TopicsTest): AgentStartInput[] => itemTest.fakes.agents.log.of('start').map((call) => call[0] as AgentStartInput).filter((input) => input.purpose === 'discussion');
+
+  it("the topic's model reaches its discussion and its work items (the Start dialog's choice too); a change reaches only new sessions; a retry keeps the model of the item's previous session; a restarted discussion takes the topic's; each audit names the model", async () => {
+    test = await setupTopics();
+    test.fakes.agents.hostAgent = structuredClone(OFFERED);
+    // topic.create with a model: the discussion runs on it, chosen by Mei.
+    const { topic, session } = await test.mei.conn.request('topic.create', { name: 'Checkout', model: 'opus' });
+    expect(topic.agent).toEqual({ model: 'opus', permissionMode: null });
+    expect(discussionStarts(test).at(-1)).toMatchObject({ model: 'opus', modelChangedBy: { userId: 'dev:mei' } });
+    expect(test.fakes.agents.get(session.id)).toMatchObject({ purpose: 'discussion', model: 'opus' });
+    expect(test.fakes.agents.facts(session.id)?.modelChangedBy).toBe('dev:mei');
+    expect((await test.audit('topic.create')).at(-1)?.detail).toMatchObject({ topicId: topic.id, sessionId: session.id, model: 'opus' });
+    await test.write(topicSpecPath(topic.slug), SPEC_TEXT);
+    await test.write(topicPlanPath(topic.slug), planText([{ id: 'a', title: 'Item A' }, { id: 'b', title: 'Item B' }]));
+    await waitFor(() => test.t.ctx.services.plans.get(topic.id)?.items.length === 2, { what: 'the plan to be read' });
+
+    // The host gives the topic another model: the running discussion keeps its own; the work items take the new one.
+    await test.host.conn.request('topic.agent.set', { topicId: topic.id, model: 'sonnet' });
+    expect(test.fakes.agents.get(session.id)).toMatchObject({ model: 'opus' });
+    expect(test.fakes.agents.log.of('setModel')).toEqual([]);
+    expect((await test.audit('topic.agent')).at(-1)?.detail).toEqual({ topicId: topic.id, model: 'sonnet' });
+    await startPlan(test, topic.id, ['a']);
+    const a = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    expect(itemStarts(test).at(-1)).toMatchObject({ item: { id: 'a', attempt: 1 }, model: 'sonnet', modelChangedBy: { userId: 'dev:host' } });
+    expect(test.fakes.agents.get(a)).toMatchObject({ purpose: 'item', model: 'sonnet' });
+    expect((await test.audit('scheduler.start')).at(-1)?.detail).toMatchObject({ itemId: 'a', sessionId: a, model: 'sonnet' });
+
+    // The Start dialog's model is the topic's from then on, and the item it starts runs on it.
+    const { preflight } = await test.mei.conn.request('plan.preflight', { topicId: topic.id, itemIds: ['b'] });
+    expect(preflight.agent).toMatchObject({ model: 'sonnet' });
+    await test.mei.conn.request('plan.start', { topicId: topic.id, itemIds: ['b'], planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, agent: { model: 'fable' } });
+    expect(test.topic(topic.id).agent).toEqual({ model: 'fable', permissionMode: null });
+    expect(itemStarts(test).at(-1)).toMatchObject({ item: { id: 'b' }, model: 'fable', modelChangedBy: { userId: 'dev:mei' } });
+    expect((await test.audit('plan.start')).at(-1)?.detail).toMatchObject({ itemIds: ['b'], agent: { model: 'fable' } });
+    expect((await test.audit('scheduler.start')).at(-1)?.detail).toMatchObject({ itemId: 'b', model: 'fable' });
+
+    // Item a is stopped; the topic goes back to the host's default; "Try again" keeps what a's session ran on.
+    await test.fakes.agents.end(a, { by: test.principals.host.actor, reason: 'ended', keepWorktree: true });
+    expect(itemOf(test.plan(topic.id), 'a').state).toBe('stopped');
+    await test.host.conn.request('topic.agent.set', { topicId: topic.id, model: null });
+    await test.mei.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' });
+    const retried = itemOf(test.plan(topic.id), 'a');
+    expect(retried).toMatchObject({ state: 'running', attempt: 2 });
+    expect(itemStarts(test).at(-1)).toMatchObject({ item: { id: 'a', attempt: 2 }, model: 'sonnet', modelChangedBy: { userId: 'dev:host' } });
+    expect(test.fakes.agents.get(retried.sessionId as string)).toMatchObject({ model: 'sonnet' });
+
+    // A restarted discussion takes the topic's model as it is now: the host's default.
+    const restarted = await test.mei.conn.request('topic.discussion.restart', { topicId: topic.id });
+    expect(restarted.session).toMatchObject({ purpose: 'discussion', model: null });
+    expect(discussionStarts(test).at(-1)?.model).toBeNull();
+    expect(discussionStarts(test).at(-1)?.modelChangedBy).toBeUndefined();
+  });
+});

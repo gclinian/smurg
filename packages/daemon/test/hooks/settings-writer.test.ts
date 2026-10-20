@@ -100,14 +100,22 @@ describe('session settings (ARCHITECTURE §7.6)', () => {
     expect(buildMcpConfig(SELF)).toEqual({ mcpServers: { smurg: { type: 'stdio', command: SELF.file, args: [...SELF.args, 'mcp'], env: {} } } });
   });
 
-  it('the profile flags: the mode, the two files, the tool list, the role prompt; --strict-mcp-config and --setting-sources user only when the profile says so; never a bypass flag or a rule list', () => {
+  it('the profile flags: the mode, the two files, the tool list, the role prompt; --strict-mcp-config and --setting-sources user only when the profile says so; --model only for a session with a model; never a bypass flag or a rule list', () => {
     const files = { settingsPath: '/s/settings.json', mcpConfigPath: '/s/mcp.json', rolePromptPath: '/s/role.md' };
     expect(claudeArgsFor(files, buildLaunchProfile({ mode: 'acceptEdits', tools: ['Read', 'Bash'], strictMcp: false }))).toEqual(['--permission-mode', 'acceptEdits', '--settings', '/s/settings.json', '--mcp-config', '/s/mcp.json', '--tools', 'Read,Bash', '--append-system-prompt-file', '/s/role.md']);
     const strict = claudeArgsFor(files, buildLaunchProfile({ strictMcp: true, settingSources: 'user' }));
     expect(strict.slice(-3)).toEqual(['--strict-mcp-config', '--setting-sources', 'user']);
+    // No model chosen (null): no `--model`, the host's own default applies (as every session of 0.5.2).
     expect(strict.join(' ')).not.toMatch(/dangerously|bypass|--allowedTools|--disallowedTools|--model/);
+    // A model chosen (DESIGN 0.6.0 D7): `--model <value>` on every start, as the last two flags.
+    const chosen = claudeArgsFor(files, buildLaunchProfile({ strictMcp: true, settingSources: 'user', model: 'sonnet[1m]' }));
+    expect(chosen.slice(-5)).toEqual(['--strict-mcp-config', '--setting-sources', 'user', '--model', 'sonnet[1m]']);
+    expect(chosen.filter((arg) => arg === '--model')).toHaveLength(1);
     // Every set of flags the writer makes passes the launch check of the sessions module (fail closed).
-    for (const profile of [buildLaunchProfile(), buildLaunchProfile({ mode: 'acceptEdits', strictMcp: false, settingSources: 'user' })]) expect(checkLaunchArgs(claudeArgsFor(files, profile))).toBeNull();
+    for (const profile of [buildLaunchProfile(), buildLaunchProfile({ mode: 'acceptEdits', strictMcp: false, settingSources: 'user' }), buildLaunchProfile({ model: 'claude-opus-5-5' })]) expect(checkLaunchArgs(claudeArgsFor(files, profile))).toBeNull();
+    // A value no model id can be never reaches a launch: the check refuses it.
+    expect(checkLaunchArgs(claudeArgsFor(files, buildLaunchProfile({ model: '--dangerously-skip-permissions' })))).not.toBeNull();
+    expect(checkLaunchArgs(claudeArgsFor(files, buildLaunchProfile({ model: '-p' })))).not.toBeNull();
   });
 
   it('FileChanged watches only plain file names (the matcher is also read as a regex)', () => {

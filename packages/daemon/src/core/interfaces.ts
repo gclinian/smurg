@@ -1518,11 +1518,14 @@ export interface AgentSessions {
    */
   setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void>;
   /**
-   * The session's model (DESIGN 0.6.0 D7); null: the host's default. The caller checked it (`model-offered`). By a
-   * person: the line `conversation.model.changed` {by, model} or `conversation.model.default` {by}, audit
-   * `session.model` {sessionId, model|null}, `modelChangedBy` the person (cleared with null). By the system (a member
-   * who chose it went, DESIGN D12): the line `conversation.model.reset` {name}. A parked session stores it; its next
-   * start passes it. Emits session.updated. (0.6.0 S1: stored only; the live switch of a running process is S3's.)
+   * The session's model (DESIGN 0.6.0 D7); null: the host's default. The caller checked it (`model-offered`). A
+   * running process is switched first (Claude Code's `set_model`, awaited): when Claude Code refuses, a person's
+   * request is refused (`conflict`, `session.model.refused` {model}, reason `model-restricted` for its
+   * `restricted_by_org`, else `model-refused`) and nothing changes; the system's change is kept and the process starts
+   * again at its next idle moment. By a person: the line `conversation.model.changed` {by, model} or
+   * `conversation.model.default` {by}, audit `session.model` {sessionId, model|null}, `modelChangedBy` the person
+   * (cleared with null). By the system (a member who chose it went, DESIGN D12): the line `conversation.model.reset`
+   * {name}. A parked session stores it; its next start passes `--model`. Emits session.updated.
    */
   setModel(sessionId: string, model: string | null, by: Actor): Promise<void>;
   /**
@@ -1626,8 +1629,9 @@ export interface AgentSessions {
   /** Claude Code on the host as of the daemon's last check (`smurg status`); null: not checked yet. */
   claude(): NonNullable<DaemonStatus['claude']> | null;
   /**
-   * The host's agent as every member may know it (`HostState.agent`, DESIGN 0.6.0 D4): its models, its default, what
-   * can run. A change sends `session.host` to everyone. (0.6.0 S1: the list is not known yet: no model is offered.)
+   * The host's agent as every member may know it (`HostState.agent`, DESIGN 0.6.0 D4, D7): its models (the probe's
+   * answer, then the newest `initialize` of an agent process), its default (the probe's), what can run. A change sends
+   * `session.host` to everyone.
    */
   hostAgentState(): AgentHostState;
   /** Subjects `account`, `storage` (both open the console's `sessions` section). */
@@ -1794,6 +1798,8 @@ export interface LaunchProfile {
   readonly settingSources: 'all' | 'user';
   /** The exact bytes of role.md. */
   readonly rolePrompt: string;
+  /** `--model` (DESIGN 0.6.0 D7: a value of the host agent's list); null: none, the host's own default applies. */
+  readonly model: string | null;
 }
 
 /** The daemon-owned launch files of one agent session (ARCHITECTURE §7.6 "Launch"). */

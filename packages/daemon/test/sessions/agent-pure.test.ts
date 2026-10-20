@@ -10,6 +10,10 @@ import { Normaliser, outcomeOfResult } from '../../src/sessions/agent/normalise.
 import { ANY_MCP_TOOL, DISCUSSION_TOOLS, EXECUTION_TOOLS, RulePathError, STREAM_ARGS, buildProfile, checkLaunchArgs, claudeModeFor, daemonAllowsEdits, fileRule, gateToolsOf } from '../../src/sessions/agent/profiles.ts';
 import { effectsOf, isFlaggedEnvName } from '../../src/sessions/agent/project-settings.ts';
 import { conversationLostText, freeRolePrompt } from '../../src/sessions/agent/prompts.ts';
+import { AgentModels, PROBE_RETRY_MS, PROBE_SETTINGS, agentModelsOf, mayBillUsageCredits, probeFlags, withoutOneM } from '../../src/sessions/agent/models.ts';
+import { ControlError } from '../../src/sessions/agent/claude-process.ts';
+import { silentLogger } from '../../src/core/logger.ts';
+import { CLAUDE_MODELS_2_1_288 } from '../../src/testing/index.ts';
 import { buildToolResult, buildToolView, diffFromPatch, editOf, headTail, safeId, suggestedRuleOf, toolPathOf } from '../../src/sessions/agent/tool-view.ts';
 
 const file = (path: string): FileRef => ({ root: MAIN_ROOT, path });
@@ -208,7 +212,7 @@ describe('tool views and results', () => {
 });
 
 describe('launch profiles (DESIGN §2.5)', () => {
-  const base = { root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'P' } as const;
+  const base = { root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'P', model: null } as const;
 
   it('a file rule is written with the absolute form `//<realpath>/<pattern>`; a root or pattern that could end the rule is refused', () => {
     expect(fileRule('Edit', '/Users/ian/shop', 'specs/checkout/SPEC.md')).toBe('Edit(//Users/ian/shop/specs/checkout/SPEC.md)');
@@ -283,7 +287,7 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(EXECUTION_TOOLS).toEqual(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'AskUserQuestion']);
   });
 
-  it('THE launch check fails closed: the required flags, the two modes, nothing else', () => {
+  it('THE launch check fails closed: the required flags, the two modes, a model id, nothing else', () => {
     const ok = ['--permission-mode', 'default', '--settings', '/s/settings.json', '--mcp-config', '/s/mcp.json', '--tools', 'Read,Bash', '--append-system-prompt-file', '/s/role.md', '--strict-mcp-config', '--setting-sources', 'user'];
     expect(checkLaunchArgs(ok)).toBeNull();
     expect(checkLaunchArgs(ok.slice(0, 8))).toBeNull();
@@ -293,7 +297,13 @@ describe('launch profiles (DESIGN §2.5)', () => {
     };
     for (const flag of ['--permission-mode', '--settings', '--mcp-config', '--tools']) expect(checkLaunchArgs(without(flag)), flag).toMatch(/missing/);
     for (const mode of ['bypassPermissions', 'plan', 'auto', 'dontAsk']) expect(checkLaunchArgs(['--permission-mode', mode, ...ok.slice(2)])).toBe('permission mode not allowed');
-    for (const extra of [['--dangerously-skip-permissions'], ['--allowedTools', 'Bash'], ['--disallowedTools', 'Read'], ['--model', 'x'], ['--add-dir', '/'], ['stray']]) expect(checkLaunchArgs([...ok, ...extra])).toMatch(/unexpected/);
+    for (const extra of [['--dangerously-skip-permissions'], ['--allowedTools', 'Bash'], ['--disallowedTools', 'Read'], ['--fallback-model', 'sonnet'], ['--add-dir', '/'], ['stray']]) expect(checkLaunchArgs([...ok, ...extra])).toMatch(/unexpected/);
+    // 0.6.0 (DESIGN D7): `--model` with an id of the agent's list (an alias, `[1m]`, a full id, an ARN, name@version), once.
+    for (const model of ['sonnet', 'sonnet[1m]', 'claude-opus-5-5', 'arn:aws:bedrock:us-east-1:123:inference-profile/us.anthropic.claude-sonnet-5-5', 'claude-sonnet-5@20260101']) expect(checkLaunchArgs([...ok, '--model', model]), model).toBeNull();
+    for (const model of ['-x', '-p', 'two words', 'a\nb', '', `x${'y'.repeat(256)}`, '/abs/path', '.hidden', 'sonnet;rm']) expect(checkLaunchArgs([...ok, '--model', model]), model).not.toBeNull();
+    expect(checkLaunchArgs([...ok, '--model', '--settings'])).toMatch(/no value/);
+    expect(checkLaunchArgs([...ok, '--model'])).toMatch(/no value/);
+    expect(checkLaunchArgs([...ok, '--model', 'sonnet', '--model', 'opus'])).toMatch(/duplicate/);
     expect(checkLaunchArgs([...ok.slice(0, -1), 'project'])).toBe('setting sources not allowed');
     expect(checkLaunchArgs([...ok, '--settings', '/other.json'])).toMatch(/duplicate/);
     expect(checkLaunchArgs(['--permission-mode', 'default', '--settings', 'relative.json', '--mcp-config', '/m', '--tools', 'Read'])).toMatch(/absolute/);
@@ -431,5 +441,101 @@ describe('what the host is told about Claude Code on their computer', () => {
     expect(effectsOf('.claude/settings.json', '{ not json').needsAck).toEqual(['credentials', 'allows-tools']);
     for (const name of ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_USE_BEDROCK', 'HTTP_PROXY', 'all_proxy', 'NODE_EXTRA_CA_CERTS']) expect(isFlaggedEnvName(name), name).toBe(true);
     for (const name of ['PATH', 'NODE_ENV', 'MY_TOKEN']) expect(isFlaggedEnvName(name), name).toBe(false);
+  });
+});
+
+describe('models (DESIGN 0.6.0 D7): what Claude Code says of models, and the list members choose from', () => {
+  it('normalise keeps the model of every `init`, the error code of a refused control request and the API error of an assistant line; a code that is no short token is dropped', () => {
+    const n = new Normaliser();
+    const one = (line: unknown) => n.normalise(line as Record<string, unknown>);
+    expect(one({ type: 'system', subtype: 'init', session_id: 'c1', tools: [], claude_code_version: '2.1.288', permissionMode: 'auto', model: 'claude-sonnet-5-5[1m]' })).toEqual([{ kind: 'init', claudeSessionId: 'c1', version: '2.1.288', tools: [], permissionMode: 'auto', model: 'claude-sonnet-5-5[1m]' }]);
+    expect(one({ type: 'control_response', response: { subtype: 'error', request_id: 's1', error: 'Model "fable" is restricted', error_code: 'restricted_by_org' } })).toEqual([{ kind: 'control.response', requestId: 's1', ok: false, response: {}, error: 'Model "fable" is restricted', code: 'restricted_by_org' }]);
+    for (const bad of ['', 'x'.repeat(65), 'two words', 'line\nbreak', 7, null, { code: 'x' }]) {
+      expect(one({ type: 'control_response', response: { subtype: 'error', request_id: 's2', error: 'no', error_code: bad } })).toEqual([{ kind: 'control.response', requestId: 's2', ok: false, response: {}, error: 'no' }]);
+    }
+    // A success carries no code, whatever the line says.
+    expect(one({ type: 'control_response', response: { subtype: 'success', request_id: 's3', error_code: 'x' } })).toEqual([{ kind: 'control.response', requestId: 's3', ok: true, response: {} }]);
+    expect(one({ type: 'assistant', message: { id: 'm1', model: '<synthetic>', content: [{ type: 'text', text: "There's an issue with the selected model (claude-fable-5-1)." }] }, error: 'model_not_found' })).toEqual([
+      { kind: 'text', blockKey: 'm1:0', text: "There's an issue with the selected model (claude-fable-5-1).", aborted: false, synthetic: true, apiError: 'model_not_found' },
+    ]);
+    expect(one({ type: 'assistant', message: { id: 'm2', model: '<synthetic>', content: [{ type: 'text', text: 'x' }] }, error: 'not a code!' })).toEqual([{ kind: 'text', blockKey: 'm2:0', text: 'x', aborted: false, synthetic: true }]);
+    // The code reaches the refusal the runner's caller branches on.
+    expect(new ControlError('refused', 'no', 'auto_mode_model')).toMatchObject({ why: 'refused', code: 'auto_mode_model' });
+    expect(new ControlError('refused', 'no').code).toBeUndefined();
+  });
+
+  it('Claude Code 2.1.288\'s `initialize.models` → the list: `default` left out, the display name, the id it runs as, auto mode, Fable marked by every spelling; entries the wire cannot carry are dropped; at most 32', () => {
+    const mapped = agentModelsOf(CLAUDE_MODELS_2_1_288);
+    expect(mapped?.dropped).toBe(0);
+    expect(mapped?.models).toEqual([
+      { value: 'opus', name: 'Opus', description: 'Opus 5.5 · Best for everyday, complex tasks · $4/$20 per Mtok', resolved: 'claude-opus-5-5', auto: true },
+      { value: 'fable', name: 'Fable', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks · $10/$50 per Mtok', resolved: 'claude-fable-5-1', auto: true, billing: 'usage-credits' },
+      { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5.5 · Efficient for routine tasks · $2/$10 per Mtok', resolved: 'claude-sonnet-5-5', auto: true },
+      { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok', resolved: 'claude-haiku-4-5-20251001', auto: false },
+    ]);
+    // Fable by any of its names (a host-configured full id, an ARN, a display name), never by a price or a description.
+    const entry = (fields: Record<string, unknown>) => ({ value: 'x', displayName: 'X', description: '', ...fields });
+    const billed = (fields: Record<string, unknown>) => agentModelsOf([entry(fields)])?.models[0]?.billing;
+    expect(billed({ value: 'claude-fable-5-1' })).toBe('usage-credits');
+    expect(billed({ resolvedModel: 'arn:aws:bedrock:us-east-1:1:inference-profile/us.anthropic.claude-FABLE-5-1' })).toBe('usage-credits');
+    expect(billed({ displayName: 'My Fable proxy' })).toBe('usage-credits');
+    expect(billed({ description: 'cheaper than fable' })).toBeUndefined();
+    expect(billed({ value: 'opus' })).toBeUndefined();
+    expect(mayBillUsageCredits([undefined, 'claude-opus-5-5', 'Opus'])).toBe(false);
+    // What the wire refuses is left out and counted; a description is cleaned and cut instead.
+    const odd = agentModelsOf([
+      entry({ value: '-p' }),
+      entry({ value: 'two words' }),
+      entry({ displayName: '' }),
+      entry({ displayName: 7 }),
+      entry({ value: 'clean', description: `a\u0007b\u202ec${'d'.repeat(600)}` }),
+      entry({ value: 'resolvedbad', resolvedModel: '--x' }),
+      entry({ value: 'clean' }),
+      'not an object',
+      { value: 'default', displayName: 'Default' },
+    ]);
+    expect(odd?.dropped).toBe(6);
+    expect(odd?.models.map((model) => model.value)).toEqual(['clean', 'resolvedbad']);
+    expect(odd?.models[0]?.description).toMatch(/^abcd+$/);
+    expect(odd?.models[0]?.description).toHaveLength(512);
+    expect(odd?.models[1]?.resolved).toBeUndefined();
+    expect(agentModelsOf(Array.from({ length: 40 }, (_, index) => entry({ value: `m${index}` })))?.models).toHaveLength(32);
+    // No list at all: no answer to take (the list known so far stays).
+    expect(agentModelsOf(undefined)).toBeNull();
+    expect(agentModelsOf({ models: [] })).toBeNull();
+    expect(agentModelsOf([])).toEqual({ models: [], dropped: 0 });
+    expect(withoutOneM('claude-sonnet-5-5[1m]')).toBe('claude-sonnet-5-5');
+    expect(withoutOneM('claude-sonnet-5-5[1M]')).toBe('claude-sonnet-5-5');
+  });
+
+  it('the newest answer wins; a change is said once; the entry of a value, and of the host\'s default (by the id it runs as)', () => {
+    let changes = 0;
+    const models = new AgentModels({ log: silentLogger, now: () => 0, changed: () => (changes += 1), probe: null });
+    expect(models.state()).toEqual({ models: [], modelsKnown: false, hostDefault: null });
+    models.fromInitialize(undefined);
+    expect(changes).toBe(0);
+    models.fromInitialize(CLAUDE_MODELS_2_1_288);
+    expect(changes).toBe(1);
+    models.fromInitialize(CLAUDE_MODELS_2_1_288);
+    expect(changes).toBe(1);
+    expect(models.entryFor('haiku')).toMatchObject({ name: 'Haiku', auto: false });
+    expect(models.entryFor('claude-haiku-4-5-20251001')).toBeUndefined();
+    expect(models.entryFor(null)).toBeUndefined();
+    // The host's own settings allow two models only (U1 E5): the list a session answers next is the list.
+    models.fromInitialize(CLAUDE_MODELS_2_1_288.filter((entry) => entry.value === 'default' || entry.value === 'sonnet'));
+    expect(changes).toBe(2);
+    expect(models.state().models.map((entry) => entry.value)).toEqual(['sonnet']);
+    // Without a probe nothing asks; the list comes only from the sessions.
+    models.want();
+    expect(models.probing).toBe(false);
+  });
+
+  it('the probe\'s flags are the ordinary profile flags U1 E7 measured, and pass the ordinary launch check; its settings switch every hook off and deny every tool that changes something', () => {
+    const flags = probeFlags({ settingsPath: '/s/probe/settings.json', mcpConfigPath: '/s/probe/mcp.json' });
+    expect(flags).toEqual(['--permission-mode', 'default', '--settings', '/s/probe/settings.json', '--mcp-config', '/s/probe/mcp.json', '--tools', 'Read', '--strict-mcp-config', '--setting-sources', 'user']);
+    expect(checkLaunchArgs(flags)).toBeNull();
+    expect(flags).not.toContain('--model');
+    expect(PROBE_SETTINGS).toEqual({ disableAllHooks: true, permissions: { allow: [], ask: [], deny: ['Bash', 'Edit', 'Write', 'WebFetch'], disableBypassPermissionsMode: 'disable', defaultMode: 'default' } });
+    expect(PROBE_RETRY_MS).toBe(60_000);
   });
 });

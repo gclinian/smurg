@@ -208,11 +208,24 @@ describe('session.* handlers of agent sessions', { timeout: 60_000 }, () => {
     const actions = (await r.s.t.ctx.audit.query({ limit: 100 })).map((entry) => entry.action);
     for (const action of ['session.responsible', 'session.mode', 'session.rule.remove', 'session.restart']) expect(actions, action).toContain(action);
     // The host state for every member; the login check for those who drive.
-    // Protocol 5: the host's agent (its models are not asked for yet) and how work items run, for every member too.
+    // Protocol 5: the host's agent and how work items run, for every member too. The models are those the session's
+    // own `initialize` answered (DESIGN 0.6.0 D7: Claude Code 2.1.288's list without `default`; Fable may bill usage
+    // credits; Haiku has no auto mode); the host's default is known only from the probe, which a known list never runs.
     expect(await leo.conn.request('session.host.get', {})).toEqual({
       account: { state: 'ok', sessions: 0 },
       mainProjectSettings: 'none',
-      agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' },
+      agent: {
+        models: [
+          { value: 'opus', name: 'Opus', description: 'Opus 5.5 · Best for everyday, complex tasks · $4/$20 per Mtok', resolved: 'claude-opus-5-5', auto: true },
+          { value: 'fable', name: 'Fable', description: 'Fable 5.1 · Most capable for your hardest and longest-running tasks · $10/$50 per Mtok', resolved: 'claude-fable-5-1', auto: true, billing: 'usage-credits' },
+          { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5.5 · Efficient for routine tasks · $2/$10 per Mtok', resolved: 'claude-sonnet-5-5', auto: true },
+          { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 · Fastest for quick answers · $1/$5 per Mtok', resolved: 'claude-haiku-4-5-20251001', auto: false },
+        ],
+        modelsKnown: true,
+        hostDefault: null,
+        autoMode: 'ok',
+        asksNothing: process.getuid?.() === 0 ? 'root' : 'ok',
+      },
       work: { history: 'folder' },
     });
     expect(await mei.conn.request('session.loginStatus', { sessionId: session.id })).toEqual({ login: 'logged-in' });

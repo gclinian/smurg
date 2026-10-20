@@ -253,7 +253,8 @@ export class FakeTopicService implements TopicService {
       responsible: null,
       workspace: { mode: 'main' },
       modeChoice: null,
-      model: null,
+      // The topic's model, as TopicService gives it (DESIGN 0.6.0 D7).
+      model: topic.agent.model,
       rolePrompt: ({ smurgTag }) => `fake discussion prompt for specs/${topic.slug}/ [smurg ${smurgTag}]`,
       opening: msg(opening, { name: userRef(principal).displayName }),
       ...(firstMessage === undefined ? {} : { firstMessage: { kind: 'person' as const, from: principal, text: firstMessage, cleaned: false, origin: 'composer' as const } }),

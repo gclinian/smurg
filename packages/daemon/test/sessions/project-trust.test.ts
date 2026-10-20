@@ -289,7 +289,7 @@ describe('the scripts a content runs', { timeout: 60_000 }, () => {
 });
 
 describe('no agent session writes a script the gate recorded (R3-03)', () => {
-  const ITEM: ProfileInput = { purpose: 'item', mode: 'ask-commands', root: { kind: 'worktree', worktreeId: 'wt_1' }, rootRealPath: '/p/.smurg/worktrees/wt_1', topicSlug: 'checkout', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'x' };
+  const ITEM: ProfileInput = { purpose: 'item', mode: 'ask-commands', root: { kind: 'worktree', worktreeId: 'wt_1' }, rootRealPath: '/p/.smurg/worktrees/wt_1', topicSlug: 'checkout', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'x', model: null };
 
   it('no profile carries a rule for a recorded script: a rule refuses only a command that spells the file, and refuses reading it too; the tool gate guards them', () => {
     for (const input of [ITEM, { ...ITEM, purpose: 'discussion', mode: 'ask-all', root: MAIN_ROOT, rootRealPath: '/p' }, { ...ITEM, purpose: 'free', topicSlug: undefined, root: MAIN_ROOT, rootRealPath: '/p' }] as ProfileInput[]) {

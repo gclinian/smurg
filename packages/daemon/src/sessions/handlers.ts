@@ -98,8 +98,15 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       return { sessions: page.items, hasMore: page.hasMore };
     }),
   );
-  // [session.view]: the account state and the main folder's trust state, for every member.
-  stack.add(router.handle('session.host.get', () => hostState(ctx)));
+  // [session.view]: the account state, the main folder's trust state, the host's agent and how work items run, for
+  // every member. While the host agent's models are not known, this asks it (the probe, DESIGN 0.6.0 D7): the answer
+  // reaches everyone as `session.host`.
+  stack.add(
+    router.handle('session.host.get', () => {
+      agents.wantModels();
+      return hostState(ctx);
+    }),
+  );
   // [session.drive]: any agent session.
   stack.add(router.handle('session.loginStatus', async (payload, req) => ({ login: await sessions.loginStatus(payload.sessionId, req.principal) })));
   // [session.view] (terminal-session): the viewer goes live only after the .ok went out (no gap, no duplicate).
@@ -271,8 +278,10 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
       agents.dropChannel(event.channelId);
     }),
   );
-  // d→c `session.host`: the account state or the main folder's trust state changed, to everyone.
+  // d→c `session.host`: the account state, the main folder's trust state or the host's agent (its models, its default)
+  // changed, to everyone.
   stack.add(ctx.bus.on('account.changed', () => void ctx.hub.broadcast('session.host', hostState(ctx))));
+  stack.add(agents.onHostAgentChanged(() => void ctx.hub.broadcast('session.host', hostState(ctx))));
   stack.add(
     ctx.bus.on('trust.changed', (event) => {
       if (event.root.kind === 'main') ctx.hub.broadcast('session.host', hostState(ctx));

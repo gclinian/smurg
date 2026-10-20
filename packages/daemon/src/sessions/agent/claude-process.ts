@@ -17,10 +17,17 @@ export interface ClaudeExit {
 
 export class ControlError extends Error {
   readonly why: 'timeout' | 'exit' | 'refused';
-  constructor(why: 'timeout' | 'exit' | 'refused', message: string) {
+  /**
+   * Claude Code's `error_code` of a refusal (`restricted_by_org`, `auto_mode_model`, `bypass_not_launched`, …: a short
+   * ASCII token, DESIGN 0.6.0 D7); absent when it sent none. Callers branch on it; an unknown or absent code takes the
+   * generic branch.
+   */
+  readonly code?: string;
+  constructor(why: 'timeout' | 'exit' | 'refused', message: string, code?: string) {
     super(message);
     this.name = 'ControlError';
     this.why = why;
+    if (code !== undefined) this.code = code;
   }
 }
 
@@ -157,14 +164,14 @@ export class ClaudeProcess {
     });
   }
 
-  /** The answer to one of our control requests arrived (the runner's normaliser saw it). */
-  settleControl(requestId: string, ok: boolean, response: unknown, error?: string): void {
+  /** The answer to one of our control requests arrived (the runner's normaliser saw it; `code`: its `error_code`). */
+  settleControl(requestId: string, ok: boolean, response: unknown, error?: string, code?: string): void {
     const pending = this.pendingControl.get(requestId);
     if (!pending) return;
     this.pendingControl.delete(requestId);
     clearTimeout(pending.timer);
     if (ok) pending.resolve(response);
-    else pending.reject(new ControlError('refused', error ?? 'control request failed'));
+    else pending.reject(new ControlError('refused', error ?? 'control request failed', code));
   }
 
   /** Answers a control request of the CLI's (`can_use_tool`). */

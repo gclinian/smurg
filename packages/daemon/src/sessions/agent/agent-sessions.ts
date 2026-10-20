@@ -43,6 +43,7 @@ import {
   type AccountInfo,
   type Actor,
   type AgentHostState,
+  type AgentModel,
   type AgentSession,
   type ConversationEvent,
   type ConversationEventInput,
@@ -78,15 +79,18 @@ import type {
   UserId,
   WatchStart,
 } from '../../core/interfaces.ts';
-import { newId, type Disposable } from '../../core/lifecycle.ts';
+import { newId, toDisposable, type Disposable } from '../../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../../core/permissions.ts';
 import { isStubService } from '../../core/stubs.ts';
+import { sessionFilesRoot } from '../../hooks/settings-writer.ts';
 import { ClaudeVersionProbe, parseAuthStatus, resolveClaude, type ClaudeBinary } from '../claude.ts';
 import { buildHostEnv } from '../host-env.ts';
 import { killTree, type KnownProcess, type ProcessInspector } from '../kill-tree.ts';
 import { runningHelperPids, type ProcessRunner } from '../process-run.ts';
 import { AgentRunner, type LaunchPlan, type Outgoing, type RunnerHost } from './agent-runner.ts';
+import { ControlError } from './claude-process.ts';
 import type { HostRulesImpl } from './host-rules.ts';
+import { AgentModels } from './models.ts';
 import { RulePathError, buildProfile, checkLaunchArgs, claudeModeFor, fileRule, gateToolsOf } from './profiles.ts';
 import type { ProjectTrustImpl } from './project-settings.ts';
 import { freeRolePrompt } from './prompts.ts';
@@ -166,6 +170,10 @@ export class AgentSessionsImpl implements AgentSessions {
   private hostConnected: Disposable | null = null;
   private storageFull = false;
   private lastRetention = 0;
+  /** The host agent's models: the list, the host's default, the probe (DESIGN 0.6.0 D7). */
+  private readonly models: AgentModels;
+  /** Who wants to know that the host agent's state changed (the handlers send `session.host` to everyone). */
+  private readonly hostAgentListeners = new Set<() => void>();
 
   /** What a runner may ask of this service. */
   private readonly host: RunnerHost;
@@ -193,7 +201,30 @@ export class AgentSessionsImpl implements AgentSessions {
       rss: (pid) => this.rss(pid),
       idle: (runner) => this.idle(runner),
       effectiveMode: (runner) => this.effectiveMode(runner.record),
+      models: (_runner, raw) => this.models.fromInitialize(raw),
+      modelEntry: (value) => this.models.entryFor(value),
     };
+    const sessionsDir = join(ctx.config.stateDir, 'sessions');
+    this.models = new AgentModels({
+      log: ctx.log.child({ module: 'agent-models' }),
+      now: () => ctx.clock.now(),
+      changed: () => this.hostAgentChanged(),
+      probe: {
+        sessionsDir,
+        filesRoot: sessionFilesRoot(ctx.config.stateDir, ctx.config.workspaceId),
+        binary: () => this.probeBinary(),
+        // The host's own environment, as a session's, without the hook variables (the probe has no hook token).
+        env: (marker) => buildHostEnv({ hostEnv: this.deps.hostEnv(), home: this.deps.launch.hostHome, sessionId: marker }),
+        kill: async ({ pid, marker }) => {
+          const result = await killTree(
+            { rootPid: pid, envEntry: `SMURG_SESSION_ID=${marker}`, protect: () => this.foreignOf(null) },
+            { inspector: this.deps.inspector, log: ctx.log.child({ module: 'kill-tree', probe: marker }), deadlineMs: this.deps.killDeadlineMs, maxPids: this.deps.maxPidsPerSession },
+          );
+          if (result.outcome !== 'done') ctx.log.error('processes of the probe of the host agent may remain', { outcome: result.outcome, reason: result.reason ?? 'none' });
+        },
+        initTimeoutMs: this.config.initTimeoutMs,
+      },
+    });
   }
 
   // =================================================================================================================
@@ -232,15 +263,16 @@ export class AgentSessionsImpl implements AgentSessions {
     this.sweepTimer.unref?.();
   }
 
-  /** stop(): every runner ends its process; the records stay (idle). */
+  /** stop(): every runner ends its process; the records stay (idle). A probe of the host agent's models is ended and awaited. */
   async stopAll(): Promise<void> {
     this.stopping = true;
     if (this.sweepTimer !== undefined) clearInterval(this.sweepTimer);
     this.sweepTimer = undefined;
     this.hostConnected?.dispose();
     this.hostConnected = null;
-    await Promise.all(
-      [...this.entries.values()].map(async (entry) => {
+    await Promise.all([
+      this.models.stop().catch((err: unknown) => this.logError('stopping the probe of the host agent failed', err)),
+      ...[...this.entries.values()].map(async (entry) => {
         try {
           if (entry.runner.record.state !== 'ended') await entry.runner.shutdown('stop', undefined);
           this.flushBatch(entry);
@@ -250,7 +282,7 @@ export class AgentSessionsImpl implements AgentSessions {
           this.logError('stopping an agent session failed', err);
         }
       }),
-    );
+    ]);
     await this.store?.flush().catch(() => {});
   }
 
@@ -344,6 +376,7 @@ export class AgentSessionsImpl implements AgentSessions {
       modeChoice: record.purpose === 'discussion' ? null : record.modeChoice,
       modeFixed: record.purpose === 'discussion',
       model: record.model,
+      ...(runner.modelInUse === undefined ? {} : { modelInUse: runner.modelInUse }),
       ruleCount: record.rules.length + this.topicRules(record.topic?.id).length,
       login: runner.login,
       ...(record.claudeVersion === undefined ? {} : { claudeVersion: record.claudeVersion }),
@@ -715,8 +748,55 @@ export class AgentSessionsImpl implements AgentSessions {
   }
 
   hostAgentState(): AgentHostState {
-    // 0.6.0 S1: the host's model list is not asked for yet (S3's probe and each process's `initialize` fill it).
-    return { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' };
+    // The models: the probe's and every process's own `initialize` (DESIGN 0.6.0 D7). What can run is S4's (D9).
+    const models = this.models.state();
+    return { models: models.models, modelsKnown: models.modelsKnown, hostDefault: models.hostDefault, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' };
+  }
+
+  /**
+   * A page asked for the host state (`session.host.get`), or a request named a model while the list is not known:
+   * the host's agent is asked which models it offers, once at a time and not again for a minute after a failure
+   * (DESIGN 0.6.0 D7). Nothing waits for it: when the answer comes, everyone gets `session.host`.
+   */
+  wantModels(): void {
+    if (!this.started || this.stopping) return;
+    this.models.want();
+  }
+
+  /** Resolves once no probe of the host agent's models runs (a test waits for it; nothing else needs to). */
+  modelsSettled(): Promise<void> {
+    return this.models.settled();
+  }
+
+  /** The list entry of a model value, or (null) the one of the host's default (DESIGN 0.6.0 D7, D9). */
+  modelEntry(value: string | null): AgentModel | undefined {
+    return this.models.entryFor(value);
+  }
+
+  /** `listener` runs whenever the host agent's state changed (its models, the host's default). */
+  onHostAgentChanged(listener: () => void): Disposable {
+    this.hostAgentListeners.add(listener);
+    return toDisposable(() => this.hostAgentListeners.delete(listener));
+  }
+
+  private hostAgentChanged(): void {
+    for (const listener of [...this.hostAgentListeners]) {
+      try {
+        listener();
+      } catch (err) {
+        this.logError('telling the host agent state failed', err);
+      }
+    }
+  }
+
+  /** The probe's binary: the one a session would start, as found and as old as a session's start allows (DESIGN 0.6.0 D7). */
+  private async probeBinary(): Promise<string | null> {
+    const launch = this.deps.launch;
+    const binary = await resolveClaude(launch.claudePath, this.deps.hostEnv()['PATH']);
+    if (binary === null || this.probe === null) return null;
+    const verdict = claudeVersionVerdict(await this.probe.output(binary), launch);
+    if (!verdict.ok && verdict.reason === 'below-minimum') return null;
+    return binary.realPath;
   }
 
   attention(): AttentionFact[] {
@@ -821,6 +901,8 @@ export class AgentSessionsImpl implements AgentSessions {
         trust,
         agentMcp: ctx.settings.get().agentMcp,
         rolePrompt: runner.rolePrompt,
+        // The session's model on EVERY start, the resume included (U1 E6: only that is deterministic).
+        model: record.model,
       });
     } catch (err) {
       // The folder's own name: said in its own sentence (Claude Code has nothing to do with it).
@@ -888,7 +970,7 @@ export class AgentSessionsImpl implements AgentSessions {
     if (result.outcome !== 'done') this.ctx.log.error('agent processes may remain', { session: runner.id, outcome: result.outcome, reason: result.reason ?? 'none' });
   }
 
-  private foreignOf(runner: AgentRunner): Set<number> {
+  private foreignOf(runner: AgentRunner | null): Set<number> {
     const out = new Set<number>([...runningHelperPids(), ...this.deps.foreignChildren()]);
     for (const entry of this.entries.values()) {
       const pid = entry.runner.pid;
@@ -1119,6 +1201,22 @@ export class AgentSessionsImpl implements AgentSessions {
     const entry = this.need(sessionId);
     const record = entry.runner.record;
     const person = userOf(by);
+    // A live process is switched first (DESIGN 0.6.0 D7): when Claude Code refuses, nothing changes.
+    let restart = false;
+    try {
+      await entry.runner.setModel(model);
+    } catch (err) {
+      if (!(err instanceof ControlError) || err.why !== 'refused') throw err;
+      const shown = model === null ? (this.models.entryFor(null)?.name ?? this.models.state().hostDefault ?? 'default') : (this.models.entryFor(model)?.name ?? model);
+      // `restricted_by_org`: the host's (or their organization's) settings do not allow it. Any other code, or none:
+      // the same refusal, logged (DESIGN D7: an unknown code takes the generic branch).
+      const restricted = err.code === 'restricted_by_org';
+      if (!restricted) this.ctx.log.warn('the agent refused a model change', { session: sessionId, code: err.code ?? 'none' });
+      if (person !== null) throw agentError('conflict', msg('session.model.refused', { model: shown }), restricted ? 'model-restricted' : 'model-refused');
+      // The system puts a member's choice back (they went): the record changes anyway, and the process takes it at its
+      // next start, which comes at its next idle moment (below, once the record says it).
+      restart = true;
+    }
     const resetFrom = record.modelChangedBy;
     record.model = model;
     if (person !== null && model !== null) record.modelChangedBy = person;
@@ -1129,9 +1227,10 @@ export class AgentSessionsImpl implements AgentSessions {
     } else if (resetFrom !== undefined) {
       this.push(entry, lineEvent(msg('conversation.model.reset', { name: resetFrom.displayName })));
     }
-    // Stored only (0.6.0 S1): a running process keeps its model until its next start; the live switch is S3's.
+    // A parked session only stores it: its next start passes `--model`. The next turn's `init` says what runs.
     this.save(entry.runner);
     this.touch(entry, false);
+    if (restart) await entry.runner.restart();
   }
 
   async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void> {

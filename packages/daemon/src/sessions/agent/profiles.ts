@@ -10,6 +10,7 @@ import {
   AGENT_EDIT_DENY_PATTERNS,
   AGENT_READ_DENY_PATTERNS,
   checkRememberableRule,
+  modelIdSchema,
   ruleString,
   topicPlanPath,
   topicSpecPath,
@@ -122,6 +123,8 @@ export interface ProfileInput {
   /** The host setting "Agents may use my own and this project's MCP servers". */
   readonly agentMcp: boolean;
   readonly rolePrompt: string;
+  /** The session's model (`--model`, DESIGN 0.6.0 D7); null: none is passed and the host's own default applies. */
+  readonly model: string | null;
 }
 
 /** The launch profile of one process start. Rules read back from disk are checked again: only a rememberable form is written. */
@@ -164,6 +167,7 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     strictMcp: discussion || !input.agentMcp,
     settingSources: input.trust === 'ignored' ? 'user' : 'all',
     rolePrompt: input.rolePrompt,
+    model: input.model,
   };
 }
 
@@ -172,14 +176,15 @@ export function gateToolsOf(profile: Pick<LaunchProfile, 'tools' | 'strictMcp'>)
   return profile.strictMcp ? profile.tools : [...profile.tools, ANY_MCP_TOOL];
 }
 
-const VALUE_FLAGS = new Set(['--settings', '--mcp-config', '--tools', '--permission-mode', '--append-system-prompt-file', '--setting-sources']);
+const VALUE_FLAGS = new Set(['--settings', '--mcp-config', '--tools', '--permission-mode', '--append-system-prompt-file', '--setting-sources', '--model']);
 const BARE_FLAGS = new Set(['--strict-mcp-config']);
 
 /**
  * THE launch check (DESIGN §2.1), failing closed: `--settings`, `--mcp-config` and `--tools` must be present;
  * `--permission-mode` must be present with `default` or `acceptEdits`; besides these only
- * `--append-system-prompt-file`, `--setting-sources user` and `--strict-mcp-config` may appear. Returns null when the
- * flags pass, else why not.
+ * `--append-system-prompt-file`, `--setting-sources user`, `--strict-mcp-config` and `--model <a model id>` (DESIGN
+ * 0.6.0 D7: an id of `modelIdSchema`, never one that reads as a flag) may appear, each at most once. Returns null when
+ * the flags pass, else why not.
  */
 export function checkLaunchArgs(args: readonly string[]): string | null {
   const seen = new Map<string, string>();
@@ -194,6 +199,7 @@ export function checkLaunchArgs(args: readonly string[]): string | null {
     const value = args[i + 1];
     if (value === undefined || value.startsWith('--') || value.length === 0) return `no value for ${flag}`;
     if (seen.has(flag)) return `duplicate ${flag}`;
+    if (flag === '--model' && (value.startsWith('-') || !modelIdSchema.safeParse(value).success)) return 'not a model id';
     seen.set(flag, value);
     i += 1;
   }

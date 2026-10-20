@@ -307,10 +307,11 @@ export class TopicServiceImpl implements TopicService {
       openedBy: principal,
       responsible: null,
       workspace: { mode: 'main' },
-      // A discussion's permissions are fixed (it reads ask-all); the host's default model (a topic's model reaches its
-      // sessions with DESIGN 0.6.0 D7).
+      // A discussion's permissions are fixed (it reads ask-all). Its model is the topic's (DESIGN 0.6.0 D7: the
+      // discussion and every later session of the topic), else the host's default; who chose it is the topic's.
       modeChoice: null,
-      model: null,
+      model: topic.agent?.model ?? null,
+      ...(topic.agent?.model !== undefined && topic.agent.modelChangedBy !== undefined ? { modelChangedBy: { ...topic.agent.modelChangedBy } } : {}),
       rolePrompt: ({ smurgTag }) => discussionRolePrompt({ slug: topic.slug, smurgTag }),
       opening: msg(opening, { name: userRefOf(principal).displayName }),
       ...(firstMessage === undefined ? {} : { firstMessage }),

@@ -21,6 +21,7 @@ import {
   STREAMING_BLOCKS_MAX,
   SmurgError,
   mask,
+  modelIdSchema,
   noticeEvent,
   lineEvent,
   questionPartsSchema,
@@ -28,6 +29,7 @@ import {
   shownAgentText,
   truncateToUtf8Bytes,
   type Actor,
+  type AgentModel,
   type AgentStatus,
   type ConversationEvent,
   type ConversationEventInput,
@@ -49,6 +51,7 @@ import type { AgentRequest, TurnMessage } from '../../core/interfaces.ts';
 import { newId } from '../../core/lifecycle.ts';
 import { ClaudeProcess, ControlError, type ClaudeExit } from './claude-process.ts';
 import { hostRulesOf, type HostRule } from './host-rules.ts';
+import { withoutOneM } from './models.ts';
 import { Normaliser, type RunnerEvent } from './normalise.ts';
 import { STREAM_ARGS, claudeModeFor } from './profiles.ts';
 import { conversationLostText, QUESTION_REFUSED_TEXT, REQUEST_WITHDRAWN_TEXT } from './prompts.ts';
@@ -108,6 +111,10 @@ export interface RunnerHost {
   idle(runner: AgentRunner): void;
   /** The mode the session runs with (`effectivePermissionMode`: its own choice, its topic's, the workspace's). */
   effectiveMode(runner: AgentRunner): PermissionMode;
+  /** The `models` of this process's `initialize` answer (the host agent's list: the newest answer wins, DESIGN 0.6.0 D7). */
+  models(runner: AgentRunner, raw: unknown): void;
+  /** The list entry of a model value (its display name, the id it runs as), when the list holds it. */
+  modelEntry(value: string): AgentModel | undefined;
 }
 
 interface OpenRequest {
@@ -170,6 +177,8 @@ export class AgentRunner {
   restartPending = false;
   /** The account problem this session ran into (the workspace's account state counts them). */
   blockedBy: 'logged-out' | 'usage-limit' | null = null;
+  /** The model Claude Code reported at the `init` of this session's latest turn (DESIGN 0.6.0 D7: the wire's `modelInUse`). */
+  modelInUse: string | undefined;
 
   private readonly host: RunnerHost;
   private proc: ClaudeProcess | null = null;
@@ -204,6 +213,10 @@ export class AgentRunner {
   private rateNoticeSaid = false;
   private turnWaiters: (() => void)[] = [];
   private triedResume = false;
+  /** The models whose substitution this process has said (once per process and model). */
+  private substitutedSaid = new Set<string>();
+  /** The turn whose model the API refused (its notice is said once, and its generic error notice not at all). */
+  private refusedTurn: string | null = null;
 
   constructor(host: RunnerHost, record: AgentRecord, rolePrompt: string) {
     this.host = host;
@@ -367,6 +380,7 @@ export class AgentRunner {
     this.sawInit = false;
     this.resultsThisProcess = 0;
     this.expected = null;
+    this.substitutedSaid = new Set();
     const resume = this.record.hasConversation;
     this.planTools = plan.tools;
     const args = [...STREAM_ARGS, resume ? '--resume' : '--session-id', this.record.claudeSessionId, ...plan.args];
@@ -395,6 +409,8 @@ export class AgentRunner {
       return;
     }
     if (this.proc !== proc) return;
+    // What the host's agent offers (the newest answer wins: the host's own settings may change between two starts).
+    host.models(this, typeof init === 'object' && init !== null ? (init as Record<string, unknown>)['models'] : undefined);
     const account = typeof init === 'object' && init !== null ? (init as Record<string, unknown>)['account'] : null;
     if (typeof account === 'object' && account !== null) {
       const login = loginOfAccount(account as Record<string, unknown>);
@@ -617,6 +633,30 @@ export class AgentRunner {
   }
 
   /**
+   * Control `set_model` for the running process (DESIGN 0.6.0 D7; null: `{ subtype: 'set_model' }`, back to the host's
+   * default), awaited. A session without a ready process has nothing to tell: its next start passes `--model`. Rejects
+   * with ControlError `refused` (its `code`: Claude Code's `error_code`, e.g. `restricted_by_org`) when Claude Code
+   * refused it: nothing changed. When no answer comes, the process starts again at its next idle moment, with the
+   * record's model.
+   */
+  async setModel(model: string | null): Promise<void> {
+    // A start in progress launched with the record's model as it was: the switch waits for it to be ready.
+    if (this.launching !== null) await this.launching;
+    const proc = this.proc;
+    if (proc === null || this.phase !== 'ready' || !proc.running) return;
+    try {
+      await proc.control(model === null ? { subtype: 'set_model' } : { subtype: 'set_model', model }, CONTROL_MS);
+    } catch (err) {
+      if (err instanceof ControlError && err.why === 'refused') throw err;
+      if (err instanceof ControlError && err.why === 'timeout') {
+        this.host.ctx.log.warn('the agent did not answer the model change; it applies at its next start', { session: this.id });
+        this.restartPending = true;
+      }
+      // `exit`: the process is gone; the next one starts with the record's model.
+    }
+  }
+
+  /**
    * Ends the process for good (`end`) or for a daemon stop (`stop`: the record stays as it is). Interrupt, close stdin,
    * wait for exit 0, then the kill (always: see below).
    */
@@ -752,7 +792,7 @@ export class AgentRunner {
     for (const event of events) {
       // Answers to our own control requests must not wait behind the handling of other lines.
       if (event.kind === 'control.response') {
-        proc.settleControl(event.requestId, event.ok, event.response, event.error);
+        proc.settleControl(event.requestId, event.ok, event.response, event.error, event.code);
         continue;
       }
       this.lines = this.lines
@@ -794,7 +834,10 @@ export class AgentRunner {
           }
         }
         if (event.permissionMode !== undefined) this.checkMode(event.permissionMode);
+        const modelChanged = event.model !== undefined && this.noteModel(event.model);
+        const wasOpen = this.turn !== null;
         this.openTurn();
+        if (modelChanged && wasOpen) host.publish(this);
         return;
       }
       case 'lifecycle': {
@@ -836,6 +879,16 @@ export class AgentRunner {
         if (event.synthetic && NOT_LOGGED_IN.test(event.text)) {
           host.append(this, noticeEvent('error', msg('notice.notLoggedIn')));
           this.setLogin('logged-out');
+          return;
+        }
+        // The API refused the model (U1 E4): Claude Code's own sentence is not the agent's words. The session is told
+        // once per turn which model, and offered to choose another; the process stays (a model change rescues it).
+        if (event.synthetic && event.apiError === 'model_not_found') {
+          if (this.refusedTurn !== turn.id) {
+            this.refusedTurn = turn.id;
+            const model = this.record.model ?? this.modelInUse ?? "the host's default";
+            host.append(this, { ...noticeEvent('error', msg('notice.modelRefused', { model: this.modelName(model) })), action: 'choose-model' as const });
+          }
           return;
         }
         if (event.text.length === 0) return;
@@ -921,6 +974,33 @@ export class AgentRunner {
     if (claudeMode === expected || claudeMode === 'default') return;
     this.host.ctx.log.warn('an agent runs in a permission mode smurg did not set; it is set back', { session: this.id, mode: claudeMode.slice(0, 40), expected });
     void this.setClaudeMode(expected);
+  }
+
+  /** A model as a person reads it: the list entry's display name, else the value itself. */
+  private modelName(value: string): string {
+    return this.host.modelEntry(value)?.name ?? value;
+  }
+
+  /**
+   * The model this turn's `init` reports (DESIGN 0.6.0 D7): the wire's `modelInUse`. When the session names a model
+   * and Claude Code runs another one (an organization's restriction replaces it, U4 N), the conversation says so once
+   * per process and model. Expected is the list entry's `resolved` for the record's model (else the model itself when
+   * it is a full id); without a way to know it nothing is said. True when `modelInUse` changed.
+   */
+  private noteModel(reported: string): boolean {
+    if (!modelIdSchema.safeParse(reported).success) return false;
+    const changed = this.modelInUse !== reported;
+    this.modelInUse = reported;
+    const asked = this.record.model;
+    if (asked !== null && !this.substitutedSaid.has(asked)) {
+      const entry = this.host.modelEntry(asked);
+      const expected = entry?.resolved ?? (asked.startsWith('claude-') ? asked : undefined);
+      if (expected !== undefined && withoutOneM(expected) !== withoutOneM(reported)) {
+        this.substitutedSaid.add(asked);
+        this.host.append(this, noticeEvent('warning', msg('notice.modelSubstituted', { model: entry?.name ?? asked, inUse: reported })));
+      }
+    }
+    return changed;
   }
 
   private delivery(sent: { messageId: string; state: string }, state: 'queued' | 'started' | 'completed' | 'cancelled'): void {
@@ -1148,6 +1228,8 @@ export class AgentRunner {
       if (sent !== undefined) this.taken(sent);
     }
     const duration = Math.max(event.durationMs, 0) || host.ctx.clock.now() - turn.startedAt;
+    // A turn the refused model ended has said so (notice.modelRefused): no second, generic notice.
+    const modelRefused = this.refusedTurn === turn.id;
     if (event.outcome === 'completed' && this.blockedBy !== null) {
       // A turn went through: whatever stopped this session is over.
       this.blockedBy = null;
@@ -1156,7 +1238,7 @@ export class AgentRunner {
     }
     this.finishTurn(event.outcome, duration);
     // A turn that ended with an error says so; one the missing login ended has said that already.
-    if (event.outcome === 'error' && !(event.apiError && this.login === 'logged-out')) host.append(this, noticeEvent('error', msg('notice.turnError')));
+    if (event.outcome === 'error' && !(event.apiError && this.login === 'logged-out') && !modelRefused) host.append(this, noticeEvent('error', msg('notice.turnError')));
     // Versions without command_lifecycle: what this turn took is done.
     for (const [uuid, sent] of [...this.written]) {
       if (!sent.started || !event.uuids.includes(uuid)) continue;

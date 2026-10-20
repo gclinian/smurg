@@ -37,7 +37,7 @@ export function buildHookRegistration(
   return { purpose: 'free', pathRights: 'member', tools: FAKE_TOOLS, ...base };
 }
 
-/** What the sessions module asks the hooks module to write: Claude Code's default mode, smurg's own MCP server only. */
+/** What the sessions module asks the hooks module to write: Claude Code's default mode, smurg's own MCP server only, no model (the host's default). */
 export function buildLaunchProfile(overrides?: Partial<LaunchProfile>): LaunchProfile {
-  return { mode: 'default', tools: FAKE_TOOLS, allow: [], ask: [], deny: [], strictMcp: true, settingSources: 'all', rolePrompt: '', ...overrides };
+  return { mode: 'default', tools: FAKE_TOOLS, allow: [], ask: [], deny: [], strictMcp: true, settingSources: 'all', rolePrompt: '', model: null, ...overrides };
 }

@@ -27,6 +27,7 @@ import {
   type MergeRequest,
   type SessionEndReason,
   type SessionInfo,
+  type UserRef,
   type WireText,
 } from '@smurg/protocol';
 import { defaultErrorRef, msg } from '@smurg/protocol/i18n';
@@ -36,7 +37,7 @@ import { isStubService } from '../core/stubs.ts';
 import { pausedItems } from './attention.ts';
 import type { TopicsCore } from './core.ts';
 import { continueItemMessage, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
-import type { StoredItem } from './store.ts';
+import type { StoredItem, StoredTopic } from './store.ts';
 import { EMPTY_HASH } from './text.ts';
 
 /** What the scheduler needs of the report service (reports are checked once when smurg starts; reviewers follow who is responsible). */
@@ -198,8 +199,9 @@ export class Scheduler {
       // 1. the item's own worktree at the main workspace's HEAD (a retry reuses it; an existing report file is removed)
       const handle = await worktrees.acquireForItem({ topic: { id: topic.id, slug: topic.slug }, itemId, owner: starter });
       const worktreeId = handle.worktree.id;
-      // 2. its session: it follows its topic's mode, else the workspace's (DESIGN 0.6.0 D3); the host's default model
-      // (the topic's model reaches item sessions with DESIGN D7)
+      // 2. its session: it follows its topic's mode, else the workspace's (DESIGN 0.6.0 D3); its model is the topic's
+      // when it starts (a retry: the model of the item's previous session), else the host's default (D7)
+      const model = this.modelOf(topic, item, retry);
       const session = await agents.start({
         purpose: 'item',
         topic: { id: topic.id, slug: topic.slug, name: topic.name },
@@ -208,7 +210,8 @@ export class Scheduler {
         responsible,
         workspace: { mode: 'worktree', worktreeId },
         modeChoice: null,
-        model: null,
+        model: model.model,
+        ...(model.by === undefined ? {} : { modelChangedBy: model.by }),
         rolePrompt: ({ smurgTag, branch }) => executionRolePrompt({ slug: topic.slug, itemId: item.id, smurgTag, branch: branch ?? handle.worktree.branch }),
         opening: retry ? msg('conversation.retry', { name: item.startedBy?.displayName ?? '', attempt }) : msg('conversation.started.item', { number: item.number, branch: handle.worktree.branch }),
         firstMessage: retry
@@ -245,12 +248,34 @@ export class Scheduler {
           worktreeId,
           attempt,
           startedBy: item.startedBy?.userId,
+          // The model its session runs on (null: the host's default), as every audit entry that sets one names it.
+          model: model.model,
           ...(item.pin === undefined ? {} : { planRevision: item.pin.planRevision, specHash: item.pin.specHash, planHash: item.pin.planHash, commit: item.pin.commit }),
         },
       });
     } catch (err) {
       this.disarm(topicId, itemId, 'start-failed', err);
     }
+  }
+
+  /**
+   * The model an item's session starts with (DESIGN 0.6.0 D7) and who chose it: a retry keeps the model of the item's
+   * previous session (what the person who tried again saw it run on); otherwise the topic's model, else the host's
+   * default (null).
+   */
+  private modelOf(topic: StoredTopic, item: StoredItem, retry: boolean): { readonly model: string | null; readonly by?: UserRef } {
+    const agents = this.ctx.services.agents;
+    if (retry && item.sessionId !== undefined) {
+      const previous = agents.get(item.sessionId);
+      if (previous !== null) {
+        const chooser = previous.model === null ? null : (agents.facts(item.sessionId)?.modelChangedBy ?? null);
+        const by = chooser === null ? null : this.ctx.members.userRef(chooser);
+        return { model: previous.model, ...(by === null ? {} : { by }) };
+      }
+    }
+    const model = topic.agent?.model ?? null;
+    const by = model === null ? undefined : topic.agent?.modelChangedBy;
+    return { model, ...(by === undefined ? {} : { by: { ...by } }) };
   }
 
   /** An armed item will not start by itself any more: it stays, with why, until someone presses "Start again". */

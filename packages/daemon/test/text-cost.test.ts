@@ -41,6 +41,8 @@ import { lockKeyOf } from '../src/locks/keys.ts';
 import { clipText, safeDisplayName, safeToolName, shownPath, summary } from '../src/locks/text.ts';
 import { questionPartsOf, streamableLength } from '../src/sessions/agent/agent-runner.ts';
 import { hostRulesOf } from '../src/sessions/agent/host-rules.ts';
+import { agentModelsOf, mayBillUsageCredits } from '../src/sessions/agent/models.ts';
+import { Normaliser } from '../src/sessions/agent/normalise.ts';
 import { checkLaunchArgs, fileRule } from '../src/sessions/agent/profiles.ts';
 import { cannotFollow, effectsOf, headerEffectsOf, isGuardable, namesAPath, scriptCandidates } from '../src/sessions/agent/project-settings.ts';
 import { buildToolResult, buildToolView, diffFromPatch, editOf, headTail, safeId, stripAnsi, suggestedRuleOf, toolName } from '../src/sessions/agent/tool-view.ts';
@@ -127,7 +129,19 @@ const LOOKS: Readonly<Record<string, Look>> = {
     run: (text) => void [headerEffectsOf('.claude/agents/a.md', `---\n${text}\n---\nBody.\n`), headerEffectsOf('.claude/agents/a.md', `---\nhooks:\n${text}\n---\n`), headerEffectsOf('.claude/agents/a.md', text)],
     fronts: ['hooks:', '  - command: ', '  command', 'allowed-tools: ', 'allowed-tools:\n  ', 'permissionMode: "', 'a', '---\n'],
   },
-  'fileRule, checkLaunchArgs and fileChangedMatcher (what a session is started with)': { run: (text) => void [fileRule('Edit', '/work/shop', text), checkLaunchArgs(['--settings', text]), fileChangedMatcher([text, text])], throws: true },
+  'fileRule, checkLaunchArgs and fileChangedMatcher (what a session is started with)': { run: (text) => void [fileRule('Edit', '/work/shop', text), checkLaunchArgs(['--settings', text]), checkLaunchArgs(['--model', text]), fileChangedMatcher([text, text])], throws: true },
+  // ---- what Claude Code says of its models (DESIGN 0.6.0 D7): the host's own list, a refusal's code, an API error
+  'agentModelsOf, mayBillUsageCredits and the codes the normaliser keeps (the models Claude Code offers, its error codes)': {
+    run: (text) =>
+      void [
+        agentModelsOf([{ value: text, displayName: text, description: text, resolvedModel: text, supportsAutoMode: true }, { value: 'opus', displayName: 'Opus', description: text, resolvedModel: 'claude-opus-5-5' }]),
+        mayBillUsageCredits([text, text]),
+        new Normaliser().normalise({ type: 'control_response', response: { subtype: 'error', request_id: 'r1', error: text, error_code: text } }),
+        new Normaliser().normalise({ type: 'assistant', message: { id: 'm1', model: '<synthetic>', content: [{ type: 'text', text }] }, error: text }),
+        new Normaliser().normalise({ type: 'system', subtype: 'init', session_id: 'c1', tools: [], model: text }),
+      ],
+    fronts: ['fable', 'claude-', 'model_not_found', 'a'],
+  },
   // ---- tools: what an agent runs and what comes back
   'stripAnsi and headTail (the output of a command)': { run: (text) => void headTail(stripAnsi(text), 65_536, 16_384), fronts: ['\u001b[', '\u001b[1', '\u001b]', '\u001b]0;a', '\u001b'], chars: 262_144 },
   'buildToolView, editOf and suggestedRuleOf (the input of a tool)': {
@@ -569,6 +583,9 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'net/identity.ts': 2,
   'sessions/agent/agent-runner.ts': 7,
   'sessions/agent/host-rules.ts': 1,
+  // (models.ts: a description's unshowable characters, and "fable" in a name; normalise.ts: what a code may be)
+  'sessions/agent/models.ts': 2,
+  'sessions/agent/normalise.ts': 1,
   'sessions/agent/profiles.ts': 4,
   'sessions/agent/project-settings.ts': 23,
   'sessions/agent/tool-view.ts': 5,
