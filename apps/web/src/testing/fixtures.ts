@@ -7,9 +7,11 @@ import {
   x25519KeyPair,
   daemonKeyFingerprint,
   type ActivityEvent,
+  type AgentModel,
   type ConflictRecord,
   type FileEntry,
   type FileRef,
+  type HostState,
   type LockInfo,
   type Member,
   type MergeRequest,
@@ -103,6 +105,27 @@ export function makeAgentSession(overrides: Partial<AgentSession> = {}): AgentSe
     lastActivityAt: T0,
     createdAt: T0,
     ...overrides,
+  };
+}
+
+/**
+ * The models the host's Claude Code 2.1.288 offers, as the daemon puts them on the wire (`HostState.agent.models`):
+ * Fable may bill usage credits, Haiku has no auto mode.
+ */
+export const HOST_MODELS: AgentModel[] = [
+  { value: 'opus', name: 'Opus', description: 'Opus 5.5 · Most capable for complex work', resolved: 'claude-opus-5-5', auto: true },
+  { value: 'fable', name: 'Fable', description: 'Fable 5.1 · Billed to usage credits on some plans', resolved: 'claude-fable-5-1', auto: true, billing: 'usage-credits' },
+  { value: 'sonnet', name: 'Sonnet', description: 'Sonnet 5.5 · Best for everyday tasks', resolved: 'claude-sonnet-5-5', auto: true },
+  { value: 'haiku', name: 'Haiku', description: 'Haiku 4.5 · Fastest for quick answers', resolved: 'claude-haiku-4-5-20251001', auto: false },
+];
+
+/** What every member knows of the host's side (`session.host.get`): by default the list is known, git is the folder's. */
+export function makeHostState(overrides: { account?: HostState['account']; mainProjectSettings?: HostState['mainProjectSettings']; agent?: Partial<HostState['agent']>; work?: HostState['work'] } = {}): HostState {
+  return {
+    account: overrides.account ?? { state: 'ok', sessions: 0 },
+    mainProjectSettings: overrides.mainProjectSettings ?? 'none',
+    agent: { models: HOST_MODELS, modelsKnown: true, hostDefault: 'claude-opus-5-5', autoMode: 'ok', asksNothing: 'ok', ...overrides.agent },
+    work: overrides.work ?? { history: 'folder' },
   };
 }
 

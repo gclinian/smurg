@@ -331,6 +331,20 @@ describe('the workspace shell: commands', () => {
   }, 30_000);
 });
 
+describe('the workspace shell: "Agents ask for nothing" (DESIGN 0.6.0 D13)', () => {
+  it.each(['host', 'agent', 'editor', 'viewer'] as const)('the %s sees the badge beside the name while the host lets agents ask for nothing', async (role) => {
+    const { conn } = await open({ role });
+    expect(within(topbar()).queryByText('Agents ask for nothing')).toBeNull();
+    act(() => conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, permissionMode: 'ask-nothing' } }));
+    const badge = within(topbar()).getByText('Agents ask for nothing');
+    expect(badge.closest('[title]')?.getAttribute('title')).toBe(
+      "The host lets this workspace's agents run commands as the host with no check by Claude Code and no question from smurg; only smurg's fixed limits stay.",
+    );
+    act(() => conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, permissionMode: 'auto' } }));
+    expect(within(topbar()).queryByText('Agents ask for nothing')).toBeNull();
+  });
+});
+
 describe('the workspace shell: overlays, focus, empty states, notices', () => {
   it('an overlay a feature registered is mounted once, in both modes, and can handle a command', async () => {
     const mounts = vi.fn();

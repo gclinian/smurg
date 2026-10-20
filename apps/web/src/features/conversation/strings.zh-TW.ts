@@ -44,6 +44,15 @@ export const zhTW = {
   'mode.host': '主人自己的 Claude Code 規則也適用：這裡的 agent 有 {count} 類指令不必先問就會執行。',
   'mode.host.show': '顯示這些規則',
   'mode.close': '完成',
+  'mode.inUse': 'Claude Code 實際用的是：{mode}',
+  'mode.fallback.model-no-auto': '這個 session 的模型不能使用自動模式。',
+  'mode.fallback.auto-off': '主人的 Claude Code 設定把自動模式關掉了。',
+  'mode.fallback.ask-nothing-off': '主人的 Claude Code 設定不允許什麼都不問就執行。',
+  'mode.workspaceAsksNothing': '主人讓這個工作區的 agent 什麼都不問。你可以為這個 session 選擇更嚴格的模式。',
+  'model.title': '模型：{name}（{id}）',
+  'model.titleName': '模型：{name}',
+  'model.dialog': '這個 session 的模型',
+  'model.change.note': '變更會從 agent 的下一輪開始生效。',
   stop: '停止',
   'stop.title': '停止 agent 現在正在做的事，session 仍然保留。',
   'menu.rename': '重新命名 session…',
@@ -88,6 +97,7 @@ export const zhTW = {
   'redact.result': '移除它的結果…',
   'row.failed': '這則內容無法顯示。',
   'notice.review': '檢視專案設定',
+  'notice.action.choose-model': '選擇模型',
 
   // ---- tool cards
   'tool.read': '讀取',

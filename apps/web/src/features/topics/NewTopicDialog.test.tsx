@@ -43,6 +43,24 @@ async function setup(options: { role?: Role; topics?: Topic[]; host?: HostState 
   return { ...context, conn, openColumn, onClose, dialog, field, start };
 }
 
+describe('New topic: the model (DESIGN 0.6.0 D18)', () => {
+  it("the host's default unless a model is chosen; the model goes with topic.create", async () => {
+    const { conn, field, start, dialog } = await setup();
+    const model = within(dialog).getByRole('combobox', { name: "Model of the discussion and the topic's work items" }) as HTMLSelectElement;
+    expect(model.selectedOptions[0]?.textContent).toBe("The host's default (Opus)");
+    fireEvent.change(field('Name'), { target: { value: 'Checkout redesign' } });
+    fireEvent.click(start());
+    expect(conn.lastRequest('topic.create')?.payload).toEqual({ name: 'Checkout redesign', slug: 'checkout-redesign' });
+    await act(async () => {
+      conn.fail('topic.create', new SmurgError('internal', 'not now'));
+    });
+    fireEvent.change(model, { target: { value: 'fable' } });
+    expect(within(dialog).getByText('On some plans this model is billed to usage credits, and Claude Code does not ask first here.')).toBeTruthy();
+    fireEvent.click(start());
+    expect(conn.lastRequest('topic.create')?.payload).toEqual({ name: 'Checkout redesign', slug: 'checkout-redesign', model: 'fable' });
+  });
+});
+
 describe('New topic: the form', () => {
   it('fills the folder from the name, keeps it editable, and starts the discussion with the first message', async () => {
     const { conn, field, start, openColumn, onClose } = await setup();

@@ -25,6 +25,8 @@ export interface ConversationEnv {
   readonly mentionNames: readonly string[];
   /** Paths of the session's root in agent text; undefined until the session is known. */
   readonly paths: MarkdownPaths | undefined;
+  /** Opens the strip's model dialog (a notice's "Choose a model"). */
+  chooseModel(open: true): void;
 }
 
 const EnvContext = createContext<ConversationEnv | null>(null);
@@ -98,14 +100,16 @@ function usePaths(sessionId: string, root: RootRef | null): MarkdownPaths | unde
   }, [rootKey, sessionId, stores, commands, isHost]);
 }
 
-export function ConversationEnvProvider({ sessionId, root, children }: { sessionId: string; root: RootRef | null; children: ReactNode }) {
+const NO_MODEL_DIALOG = (): void => {};
+
+export function ConversationEnvProvider({ sessionId, root, chooseModel = NO_MODEL_DIALOG, children }: { sessionId: string; root: RootRef | null; chooseModel?: (open: true) => void; children: ReactNode }) {
   const self = useMember();
   const people = usePeople();
   const paths = usePaths(sessionId, root);
   const mentionNames = useMemo(() => people.map((person) => person.displayName), [people]);
   const env = useMemo<ConversationEnv>(
-    () => ({ sessionId, self, role: self?.role ?? null, people, mentionNames, paths }),
-    [sessionId, self, people, mentionNames, paths],
+    () => ({ sessionId, self, role: self?.role ?? null, people, mentionNames, paths, chooseModel }),
+    [sessionId, self, people, mentionNames, paths, chooseModel],
   );
   return <EnvContext.Provider value={env}>{children}</EnvContext.Provider>;
 }

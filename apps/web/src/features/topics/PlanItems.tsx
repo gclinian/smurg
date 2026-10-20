@@ -5,6 +5,8 @@
 import { type AgentSession, type PlanInfo, type PresenceMember, type Topic, type WorkItem } from '@smurg/protocol';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
+import { useStore } from '../../lib/store.ts';
+import { selectWork } from '../../lib/stores/host.ts';
 import { useCan, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Badge, Chip, Menu, type MenuItem } from '../../ui/index.ts';
 import { IconUsers } from '../../ui/icons.tsx';
@@ -40,7 +42,9 @@ function PlanItem({ topic, plan, item, members, session }: { topic: Topic; plan:
   const canDrive = useCan('session.drive');
   const canStart = useCan('session.create');
   const live = !topic.archived;
-  const badge = itemBadge(item, plan, session);
+  // Without the git program the items run one at a time in the shared folder (DESIGN 0.6.0 D15).
+  const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
+  const badge = itemBadge(item, plan, session, { direct });
   const actions = itemActions(item, plan);
   const failed = (reason: string): string => t('item.failed', { item: itemLabel(item), reason });
   const responsibleRole = item.responsible === null ? undefined : members.find((member) => member.userId === item.responsible?.userId)?.role;

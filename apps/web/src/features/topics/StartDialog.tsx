@@ -1,21 +1,45 @@
 // The Start dialog (DESIGN §4.5, §5.12 item 21): Start is the one click with large effects, so one dialog lists them
 // (`plan.preflight`) before `plan.start` runs. Start pins what the dialog showed (the plan's revision and the two
 // files' hashes): when a file changed meanwhile the daemon refuses, and the dialog loads the list again.
-import { isSmurgError, knownErrorReasonOf, type StartPreflight } from '@smurg/protocol';
+//
+// Protocol 5 (DESIGN 0.6.0 D18): how the items run decides one block (`history`): the folder's own git (the commit
+// lines), smurg's own history (its line, nested repositories, a cloud-synced folder), or directly in the shared folder
+// when the host's computer cannot run git: a warning the host must tick before Start, and for anyone else the sentence
+// that only the host can start them, with no Start button. The topic's model and the mode its items run with are
+// chosen here too, and sent with the Start (`plan.start.agent`) when changed.
+import { isSmurgError, knownErrorReasonOf, type SessionModeChoice, type StartPreflight } from '@smurg/protocol';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import { describeError } from '../../lib/errors.ts';
+import { describeError, renderWireText } from '../../lib/errors.ts';
 import { gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectWork } from '../../lib/stores/host.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, Spinner, useToast } from '../../ui/index.ts';
-import { IconAlertCircle, IconAlertTriangle, IconCheck, IconEdit, IconFolder, IconGitBranch, IconPlay, IconQuestion, IconShield, IconUser } from '../../ui/icons.tsx';
+import {
+  IconAgent,
+  IconAlertCircle,
+  IconAlertTriangle,
+  IconCheck,
+  IconCloudOff,
+  IconEdit,
+  IconFolder,
+  IconGitBranch,
+  IconHistory,
+  IconPlay,
+  IconQuestion,
+  IconShield,
+  IconUser,
+} from '../../ui/icons.tsx';
+import { ModelPicker } from '../agents/ModelPicker.tsx';
+import { ModePicker } from '../agents/ModePicker.tsx';
+import { resultingMode } from '../agents/agent-choice.ts';
 import { PlanChanges } from './PlanChanges.tsx';
 import { LinkButton, useAction, useTopic } from './shared.tsx';
-import { startCount, startHeadCount, startLines, startedNotice, type StartLine, type StartLineId } from './start-model.ts';
+import { directAllows, startAgentPatch, startCount, startHeadCount, startLines, startedNotice, type StartLine, type StartLineId } from './start-model.ts';
 import { t } from './strings.ts';
-import { TopicRules } from './TopicRules.tsx';
+import { TopicRules, useWorkspaceMode } from './TopicRules.tsx';
 
 type Load = { status: 'loading' } | { status: 'ready'; preflight: StartPreflight } | { status: 'error'; message: string };
 
@@ -27,6 +51,9 @@ const ICON: Readonly<Record<StartLineId, ReactNode>> = {
   offline: <IconUser size={14} />,
   youDecide: <IconQuestion size={14} />,
   commit: <IconGitBranch size={14} />,
+  smurgHistory: <IconHistory size={14} />,
+  nestedRepos: <IconGitBranch size={14} />,
+  cloudSynced: <IconCloudOff size={14} />,
   handEdits: <IconEdit size={14} />,
   invisible: <IconAlertTriangle size={14} />,
   stale: <IconAlertTriangle size={14} />,
@@ -57,6 +84,11 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   const [showChanges, setShowChanges] = useState(false);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
+  /** The host ticked "I understand that these changes land in the shared folder directly". */
+  const [confirmed, setConfirmed] = useState(false);
+  /** The topic's model and its items' mode as the dialog shows them; null: as the topic has them. */
+  const [agentDraft, setAgentDraft] = useState<{ model: string | null; permissionMode: SessionModeChoice | null } | null>(null);
+  const workspaceMode = useWorkspaceMode();
   const idsKey = itemIds?.join(',') ?? '';
 
   useEffect(() => stores.topics.ensurePlan(topicId), [stores, topicId]);
@@ -86,14 +118,17 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   // The shared folder became a git repository, or stopped being one, while the dialog is open (the host ran
   // `git init` in a terminal and came back): the topic says so (`versioned`), and what the dialog shows was asked
   // before. The list is asked for again; nothing else in a topic.updated does that.
+  // The same when how work items run changes (protocol 5: git installed or gone, smurg's own history made).
   const versioned = topic?.versioned;
-  const versionedSeen = useRef(versioned);
+  const history = useStore(stores.host, (state) => selectWork(state)?.history);
+  const folderKey = versioned === undefined ? undefined : `${String(versioned)}/${history ?? ''}`;
+  const folderSeen = useRef(folderKey);
   useEffect(() => {
-    if (versioned === undefined) return;
-    const before = versionedSeen.current;
-    versionedSeen.current = versioned;
-    if (before !== undefined && before !== versioned) reload();
-  }, [versioned, reload]);
+    if (folderKey === undefined) return;
+    const before = folderSeen.current;
+    folderSeen.current = folderKey;
+    if (before !== undefined && before !== folderKey) reload();
+  }, [folderKey, reload]);
   const preflight = load.status === 'ready' ? load.preflight : null;
   // The dialog shows a blocker, and the host went away to do something about it (a first commit in a terminal: no
   // event announces that one) and came back: the page is visible again, or the window has the focus again. The list
@@ -115,20 +150,28 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
       window.removeEventListener('focus', back);
     };
   }, [blocked]);
-  const startable = preflight !== null && preflight.blockers.length === 0 && startCount(preflight) > 0;
+  const startable = preflight !== null && preflight.blockers.length === 0 && startCount(preflight) > 0 && directAllows(preflight, confirmed);
   const headCount = preflight === null ? 0 : startHeadCount(preflight);
+  const topicAgent = topic?.agent ?? { model: null, permissionMode: null };
+  const agent = agentDraft ?? topicAgent;
+  const itemsMode = resultingMode(agent.permissionMode, workspaceMode);
+  /** A member's dialog for items that run directly: only the host can start them, so there is no Start button. */
+  const directHostOnly = preflight?.history === 'direct' && preflight.direct?.hostOnly === true;
 
   const start = async (): Promise<void> => {
     if (preflight === null || !startable) return;
     setBusy(true);
     setFailure(null);
     try {
+      const agentPatch = startAgentPatch(topicAgent, agent);
       await stores.topics.start({
         topicId,
         ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }),
         planRevision: preflight.planRevision,
         specHash: preflight.specHash,
         planHash: preflight.planHash,
+        ...(agentPatch === undefined ? {} : { agent: agentPatch }),
+        ...(preflight.history === 'direct' ? { direct: true as const } : {}),
       });
       toast.show({ tone: 'success', ...startedNotice(preflight) });
       onClose();
@@ -190,9 +233,11 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             {tApp('common.cancel')}
           </Button>
-          <Button variant="primary" icon={<IconPlay />} loading={busy} disabled={!startable} onClick={() => void start()}>
-            {t('start.go')}
-          </Button>
+          {directHostOnly ? null : (
+            <Button variant="primary" icon={<IconPlay />} loading={busy} disabled={!startable} onClick={() => void start()}>
+              {t('start.go')}
+            </Button>
+          )}
         </>
       }
     >
@@ -212,6 +257,19 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
             {t('start.loadFailed', { reason: load.message })}
           </Banner>
         ) : null}
+        {preflight !== null && preflight.history === 'direct' && preflight.direct !== null ? (
+          <Banner tone="warning" live="none" title={t('start.direct.title')} className="start-direct">
+            <p>{t('start.direct.body', { reason: renderWireText(preflight.direct.reason.text, preflight.direct.reason.fallback) })}</p>
+            {preflight.direct.hostOnly ? (
+              <p>{t('start.direct.hostOnly')}</p>
+            ) : (
+              <label className="start-direct__confirm">
+                <input type="checkbox" checked={confirmed} onChange={(event) => setConfirmed(event.currentTarget.checked)} />
+                <span>{t('start.direct.confirm')}</span>
+              </label>
+            )}
+          </Banner>
+        ) : null}
         {lines.length > 0 ? (
           <ul className="start-list">
             {lines.map((line, index) => (
@@ -229,11 +287,34 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
               </li>
             ))}
             {topic !== undefined ? (
+              <li className="start-line" data-tone="plain" data-line="agent">
+                <IconAgent size={14} />
+                <div className="topics-agent">
+                  <div className="topics-agent__pickers">
+                    <ModelPicker label={t('start.agent.model')} value={agent.model} disabled={busy} onChange={(model) => setAgentDraft({ ...agent, model })} />
+                    <ModePicker
+                      label={t('start.agent.mode')}
+                      value={agent.permissionMode}
+                      follows="workspace"
+                      followed={workspaceMode}
+                      disabled={busy}
+                      onChange={(permissionMode) => setAgentDraft({ ...agent, permissionMode })}
+                    />
+                  </div>
+                  <span className="start-line__note">{t('start.agent.note')}</span>
+                </div>
+              </li>
+            ) : null}
+            {topic !== undefined ? (
               <li className="start-line" data-tone="plain" data-line="rules">
                 <IconShield size={14} />
                 <div>
-                  <TopicRules topic={topic} />
-                  <span className="start-line__note">{t('start.rules.note')}</span>
+                  <TopicRules topic={topic} mode={itemsMode} />
+                  {itemsMode === 'ask-commands' || itemsMode === 'ask-all' ? (
+                    <span className="start-line__note">{t('start.rules.note')}</span>
+                  ) : itemsMode === 'auto' ? (
+                    <span className="start-line__note">{t('start.rules.note.auto')}</span>
+                  ) : null}
                 </div>
               </li>
             ) : null}

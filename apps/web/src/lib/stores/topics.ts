@@ -23,12 +23,14 @@ import {
   type ReportInfo,
   type ReportSummary,
   type ResultOf,
+  type SessionModeChoice,
   type StartPreflight,
   type Topic,
 } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, mapWith, mapWithout, readyState, type AreaLifecycle, type LoadStatus, type Loadable, type StoreContext } from './base.ts';
 import { compareIds } from '../format.ts';
+import { LONG_REQUEST_TIMEOUT_MS } from './sessions.ts';
 
 export type TopicNoticeKind = 'started' | 'spec-ready' | 'plan-ready' | 'plan-updated' | 'complete';
 
@@ -83,6 +85,11 @@ export interface TopicsStore extends ReadableStore<TopicsState> {
   requestSpec(topicId: string): Promise<void>;
   addRule(topicId: string, rule: { tool: 'Bash' | 'WebFetch'; pattern: string }): Promise<Topic>;
   removeRule(topicId: string, ruleId: string): Promise<Topic>;
+  /**
+   * The model of the topic's new sessions and the permission mode its work items follow (`topic.agent.set`; null: the
+   * host's default model, the workspace's mode). A key left out stays as it is.
+   */
+  setAgent(topicId: string, agent: { readonly model?: string | null; readonly permissionMode?: SessionModeChoice | null }): Promise<Topic>;
 
   // ---- plan
   /** Makes sure the topic's plan is in the store and stays there across a resync. Safe to call on every render. */
@@ -94,6 +101,10 @@ export interface TopicsStore extends ReadableStore<TopicsState> {
   /** "Suggest again". */
   suggestSplit(topicId: string): Promise<PlanInfo>;
   preflight(topicId: string, itemIds?: readonly string[]): Promise<StartPreflight>;
+  /**
+   * The Start: it may snapshot the whole shared folder into smurg's own history first, which can take the daemon
+   * minutes for a big folder: the request waits LONG_REQUEST_TIMEOUT_MS (DESIGN 0.6.0 D14).
+   */
   start(input: PayloadInputOf<'plan.start'>): Promise<PlanInfo>;
   /** "Show the changes": the spec and plan files against what the last Start confirmed. */
   changes(topicId: string): Promise<ResultOf<'plan.changes'>>;
@@ -381,6 +392,10 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     async removeRule(topicId, ruleId) {
       return upsertTopic((await context().conn.request('topic.rule.remove', { topicId, ruleId })).topic, false);
     },
+    async setAgent(topicId, agent) {
+      const payload = { topicId, ...(agent.model === undefined ? {} : { model: agent.model }), ...(agent.permissionMode === undefined ? {} : { permissionMode: agent.permissionMode }) };
+      return upsertTopic((await context().conn.request('topic.agent.set', payload)).topic, false);
+    },
     ensurePlan(topicId) {
       wantedPlans.add(topicId);
       const current = state.getState();
@@ -408,7 +423,7 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
       return (await context().conn.request('plan.preflight', itemIds === undefined ? { topicId } : { topicId, itemIds: [...itemIds] })).preflight;
     },
     async start(input) {
-      return putPlan((await context().conn.request('plan.start', input)).plan);
+      return putPlan((await context().conn.request('plan.start', input, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).plan);
     },
     changes(topicId) {
       return context().conn.request('plan.changes', { topicId });

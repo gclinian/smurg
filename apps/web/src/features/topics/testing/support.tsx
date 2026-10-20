@@ -2,10 +2,10 @@
 // plan, the sessions, the worktrees, the host state), with the people of the mock: Ian (host), Mei (agent access),
 // Amy (editor), Vic (viewer).
 import { act } from '@testing-library/react';
-import type { HostState, MergeRequest, MessageRef, PlanInfo, PresenceMember, Role, SessionInfo, Topic, WorktreeInfo } from '@smurg/protocol';
+import type { HostState, MergeRequest, MessageRef, PermissionMode, PlanInfo, PresenceMember, Role, SessionInfo, Topic, WorktreeInfo } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { FakeConnection } from '../../../testing/fake-connection.ts';
-import { HOST_USER, makeMember, makeWelcome, presenceOf } from '../../../testing/fixtures.ts';
+import { HOST_USER, makeHostState, makeMember, makeWelcome, presenceOf } from '../../../testing/fixtures.ts';
 
 /**
  * Every reason git gives for refusing a Start (the preflight's blocker; the same sentence refuses a worktree): one
@@ -48,7 +48,10 @@ export interface TopicWorld {
   readonly worktrees?: readonly WorktreeInfo[];
   readonly requests?: readonly MergeRequest[];
   readonly members?: readonly PresenceMember[];
+  /** Default: the host's Claude Code lists its models, and work items run in the folder's own git (protocol 5). */
   readonly host?: HostState;
+  /** The workspace's permission mode in the Welcome (default: auto). */
+  readonly workspaceMode?: PermissionMode;
 }
 
 /** A connection that answers the lists; pass it to renderInWorkspace / renderInColumn as `conn` with `admit: false`, then `admitAs`. */
@@ -59,7 +62,7 @@ export function topicConnection(world: TopicWorld = {}): FakeConnection {
   conn.handle('session.list', () => ({ sessions: [...(world.sessions ?? [])], hasMore: false }));
   conn.handle('worktree.list', () => ({ worktrees: [...(world.worktrees ?? [])] }));
   conn.handle('worktree.merge.list', () => ({ requests: [...(world.requests ?? [])] }));
-  conn.handle('session.host.get', () => world.host ?? { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } });
+  conn.handle('session.host.get', () => world.host ?? makeHostState());
   return conn;
 }
 
@@ -67,7 +70,8 @@ export function topicConnection(world: TopicWorld = {}): FakeConnection {
 export function admitAs(conn: FakeConnection, world: TopicWorld = {}): void {
   const role = world.role ?? 'editor';
   act(() => {
-    conn.admit(makeWelcome({ role, ...SELF[role] }));
+    const welcome = makeWelcome({ role, ...SELF[role] });
+    conn.admit(world.workspaceMode === undefined ? welcome : { ...welcome, settings: { ...welcome.settings, permissionMode: world.workspaceMode } });
     conn.emit('presence.state', { members: [...(world.members ?? PEOPLE)], agents: [] });
   });
 }

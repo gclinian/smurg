@@ -12,9 +12,9 @@ import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatList, joinSentences } from '../../lib/format.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
+import { selectWork } from '../../lib/stores/host.ts';
 import { selectSession, selectTopicSessions } from '../../lib/stores/sessions.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
-import { selectHasWorktreeRecords } from '../../lib/stores/worktrees.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useCan, useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Banner, Button, EmptyState, Segmented, Spinner, type MenuItem } from '../../ui/index.ts';
@@ -22,11 +22,11 @@ import { IconCode, IconFileText, IconGitMerge, IconOpenSide, IconPlan, IconPlay,
 import { StandaloneDocument, useHeldDocument } from '../editor/standalone.tsx';
 import { ReviseBox } from './Discussion.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, itemBadge, itemNames, loads, notVersionedLine, planFile, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
+import { agentAccessNames, itemBadge, itemNames, loads, planFile, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
 import { PlanItems } from './PlanItems.tsx';
 import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
-import { TopicRules } from './TopicRules.tsx';
+import { TopicAgentSettings, TopicRules } from './TopicRules.tsx';
 import './topics.css';
 
 type View = 'items' | 'file';
@@ -343,6 +343,7 @@ function Assign({ topic, plan, members, started }: { topic: Topic; plan: PlanInf
         </>
       )}
       <TopicRules topic={topic} />
+      <TopicAgentSettings topic={topic} />
     </div>
   );
 }
@@ -384,8 +385,9 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   const canStart = useCan('session.create');
   const isHost = useCan('worktree.merge.decide');
   const members = useMembers();
-  // A worktree or an open merge request exists: a folder that is no repository then had a `.git` that went.
-  const records = useStore(stores.worktrees, selectHasWorktreeRecords);
+  // Without the git program items run one at a time in the shared folder, and nothing waits for a merge (DESIGN 0.6.0
+  // D15). A folder without `.git` runs them as a repository does (smurg's own history, D14): nothing to say here.
+  const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
   if (topic.archived) return null;
 
   const nextToMerge = summary.reviewedNotMerged.find((item) => item.merge?.ready === true && item.merge.status !== 'conflict') ?? summary.reviewedNotMerged[0];
@@ -403,9 +405,13 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   // The button counts what starts NOW; when everything left waits for another item, what a Start would arm.
   const startable = summary.canStart > 0 ? summary.canStart : summary.startable.length;
   const text: string[] = [];
-  if (!topic.versioned) text.push(notVersionedLine(records));
-  else if (startable > 0) text.push(canStart ? t('foot.start') : t('foot.start.others', { names: agentAccessNames(members) }));
-  text.push(...byItself);
+  if (direct) {
+    text.push(t('plan.direct.foot'));
+    if (startable > 0 && !canStart) text.push(t('foot.start.others', { names: agentAccessNames(members) }));
+  } else {
+    if (startable > 0) text.push(canStart ? t('foot.start') : t('foot.start.others', { names: agentAccessNames(members) }));
+    text.push(...byItself);
+  }
 
   return (
     <Foot text={text.length === 0 ? undefined : joinSentences(text)}>

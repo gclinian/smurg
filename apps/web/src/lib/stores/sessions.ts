@@ -1,6 +1,6 @@
 // Every session of the workspace (ARCHITECTURE §5.5): agent sessions (conversations) and terminals (PTYs), live
 // through session.list + session.state. Also the requests about a session that are not the conversation itself
-// (rename, end, who is responsible, the permission mode, stop, retry: the conversation's events and cards are the
+// (rename, end, who is responsible, the permission mode, the model, stop, retry: the conversation's events and cards are the
 // conversations store's), and for terminals the routing of their stream (exec.output / exec.resize) to viewers.
 //
 // What is in the list: the sessions of every topic that is not archived, and the sessions without a topic. A topic
@@ -51,7 +51,12 @@ export interface TerminalStreamListener {
 
 export interface SessionsStore extends ReadableStore<SessionsState> {
   reload(): Promise<void>;
-  /** Host and members with agent access (session.create); every session runs as the host. */
+  /**
+   * Host and members with agent access (session.create); every session runs as the host. A new worktree may take the
+   * daemon a few minutes (the first snapshot of smurg's own history of a big folder): that request waits
+   * LONG_REQUEST_TIMEOUT_MS, longer than the daemon's own deadline, so the page never reports a failure while the
+   * daemon goes on (DESIGN 0.6.0 D14).
+   */
   create(input: PayloadInputOf<'session.create'>): Promise<SessionInfo>;
   /** Who may: `mayEndSession` (@smurg/protocol). `keepWorktree` answers "Keep the worktree?" of a free session. */
   end(sessionId: string, options?: { keepWorktree?: boolean }): Promise<void>;
@@ -78,6 +83,8 @@ export interface SessionsStore extends ReadableStore<SessionsState> {
   setResponsible(sessionId: string, userId: string | null): Promise<AgentSession>;
   /** The session's own permission mode; `null`: it follows its topic and the workspace again. */
   setMode(sessionId: string, mode: SessionModeChoice | null): Promise<AgentSession>;
+  /** The session's model (a value of `HostState.agent.models`); `null`: the host's default. From the agent's next turn. */
+  setModel(sessionId: string, model: string | null): Promise<AgentSession>;
   /** The always-allowed kinds of the session and what the host's own Claude Code rules add (session.view). */
   rules(sessionId: string): Promise<ResultOf<'session.rules.get'>>;
   removeRule(sessionId: string, ruleId: string): Promise<AgentSession>;
@@ -91,6 +98,18 @@ export interface SessionsStore extends ReadableStore<SessionsState> {
   resize(sessionId: string, cols: number, rows: number): void;
   /** Receives exec.output / exec.resize of one terminal, in stream order. */
   stream(sessionId: string, listener: TerminalStreamListener): () => void;
+}
+
+/**
+ * How long the page waits for a request that may make the daemon snapshot the whole shared folder into smurg's own
+ * history (a Start, a new worktree, a merge's approval): longer than the daemon's own deadline for that work (DESIGN
+ * 0.6.0 D14: 4 minutes per command), so the page never reports a failure while the daemon goes on.
+ */
+export const LONG_REQUEST_TIMEOUT_MS = 300_000;
+
+/** A session.create that makes a new worktree (`workspace: { mode: 'worktree' }` without a worktree to continue). */
+export function createsWorktree(input: PayloadInputOf<'session.create'>): boolean {
+  return input.workspace.mode === 'worktree' && input.workspace.worktreeId === undefined;
 }
 
 export const INITIAL_SESSIONS_STATE: SessionsState = Object.freeze({ status: 'idle', error: null, sessions: new Map(), others: new Map() });
@@ -187,7 +206,7 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
     subscribe: state.subscribe,
     reload: load,
     async create(input) {
-      return upsert((await context().conn.request('session.create', input)).session);
+      return upsert((await context().conn.request('session.create', input, createsWorktree(input) ? { timeoutMs: LONG_REQUEST_TIMEOUT_MS } : undefined)).session);
     },
     async end(sessionId, options = {}) {
       await context().conn.request('session.end', options.keepWorktree === undefined ? { sessionId } : { sessionId, keepWorktree: options.keepWorktree });
@@ -230,6 +249,9 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
     },
     async setMode(sessionId, mode) {
       return upsert((await context().conn.request('session.mode.set', { sessionId, mode })).session);
+    },
+    async setModel(sessionId, model) {
+      return upsert((await context().conn.request('session.model.set', { sessionId, model })).session);
     },
     rules(sessionId) {
       return context().conn.request('session.rules.get', { sessionId });

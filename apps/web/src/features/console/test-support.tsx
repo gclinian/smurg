@@ -100,6 +100,9 @@ export function makeConfigFile(overrides: Partial<ClaudeConfigFile> = {}): Claud
 
 export const OK_HOST_STATE: HostState = { account: { state: 'ok', sessions: 0 }, mainProjectSettings: 'none', agent: { models: [], modelsKnown: false, hostDefault: null, autoMode: 'ok', asksNothing: 'ok' }, work: { history: 'folder' } };
 
+/** The host's inbox item of the 0.6.0 update's notice (DESIGN 0.6.0 D13): the console's settings show its banner. */
+export const AGENTS_AUTO: InboxItem = { kind: 'attention', key: 'attention:agents-auto:workspace', at: T0, unread: true, waiting: false, subject: 'agents-auto', target: { kind: 'console', section: 'settings' }, excerpt: '' };
+
 export interface ConsoleFixture {
   members: MemberWithDevices[];
   invites: InviteInfo[];

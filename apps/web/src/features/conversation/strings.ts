@@ -49,6 +49,16 @@ export const t = defineStrings(
     'mode.host': { one: "The host's own Claude Code rules apply too: agents here run {count} kind of command without asking.", other: "The host's own Claude Code rules apply too: agents here run {count} kinds of commands without asking." },
     'mode.host.show': 'Show them',
     'mode.close': 'Done',
+    // ---- what really runs, and the model (DESIGN 0.6.0 D9, D18)
+    'mode.inUse': 'Claude Code runs it as: {mode}',
+    'mode.fallback.model-no-auto': 'The model of this session cannot use auto mode.',
+    'mode.fallback.auto-off': "The host's Claude Code settings turn auto mode off.",
+    'mode.fallback.ask-nothing-off': "The host's Claude Code settings do not allow running without asking.",
+    'mode.workspaceAsksNothing': "The host lets this workspace's agents ask for nothing. You can choose a stricter mode for this session.",
+    'model.title': 'Model: {name} ({id})',
+    'model.titleName': 'Model: {name}',
+    'model.dialog': 'Model of this session',
+    'model.change.note': "A change applies from the agent's next turn.",
     stop: 'Stop',
     'stop.title': 'Stop what the agent is doing now. The session stays open.',
     'menu.rename': 'Rename session…',
@@ -94,6 +104,7 @@ export const t = defineStrings(
     'redact.result': 'Remove its result…',
     'row.failed': 'This entry cannot be shown.',
     'notice.review': 'Review the project settings',
+    'notice.action.choose-model': 'Choose a model',
 
     // ---- tool cards (a verb has three forms: done, running, and `.call` for a call that has not had its effect:
     // it waits for permission, it failed, or its turn ended first)

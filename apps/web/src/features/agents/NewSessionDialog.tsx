@@ -1,14 +1,16 @@
 // "New session" and "New terminal" (the "New" control of the session list; the Terminal drawer of code mode): where
-// to work (the shared main workspace / a worktree of my own: a new one or one I kept), a name, for an agent session
-// what it should do first; what the role allows, and the daemon's refusal in plain words. One line says where the
-// session runs: on the host's computer, and an agent with the host's Claude account. An agent session opened here
-// has no topic; a topic's sessions are opened by the topic (features/topics).
+// to work (the shared main workspace / a worktree of my own: a new one or one I kept), for an agent session the model
+// and what it may do without asking (DESIGN 0.6.0 D18), a name, what it should do first; what the role allows, and
+// the daemon's refusal in plain words. One line says where the session runs: on the host's computer, and an agent with
+// the host's Claude account. An agent session opened here has no topic; a topic's sessions are opened by the topic
+// (features/topics).
 import { useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import type { SessionInfo } from '@smurg/protocol';
 import { shallowEqual, useStore } from '../../lib/store.ts';
+import { selectWork } from '../../lib/stores/host.ts';
 import { sessionTitle } from '../../lib/stores/sessions.ts';
-import { selectRole, selectUserId, selectWorkspaceInfo } from '../../lib/stores/workspace.ts';
-import { selectHasWorktreeRecords, selectWorktreeList } from '../../lib/stores/worktrees.ts';
+import { selectRole, selectSettings, selectUserId } from '../../lib/stores/workspace.ts';
+import { selectWorktreeList } from '../../lib/stores/worktrees.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { MESSAGE_TEXT_MAX_CHARS } from '@smurg/protocol';
@@ -27,10 +29,12 @@ import {
   type SessionKind,
   type WhereChoice,
 } from './new-session.ts';
+import { ModelPicker } from './ModelPicker.tsx';
+import { ModePicker } from './ModePicker.tsx';
 import { describeSessionError, type SessionErrorView } from './session-info.ts';
 import { t } from './strings.ts';
 
-const INITIAL_FORM: Omit<NewSessionForm, 'kind'> = { where: 'main', title: '', firstMessage: '' };
+const INITIAL_FORM: Omit<NewSessionForm, 'kind'> = { where: 'main', title: '', firstMessage: '', model: null, permissionMode: null };
 
 export interface NewSessionDialogProps {
   /** What is opened: a conversation with an agent, or a plain terminal. */
@@ -46,14 +50,11 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
   const formId = useId();
   const role = useStore(stores.workspace, selectRole);
   const userId = useStore(stores.workspace, selectUserId);
-  const workspace = useStore(stores.workspace, selectWorkspaceInfo);
+  const work = useStore(stores.host, selectWork);
+  const workspaceMode = useStore(stores.workspace, (state) => selectSettings(state)?.permissionMode ?? 'auto');
   const worktreeList = useStore(stores.worktrees, selectWorktreeList, shallowEqual);
-  const records = useStore(stores.worktrees, selectHasWorktreeRecords);
   const sessionMap = useStore(stores.sessions, (state) => state.sessions);
-  const options = useMemo(
-    () => newSessionOptions({ role, userId, workspace, worktrees: worktreeList, sessions: sessionMap, records }),
-    [role, userId, workspace, worktreeList, sessionMap, records],
-  );
+  const options = useMemo(() => newSessionOptions({ role, userId, work, worktrees: worktreeList, sessions: sessionMap }), [role, userId, work, worktreeList, sessionMap]);
 
   const [form, setForm] = useState(INITIAL_FORM);
   const [submitting, setSubmitting] = useState(false);
@@ -81,11 +82,10 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
     setError(null);
     try {
       const session = await stores.sessions.create(buildCreatePayload(options, { ...form, kind, where }, DEFAULT_TERMINAL_SIZE));
-      // The host's answer is the latest word on the folder (no event tells a workspace without a topic): a session
-      // in a worktree, or a refusal that names what a repository lacks (no commit yet, for one), means it is a
-      // repository. The note that says "run git init" goes, and the member's kept worktrees are offered. A refusal
-      // for a reason that says nothing about the folder (git itself, a look that failed) changes nothing.
-      if (opensInWorktree(session)) stores.workspace.noteGitRepo(true);
+      // The host's answer is the latest word on the folder (no event tells a workspace without a topic): a refusal
+      // that names what a repository lacks (no commit yet, for one) means it is a repository (`isGitRepo`, which the
+      // wire still carries). A session in a worktree of smurg's own history says nothing about a `.git`.
+      if (opensInWorktree(session) && work?.history === 'folder') stores.workspace.noteGitRepo(true);
       setForm(INITIAL_FORM);
       toast.show({ tone: 'success', title: t('new.created', { title: sessionTitle(session) }) });
       onCreated(session);
@@ -100,9 +100,9 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
   const blockedText =
     options.blockedBy === 'role-editor' ? t('new.role.editor') : options.blockedBy === 'role-viewer' ? t('new.role.viewer') : t('new.role.unknown');
 
-  const whereOption = (value: WhereChoice, label: string, hint: string | null) => (
-    <label className="agents-choice">
-      <input type="radio" name={`${formId}-where`} value={value} checked={where === value} onChange={() => update({ where: value })} />
+  const whereOption = (value: WhereChoice, label: string, hint: string | null, disabled = false) => (
+    <label className="agents-choice" data-disabled={disabled ? 'true' : undefined}>
+      <input type="radio" name={`${formId}-where`} value={value} checked={where === value} disabled={disabled} onChange={() => update({ where: value })} />
       <span className="agents-choice__text">
         <span className="agents-choice__label">{label}</span>
         {hint ? <span className="agents-choice__hint">{hint}</span> : null}
@@ -146,15 +146,22 @@ export function NewSessionDialog({ kind, open, onClose, onCreated }: NewSessionD
           <fieldset className="agents-fieldset">
             <legend>{t('new.where')}</legend>
             {whereOption('main', t('new.where.main'), t('new.where.mainHint'))}
-            {whereOption('worktree:new', t('new.where.worktreeNew'), options.worktree.available ? t(role === 'host' ? 'new.where.worktreeHintHost' : 'new.where.worktreeHint') : null)}
+            {whereOption('worktree:new', t('new.where.worktreeNew'), options.worktree.available ? t(role === 'host' ? 'new.where.worktreeHintHost' : 'new.where.worktreeHint') : null, !options.worktree.available)}
             {keptChoices.map(({ worktree, value }) => (
               <div key={worktree.id}>{whereOption(value, t('new.where.worktreeKept', { branch: worktree.branch }), null)}</div>
             ))}
             {/* Not beside a worktree refusal of the host: one sentence on screen, the host's. */}
-            {options.worktree.unavailableReason !== null && error?.aboutWorktrees !== true ? (
-              <p className="agents-fieldset__note">{worktreeUnavailableNote(options.worktree.unavailableReason)}</p>
+            {options.worktree.unavailable !== null && error?.aboutWorktrees !== true ? (
+              <p className="agents-fieldset__note">{worktreeUnavailableNote(options.worktree.unavailable)}</p>
             ) : null}
           </fieldset>
+
+          {kind === 'agent' ? (
+            <div className="agents-form__agent">
+              <ModelPicker label={t('new.model')} value={form.model ?? null} onChange={(model) => update({ model })} />
+              <ModePicker label={t('new.mode')} value={form.permissionMode ?? null} follows="workspace" followed={workspaceMode} onChange={(permissionMode) => update({ permissionMode })} />
+            </div>
+          ) : null}
 
           <Input label={t('new.name')} hint={t('new.nameHint')} maxLength={256} value={form.title} onChange={(event) => update({ title: event.currentTarget.value })} />
           {kind === 'agent' ? (

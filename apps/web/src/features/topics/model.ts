@@ -18,7 +18,7 @@ import {
   type UserRef,
   type WorkItem,
 } from '@smurg/protocol';
-import { msg, renderEnglish, reportOutcomeRef } from '@smurg/protocol/i18n';
+import { reportOutcomeRef } from '@smurg/protocol/i18n';
 import { intlTag } from '@smurg/protocol/locale';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
@@ -182,19 +182,23 @@ export function outcomeLabel(outcome: ReportSummary['outcome']): string {
 
 /**
  * The one badge of a work item (DESIGN §5.12 item 20). `session`: the item's session when the list knows it (a
- * running item says which kind of waiting).
+ * running item says which kind of waiting). `direct`: the items run directly in the shared folder (no git program on
+ * the host's computer, `HostState.work.history` 'direct': DESIGN 0.6.0 D15): one at a time, and an item waits for
+ * the others to finish, never for a merge.
  */
-export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'>, session?: Pick<AgentSession, 'status'>): ItemBadge {
+export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'>, session?: Pick<AgentSession, 'status'>, options: { readonly direct?: boolean } = {}): ItemBadge {
   const waits = unmergedDependencies(plan, item);
+  const direct = options.direct === true;
   switch (item.state) {
     case 'not-started': {
       if (item.disarmed === 'plan-changed') return { text: t('badge.planChanged'), tone: 'warning', bar: 'wait', waitsForPerson: true };
       if (item.disarmed === 'starter-removed') return { text: t('badge.starterRemoved'), tone: 'warning', bar: 'wait', waitsForPerson: true };
       if (item.disarmed === 'start-failed') return { text: t('badge.startFailed'), tone: 'danger', bar: 'failed', waitsForPerson: true };
-      if (waits.length > 0) return { text: t('badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
+      if (waits.length > 0) return { text: t(direct ? 'plan.item.waitsDirect' : 'badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
       return { text: t('badge.ready'), tone: 'neutral', bar: 'none', waitsForPerson: false };
     }
     case 'waiting': {
+      if (direct) return { text: t('plan.item.waitsDirect', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
       const items = byId(plan);
       // Everything it waits for was reviewed: only the host's merge is missing.
       const onlyMerge = waits.length > 0 && waits.every((id) => {
@@ -204,6 +208,7 @@ export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'
       return { text: t(onlyMerge ? 'badge.waitsMerge' : 'badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
     }
     case 'queued':
+      if (direct) return { text: t('plan.item.queuedDirect'), tone: 'neutral', bar: 'none', waitsForPerson: false };
       return {
         text: t('badge.queued', { inUse: plan.slots.inUse, max: plan.slots.max, people: t('badge.queued.people', { count: plan.slots.waitingForPeople }) }),
         tone: 'neutral',
@@ -359,22 +364,6 @@ export function startsByItselfLines(plan: Pick<PlanInfo, 'items'>): string[] {
     if (pending && waits.length > 0) lines.push(t(`foot.startsByItself.${oneOrMany(waits.length)}`, { number: item.number, items: itemNumbers(plan, waits) }));
   }
   return lines.slice(0, 3);
-}
-
-const NOT_A_GIT_REPO = msg('worktree.unavailable.notAGitRepo');
-const GIT_DIR_GONE = msg('worktree.unavailable.gitDirGone');
-
-/**
- * The plan's foot while the shared folder is not a git repository (`Topic.versioned` false; it follows the folder
- * while it is shared): why no item can start, in the words of the Start dialog's blocker and of a worktree refusal
- * (one message per reason, saying what the host can do). `gone`: a worktree or an open merge request exists
- * (selectHasWorktreeRecords), so the folder's `.git` went: "put it back", never "run git init", as the Start dialog
- * says then. A repository that cannot hold worktrees for another reason (no commit yet, git missing or too old, a
- * `.git` that is no ordinary folder) is told by the Start dialog: only the host's preflight knows it.
- */
-export function notVersionedLine(gone = false): string {
-  const reason = gone ? GIT_DIR_GONE : NOT_A_GIT_REPO;
-  return t('foot.noGit', { reason: renderWireText(reason, renderEnglish(reason)) });
 }
 
 /** "Ian 2 · Mei 2 · Ken 2": the split, by load. */

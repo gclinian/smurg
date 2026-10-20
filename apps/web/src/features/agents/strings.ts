@@ -132,6 +132,24 @@ export const t = defineStrings(
     'terminate.body': 'Terminate "{title}", opened by {owner}? All of its processes stop at once.',
     'terminate.confirm': 'Terminate',
 
+    // ---- the model and permission mode pickers (DESIGN 0.6.0 D18; shared by the New session dialog, a topic, the
+    // Start dialog and a session's strip)
+    'model.label': 'Model',
+    'model.hostDefault': "The host's default ({name})",
+    'model.hostDefault.unknown': "The host's default",
+    'model.option': '{name} · {description}',
+    'model.loading': "Asking the host's Claude Code which models it offers…",
+    'model.unavailable': "The host's Claude Code could not be asked which models it offers. Sessions use the host's default.",
+    'model.credits': 'On some plans this model is billed to usage credits, and Claude Code does not ask first here.',
+    'cost.auto': "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.",
+    'mode.label': 'Permission mode',
+    // What someone who may not change them reads (a topic's settings for an editor or a viewer).
+    'model.readOnly': 'Model: {name}',
+    'mode.readOnly': 'Permission mode: {mode}',
+    'mode.follow.workspace': 'Workspace default ({mode})',
+    'mode.follow.topic': "This topic's setting ({mode})",
+    'new.model': 'Model',
+    'new.mode': 'What it may do without asking',
   },
   zhTW,
 );

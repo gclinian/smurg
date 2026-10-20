@@ -1,15 +1,26 @@
 // The strip under a conversation column's header (UX §4, DESIGN §5.12 item 10): who is responsible, where the agent
-// works, what it may do without asking, and Stop. "End session" and "Rename" are in the column's "More actions"
-// (ConversationColumn.tsx). The host and members with agent access change things; everyone else reads them.
+// works, what it may do without asking, the model, and Stop. "End session" and "Rename" are in the column's "More
+// actions" (ConversationColumn.tsx). The host and members with agent access change things; everyone else reads them.
+//
+// What really runs (DESIGN 0.6.0 D9, D18): the mode chip names the mode Claude Code reports for the running process
+// (`modeInUse`), else the one smurg asked for; when the two differ a warning chip says what runs and, in its title,
+// why. The model chip names the model of the agent's latest turn (`modelInUse`), else the chosen one, else "The
+// host's default".
 import { useEffect, useState } from 'react';
-import { SESSION_MODE_CHOICES, mayBeResponsible, ruleString, type AgentSession, type RememberedRule, type ResultOf, type SessionModeChoice } from '@smurg/protocol';
+import { mayBeResponsible, ruleString, type AgentSession, type RememberedRule, type ResultOf } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatRole, gapAfter } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectAgentHost } from '../../lib/stores/host.ts';
 import { selectAgentList } from '../../lib/stores/sessions.ts';
+import { selectTopic } from '../../lib/stores/topics.ts';
+import { selectSettings } from '../../lib/stores/workspace.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Banner, Button, Chip, Dialog, IconButton, Menu, Spinner, type MenuItem } from '../../ui/index.ts';
-import { IconFolder, IconGitBranch, IconLock, IconShield, IconStop, IconTrash, IconUsers } from '../../ui/icons.tsx';
+import { IconAgent, IconAlertTriangle, IconFolder, IconGitBranch, IconLock, IconShield, IconStop, IconTrash, IconUsers } from '../../ui/icons.tsx';
+import { entryOfRunning, followedMode, hostDefaultName, modelName } from '../agents/agent-choice.ts';
+import { ModelPicker } from '../agents/ModelPicker.tsx';
+import { ModePicker } from '../agents/ModePicker.tsx';
 import { modeLabel } from './cards.ts';
 import { useAction, useConversationEnv } from './env.tsx';
 import { useHostDialogs } from './host-dialogs.ts';
@@ -48,6 +59,9 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
   }, [stores, sessionId, ruleCount]);
 
   const canChange = caps.canDrive && !session.modeFixed && session.status !== 'ended';
+  const workspaceMode = useStore(stores.workspace, (state) => selectSettings(state)?.permissionMode ?? 'auto');
+  const topicMode = useStore(stores.topics, (state) => (session.purpose === 'item' && session.topicId !== undefined ? (selectTopic(state, session.topicId)?.agent.permissionMode ?? null) : null));
+  const followed = followedMode({ purpose: session.purpose, topic: topicMode, workspace: workspaceMode });
   const remove = (rule: RememberedRule): void => {
     void action
       .run(() => (rule.scope === 'topic' && session.topicId !== undefined ? stores.topics.removeRule(session.topicId, rule.id) : stores.sessions.removeRule(sessionId, rule.id)))
@@ -73,15 +87,20 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
         {session.modeFixed ? (
           <p>{t('mode.fixedTitle')}</p>
         ) : (
-          <fieldset className="conv-mode__choice" disabled={!canChange || action.busy}>
-            <legend>{t('mode.choice')}</legend>
-            {SESSION_MODE_CHOICES.map((mode: SessionModeChoice) => (
-              <label key={mode}>
-                <input type="radio" name="conv-mode" checked={session.permissionMode === mode} onChange={() => void action.run(() => stores.sessions.setMode(sessionId, mode))} /> {modeLabel(mode)}
-              </label>
-            ))}
+          <div className="conv-mode__choose">
+            <ModePicker
+              variant="radio"
+              className="conv-mode__choice"
+              label={t('mode.choice')}
+              value={session.modeChoice}
+              follows={session.purpose === 'item' ? 'topic' : 'workspace'}
+              followed={followed}
+              disabled={!canChange || action.busy}
+              onChange={(mode) => void action.run(() => stores.sessions.setMode(sessionId, mode))}
+            />
+            {workspaceMode === 'ask-nothing' ? <p className="conv-card__who">{t('mode.workspaceAsksNothing')}</p> : null}
             {!caps.canDrive ? <p className="conv-card__who">{t('mode.onlyDrive')}</p> : null}
-          </fieldset>
+          </div>
         )}
         <h3 className="conv-mode__heading">{t('mode.rules')}</h3>
         {rules === null && loadError === null ? <Spinner label={t('mode.rules.loading')} /> : null}
@@ -129,7 +148,42 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
   );
 }
 
-export function HeaderStrip({ session }: { session: AgentSession }) {
+/** "Model of this session": the picker; a change applies from the agent's next turn. */
+function ModelDialog({ session, onClose }: { session: AgentSession; onClose(): void }) {
+  const stores = useStores();
+  const caps = useCapabilities();
+  const action = useAction();
+  const canChange = caps.canDrive && session.status !== 'ended';
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={t('model.dialog')}
+      size="md"
+      footer={
+        <Button variant="primary" onClick={onClose}>
+          {t('mode.close')}
+        </Button>
+      }
+    >
+      <div className="conv-mode">
+        <ModelPicker value={session.model} disabled={!canChange || action.busy} onChange={(model) => void action.run(() => stores.sessions.setModel(session.id, model))} />
+        <p className="conv-card__who">{t('model.change.note')}</p>
+        {!caps.canDrive ? <p className="conv-card__who">{t('mode.onlyDrive')}</p> : null}
+        {action.error !== null ? <Banner tone="danger">{t('actionFailed', { message: action.error })}</Banner> : null}
+      </div>
+    </Dialog>
+  );
+}
+
+export interface HeaderStripProps {
+  readonly session: AgentSession;
+  /** The model dialog is open (a notice's "Choose a model" opens it too: ConversationColumn holds it). */
+  readonly modelOpen: boolean;
+  setModelOpen(open: boolean): void;
+}
+
+export function HeaderStrip({ session, modelOpen, setModelOpen }: HeaderStripProps) {
   const stores = useStores();
   const caps = useCapabilities();
   const commands = useCommands();
@@ -145,6 +199,7 @@ export function HeaderStrip({ session }: { session: AgentSession }) {
       return JSON.stringify(counts);
     },
   );
+  const agent = useStore(stores.host, selectAgentHost);
   const [modeOpen, setModeOpen] = useState(false);
   const action = useAction();
   // Stop never waits for another request of the strip.
@@ -196,10 +251,32 @@ export function HeaderStrip({ session }: { session: AgentSession }) {
       </Chip>
     );
 
-  const mode = session.modeFixed ? t('mode.fixed') : modeLabel(session.permissionMode);
+  // What runs: the mode Claude Code reported for the running process, else the one smurg asked for.
+  const runs = session.modeInUse ?? session.permissionMode;
+  const mode = session.modeFixed ? t('mode.fixed') : modeLabel(runs);
   const modeChip = (
     <Chip lead={session.modeFixed ? <IconLock size={14} /> : <IconShield size={14} />} collapsible title={session.modeFixed ? t('mode.fixedTitle') : t('mode.title', { mode })} onClick={() => setModeOpen(true)}>
       {mode}
+    </Chip>
+  );
+  const differs = !session.modeFixed && session.modeInUse !== undefined && session.modeInUse !== session.permissionMode;
+  const inUseText = differs ? t('mode.inUse', { mode: modeLabel(runs) }) : '';
+  const fallbackChip = differs ? (
+    <Chip lead={<IconAlertTriangle size={14} />} className="conv-strip__fallback" title={session.modeFallback === undefined ? inUseText : t(`mode.fallback.${session.modeFallback}`)}>
+      {inUseText}
+    </Chip>
+  ) : null;
+
+  // The model of the agent's latest turn by its list name, else the chosen one, else the host's default; the title
+  // names the id.
+  const running = session.modelInUse === undefined ? undefined : entryOfRunning(agent, session.modelInUse);
+  const modelText = running?.name ?? (session.model !== null ? modelName(agent, session.model) : hostDefaultName());
+  const modelId = session.modelInUse ?? session.model ?? agent?.hostDefault ?? null;
+  const modelTitle = modelId === null || modelId === modelText ? t('model.titleName', { name: modelText }) : t('model.title', { name: modelText, id: modelId });
+  const canChooseModel = caps.canDrive && !ended;
+  const modelChip = (
+    <Chip lead={<IconAgent size={14} />} collapsible title={modelTitle} {...(canChooseModel ? { onClick: () => setModelOpen(true) } : {})}>
+      {modelText}
     </Chip>
   );
 
@@ -210,6 +287,8 @@ export function HeaderStrip({ session }: { session: AgentSession }) {
         {whoChip}
         {whereChip}
         {modeChip}
+        {fallbackChip}
+        {modelChip}
       </div>
       <div className="col-meta__actions">
         {(action.error ?? stop.error) !== null ? (
@@ -224,6 +303,7 @@ export function HeaderStrip({ session }: { session: AgentSession }) {
         ) : null}
       </div>
       {modeOpen ? <ModeDialog session={session} onClose={() => setModeOpen(false)} /> : null}
+      {modelOpen ? <ModelDialog session={session} onClose={() => setModelOpen(false)} /> : null}
     </div>
   );
 }

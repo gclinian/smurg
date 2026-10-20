@@ -1105,3 +1105,15 @@
   float: right;
   margin-left: var(--space-3);
 }
+
+/* What really runs when it is not what smurg asked for (DESIGN 0.6.0 D9), and the mode dialog's choice with its lines. */
+.conv-strip__fallback {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-text);
+}
+.conv-mode__choose {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}

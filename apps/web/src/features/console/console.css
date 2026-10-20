@@ -576,3 +576,14 @@
   max-height: 20rem;
   overflow: auto;
 }
+
+/* What agents may do without asking (DESIGN 0.6.0 D18): the workspace's mode and the lines under it. */
+.console-settings__mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-width: 44rem;
+}
+.console-settings__notice {
+  margin-bottom: var(--space-4);
+}

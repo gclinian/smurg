@@ -6,8 +6,9 @@ import { describe, expect, it } from 'vitest';
 import { SmurgError, type ConversationEvent } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildEvent, buildPermission, buildQuestion, buildSuggestion, FAKE_NOW } from '@smurg/protocol/testing';
+import { makeHostState } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
-import { AMY, IAN, MEI, SID, openConversation, settle } from './test-support.tsx';
+import { AMY, IAN, MEI, SID, openConversation, settle, updateSession } from './test-support.tsx';
 
 useTestLocale('zh-TW');
 
@@ -23,6 +24,20 @@ const events: ConversationEvent[] = [
 ];
 
 describe('conversation column in zh-TW', () => {
+  it('the strip: the model, what really runs and why (DESIGN 0.6.0 D18)', async () => {
+    const view = await openConversation({ role: 'agent', session: { permissionMode: 'auto' } });
+    act(() => view.conn.emit('session.host', makeHostState()));
+    const strip = screen.getByRole('group', { name: '這個 session 的資訊' });
+    expect(within(strip).getByRole('button', { name: '模型：主人的預設（claude-opus-5-5）' }).textContent).toBe('主人的預設');
+    updateSession(view, { modelInUse: 'claude-haiku-4-5-20251001', model: 'haiku', modeInUse: 'ask-commands', modeFallback: 'model-no-auto' });
+    expect(within(strip).getByRole('button', { name: '模型：Haiku（claude-haiku-4-5-20251001）' })).toBeTruthy();
+    const warning = within(strip).getByText('Claude Code 實際用的是：執行指令前先問');
+    expect(warning.closest('[title]')?.getAttribute('title')).toBe('這個 session 的模型不能使用自動模式。');
+    fireEvent.click(within(strip).getByRole('button', { name: /^模型：/ }));
+    const dialog = screen.getByRole('dialog', { name: '這個 session 的模型' });
+    expect(within(dialog).getByText('變更會從 agent 的下一輪開始生效。')).toBeTruthy();
+  });
+
   it('a member with agent access reads and answers in Chinese', async () => {
     await openConversation({
       role: 'agent',

@@ -465,6 +465,22 @@ export const t = defineStrings(
     'settings.diskReservePercent': 'Disk space to keep free (%)',
     'settings.diskHint': 'Before an upload starts, the daemon checks that the larger of the two stays free afterwards, and refuses the upload if not. Default: 5 GB or 5%.',
     'settings.agents': 'Agents',
+    // ---- what agents may do without asking (DESIGN 0.6.0 D3, D13, D18)
+    'settings.permissionMode': 'What agents may do without asking',
+    'settings.permissionModeHint':
+      "The default of every agent session and work item of this workspace. You and members with agent access can choose another mode for a topic or a session, except Asks for nothing. A topic's discussion only reads code and writes its spec and plan.",
+    'settings.askNothing.confirm.title': 'Let agents ask for nothing?',
+    'settings.askNothing.confirm.body':
+      "Every agent session of this workspace will run every command as you, on your computer, with no sandbox and no check by Claude Code or smurg, whoever's message or file led to it: a teammate's message, a file someone changed, a web page the agent read. What still holds: a discussion agent writes only its spec and plan, and smurg refuses an agent's edits of Claude Code's settings (yours and the project's), of .git, of your .ssh folder and of smurg's own files, and commands that name those places. A command that reaches them another way runs as you. Choose this only for a folder and a team you trust completely.",
+    'settings.askNothing.confirm.go': 'Ask for nothing',
+    'settings.askNothingRoot': 'smurg runs as the root user: Claude Code does not run agents without asking then.',
+    'settings.autoOff': "Claude Code on your computer turns auto mode off (your Claude Code settings or your organization's): agents ask before commands instead.",
+    'settings.askNothingOff': "Claude Code on your computer does not allow running without asking (your Claude Code settings or your organization's): agents run in auto mode instead.",
+    'settings.agentsAuto.banner':
+      "Since smurg 0.6.0, agents run in auto mode: Claude Code's check decides which commands run without asking you, and file edits and simple file commands inside an agent's own folder run without that check. To be asked before commands again, choose \"Asks before commands\" below.",
+    'settings.agentsAuto.dismiss': 'Got it',
+    'settings.creditsSessions': 'Agent sessions on a model that may be billed to usage credits ({count}): {names}',
+    'settings.creditsSessions.more': '{count} more',
     'settings.maxLiveAgents': 'Work items running at the same time',
     'settings.maxLiveAgentsHint': 'How many work items smurg keeps running at once on your computer ({min} to {max}). The others wait for a free agent. A message from a person always gets an agent.',
     'settings.escalateAfter': 'Waiting time before others are asked (minutes)',

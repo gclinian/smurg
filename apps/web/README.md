@@ -1294,10 +1294,22 @@ screen is built to.
   and is never translated. In `presence.state` an agent has an `activeFile` only while it is at work (starting,
   running, or waiting inside a turn for an answer or a permission). The browser's device name is `Chrome (macOS)`,
   or `Browser` when the user agent says nothing.
-- **Permission modes** of an agent session are two: asks before commands, or asks before edits and commands. A
-  session's header shows the mode, the kinds that are always allowed (in this session, or in every session of its
-  topic) and, for the host and members with agent access, which of the host's own Claude Code allow rules apply:
-  agents run what those rules allow without asking, and the host is told about each of them once.
+- **Permission modes** of an agent session are four (protocol 5): auto ("Auto: runs what a check allows", the
+  default: Claude Code's auto mode decides), asks before commands, asks before edits and commands, and asks for
+  nothing (the host's choice for the whole workspace, in the console's settings behind a warning; every member then
+  sees a badge in the top bar). A session follows its topic (a work item) and the workspace unless someone with agent
+  access chose one of the first three for it (`features/agents/ModePicker.tsx`). A session's header shows the mode
+  Claude Code reports for its process (`modeInUse`), a warning chip when that differs from the one smurg asked for,
+  the model (`features/agents/ModelPicker.tsx`: the host's default or a model of the host's Claude Code's list), the
+  kinds that are always allowed (in this session, or in every session of its topic) and, for the host and members
+  with agent access, which of the host's own Claude Code allow rules apply: agents run what those rules allow without
+  asking, and the host is told about each of them once.
+- **How work items run** (`HostState.work.history`, protocol 5): in worktrees of the folder's own git repository, in
+  worktrees of smurg's own history when the folder has no `.git`, or one at a time directly in the shared folder when
+  the host's computer cannot run git (only the host starts them, after a tick in the Start dialog). The New session
+  dialog, the Start dialog and the plan read it; `plan.start`, a `session.create` with a new worktree and
+  `worktree.merge.approve` wait 5 minutes (`LONG_REQUEST_TIMEOUT_MS`), longer than the daemon's own deadline for the
+  first snapshot of a big folder.
 - **The host's side that everyone may know** (`host` store): whether the host's Claude Code is logged in or has
   reached a usage limit, and whether the main folder's Claude Code project settings are used. Until the host has
   confirmed those settings, sessions run without them and say so; the confirmation dialog is the console feature's

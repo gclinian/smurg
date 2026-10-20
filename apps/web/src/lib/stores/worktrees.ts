@@ -10,7 +10,7 @@ import type { MergeRequest, ResultOf, SessionInfo, WorktreeInfo } from '@smurg/p
 import { tStores } from '../../strings/stores.ts';
 import { formatDateTime } from '../format.ts';
 import { createStore, type ReadableStore } from '../store.ts';
-import { plainSessionTitle } from './sessions.ts';
+import { LONG_REQUEST_TIMEOUT_MS, plainSessionTitle } from './sessions.ts';
 import { loadSnapshot, mapFrom, mapWith, mapWithout, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
 
 export interface WorktreesState extends Loadable {
@@ -28,7 +28,10 @@ export interface WorktreesStore extends ReadableStore<WorktreesState> {
   diff(requestId: string): Promise<ResultOf<'worktree.merge.diff'>>;
   /** One file of the request's diff, for files the capped diff truncated (R9: the host sees the whole diff). */
   fileDiff(requestId: string, path: string): Promise<ResultOf<'worktree.merge.fileDiff'>>;
-  /** Host. Status becomes `merged`, or `conflict` with `conflictFiles`. */
+  /**
+   * Host. Status becomes `merged`, or `conflict` with `conflictFiles`. With smurg's own history the daemon first
+   * snapshots the shared folder (minutes for a big one): the request waits LONG_REQUEST_TIMEOUT_MS (DESIGN 0.6.0 D14).
+   */
   approve(requestId: string): Promise<MergeRequest>;
   /** Host. The worktree stays as it is (R9.3). */
   reject(requestId: string, reason?: string): Promise<MergeRequest>;
@@ -113,7 +116,7 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
       return context().conn.request('worktree.merge.fileDiff', { requestId, path });
     },
     async approve(requestId) {
-      return upsertRequest((await context().conn.request('worktree.merge.approve', { requestId })).request);
+      return upsertRequest((await context().conn.request('worktree.merge.approve', { requestId }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).request);
     },
     async reject(requestId, reason) {
       return upsertRequest((await context().conn.request('worktree.merge.reject', reason === undefined ? { requestId } : { requestId, reason })).request);

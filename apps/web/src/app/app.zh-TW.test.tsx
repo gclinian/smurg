@@ -59,6 +59,12 @@ describe('the app in zh-TW', () => {
     expect(document.title).toBe('class-project · smurg');
     act(() => conn.emit('presence.state', { members: [presenceOf(makeMember({ userId: 'dev:bob', displayName: 'Bob', role: 'viewer' }))], agents: [] }));
     expect(within(screen.getByRole('group', { name: '線上成員' })).getByRole('img', { name: 'Bob · 旁觀' })).toBeTruthy();
+    // While the host lets agents ask for nothing, a badge beside the name says so to every member (DESIGN 0.6.0 D13).
+    act(() => conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, permissionMode: 'ask-nothing' } }));
+    const badge = within(topbar).getByText('agent 什麼都不問');
+    expect(badge.closest('[title]')?.getAttribute('title')).toBe('主人讓這個工作區的 agent 以主人的身分執行指令，Claude Code 不檢查，smurg 也不會先問；只剩 smurg 固定的限制。');
+    act(() => conn.emit('channel.settingsUpdated', { settings: makeWelcome().settings }));
+    expect(within(topbar).queryByText('agent 什麼都不問')).toBeNull();
 
     act(() => conn.setState({ kind: 'host-offline', reason: 'relay', since: 0 }));
     const banner = await screen.findByTestId('host-offline-banner');

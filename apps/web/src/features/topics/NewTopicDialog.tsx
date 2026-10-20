@@ -5,7 +5,8 @@
 // review of the app), held as a choice and sent before the topic is created; for anyone else it says that the session
 // runs without the project's CLAUDE.md until the host confirms. Everyone who can start a topic reads whose Claude
 // account the agent uses; the host also reads that a personal subscription is for the host's own use (DESIGN §10
-// Q6). Editors and Viewers get the explanation instead of the form (UX §10).
+// Q6). The model of the discussion and of the topic's work items can be chosen (DESIGN 0.6.0 D18; the host's default
+// unless one is). Editors and Viewers get the explanation instead of the form (UX §10).
 import { MESSAGE_TEXT_MAX_CHARS, TOPIC_NAME_MAX_CHARS, TOPIC_SLUG_PATTERN, isSmurgError, slugFromName, topicNameSchema, topicSpecPath } from '@smurg/protocol';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { describeError } from '../../lib/errors.ts';
@@ -17,6 +18,7 @@ import { tApp } from '../../strings/app.ts';
 import { Banner, Button, Dialog, Input, Spinner, TextArea } from '../../ui/index.ts';
 import { CAUTIOUS_CHOICE, choiceReady, needsDecision, useClaudeConfig, type ClaudeConfigChoice } from '../console/claude-config.ts';
 import { ProjectSettingsReview } from '../console/ProjectSettingsReview.tsx';
+import { ModelPicker } from '../agents/ModelPicker.tsx';
 import { useMembers } from './shared.tsx';
 import { t } from './strings.ts';
 
@@ -38,6 +40,8 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
   const taken = useStore(stores.topics, (state) => [...state.topics.values(), ...(state.archived?.values() ?? [])].map((topic) => topic.slug).join(' '));
   const [name, setName] = useState('');
   const [message, setMessage] = useState('');
+  /** null: the host's default. */
+  const [model, setModel] = useState<string | null>(null);
   /** Null: the folder follows the name. */
   const [typedSlug, setTypedSlug] = useState<string | null>(null);
   // The host's review of the main workspace's project settings, while something there is undecided (read for the host
@@ -97,7 +101,7 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
         }
         setChoice(CAUTIOUS_CHOICE);
       }
-      const result = await stores.topics.create({ name: trimmed, slug, ...(message.trim() === '' ? {} : { firstMessage: message }) });
+      const result = await stores.topics.create({ name: trimmed, slug, ...(message.trim() === '' ? {} : { firstMessage: message }), ...(model === null ? {} : { model }) });
       onClose();
       await openColumn({ target: { kind: 'session', sessionId: result.session.id } }).catch(() => {});
     } catch (error) {
@@ -145,6 +149,7 @@ export function NewTopicDialog({ onClose }: { onClose(): void }) {
             if (failure?.folder) setFailure(null);
           }}
         />
+        <ModelPicker label={t('new.model')} value={model} disabled={busy} onChange={setModel} />
         {isHost && host?.mainProjectSettings === 'ignored' && (config.status === 'loading' || config.status === 'idle') ? (
           <p className="topics-form__reading">
             <Spinner size={14} decorative /> {t('new.settings.reading')}

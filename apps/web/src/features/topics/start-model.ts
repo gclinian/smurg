@@ -1,7 +1,9 @@
 // What the Start dialog says (DESIGN §4.5), as a pure function of `StartPreflight`: one line per fact, in the order a
-// person needs them: what starts, who is responsible, what is committed, what changed since someone last looked, what
-// agents may do, and what stops the start. The dialog (StartDialog.tsx) adds the icons and the two inline actions.
-import type { PlanInfo, StartPreflight, UserRef } from '@smurg/protocol';
+// person needs them: what starts, who is responsible, what is committed (or, without a `.git`, that smurg records the
+// folder in its own history: DESIGN 0.6.0 D14), what changed since someone last looked, what agents may do, and what
+// stops the start. The dialog (StartDialog.tsx) adds the icons, the two inline actions, the block of items that run
+// directly in the folder (no git program: D15) and the topic's agent settings.
+import type { PlanInfo, SessionModeChoice, StartPreflight, UserRef } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatAnd, formatList, joinSentences } from '../../lib/format.ts';
 import { handEditsLine, itemNames, oneOrMany } from './model.ts';
@@ -15,6 +17,9 @@ export type StartLineId =
   | 'offline'
   | 'youDecide'
   | 'commit'
+  | 'smurgHistory'
+  | 'nestedRepos'
+  | 'cloudSynced'
   | 'handEdits'
   | 'invisible'
   | 'stale'
@@ -104,6 +109,12 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
     if (commit.alsoInFolder.length > 0) parts.push(t('start.commit.also', { files: formatList([...commit.alsoInFolder]) }));
     push('commit', joinSentences(parts));
   }
+  // No `.git`: smurg records the whole folder in its own history, and each item starts from that.
+  if (preflight.history === 'smurg') {
+    push('smurgHistory', t('start.smurgHistory'));
+    if (preflight.nestedRepos.length > 0) push('nestedRepos', t('start.nestedRepos', { paths: formatList([...preflight.nestedRepos]) }), 'warn');
+    if (preflight.cloudSynced) push('cloudSynced', t('start.cloudSynced'), 'warn');
+  }
 
   if (preflight.handEdits.spec.length + preflight.handEdits.plan.length > 0) push('handEdits', t('start.handEdits', { who: handEditsLine(preflight.handEdits) }), 'warn');
   if (preflight.invisibleCharacters.length > 0) {
@@ -118,6 +129,24 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
 
   if (preflight.projectSettings === 'used') push('settings', t('start.settings.used'));
   else if (preflight.projectSettings === 'ignored') push('settings', t('start.settings.ignored'), 'warn');
-  push('shared', preflight.sharedDirs.length === 0 ? t('start.shared.none') : t('start.shared', { dirs: formatList([...preflight.sharedDirs]) }));
+  // Items that run directly in the folder get no checkout (DESIGN 0.6.0 D15): nothing is shared into one.
+  if (preflight.history !== 'direct') push('shared', preflight.sharedDirs.length === 0 ? t('start.shared.none') : t('start.shared', { dirs: formatList([...preflight.sharedDirs]) }));
   return lines;
+}
+
+/** The Start may go ahead as far as how the items run is concerned: with git, always; directly, only the host after the tick. */
+export function directAllows(preflight: Pick<StartPreflight, 'history' | 'direct'>, confirmed: boolean): boolean {
+  if (preflight.history !== 'direct') return true;
+  return preflight.direct !== null && !preflight.direct.hostOnly && confirmed;
+}
+
+/** What `plan.start` sends of the topic's agent settings: only what the dialog changed (absent: nothing changed). */
+export function startAgentPatch(
+  topic: { readonly model: string | null; readonly permissionMode: SessionModeChoice | null },
+  chosen: { readonly model: string | null; readonly permissionMode: SessionModeChoice | null },
+): { model?: string | null; permissionMode?: SessionModeChoice | null } | undefined {
+  const patch: { model?: string | null; permissionMode?: SessionModeChoice | null } = {};
+  if (chosen.model !== topic.model) patch.model = chosen.model;
+  if (chosen.permissionMode !== topic.permissionMode) patch.permissionMode = chosen.permissionMode;
+  return Object.keys(patch).length === 0 ? undefined : patch;
 }

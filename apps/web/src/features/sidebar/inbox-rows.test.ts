@@ -277,6 +277,8 @@ describe('attention rows: work that stopped and has no card', () => {
     expect(row(attention('project-settings', { ...hostItem, target: { kind: 'console', section: 'claude-config' } })).title).toBe('Claude Code project settings wait for the host');
     expect(row(attention('host-rules', { ...hostItem, waiting: false, target: { kind: 'console', section: 'host-rules' } })).title).toBe('Your own Claude Code rules apply here');
     expect(row(attention('storage', { ...hostItem, waiting: false, target: consoleTarget })).title).toBe('Conversations use more disk space than the limit');
+    // The 0.6.0 update's notice (DESIGN 0.6.0 D13): it opens the console's settings, where "Got it" settles it.
+    expect(row(attention('agents-auto', { ...hostItem, waiting: false, target: { kind: 'console', section: 'settings' } })).title).toBe('Agents now run in auto mode');
   });
 
   it('in Traditional Chinese the same rows are composed from the same fields', () => {
@@ -287,6 +289,7 @@ describe('attention rows: work that stopped and has no card', () => {
     expect(row(attention('item-stalled'), byRestart).title).toBe('1 · Cart API 已暫停：smurg 重新啟動過');
     expect(row(buildInboxItem('vote', { excerpt: '先做哪個篩選？', voted: 1, eligible: 3, waitsFor: IAN, waitsForOffline: false })).title).toBe('投票：先做哪個篩選？');
     expect(row(buildInboxItem('question', { sessionId: 'sess_free' })).where).toContain('未分主題 › Fix flaky CI test');
+    expect(row(attention('agents-auto', { ...hostItem, waiting: false, target: { kind: 'console', section: 'settings' } })).title).toBe('agent 現在以自動模式執行');
     applyLocale('en');
   });
 });

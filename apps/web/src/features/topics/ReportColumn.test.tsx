@@ -101,6 +101,10 @@ describe('the report column: what the agent wrote', () => {
     const none = await setup({ report: { ...bare, noChanges: 'host-only-paths' } });
     expect(screen.getByText('The changes are not shown: they touch files only the host may change. The host looks at the worktree directly.')).toBeTruthy();
     none.unmount();
+    // An item that ran directly in the shared folder (no git program, DESIGN 0.6.0 D15).
+    const direct = await setup({ report: { ...bare, noChanges: 'no-history' } });
+    expect(screen.getByText('Without git, smurg keeps no history: this item changed the shared folder directly, and there is no diff to show. Its conversation and the activity feed show what its agent did.')).toBeTruthy();
+    direct.unmount();
     await setup({ report: { ...REPORT, state: 'invalid', error: { line: 7, text: msg('plan.error.noBlock'), fallback: 'x' } } });
     expect(screen.getByText('smurg cannot read this report (line 7).')).toBeTruthy();
     expect(screen.getByText('This report cannot be reviewed until the agent fixes it.')).toBeTruthy();

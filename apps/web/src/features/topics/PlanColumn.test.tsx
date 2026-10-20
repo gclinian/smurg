@@ -1,17 +1,19 @@
 // The plan column by state (DESIGN §5.4, §5.12 item 20): no plan, being written, unreadable, before the start,
 // executing, paused, complete; who is responsible; what the topic always allows.
 import { SmurgError, type PlanInfo, type Role, type SessionInfo, type Topic, type WorkItem } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import { buildPlan, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { renderInColumn } from '../../testing/columns.tsx';
-import { T0, makeAgentSession, makeMergeRequest, makeWorktree } from '../../testing/fixtures.ts';
+import { T0, makeAgentSession, makeHostState } from '../../testing/fixtures.ts';
 import { clearAskDrafts } from './AskBox.tsx';
 import { topicDialogs } from './dialogs.ts';
 import PlanColumn from './PlanColumn.tsx';
 import { AMY, IAN, MEI, admitAs, settle, topicConnection } from './testing/support.tsx';
 
+const GIT_NOT_FOUND = msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' });
+const DIRECT = { history: 'direct' as const, reason: { text: GIT_NOT_FOUND, fallback: renderEnglish(GIT_NOT_FOUND) } };
 const planOf = (topic: Partial<Topic['plan']> = {}): Topic['plan'] => ({ ...buildTopic().plan, exists: true, valid: true, items: 3, ...topic });
 const TOPIC = buildTopic({ phase: 'plan', discussionSessionId: 'sess_d', spec: { exists: true }, plan: planOf() });
 const item = (id: string, number: number, overrides: Partial<WorkItem> = {}): WorkItem => buildWorkItem({ id, number, title: id === 'cart-api' ? 'Cart API' : id === 'payment-form' ? 'Payment form' : 'Checkout page', summary: `About ${id}.`, ...overrides });
@@ -182,64 +184,45 @@ describe('the plan column: before the start', () => {
     expect(screen.getByText('Items 1 and 2 may change the same files and neither waits for the other.')).toBeTruthy();
   });
 
-  it('in a folder that is not a git repository the foot says why nothing can start, in the Start dialog’s words, and follows the folder', async () => {
-    const { conn } = await setup({ topic: { ...TOPIC, versioned: false } });
-    expect(screen.getByText(/^Work items cannot start yet:/).textContent).toBe(
-      'Work items cannot start yet: The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again. Item 3 starts by itself when 1 and 2 are merged.',
-    );
-    // The host ran `git init` while sharing: the host announces the topic again, and the foot offers Start.
-    act(() => {
-      conn.emit('topic.updated', { topic: TOPIC });
-    });
-    expect(screen.queryByText(/^Work items cannot start yet:/)).toBeNull();
-    expect(screen.getByText(/^Start opens one agent session per item, each in its own worktree\./)).toBeTruthy();
-  });
-
-  // 0.5.2 (the last fixes): a folder that is no repository while a worktree or an open merge request exists had a
-  // `.git` that went. The foot says what the Start dialog says then: put it back. Never "run git init" (a new
-  // repository could not merge that request). The closing fixes: a request that was decided (merged, rejected) is
-  // history and does not count; with only those, `git init` is what the foot offers.
-  it('a folder whose .git went while a worktree or an open merge request exists: the foot says to put it back, never to run git init', async () => {
-    const GONE = "Work items cannot start yet: The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository. Item 3 starts by itself when 1 and 2 are merged.";
-    const { conn } = await setup({ topic: { ...TOPIC, versioned: false } });
-    const foot = (): string | null => screen.getByText(/^Work items cannot start yet:/).textContent;
-    expect(foot()).toContain('run `git init`');
-    // Requests that were decided strand nothing: still "run git init".
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_merged', worktreeId: 'wt_0', status: 'merged' }) });
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_rejected', worktreeId: 'wt_0', status: 'rejected' }) });
-    });
-    expect(foot()).toContain('run `git init`');
-    // An open merge request alone is enough (its worktree may be removed already).
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_1', status: 'pending' }) });
-    });
-    expect(foot()).toBe(GONE);
-    expect(foot()).not.toContain('git init');
-    // The host rejects it: nothing open is left, and `git init` is the cure again.
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_1', status: 'rejected' }) });
-    });
-    expect(foot()).toContain('run `git init`');
-    act(() => {
-      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_1' }) });
-    });
-    expect(foot()).toBe(GONE);
-    // `.git` is back: the topic is announced again and the foot offers Start.
-    act(() => {
-      conn.emit('topic.updated', { topic: TOPIC });
-    });
-    expect(screen.queryByText(/^Work items cannot start yet:/)).toBeNull();
-  });
-
-  it('a folder that is not a git repository with only a worktree on record: the same "put it back"', async () => {
+  // 0.6.0 on purpose (DESIGN D14, D15): a folder without `.git` no longer stops Start (smurg's own history), so the
+  // 0.5.2 foot "Work items cannot start yet: …git init…" and its "put it back" variants are gone; how items run is
+  // `HostState.work`, and without the git program the foot says they run one at a time in the folder.
+  it("a folder without .git (smurg's own history): the foot offers Start as with a repository", async () => {
     const topic = { ...TOPIC, versioned: false };
-    const world = { role: 'agent' as const, topics: [topic], plans: { [topic.id]: BEFORE }, worktrees: [makeWorktree({ id: 'wt_1' })] };
+    const world = { role: 'agent' as const, topics: [topic], plans: { [topic.id]: BEFORE }, host: makeHostState({ work: { history: 'smurg' } }) };
     const conn = topicConnection(world);
     renderInColumn(<PlanColumn topicId={topic.id} />, { target: { kind: 'plan', topicId: topic.id }, conn, admit: false });
     admitAs(conn, world);
     await settle();
-    expect(screen.getByText(/^Work items cannot start yet:/).textContent).toMatch(/^Work items cannot start yet: The shared folder's \.git is gone, so worktrees cannot be used\. The host can put it back:/);
+    expect(screen.queryByText(/Work items cannot start yet/)).toBeNull();
+    expect(screen.getByText(/^Start opens one agent session per item, each in its own worktree\./)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Start 2 items' })).toBeTruthy();
+  });
+
+  it('without the git program: the foot says items run one at a time in the folder and nothing waits for a merge; the badges say so', async () => {
+    const plan = buildPlan({
+      items: [
+        item('cart-api', 1, { state: 'running', sessionId: 's1', attempt: 1 }),
+        item('payment-form', 2, { state: 'queued', armed: true }),
+        item('checkout-page', 3, { state: 'waiting', armed: true, dependsOn: ['cart-api', 'payment-form'], waitsFor: ['cart-api', 'payment-form'] }),
+      ],
+    });
+    const topic = { ...TOPIC, phase: 'executing' as const, versioned: false };
+    const world = { role: 'host' as const, topics: [topic], plans: { [topic.id]: plan }, host: makeHostState({ work: DIRECT }) };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId={topic.id} />, { target: { kind: 'plan', topicId: topic.id }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText('Without git, work items run one at a time directly in the shared folder; nothing waits for a merge.')).toBeTruthy();
+    expect(screen.queryByText(/starts by itself when/)).toBeNull();
+    expect(within(row('Payment form')).getByText('Waits its turn: without git, items run one at a time')).toBeTruthy();
+    expect(within(row('Checkout page')).getByText('Waits for 1 and 2 to finish')).toBeTruthy();
+    // The same plan with git: a free agent, and a merge.
+    act(() => {
+      conn.emit('session.host', makeHostState());
+    });
+    expect(within(row('Payment form')).getByText(/^Waiting for a free agent/)).toBeTruthy();
+    expect(within(row('Checkout page')).getByText('Waits for 1 and 2')).toBeTruthy();
   });
 });
 
@@ -273,7 +256,8 @@ describe('the plan column: allowed in this topic', () => {
 
   it('a website is written as its host name; an editor only reads the list', async () => {
     const agent = await setup();
-    expect(screen.getByText('Nothing yet: every command asks first.')).toBeTruthy();
+    // 0.6.0 on purpose: in auto mode (the default) not every command asks first (DESIGN D3).
+    expect(screen.getByText('Nothing yet.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Add a kind' }));
     fireEvent.change(screen.getByRole('combobox', { name: 'What to allow' }), { target: { value: 'WebFetch' } });
     fireEvent.change(screen.getByRole('textbox', { name: 'Website' }), { target: { value: 'docs.example.com' } });
@@ -284,6 +268,54 @@ describe('the plan column: allowed in this topic', () => {
     expect(screen.getByText('pnpm test *')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Add a kind' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Stop allowing pnpm test *' })).toBeNull();
+  });
+
+  it('"every command asks first" only where the topic\'s items ask before commands', async () => {
+    const world = { role: 'agent' as const, topics: [TOPIC], plans: { [TOPIC.id]: BEFORE }, workspaceMode: 'ask-commands' as const };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId={TOPIC.id} />, { target: { kind: 'plan', topicId: TOPIC.id }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText('Nothing yet: every command asks first.')).toBeTruthy();
+    // The topic's own choice wins over the workspace's.
+    act(() => {
+      conn.emit('topic.updated', { topic: { ...TOPIC, agent: { model: null, permissionMode: 'auto' } } });
+    });
+    expect(screen.getByText('Nothing yet.')).toBeTruthy();
+  });
+});
+
+describe("the plan column: the topic's model and the mode of its work items (DESIGN 0.6.0 D18)", () => {
+  const settings = (): HTMLElement => screen.getByRole('region', { name: "Model and permission mode of this topic's work items" });
+
+  it('shows what the topic has, and changes it with topic.agent.set', async () => {
+    const { conn } = await setup({ topic: { ...TOPIC, agent: { model: 'sonnet', permissionMode: null } } });
+    const model = within(settings()).getByRole('combobox', { name: 'Model' }) as HTMLSelectElement;
+    const mode = within(settings()).getByRole('combobox', { name: 'Permission mode' }) as HTMLSelectElement;
+    expect(model.value).toBe('sonnet');
+    expect(mode.selectedOptions[0]?.textContent).toBe('Workspace default (Auto: runs what a check allows)');
+    fireEvent.change(model, { target: { value: '' } });
+    expect(conn.lastRequest('topic.agent.set')?.payload).toEqual({ topicId: 'tp_1', model: null });
+    await act(async () => {
+      conn.respond('topic.agent.set', { topic: { ...TOPIC, agent: { model: null, permissionMode: null } } });
+    });
+    fireEvent.change(mode, { target: { value: 'ask-all' } });
+    expect(conn.lastRequest('topic.agent.set')?.payload).toEqual({ topicId: 'tp_1', permissionMode: 'ask-all' });
+    await act(async () => {
+      conn.fail('topic.agent.set', new SmurgError('forbidden', 'no'));
+    });
+    expect(screen.getByText(/^Could not change the topic's settings:/)).toBeTruthy();
+  });
+
+  it('an editor reads them as text: no control to change them', async () => {
+    await setup({ role: 'editor', topic: { ...TOPIC, agent: { model: 'fable', permissionMode: 'ask-commands' } } });
+    expect(within(settings()).queryByRole('combobox')).toBeNull();
+    expect(within(settings()).getByText('Model: Fable · Permission mode: Asks before commands')).toBeTruthy();
+  });
+
+  it("nothing chosen: the host's default and the workspace's mode", async () => {
+    await setup({ role: 'editor' });
+    expect(within(settings()).getByText("Model: The host's default (Opus) · Permission mode: Workspace default (Auto: runs what a check allows)")).toBeTruthy();
   });
 });
 

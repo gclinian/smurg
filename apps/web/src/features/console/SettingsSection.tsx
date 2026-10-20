@@ -4,15 +4,29 @@
 // Validated as the host types (settings-form.ts), applied at once by the daemon, and live: the form
 // follows the current settings while it has no unsaved edits, and re-reads them when they change elsewhere (another
 // device of the host: channel.settingsUpdated).
+//
+// What agents may do without asking (protocol 5, DESIGN 0.6.0 D3, D13, D18): the workspace's permission mode, the
+// default of every session and work item. It applies as soon as it is chosen; "Asks for nothing" only after the
+// warning's own button, and never while smurg runs as root. Under it: what auto mode costs, what the host's Claude
+// Code turned off, and which live sessions run on a model that may bill usage credits. After the 0.6.0 update a banner
+// says that agents now run in auto mode, until the host presses "Got it".
 import { useEffect, useId, useRef, useState } from 'react';
-import { ESCALATE_AFTER_MS_DEFAULT, MAX_LIVE_AGENTS_RANGE, REPORT_ESCALATION_FACTOR, type HostSettings } from '@smurg/protocol';
+import { ESCALATE_AFTER_MS_DEFAULT, MAX_LIVE_AGENTS_RANGE, PERMISSION_MODES, REPORT_ESCALATION_FACTOR, isSessionOver, type HostSettings, type PermissionMode } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
+import { formatList } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectAgentHost } from '../../lib/stores/host.ts';
+import { selectAgentList, sessionTitle } from '../../lib/stores/sessions.ts';
 import { selectSettings } from '../../lib/stores/workspace.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
-import { Banner, Button, Input, Spinner, TextArea, useToast } from '../../ui/index.ts';
+import { Banner, Button, Dialog, Input, Select, Spinner, TextArea, useToast } from '../../ui/index.ts';
+import { tApp } from '../../strings/app.ts';
+import { autoCostText, billsUsageCredits, entryOfRunning, modeLabel } from '../agents/agent-choice.ts';
 import { draftFromSettings, errorCount, hasChanges, parseSettingsDraft, type SettingsDraft, type SettingsField } from './settings-form.ts';
 import { t } from './strings.ts';
+
+/** Live sessions named one by one in the credits line; the rest are counted. */
+export const CREDITS_SESSIONS_SHOWN = 5;
 
 export function SettingsSection() {
   const stores = useStores();
@@ -24,7 +38,143 @@ export function SettingsSection() {
       </p>
     );
   }
-  return <SettingsForm settings={settings} />;
+  return (
+    <>
+      <AgentsAutoBanner />
+      <SettingsForm settings={settings} />
+    </>
+  );
+}
+
+/** "Since smurg 0.6.0, agents run in auto mode…": while the host's inbox holds that notice (`agents-auto`). */
+function AgentsAutoBanner() {
+  const stores = useStores();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const shown = useStore(stores.inbox, (state) => [...state.items.values()].some((item) => item.kind === 'attention' && item.subject === 'agents-auto'));
+  if (!shown) return null;
+  const dismiss = (): void => {
+    setBusy(true);
+    stores.admin
+      .seeNotice('agents-auto')
+      .catch((error: unknown) => toast.show({ tone: 'danger', title: t('settings.saveFailed', { message: describeError(error) }) }))
+      .finally(() => setBusy(false));
+  };
+  return (
+    <Banner
+      tone="info"
+      live="none"
+      className="console-settings__notice"
+      actions={
+        <Button size="sm" loading={busy} onClick={dismiss}>
+          {t('settings.agentsAuto.dismiss')}
+        </Button>
+      }
+    >
+      {t('settings.agentsAuto.banner')}
+    </Banner>
+  );
+}
+
+/** The live agent sessions that run on a model whose list entry may bill usage credits (by what the agent reported). */
+function useCreditsSessions(): string[] {
+  const stores = useStores();
+  const agent = useStore(stores.host, selectAgentHost);
+  const titles = useStore(stores.sessions, (state) =>
+    selectAgentList(state)
+      .filter((session) => {
+        if (isSessionOver(session)) return false;
+        const running = session.modelInUse === undefined ? undefined : entryOfRunning(agent, session.modelInUse);
+        return running !== undefined ? running.billing === 'usage-credits' : billsUsageCredits(agent, session.model);
+      })
+      .map((session) => sessionTitle(session))
+      .join('\n'),
+  );
+  return titles === '' ? [] : titles.split('\n');
+}
+
+/** The workspace's permission mode: applies when chosen, "Asks for nothing" behind its warning. */
+function AgentMode({ settings }: { settings: HostSettings }) {
+  const stores = useStores();
+  const toast = useToast();
+  const agent = useStore(stores.host, selectAgentHost);
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const credits = useCreditsSessions();
+  const root = agent?.asksNothing === 'root';
+  const mode = settings.permissionMode;
+
+  const apply = async (next: PermissionMode): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    try {
+      await stores.admin.setSettings({ permissionMode: next });
+      setConfirming(false);
+      toast.show({ tone: 'success', title: t('settings.saved') });
+    } catch (failure) {
+      setError(t('settings.saveFailed', { message: describeError(failure) }));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const choose = (next: PermissionMode): void => {
+    if (next === mode) return;
+    if (next === 'ask-nothing') setConfirming(true);
+    else void apply(next);
+  };
+
+  const shownNames = credits.slice(0, CREDITS_SESSIONS_SHOWN);
+  const more = credits.length - shownNames.length;
+  const names = formatList(more > 0 ? [...shownNames, t('settings.creditsSessions.more', { count: more })] : shownNames);
+  return (
+    <div className="console-settings__mode">
+      <Select<PermissionMode>
+        label={t('settings.permissionMode')}
+        hint={t('settings.permissionModeHint')}
+        value={mode}
+        disabled={busy}
+        options={PERMISSION_MODES.map((value) => ({ value, label: modeLabel(value), disabled: value === 'ask-nothing' && root && mode !== 'ask-nothing' }))}
+        onChange={choose}
+      />
+      {mode === 'auto' ? <p className="console-hint">{autoCostText()}</p> : null}
+      {root ? <p className="console-hint">{t('settings.askNothingRoot')}</p> : null}
+      {agent?.autoMode === 'off' ? (
+        <Banner tone="warning" live="none">
+          {t('settings.autoOff')}
+        </Banner>
+      ) : null}
+      {agent?.asksNothing === 'off' ? (
+        <Banner tone="warning" live="none">
+          {t('settings.askNothingOff')}
+        </Banner>
+      ) : null}
+      {credits.length > 0 ? <p className="console-hint">{t('settings.creditsSessions', { count: credits.length, names })}</p> : null}
+      {error !== null ? (
+        <Banner tone="danger" live="alert">
+          {error}
+        </Banner>
+      ) : null}
+      <Dialog
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        role="alertdialog"
+        size="md"
+        title={t('settings.askNothing.confirm.title')}
+        description={t('settings.askNothing.confirm.body')}
+        footer={
+          <>
+            <Button onClick={() => setConfirming(false)} disabled={busy}>
+              {tApp('common.cancel')}
+            </Button>
+            <Button variant="danger" loading={busy} onClick={() => void apply('ask-nothing')}>
+              {t('settings.askNothing.confirm.go')}
+            </Button>
+          </>
+        }
+      />
+    </div>
+  );
 }
 
 /** Re-reads the host settings when the daemon announces a change this page did not make. */
@@ -139,6 +289,7 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
         />
       </div>
       <h3 className="console-settings__group">{t('settings.agents')}</h3>
+      <AgentMode settings={settings} />
       <div className="console-settings__grid">
         <Input
           label={t('settings.maxLiveAgents')}

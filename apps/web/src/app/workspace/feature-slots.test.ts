@@ -33,6 +33,15 @@ const MOUNTS: readonly string[] = [
   // The New topic dialog contains the host's review of the folder's Claude Code project settings: the ONE review.
   'topics → console/claude-config.ts',
   'topics → console/ProjectSettingsReview.tsx',
+  // The model and permission mode pickers are the agents feature's (DESIGN 0.6.0 D18): the New session dialog's, a
+  // session's strip, the New topic and Start dialogs, a topic's settings; and what they say (the console's setting).
+  'conversation → agents/agent-choice.ts',
+  'conversation → agents/ModelPicker.tsx',
+  'conversation → agents/ModePicker.tsx',
+  'topics → agents/agent-choice.ts',
+  'topics → agents/ModelPicker.tsx',
+  'topics → agents/ModePicker.tsx',
+  'console → agents/agent-choice.ts',
 ];
 
 describe('features and each other', () => {

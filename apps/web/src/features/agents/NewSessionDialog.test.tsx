@@ -1,18 +1,22 @@
 // The new-session dialog per role (ARCHITECTURE §3, §5.5; SPEC R4, R9; protocol v2: every session runs as the host)
-// and the end-session question (R9.4).
+// and the end-session question (R9.4). Protocol 5 (DESIGN 0.6.0 D18): the model and mode pickers, and worktrees as
+// `HostState.work` says (0.6.0 on purpose: a folder without `.git` gets smurg's own history, so the 0.5.2 "run git
+// init" note and the cases that taught the page whether the folder is a repository are gone).
 import { act, fireEvent, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { SmurgError, worktreeRoot, type Role } from '@smurg/protocol';
+import { SmurgError, worktreeRoot, type HostState, type Role, type WorkState } from '@smurg/protocol';
 import { buildAgentSession, buildTopic } from '@smurg/protocol/testing';
-import { msg } from '@smurg/protocol/i18n';
-import { makeMergeRequest, makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
+import { makeHostState, makeSession, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { EndSessionDialog } from './EndSessionDialog.tsx';
 import { NewSessionDialog } from './NewSessionDialog.tsx';
 
-const NOT_A_GIT_REPO = 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.';
+const UNCHECKED = "smurg has not checked git on the host's computer yet. Once the host has opened a topic's Start dialog or created a worktree, you can create one.";
+const GIT_NOT_FOUND = msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' });
+const DIRECT: WorkState = { history: 'direct', reason: { text: GIT_NOT_FOUND, fallback: renderEnglish(GIT_NOT_FOUND) } };
 
-function renderDialog(role: Role, options: { git?: boolean; kind?: 'agent' | 'terminal' } = {}) {
+function renderDialog(role: Role, options: { git?: boolean; kind?: 'agent' | 'terminal'; host?: HostState } = {}) {
   const onCreated = vi.fn();
   const onClose = vi.fn();
   const result = renderInWorkspace(<NewSessionDialog kind={options.kind ?? 'agent'} open onClose={onClose} onCreated={onCreated} />, { role, admit: false });
@@ -20,6 +24,13 @@ function renderDialog(role: Role, options: { git?: boolean; kind?: 'agent' | 'te
   act(() => {
     result.conn.admit({ ...welcome, workspace: { ...welcome.workspace, isGitRepo: options.git ?? true } });
   });
+  if (options.host !== undefined) {
+    const host = options.host;
+    // The host's side as the daemon broadcasts it (the store takes the event at once).
+    act(() => {
+      result.conn.emit('session.host', host);
+    });
+  }
   return { ...result, onCreated, onClose };
 }
 
@@ -117,191 +128,83 @@ describe('new session dialog: where it runs (R9)', () => {
     });
   });
 
-  it('a folder that is not a git repository as far as the page knows: the reason as a note; a new worktree is still offered and the host answers', async () => {
-    const { conn, stores } = renderDialog('agent', { git: false });
-    expect(screen.getByRole('radio', { name: /Shared main workspace/ })).toHaveProperty('checked', true);
-    // The host's own sentence for the reason (the Start dialog's blocker): what the host can do about it.
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    // A workspace without a topic learns that the folder became a repository only at the next welcome: the choice
-    // stays, and the host's daemon looks at the folder again before it answers.
+  it("a folder without .git (smurg's own history): worktrees are offered with no note, and a new one may take the daemon minutes", async () => {
+    const { conn, stores } = renderDialog('agent', { git: false, host: makeHostState({ work: { history: 'smurg' } }) });
+    const dialog = screen.getByRole('dialog');
     expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
+    expect(within(dialog).queryByText(/git init|not a git repository/)).toBeNull();
     fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
     await submit();
-    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
-    await act(async () => {
-      conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.notAGitRepo'), { reason: 'not-a-git-repo' }));
-    });
-    expect(dialogAlert().textContent).toContain(NOT_A_GIT_REPO);
-    // The host says the same: it stands once, in the host's answer (the page's own note is not shown beside it).
-    expect(screen.getAllByText(NOT_A_GIT_REPO)).toHaveLength(1);
-    expect(within(dialogAlert()).getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
-    // The host ran `git init` and committed since the page opened: the same request now opens the session there.
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: 'Open' }));
-    });
-    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'worktree' });
+    const request = conn.lastRequest('session.create');
+    expect(request?.payload.workspace).toEqual({ mode: 'worktree' });
+    // The first snapshot of a big folder runs inside this request (DESIGN 0.6.0 D14): the page waits 5 minutes.
+    expect(request?.options).toEqual({ timeoutMs: 300_000 });
     await act(async () => {
       conn.respond('session.create', { session: makeSession({ id: 'sess_wt', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, root: worktreeRoot('wt_new') }) });
     });
-    // 0.5.2 (the last fixes): a session opened in a worktree means the folder is a repository. The page learns it
-    // from that answer (no event tells a workspace without a topic), and stops saying "run git init".
-    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    expect(screen.getByText(/^Work in your own worktree without disturbing the main workspace\./)).toBeTruthy();
+    // A worktree of smurg's own history says nothing about a `.git` of the folder.
+    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
   });
 
-  it('a workspace without a topic, after `git init`: a refusal that names what a repository lacks says the folder is one, the note goes and my kept worktrees are offered', async () => {
-    const { conn, stores } = renderDialog('agent', { git: false });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
+  it("the main workspace and a kept worktree are asked for with the connection's own timeout", async () => {
+    const { conn } = renderDialog('agent', { host: makeHostState() });
+    await submit();
+    expect(conn.lastRequest('session.create')?.options).toBeUndefined();
+  });
+
+  it("without the git program: no worktree, not even a kept one, and the host's sentence says why", async () => {
+    const { conn } = renderDialog('agent', { host: makeHostState({ work: DIRECT }) });
+    await act(async () => {
+      conn.respond('worktree.list', { worktrees: [makeWorktree({ id: 'wt_kept', branch: 'smurg/amy/wt_kept', kept: true })] });
+      conn.respond('worktree.merge.list', { requests: [] });
+    });
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', true);
+    expect(screen.queryByRole('radio', { name: /Continue in the worktree I kept/ })).toBeNull();
+    expect(screen.getByText(renderEnglish(GIT_NOT_FOUND))).toBeTruthy();
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'main' });
+  });
+
+  it("before the host's smurg looked for git: a teammate is not offered a worktree and is told when; the host is", async () => {
+    const member = renderDialog('agent', { host: makeHostState({ work: { history: 'unchecked' } }) });
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', true);
+    expect(screen.getByText(UNCHECKED)).toBeTruthy();
+    member.unmount();
+    renderDialog('host', { host: makeHostState({ work: { history: 'unchecked' } }) });
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
+    expect(screen.queryByText(UNCHECKED)).toBeNull();
+  });
+
+  it('follows how work items run while it is open (the session.host event)', () => {
+    const { conn } = renderDialog('agent', { host: makeHostState({ work: { history: 'unchecked' } }) });
+    expect(screen.getByText(UNCHECKED)).toBeTruthy();
+    act(() => {
+      conn.emit('session.host', makeHostState({ work: { history: 'smurg' } }));
+    });
+    expect(screen.queryByText(UNCHECKED)).toBeNull();
+    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
+    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
+    act(() => {
+      conn.emit('session.host', makeHostState({ work: DIRECT }));
+    });
+    // The choice that is gone falls back to the main workspace.
+    expect(screen.getByRole('radio', { name: /Shared main workspace/ })).toHaveProperty('checked', true);
+  });
+
+  it('a workspace without a topic: a refusal that names what a repository lacks says the folder is one (WorkspaceInfo.isGitRepo)', async () => {
+    const { conn, stores } = renderDialog('agent', { git: false, host: makeHostState() });
     fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
     await submit();
     await act(async () => {
       conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' }));
     });
-    // One sentence on screen, the host's: no commit yet. Not "is not a git repository" beside it.
     expect(dialogAlert().textContent).toContain("The shared folder's git repository has no commit yet, so no worktree can be created. The host can commit once, without sharing again.");
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
     expect(stores.workspace.getState().workspace?.isGitRepo).toBe(true);
-    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('checked', true);
-    // The member's kept worktrees are offered from now on.
-    act(() => {
-      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_kept', branch: 'smurg/amy/wt_kept', kept: true }) });
-    });
-    expect(screen.getByRole('radio', { name: /Continue in the worktree I kept: smurg\/amy\/wt_kept/ })).toBeTruthy();
     // A later word of the host about the folder wins: a topic announced as not versioned.
     act(() => {
       conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
     });
     expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
-  });
-
-  it('a refusal that says the folder is no repository (nothing at .git, or a .git that went) teaches nothing; nor does a session in the main workspace', async () => {
-    const { conn, stores } = renderDialog('agent', { git: false });
-    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
-    await submit();
-    await act(async () => {
-      conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.gitDirGone'), { reason: 'git-dir-gone' }));
-    });
-    expect(dialogAlert().textContent).toContain("The shared folder's .git is gone, so worktrees cannot be used. The host can put it back: the worktrees and merge requests here belong to that repository.");
-    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
-    // "Put it back" stands alone: never "run git init" beside it.
-    expect(within(screen.getByRole('dialog')).queryByText(/git init/)).toBeNull();
-    fireEvent.click(screen.getByRole('radio', { name: /Shared main workspace/ }));
-    await submit();
-    await act(async () => {
-      conn.respond('session.create', { session: makeSession({ id: 'sess_main', openedBy: { userId: 'dev:amy', displayName: 'Amy' } }) });
-    });
-    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-  });
-
-  // 0.5.2 (the closing fixes): the host names git itself first, whatever the folder is, and a look that failed saw
-  // nothing. Before, each of these made the page take a folder that is NO repository for one: the note went, the
-  // hint of a working worktree mode showed, and the next topic.updated put the note back beside the host's error
-  // (one saying "without sharing again", the other "stop sharing, and share again").
-  it("a folder that is no repository, refused for a reason that says nothing about it (git itself, a look that failed, a host still starting): the page keeps what it believed and shows the host's sentence alone", async () => {
-    const { conn, stores } = renderDialog('agent', { git: false });
-    const dialog = screen.getByRole('dialog');
-    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
-    const refusals = [
-      { text: msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' }), reason: 'git-not-found', said: "git was not found on the host's computer, so worktrees cannot be used. The host can install git 2.42.0 or later, stop sharing, and share again from a new terminal." },
-      { text: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }), reason: 'git-too-old', said: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal." },
-      { text: msg('worktree.unavailable.gitCannotRun'), reason: 'git-unusable', said: "git does not run on the host's computer, so worktrees cannot be used. The host can make `git version` work in a terminal, stop sharing, and share again from that terminal." },
-      { text: msg('worktree.unavailable.checkFailed'), reason: 'check-failed', said: "smurg could not look at the shared folder's git repository just now. Try again in a moment." },
-      { text: msg('worktree.unavailable.starting'), reason: 'starting', said: 'Worktrees are not ready yet.' },
-    ];
-    for (const { text, reason, said } of refusals) {
-      await submit();
-      await act(async () => {
-        conn.fail('session.create', new SmurgError('conflict', text, { reason }));
-      });
-      expect(dialogAlert().textContent, reason).toContain(said);
-      // Nothing in that sentence says the folder is a repository: the page believes what it believed.
-      expect(stores.workspace.getState().workspace?.isGitRepo, reason).toBe(false);
-      expect(within(dialog).queryByText(/^Work in your own worktree/), reason).toBeNull();
-      // One sentence on screen, the host's: no "run git init … without sharing again" beside "share again".
-      expect(screen.queryByText(NOT_A_GIT_REPO), reason).toBeNull();
-      expect(within(dialog).queryByText(/git init/), reason).toBeNull();
-    }
-    // A topic announced again changes nothing of that: the host's sentence still stands alone.
-    act(() => {
-      conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
-    });
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    // A refusal that is not about worktrees does not hide the page's note.
-    await submit();
-    await act(async () => {
-      conn.fail('session.create', new SmurgError('conflict', msg('session.limit'), { reason: 'session-limit' }));
-    });
-    expect(dialogAlert().textContent).toContain('The workspace has reached its session limit.');
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    expect(stores.workspace.getState().workspace?.isGitRepo).toBe(false);
-  });
-
-  it('never the "run git init" note while a worktree or an open merge request exists: the folder is a repository the page has not heard of, or its .git went', async () => {
-    const { conn } = renderDialog('agent', { git: false });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    // Somebody opened a session in a worktree (the host ran `git init` and committed since this page opened).
-    act(() => {
-      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_bob', ownerUserId: 'dev:bob', ownerName: 'Bob' }) });
-    });
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    expect(within(screen.getByRole('dialog')).queryByText(/git init/)).toBeNull();
-    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
-    act(() => {
-      conn.emit('worktree.removed', { worktreeId: 'wt_bob' });
-    });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    // 0.5.2 (the closing fixes): a request that was decided is history, and `git init` strands nothing of it.
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_done', worktreeId: 'wt_gone', status: 'merged' }) });
-    });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    // One that still waits for the host can only be merged in the repository it was made in.
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_gone', status: 'pending' }) });
-    });
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    act(() => {
-      conn.emit('worktree.merge.updated', { request: makeMergeRequest({ id: 'mr_1', worktreeId: 'wt_gone', status: 'rejected' }) });
-    });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-  });
-
-  it('follows the folder while it is open: a topic the host announces again says it became a git repository, or stopped being one', async () => {
-    const { conn } = renderDialog('agent', { git: false });
-    await act(async () => {
-      conn.respond('worktree.list', { worktrees: [makeWorktree({ id: 'wt_kept', branch: 'smurg/amy/wt_kept', kept: true })] });
-      conn.respond('worktree.merge.list', { requests: [] });
-    });
-    expect(screen.queryByRole('radio', { name: /Continue in the worktree I kept/ })).toBeNull();
-    // The host ran `git init` while sharing: every topic is announced again with `versioned`.
-    act(() => {
-      conn.emit('topic.updated', { topic: buildTopic({ versioned: true }) });
-    });
-    expect(screen.getByRole('radio', { name: /A new worktree of my own/ })).toHaveProperty('disabled', false);
-    expect(screen.getByRole('radio', { name: /Continue in the worktree I kept: smurg\/amy\/wt_kept/ })).toBeTruthy();
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    fireEvent.click(screen.getByRole('radio', { name: /A new worktree of my own/ }));
-
-    fireEvent.click(screen.getByRole('radio', { name: /Continue in the worktree I kept/ }));
-
-    // Its `.git` went away: the kept worktree is no longer offered (back to the main workspace). No "run git init"
-    // while a worktree exists: the host says "put it back" to whoever asks for a worktree.
-    act(() => {
-      conn.emit('topic.updated', { topic: buildTopic({ versioned: false }) });
-    });
-    expect(screen.queryByRole('radio', { name: /Continue in the worktree I kept/ })).toBeNull();
-    expect(screen.getByRole('radio', { name: /Shared main workspace/ })).toHaveProperty('checked', true);
-    expect(screen.queryByText(NOT_A_GIT_REPO)).toBeNull();
-    // With the worktree removed, the folder is simply no repository.
-    act(() => {
-      conn.emit('worktree.removed', { worktreeId: 'wt_kept' });
-    });
-    expect(screen.getByText(NOT_A_GIT_REPO)).toBeTruthy();
-    await submit();
-    expect(conn.lastRequest('session.create')?.payload.workspace).toEqual({ mode: 'main' });
   });
 
   it('a repository that cannot hold a worktree yet: the host refuses with the reason and what to do, and the dialog says it', async () => {
@@ -320,6 +223,74 @@ describe('new session dialog: where it runs (R9)', () => {
       conn.fail('session.create', new SmurgError('conflict', msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }), { reason: 'git-too-old' }));
     });
     expect(dialogAlert().textContent).toContain("The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal.");
+  });
+});
+
+describe('new session dialog: the model and what it may do without asking (DESIGN 0.6.0 D18)', () => {
+  const optionsOf = (name: string): string[] => Array.from((screen.getByRole('combobox', { name }) as HTMLSelectElement).options).map((option) => option.textContent ?? '');
+
+  it("offers the host's default and every model the host's Claude Code lists; a model that may bill usage credits says so", async () => {
+    const { conn } = renderDialog('agent', { host: makeHostState() });
+    expect(optionsOf('Model')).toEqual([
+      "The host's default (Opus)",
+      'Opus · Opus 5.5 · Most capable for complex work',
+      'Fable · Fable 5.1 · Billed to usage credits on some plans',
+      'Sonnet · Sonnet 5.5 · Best for everyday tasks',
+      'Haiku · Haiku 4.5 · Fastest for quick answers',
+    ]);
+    const credits = 'On some plans this model is billed to usage credits, and Claude Code does not ask first here.';
+    expect(screen.queryByText(credits)).toBeNull();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: 'fable' } });
+    expect(screen.getByText(credits)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Model' }), { target: { value: 'sonnet' } });
+    expect(screen.queryByText(credits)).toBeNull();
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'agent', workspace: { mode: 'main' }, model: 'sonnet' });
+  });
+
+  it("while the host's agent was not asked yet: only the host's default, the line that says it is being asked, and the page asks again", async () => {
+    const { conn } = renderDialog('agent', { host: makeHostState({ agent: { models: [], modelsKnown: false, hostDefault: null } }) });
+    expect(optionsOf('Model')).toEqual(["The host's default"]);
+    expect(screen.getByText("Asking the host's Claude Code which models it offers…")).toBeTruthy();
+    // The daemon asks its Claude Code when `session.host.get` arrives and the list is not known: once more, not again.
+    await act(async () => {});
+    expect(conn.requestsOf('session.host.get')).toHaveLength(2);
+    act(() => {
+      conn.emit('session.host', makeHostState({ agent: { models: [], modelsKnown: false, hostDefault: null } }));
+    });
+    await act(async () => {});
+    expect(conn.requestsOf('session.host.get')).toHaveLength(2);
+    act(() => {
+      conn.emit('session.host', makeHostState());
+    });
+    expect(screen.queryByText("Asking the host's Claude Code which models it offers…")).toBeNull();
+    expect(optionsOf('Model')).toHaveLength(5);
+  });
+
+  it('the mode follows the workspace unless one of the three is chosen; never "Asks for nothing"; auto says what its checks cost', async () => {
+    const { conn } = renderDialog('agent', { host: makeHostState() });
+    expect(optionsOf('What it may do without asking')).toEqual(['Workspace default (Auto: runs what a check allows)', 'Auto: runs what a check allows', 'Asks before commands', 'Asks before edits and commands']);
+    const cost = "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.";
+    expect(screen.getByText(cost)).toBeTruthy();
+    fireEvent.change(screen.getByRole('combobox', { name: 'What it may do without asking' }), { target: { value: 'ask-commands' } });
+    expect(screen.queryByText(cost)).toBeNull();
+    await submit();
+    expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'agent', workspace: { mode: 'main' }, permissionMode: 'ask-commands' });
+  });
+
+  it("the workspace's own mode names the default (the Welcome's settings, then channel.settingsUpdated)", () => {
+    const { conn } = renderDialog('agent', { host: makeHostState() });
+    act(() => {
+      conn.emit('channel.settingsUpdated', { settings: { ...makeWelcome().settings, permissionMode: 'ask-all' } });
+    });
+    expect(optionsOf('What it may do without asking')[0]).toBe('Workspace default (Asks before edits and commands)');
+    expect(screen.queryByText(/Auto mode checks commands/)).toBeNull();
+  });
+
+  it('a terminal has neither', () => {
+    renderDialog('agent', { kind: 'terminal', host: makeHostState() });
+    expect(screen.queryByRole('combobox', { name: 'Model' })).toBeNull();
+    expect(screen.queryByRole('combobox', { name: 'What it may do without asking' })).toBeNull();
   });
 });
 

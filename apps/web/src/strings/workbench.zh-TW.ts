@@ -21,6 +21,8 @@ export const zhTW = {
   'topbar.toggleDrawer': '顯示或隱藏動態、傳輸與終端機',
   'topbar.leave': '離開',
   'topbar.more': '更多選項',
+  'workspace.asksNothing.badge': 'agent 什麼都不問',
+  'workspace.asksNothing.title': '主人讓這個工作區的 agent 以主人的身分執行指令，Claude Code 不檢查，smurg 也不會先問；只剩 smurg 固定的限制。',
   'mode.label': '模式',
   'mode.sessions': 'session',
   'mode.sessions.title': 'session：對話、計畫、spec 與結果報告',

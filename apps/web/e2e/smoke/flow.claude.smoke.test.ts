@@ -1,7 +1,9 @@
 // One short pass of the flow with REAL Claude Code in the browser (DESIGN §9.5 item 3, §5.11): the BUILT app served by
 // the real relay, a daemon on the release composition, and the real `claude` binary in structured mode instead of the
 // scripted stand-in: a session without a topic, its first message, a tool, a permission request answered by a member
-// with agent access, a question answered by the host, the agent's last words.
+// with agent access, a question answered by the host, the agent's last words. The workspace runs agents in auto mode,
+// the default since 0.6.0 (DESIGN D3): the session is opened "Asks before commands" so that its command asks; then it
+// follows the workspace again, and its next command runs in auto mode with no card.
 //
 // NEVER anyone's account: the binary talks only to the repository's fake Anthropic API on 127.0.0.1
 // (packages/daemon/test/hooks/mock-anthropic.ts) with a dummy key, in an environment built from nothing (a temporary
@@ -39,6 +41,10 @@ const CLI_MAIN = fileURLToPath(new URL('../../../../packages/cli/src/main.ts', i
 const FIRST = 'Add a test for the empty cart';
 const COMMAND = 'touch cart.test.ts';
 const LAST = 'The cart stays where you decided. The test file is there.';
+/** The next turn, in auto mode: a simple file command in the agent's own folder runs without asking anyone. */
+const AUTO_ASK = 'Now add the checkout test file too.';
+const AUTO_COMMAND = 'touch checkout.test.ts';
+const AUTO_LAST = 'The checkout test file is there too.';
 const QUESTION = {
   questions: [
     {
@@ -77,15 +83,21 @@ describe.skipIf(chrome === null || claude === null)(`one pass of the flow with t
         // The release composition, with the sessions module given the isolated environment and the binary under test.
         modules: DEFAULT_FEATURE_MODULES.map((module) => (module.name === 'sessions' ? sessions : module)),
         sessions: { claudePath: binary.path, selfCommand },
-        // The workspace asks before commands, as every 0.5.x workspace did: this pass answers a card (0.6.0 on purpose:
-        // the default is auto mode now, DESIGN D8).
-        settings: { permissionMode: 'ask-commands' },
+        // The workspace's permission mode is the default, auto mode (0.6.0).
       },
     });
     const root = env.stack.root;
     const tool = (name: string, input: Record<string, unknown>): MockStep => ({ tools: [{ name, input }] });
-    // What the "model" answers, turn by turn: a read, a command, a question, its last words.
-    mock = await startMockAnthropic([tool('Read', { file_path: join(root, 'src/cart.ts') }), tool('Bash', { command: COMMAND, description: 'create the test file' }), tool('AskUserQuestion', QUESTION), { text: LAST }]);
+    // What the "model" answers, turn by turn: a read, a command, a question, its last words; then, in auto mode, another
+    // command and its last words. The classifier of auto mode is the fake API's (it allows).
+    mock = await startMockAnthropic([
+      tool('Read', { file_path: join(root, 'src/cart.ts') }),
+      tool('Bash', { command: COMMAND, description: 'create the test file' }),
+      tool('AskUserQuestion', QUESTION),
+      { text: LAST },
+      tool('Bash', { command: AUTO_COMMAND, description: 'create the checkout test file' }),
+      { text: AUTO_LAST },
+    ]);
     mockUrl = mock.url;
     // What a host's own Claude Code config already has: the folder trusted, the (dummy) key approved.
     await seedClaudeTrust({ cfgDir: join(base, 'cfg'), cwd: root, apiKey: MOCK_API_KEY });
@@ -114,6 +126,8 @@ describe.skipIf(chrome === null || claude === null)(`one pass of the flow with t
     await host.getByRole('button', { name: 'New', exact: true }).click();
     await host.getByRole('menuitem', { name: 'New session' }).click();
     const dialog = host.getByRole('dialog', { name: 'New session' });
+    // This session asks before commands (the workspace would run it in auto mode).
+    await dialog.getByRole('combobox', { name: 'What it may do without asking' }).selectOption('ask-commands');
     await dialog.getByLabel('What should Claude do first? (optional)').fill(FIRST);
     await dialog.getByRole('button', { name: 'Open' }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
@@ -151,9 +165,28 @@ describe.skipIf(chrome === null || claude === null)(`one pass of the flow with t
     await column(host).getByRole('status').filter({ hasText: 'Claude is idle.' }).waitFor({ timeout: STEP_MS });
     await shot('answered');
 
-    // What the model was told about its tool calls: the read, the command that ran, and the answer the people chose.
+    // The session follows the workspace again (auto mode): its next command runs with no card.
+    await column(host).getByRole('button', { name: 'Permission mode: Asks before commands' }).click();
+    const modeDialog = host.getByRole('dialog', { name: 'What this session may do without asking' });
+    // The radio is checked by the mode the host's smurg stored, not by the click itself.
+    await modeDialog.getByRole('radio', { name: 'Workspace default (Auto: runs what a check allows)' }).click();
+    await expect.poll(() => modeDialog.getByRole('radio', { name: 'Workspace default (Auto: runs what a check allows)' }).isChecked(), { timeout: STEP_MS }).toBe(true);
+    // (The conversation behind an open dialog is out of reach: the line is read once it is closed.)
+    await modeDialog.getByRole('button', { name: 'Done' }).click();
+    await log(host).getByText(/^host set the permission mode back to the default: runs what a check allows/).waitFor({ timeout: STEP_MS });
+    await column(host).getByRole('button', { name: 'Permission mode: Auto: runs what a check allows' }).waitFor({ timeout: 120_000 });
+    const composer = column(host).getByRole('combobox', { name: /^Message Claude/ });
+    await composer.fill(AUTO_ASK);
+    await composer.press('Enter');
+    for (const page of [host, mei]) await log(page).getByText(AUTO_LAST).waitFor({ timeout: 120_000 });
+    await waitUntil(async () => (await readFile(join(env.stack.root, 'checkout.test.ts'), 'utf8').then(() => true, () => false)), 120_000, 'the command of auto mode to have run in the shared folder');
+    expect(await column(host).locator('.conv-card--permission:not(.ui-card--settled)').count()).toBe(0);
+    await shot('auto-mode');
+
+    // What the model was told about its tool calls: the read, the command that ran, the answer the people chose, and
+    // the command auto mode ran.
     const results = mock.toolResults();
-    expect(results.map((result) => result.isError)).toEqual([false, false, false]);
+    expect(results.map((result) => result.isError)).toEqual([false, false, false, false]);
     expect(results[0]?.text).toContain('export const cart = [];');
     expect(results[2]?.text).toContain('On the server');
     // Every request of the binary went to the fake API, with the dummy key and nothing else.

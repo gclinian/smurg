@@ -1,19 +1,22 @@
 // The topic screens of v0.5.0 in a real browser (DESIGN §5.11 `topics.smoke`): the BUILT app served by the real
-// relay, a daemon composing the release's modules on a git repository, the scripted stand-in `claude`
-// (packages/daemon/src/testing/fake-claude.mjs: no Claude Code, no account, no network), and system Chrome driven
-// headless in fresh contexts. Every step waits for a condition.
+// relay, a daemon composing the release's modules on a folder WITHOUT `.git` (0.6.0, DESIGN D14, D21 row D18: smurg
+// keeps its own history of it in `.smurg/git`, and the topic runs as with a repository), the scripted stand-in
+// `claude` (packages/daemon/src/testing/fake-claude.mjs: no Claude Code, no account, no network), and system Chrome
+// driven headless in fresh contexts. Every step waits for a condition. The workspace runs agents in auto mode, the
+// default: the item's command runs with no card.
 //
 // What only the real stack proves about a topic:
 //   - "New topic" creates the folder and the discussion; the first draft of the spec the agent writes shows in the
 //     spec column, rendered, and the same document is the collaborative editor a second member reads live;
 //   - the plan column reads PLAN.md as the daemon parsed it; who is responsible is changed from the row; an Editor's
 //     "Ask the agent to revise" arrives as a suggestion;
-//   - the Start dialog lists what the daemon would do (the commit, what waits) and Start runs the item in its own
-//     worktree; the agent's checked report shows in the report column with its changes; "I've reviewed this" and the
-//     host's "Merge…" finish the item, and the item that waited for it starts by itself.
+//   - the Start dialog lists what the daemon would do (smurg's own history, what waits) and Start runs the item in its
+//     own worktree of that history; the agent's checked report shows in the report column with its diff; "I've
+//     reviewed this" and the host's "Merge…" finish the item, and the item that waited for it starts by itself. No
+//     `.git` is ever made in the folder.
 //
 // The scenario below is the whole "model": a turn is chosen by a pattern on the message smurg (or a person) sent.
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Page } from 'playwright-core';
@@ -80,6 +83,8 @@ const SCENARIO: FakeClaudeScenario = {
       match: 'Start work item 1 ',
       steps: [
         { tool: 'Write', input: { file_path: 'src/cart/total.ts', content: 'export const total = (prices: number[]): number => prices.reduce((a, b) => a + b, 0);\n' } },
+        // In auto mode its command runs without asking (Claude Code's check allows it).
+        { tool: 'Bash', input: { command: 'pnpm test cart' }, result: '3 tests passed' },
         { tool: 'Write', input: { file_path: `specs/${SLUG}/reports/cart-api.md`, content: REPORT } },
         { tool: 'mcp__smurg__check_report', input: {} },
         { text: 'The cart total is done; the report is written.' },
@@ -105,7 +110,7 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
     claude = await installFakeClaude(await mkdtemp(join(process.env['TMPDIR'] as string, 'topics-claude-')), SCENARIO);
     env = await startSmoke({
       stack: {
-        git: true,
+        // A folder without `.git` (0.6.0 on purpose: until 0.5.2 Start was refused here).
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
       },
@@ -187,19 +192,33 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
     await amy.getByText(/^Sent as a suggestion to /).waitFor({ timeout: STEP_MS });
   }, 240_000);
 
-  it('the Start dialog says what a Start does; Start runs item 1 in its own worktree and its checked report arrives', async () => {
+  it("the Start dialog says what a Start does in a folder without .git; Start runs item 1 in a worktree of smurg's own history, its command without a card, and its checked report arrives with a diff", async () => {
     const plan = column(host, 'Plan');
     // The button and the dialog's title say one number: what starts now (the second item waits for the first).
     await plan.getByRole('button', { name: /^Start 1 item$/ }).click();
     const dialog = host.getByRole('dialog', { name: /^Start 1 item$/ });
     await dialog.getByText(/^1 item starts now: 1 · Cart API\.$/).waitFor({ timeout: STEP_MS });
     await dialog.getByText(/^2 · Checkout page starts by itself when 1 · Cart API is merged/).waitFor({ timeout: STEP_MS });
-    await dialog.getByText(/smurg commits SPEC\.md and PLAN\.md to the branch main of the host's folder, as you\./).waitFor({ timeout: STEP_MS });
+    // No commit of the folder's own git: smurg records the folder in its own history (DESIGN 0.6.0 D14).
+    await dialog
+      .getByText('The folder has no git repository of its own. smurg records the folder as it is now in its own history (in .smurg, not a .git of yours), and each item starts from that.')
+      .waitFor({ timeout: STEP_MS });
+    expect(await dialog.getByText(/smurg commits SPEC\.md/).count()).toBe(0);
+    // The items run as the workspace says: auto mode, the default.
+    expect(await dialog.getByRole('combobox', { name: 'What their agents may do without asking' }).locator('option:checked').textContent()).toBe('Workspace default (Auto: runs what a check allows)');
+    await dialog.getByText("Everything else goes through Claude Code's check.").waitFor({ timeout: STEP_MS });
     await dialog.getByRole('button', { name: 'Start', exact: true }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
 
     const first = plan.getByRole('list', { name: 'Work items' }).getByRole('listitem').nth(0);
     await first.getByText('Report to review').waitFor({ timeout: STEP_MS });
+    // Its command ran in auto mode without asking anyone: no card, nothing in an inbox.
+    await first.getByRole('button', { name: 'Session' }).click();
+    const session = column(host, /^1 · Cart API/);
+    await session.locator('details.conv-tool', { hasText: 'pnpm test cart' }).waitFor({ timeout: STEP_MS });
+    expect(await session.locator('.conv-card--permission').count()).toBe(0);
+    expect(await host.locator('aside.sidebar .inbox-item[data-kind="permission"]').count()).toBe(0);
+    await session.locator('.col-head__actions button').last().click();
     await first.getByRole('button', { name: 'Report' }).click();
     const report = column(host, /^Result report: 1 · Cart API/);
     for (const heading of ['What was done', 'Why it was done this way', 'How it was verified', 'What to watch out for']) await report.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
@@ -220,6 +239,9 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
     await review.getByRole('button', { name: 'Confirm merge' }).click();
     await review.waitFor({ state: 'detached', timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'cart', 'total.ts'), 'utf8').catch(() => '')).includes('total'), STEP_MS, "the item's change is in the main workspace");
+    // smurg's own history is in `.smurg/git`; the folder never got a `.git` of its own.
+    expect(await stat(join(env.stack.root, '.git')).then(() => true, () => false)).toBe(false);
+    expect((await stat(join(env.stack.root, '.smurg', 'git'))).isDirectory()).toBe(true);
 
     const items = column(host, 'Plan').getByRole('list', { name: 'Work items' }).getByRole('listitem');
     await items.nth(0).getByText('Reviewed · merged').waitFor({ timeout: STEP_MS });

@@ -205,7 +205,7 @@ const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
   const stores = useStores();
   const hostDialogs = useHostDialogs();
   const caps = useCapabilities();
-  const { sessionId } = useConversationEnv();
+  const { sessionId, chooseModel } = useConversationEnv();
   const { event } = item;
   // Only what decides whether the notice's action still makes sense.
   const status = useStore(stores.sessions, (state) => selectSession(state, sessionId)?.status);
@@ -239,6 +239,13 @@ const NoticeRow = memo(function NoticeRow({ item }: { item: NoticeItem }) {
     button = (
       <Button size="sm" loading={action.busy} onClick={() => void action.run(() => stores.sessions.restart(sessionId))}>
         {t('notice.restart')}
+      </Button>
+    );
+  } else if (event.action === 'choose-model' && status !== undefined && status !== 'ended' && caps.canDrive) {
+    // A model the host's account cannot use: the strip's model dialog (DESIGN 0.6.0 D7, D18).
+    button = (
+      <Button size="sm" onClick={() => chooseModel(true)}>
+        {t('notice.action.choose-model')}
       </Button>
     );
   }

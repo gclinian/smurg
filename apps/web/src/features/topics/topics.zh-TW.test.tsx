@@ -2,13 +2,13 @@
 // headings and the New topic dialog are composed from the zh-TW table; names and numbers are joined the zh-TW way;
 // what people and agents wrote stays as written.
 import type { PlanInfo, StartPreflight, Topic } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import { FAKE_HASH, buildPlan, buildReport, buildReportSummary, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { formatAnd } from '../../lib/format.ts';
 import { renderInColumn } from '../../testing/columns.tsx';
-import { makeWorktree } from '../../testing/fixtures.ts';
+import { makeHostState } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { itemBadge } from './model.ts';
@@ -156,22 +156,54 @@ describe('the topic screens in zh-TW', () => {
     }
   });
 
-  it('the plan’s foot in a folder that is not a git repository yet: the same sentence as the Start dialog', async () => {
-    const world = { role: 'agent' as const, topics: [{ ...TOPIC, versioned: false }], plans: { tp_1: PLAN } };
+  it("the Start dialog's lines of smurg's own history (DESIGN 0.6.0 D14)", () => {
+    const preflight: StartPreflight = {
+      planRevision: 1,
+      specHash: FAKE_HASH,
+      planHash: FAKE_HASH,
+      startsNow: ['cart-api'],
+      waits: [],
+      alreadyStarted: [],
+      responsible: [],
+      youDecide: 0,
+      commit: null,
+      handEdits: { spec: [], plan: [] },
+      invisibleCharacters: [],
+      stale: false,
+      openQuestion: false,
+      specOpenQuestions: 0,
+      editingNow: [],
+      projectSettings: 'none',
+      rules: [],
+      sharedDirs: [],
+      blockers: [],
+      history: 'smurg', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: ['frontend'], cloudSynced: true,
+    };
+    const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
+    expect(text).toContain('這個資料夾沒有自己的 git 儲存庫。smurg 會把資料夾現在的樣子記在它自己的版本紀錄裡（在 .smurg 裡，不是你的 .git），每個項目都從這裡開始。');
+    expect(text).toContain('這些資料夾各自是一個 git 儲存庫，工作項目看不到它們：frontend。要在其中一個裡工作，請分享那個資料夾。');
+    expect(text).toContain('這個資料夾由雲端服務同步：smurg 在 .smurg 裡的版本紀錄和每個工作項目的 worktree 也會被同步，只存在雲端的檔案可能讓開始失敗。');
+    // Directly in the folder: no checkout, so no line about one.
+    expect(startLines({ ...preflight, history: 'direct', nestedRepos: [], cloudSynced: false, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: 'x' }, hostOnly: false } }, PLAN, MEI.userId).map((line) => line.id)).not.toContain('shared');
+  });
+
+  // 0.6.0 on purpose (DESIGN D14, D15): a folder without `.git` no longer stops Start; without the git program the
+  // foot says that items run one at a time in the folder.
+  it('the plan’s foot and badges when the host’s computer cannot run git', async () => {
+    const reason = msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' });
+    const plan = buildPlan({
+      items: [
+        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'running', sessionId: 's1', attempt: 1 }),
+        buildWorkItem({ id: 'payment-form', number: 2, title: 'Payment form', state: 'queued', armed: true }),
+      ],
+    });
+    const world = { role: 'host' as const, topics: [{ ...TOPIC, phase: 'executing' as const, versioned: false }], plans: { tp_1: plan }, host: makeHostState({ work: { history: 'direct', reason: { text: reason, fallback: renderEnglish(reason) } } }) };
     const conn = topicConnection(world);
     renderInColumn(<PlanColumn topicId="tp_1" />, { target: { kind: 'plan', topicId: 'tp_1' }, conn, admit: false });
     admitAs(conn, world);
     await settle();
-    expect(screen.getByText(/^工作項目還不能開始：/).textContent).toBe(
-      '工作項目還不能開始：分享的資料夾不是 git 儲存庫，無法使用 worktree。主人可以在資料夾裡執行 `git init` 並提交一次，不必重新分享。項目 3 會在 1 和 2 都合併後自動開始。',
-    );
-    // A worktree exists: the folder's `.git` went. "Put it back", never "run git init".
-    act(() => {
-      conn.emit('worktree.updated', { worktree: makeWorktree({ id: 'wt_1' }) });
-    });
-    expect(screen.getByText(/^工作項目還不能開始：/).textContent).toBe(
-      '工作項目還不能開始：分享資料夾的 .git 不見了，無法使用 worktree。主人可以把它放回去：這裡的 worktree 和合併請求都屬於那個儲存庫。項目 3 會在 1 和 2 都合併後自動開始。',
-    );
+    expect(screen.getByText('沒有 git 時，工作項目會一次一個直接在分享的資料夾裡執行；沒有東西要等合併。')).toBeTruthy();
+    expect(screen.getByText('等輪到它：沒有 git 時，項目一次只跑一個')).toBeTruthy();
   });
 
   it('a result report: the catalogue’s headings over what the agent wrote', async () => {
@@ -204,6 +236,7 @@ describe('the topic screens in zh-TW', () => {
       </WorkspaceTestProviders>,
     );
     const dialog = screen.getByRole('dialog', { name: '新增主題' });
+    expect(within(dialog).getByRole('combobox', { name: '討論和這個主題的工作項目使用的模型' })).toBeTruthy();
     fireEvent.change(within(dialog).getByLabelText('名稱'), { target: { value: '結帳流程改版' } });
     expect((within(dialog).getByLabelText(/^spec 與計畫的資料夾/) as HTMLInputElement).value).toBe('topic-1');
     expect(within(dialog).getByText(/資料夾名稱使用英文字母；主題會保留自己的名稱。/)).toBeTruthy();

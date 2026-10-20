@@ -1,11 +1,11 @@
 // The Start dialog (DESIGN §4.5, §5.12 item 21): the checklist from plan.preflight, the pins plan.start echoes, and
 // what happens when the files changed meanwhile.
-import { SmurgError, type StartPreflight, type Topic } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
+import { SmurgError, type HostState, type StartPreflight, type Topic } from '@smurg/protocol';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import { FAKE_HASH, buildPlan, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { T0 } from '../../testing/fixtures.ts';
+import { T0, makeHostState } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { StartDialog } from './StartDialog.tsx';
 import { AMY, GIT_REASONS, IAN, MEI, admitAs, settle, topicConnection, type GitReason } from './testing/support.tsx';
@@ -55,8 +55,8 @@ function preflight(overrides: Partial<StartPreflight> = {}): StartPreflight {
   };
 }
 
-async function setup(options: { itemIds?: string[]; role?: 'host' | 'agent'; topic?: Topic } = {}) {
-  const world = { role: options.role ?? ('agent' as const), topics: [options.topic ?? TOPIC], plans: { tp_1: PLAN } };
+async function setup(options: { itemIds?: string[]; role?: 'host' | 'agent'; topic?: Topic; host?: HostState } = {}) {
+  const world = { role: options.role ?? ('agent' as const), topics: [options.topic ?? TOPIC], plans: { tp_1: PLAN }, ...(options.host === undefined ? {} : { host: options.host }) };
   const conn = topicConnection(world);
   const onClose = vi.fn();
   // A dialog opens on a person's click, in a connected workspace: admit first, then render.
@@ -97,6 +97,100 @@ afterEach(() => {
   Reflect.deleteProperty(document, 'visibilityState');
 });
 
+const GIT_TOO_OLD = msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' });
+const DIRECT_REASON = { text: GIT_TOO_OLD, fallback: renderEnglish(GIT_TOO_OLD) };
+
+describe('the Start dialog: how the items run (DESIGN 0.6.0 D14, D15, D18)', () => {
+  it("a folder without .git: smurg's own history, the nested repositories it leaves out, a cloud-synced folder", async () => {
+    const { answer } = await setup();
+    await answer(preflight({ history: 'smurg', commit: null, nestedRepos: ['frontend', 'tools/vendor'], cloudSynced: true }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect(within(dialog).getByText('The folder has no git repository of its own. smurg records the folder as it is now in its own history (in .smurg, not a .git of yours), and each item starts from that.')).toBeTruthy();
+    expect(within(dialog).getByText('These folders are git repositories of their own, and work items do not see them: frontend, tools/vendor. To work in one, share that folder.')).toBeTruthy();
+    expect(within(dialog).getByText(/^This folder is synced by a cloud service: smurg's history in \.smurg/)).toBeTruthy();
+    expect(within(dialog).queryByText(/smurg commits SPEC\.md/)).toBeNull();
+    expect((within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('the folder\'s own git: no line of smurg\'s history', async () => {
+    const { answer } = await setup();
+    await answer(preflight());
+    expect(screen.queryByText(/The folder has no git repository of its own/)).toBeNull();
+  });
+
+  it('without the git program, for the host: what that means, and Start only after the tick, with direct: true', async () => {
+    const { conn, answer } = await setup({ role: 'host' });
+    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: false } }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect(within(dialog).getByText('Without git: work items change the folder directly')).toBeTruthy();
+    expect(
+      within(dialog).getByText(
+        `${renderEnglish(GIT_TOO_OLD)} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change. To work in worktrees, install git 2.42 or later and share again.`,
+      ),
+    ).toBeTruthy();
+    // No checkout: nothing is shared into one.
+    expect(within(dialog).queryByText(/^Each item gets a fresh checkout/)).toBeNull();
+    const start = within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement;
+    expect(start.disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'I understand that these changes land in the shared folder directly' }));
+    expect(start.disabled).toBe(false);
+    fireEvent.click(start);
+    expect(conn.lastRequest('plan.start')?.payload).toEqual({ topicId: 'tp_1', planRevision: 7, specHash: FAKE_HASH, planHash: 'b'.repeat(64), direct: true });
+  });
+
+  it('without the git program, for a member with agent access: only the host can start them, and there is no Start button', async () => {
+    const { answer } = await setup({ role: 'agent' });
+    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: true } }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect(within(dialog).getByText('Without git: work items change the folder directly')).toBeTruthy();
+    expect(within(dialog).getByText('Without git, only the host can start work items: they run directly in the shared folder.')).toBeTruthy();
+    expect(within(dialog).queryByRole('checkbox')).toBeNull();
+    expect(within(dialog).queryByRole('button', { name: 'Start' })).toBeNull();
+  });
+
+  it('asks again when how work items run changes while it is open', async () => {
+    const { conn, answer } = await setup({ host: makeHostState({ work: { history: 'unchecked' } }) });
+    await answer(preflight());
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(1);
+    act(() => {
+      conn.emit('session.host', makeHostState({ work: { history: 'smurg' } }));
+    });
+    expect(conn.requestsOf('plan.preflight')).toHaveLength(2);
+  });
+});
+
+describe("the Start dialog: the topic's model and the mode its items run with", () => {
+  it('start from the topic\'s settings; only what changed is sent, with the Start', async () => {
+    const { conn, answer } = await setup({ topic: { ...TOPIC, agent: { model: 'sonnet', permissionMode: null } } });
+    await answer(preflight({ agent: { model: 'sonnet', permissionMode: null, effective: 'auto' } }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    const model = within(dialog).getByRole('combobox', { name: 'Model for these items' }) as HTMLSelectElement;
+    const mode = within(dialog).getByRole('combobox', { name: 'What their agents may do without asking' }) as HTMLSelectElement;
+    expect(model.value).toBe('sonnet');
+    expect(mode.selectedOptions[0]?.textContent).toBe('Workspace default (Auto: runs what a check allows)');
+    expect(within(dialog).getByText("Both are the topic's settings: its later items use them too.")).toBeTruthy();
+    expect(within(dialog).getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.")).toBeTruthy();
+    // Nothing changed: no `agent`.
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload).not.toHaveProperty('agent');
+    await act(async () => {
+      conn.fail('plan.start', new SmurgError('conflict', 'busy'));
+    });
+    fireEvent.change(mode, { target: { value: 'ask-commands' } });
+    // The note of the rules follows the mode the items will run with.
+    expect(within(dialog).getByText('Everything else asks first.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload).toMatchObject({ agent: { permissionMode: 'ask-commands' } });
+    expect(conn.lastRequest('plan.start')?.payload.agent).not.toHaveProperty('model');
+    await act(async () => {
+      conn.fail('plan.start', new SmurgError('conflict', 'busy'));
+    });
+    fireEvent.change(model, { target: { value: '' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload.agent).toEqual({ model: null, permissionMode: 'ask-commands' });
+  });
+});
+
 describe('the Start dialog', () => {
   it('lists what a Start does before anything starts, and Start echoes the pins the list showed', async () => {
     const { conn, onClose, answer } = await setup();
@@ -113,13 +207,17 @@ describe('the Start dialog', () => {
     expect(within(dialog).getByText('Responsible: Ian 1 · Mei 2.')).toBeTruthy();
     expect(within(dialog).getByText("smurg commits SPEC.md and PLAN.md to the branch main of the host's folder, as you.")).toBeTruthy();
     expect(within(dialog).getByText("The folder's Claude Code project settings are confirmed: agents read CLAUDE.md.")).toBeTruthy();
-    // What the topic always allows is part of the list and can be changed here.
+    // What the topic always allows is part of the list and can be changed here. 0.6.0 on purpose: the items run in
+    // auto mode (the default), where what is not allowed goes through Claude Code's check (DESIGN D18).
     expect(within(dialog).getByText('pnpm test *')).toBeTruthy();
-    expect(within(dialog).getByText('Everything else asks first.')).toBeTruthy();
+    expect(within(dialog).getByText("Everything else goes through Claude Code's check.")).toBeTruthy();
+    expect(within(dialog).queryByText('Everything else asks first.')).toBeNull();
     expect(within(dialog).getByRole('button', { name: 'Add a kind' })).toBeTruthy();
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
     expect(conn.lastRequest('plan.start')?.payload).toEqual({ topicId: 'tp_1', planRevision: 7, specHash: FAKE_HASH, planHash: 'b'.repeat(64) });
+    // The first snapshot of a big folder may run inside the Start (DESIGN 0.6.0 D14): the page waits 5 minutes.
+    expect(conn.lastRequest('plan.start')?.options).toEqual({ timeoutMs: 300_000 });
     await act(async () => {
       conn.respond('plan.start', { plan: PLAN });
     });

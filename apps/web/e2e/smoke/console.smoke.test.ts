@@ -9,6 +9,8 @@
 //   - the trust gate: what the folder's real files do is on screen before anything is confirmed, "Use them" needs the
 //     ticks, and the daemon then really uses them (and audits the decision);
 //   - the three agent settings travel to the daemon and survive a reload;
+//   - "Asks for nothing" (0.6.0, DESIGN D13, D21 row D18) is chosen only through its warning, every member then sees
+//     it in the top bar, and the host puts it back;
 //   - an agent session of the new model is in the sessions table, and the allow rules its Claude Code reported are
 //     listed as information: seeing them is all it takes for the daemon to count them as seen;
 //   - a member's removal names what goes with them; nobody but the host gets the console.
@@ -236,6 +238,45 @@ describe.skipIf(chrome === null)('the host console in a real browser (built app,
     await host.getByRole('button', { name: 'Terminate "try the parser", opened by Host' }).click();
     await host.getByText('Terminated "try the parser", opened by Host.').waitFor({ timeout: STEP_MS });
     await waitUntil(() => env.stack.daemon.ctx.services.sessions.get(session.id)?.status === 'ended', STEP_MS, 'the agent session to end');
+  }, 240_000);
+
+  it('"Asks for nothing" only through the warning: a member\'s page says so at once, and the host goes back to auto mode', async () => {
+    const amy = await env.newPage();
+    await joinAs(amy, env, 'amy', 'editor');
+    const badge = (page: Page) => page.locator('.app-topbar').getByText('Agents ask for nothing');
+    expect(await badge(amy).count()).toBe(0);
+    expect(env.stack.daemon.ctx.settings.get().permissionMode).toBe('auto');
+
+    await openConsoleAt('settings');
+    const settings = sectionOf(host, 'Settings');
+    const mode = settings.getByRole('combobox', { name: 'What agents may do without asking' });
+    await mode.waitFor({ timeout: STEP_MS });
+    expect(await mode.inputValue()).toBe('auto');
+    await settings.getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.").waitFor({ timeout: STEP_MS });
+    await mode.selectOption('ask-nothing');
+    const warning = host.getByRole('alertdialog', { name: 'Let agents ask for nothing?' });
+    await warning.getByText(/^Every agent session of this workspace will run every command as you, on your computer, with no sandbox and no check by Claude Code or smurg/).waitFor({ timeout: STEP_MS });
+    await shot(host, 'ask-nothing-warning');
+    // Nothing is saved before the warning's own button.
+    expect(env.stack.daemon.ctx.settings.get().permissionMode).toBe('auto');
+    await warning.getByRole('button', { name: 'Ask for nothing' }).click();
+    await warning.waitFor({ state: 'detached', timeout: STEP_MS });
+    await waitUntil(() => env.stack.daemon.ctx.settings.get().permissionMode === 'ask-nothing', STEP_MS, 'the workspace to ask for nothing');
+    // Every member sees it, the host too.
+    await badge(amy).waitFor({ timeout: STEP_MS });
+    await badge(host).waitFor({ timeout: STEP_MS });
+    expect(await amy.locator('.app-topbar__asks-nothing').getAttribute('title')).toBe(
+      "The host lets this workspace's agents run commands as the host with no check by Claude Code and no question from smurg; only smurg's fixed limits stay.",
+    );
+    await shot(amy, 'ask-nothing-badge');
+
+    // Back to auto mode: it applies at once, and the badge goes for everyone.
+    await mode.selectOption('auto');
+    await waitUntil(() => env.stack.daemon.ctx.settings.get().permissionMode === 'auto', STEP_MS, 'the workspace to be back in auto mode');
+    await expect.poll(() => badge(amy).count(), { timeout: STEP_MS }).toBe(0);
+    await expect.poll(() => badge(host).count(), { timeout: STEP_MS }).toBe(0);
+    expect(env.problemsOf(amy).pageErrors).toEqual([]);
+    await amy.close();
   }, 240_000);
 
   it('removing a member names what goes with them before the host confirms; nobody but the host gets the console', async () => {

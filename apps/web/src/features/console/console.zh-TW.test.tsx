@@ -10,7 +10,7 @@ import { useTestLocale } from '../../testing/locale.ts';
 import { auditActionLabel } from './audit-labels.ts';
 import ConsoleOverlays from './ConsoleOverlays.tsx';
 import { consoleDialogs } from './dialogs.ts';
-import { defaultFixture, makeConfigFile, renderConsole, renderWithConsoleData, topicFixture } from './test-support.tsx';
+import { AGENTS_AUTO, defaultFixture, makeConfigFile, renderConsole, renderWithConsoleData, topicFixture } from './test-support.tsx';
 
 useTestLocale('zh-TW');
 
@@ -194,5 +194,21 @@ describe('host console in zh-TW', () => {
     expect(new Set(labels).size).toBe(AUDIT_ACTIONS.length);
     expect(auditActionLabel('session.handover')).toBe('session 改由主人接手');
     expect(auditActionLabel('transcript.redact')).toBe('移除對話內容');
+  });
+});
+
+describe('host console in zh-TW: what agents may do without asking', () => {
+  it('the four labels, the warning and the banner', async () => {
+    const fixture = defaultFixture();
+    fixture.inbox = [AGENTS_AUTO];
+    renderConsole({ section: 'settings', fixture });
+    const settings = (await screen.findByRole('heading', { level: 2, name: '設定' })).closest('section') as HTMLElement;
+    const select = (await within(settings).findByRole('combobox', { name: 'agent 不用問就能做的事' })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['自動：檢查通過就執行', '執行指令前先問', '編輯和執行指令前都先問', '什麼都不問']);
+    expect(await within(settings).findByText(/^從 smurg 0\.6\.0 起，agent 以自動模式執行/)).toBeTruthy();
+    expect(within(settings).getByRole('button', { name: '知道了' })).toBeTruthy();
+    fireEvent.change(select, { target: { value: 'ask-nothing' } });
+    const warning = screen.getByRole('alertdialog', { name: '要讓 agent 什麼都不問嗎？' });
+    expect(within(warning).getByRole('button', { name: '什麼都不問' })).toBeTruthy();
   });
 });

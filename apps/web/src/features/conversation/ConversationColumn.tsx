@@ -5,7 +5,7 @@
 // The session is watched for as long as the column exists: with streaming deltas while the column is on screen,
 // without them while its view is hidden (the other mode, scrolled out of the strip), so a hidden column stays
 // current and costs the relay no delta frames (DESIGN §5.3).
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ColumnHeaderExtra, ColumnMenuItems, useColumn } from '../../lib/columns/context.tsx';
 import { sessionTitle } from '../../lib/stores/sessions.ts';
 import { useCapabilities, useMember, useStores } from '../../lib/workspace/context.tsx';
@@ -31,6 +31,8 @@ export default function ConversationColumn({ sessionId }: ConversationColumnProp
   const column = useColumn();
   const session = useAgentSession(sessionId);
   const list = useRef<EventListHandle>(null);
+  // The strip's model dialog: its chip opens it, and so does a notice's "Choose a model".
+  const [modelOpen, setModelOpen] = useState(false);
 
   const live = column.visible;
   useEffect(() => stores.conversations.watch(sessionId, { live }), [stores, sessionId, live]);
@@ -53,14 +55,14 @@ export default function ConversationColumn({ sessionId }: ConversationColumnProp
     );
   }
   return (
-    <ConversationEnvProvider sessionId={sessionId} root={session.root}>
+    <ConversationEnvProvider sessionId={sessionId} root={session.root} chooseModel={setModelOpen}>
       <ColumnMenuItems items={menu} />
       {session.purpose === 'item' && session.attempt !== undefined && session.attempt > 1 ? (
         <ColumnHeaderExtra>
           <Badge>{t('attempt', { number: session.attempt })}</Badge>
         </ColumnHeaderExtra>
       ) : null}
-      <HeaderStrip session={session} />
+      <HeaderStrip session={session} modelOpen={modelOpen} setModelOpen={setModelOpen} />
       <EventList ref={list} sessionId={sessionId} title={sessionTitle(session)} />
       <StatusBar session={session} onShowCard={(cardId) => void list.current?.show({ cardId })} />
       <Composer session={session} />

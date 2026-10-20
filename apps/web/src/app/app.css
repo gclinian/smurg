@@ -641,3 +641,11 @@
   overflow: auto;
 }
 
+
+/* "Agents ask for nothing" beside the workspace's name (DESIGN 0.6.0 D13): every member sees it. */
+.app-topbar__asks-nothing {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  white-space: nowrap;
+}

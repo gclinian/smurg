@@ -153,6 +153,8 @@ export const t = defineStrings(
     // ---- allowed in this topic
     'rules.label': 'Allowed in this topic',
     'rules.none': 'Nothing yet: every command asks first.',
+    // Auto mode and "Asks for nothing" do not ask before every command (DESIGN 0.6.0 D3): the list is just empty.
+    'rules.none.auto': 'Nothing yet.',
     'rules.add': 'Add a kind',
     'rules.remove': 'Stop allowing {rule}',
     'rules.tool': 'What to allow',
@@ -218,9 +220,6 @@ export const t = defineStrings(
     // ---- the plan's foot
     'foot.start': 'Start opens one agent session per item, each in its own worktree.',
     'foot.start.others': '{names} can start the plan.',
-    // {reason}: the wire catalog's sentence (worktree.unavailable.notAGitRepo, or gitDirGone when a worktree or an
-    // open merge request exists), the Start dialog's words for it.
-    'foot.noGit': 'Work items cannot start yet: {reason}',
     'foot.startsByItself.one': 'Item {number} starts by itself when {items} is merged.',
     'foot.startsByItself.many': 'Item {number} starts by itself when {items} are merged.',
     'foot.startAll': { one: 'Start {count} item', other: 'Start {count} items' },
@@ -274,6 +273,7 @@ export const t = defineStrings(
     'new.info.subscription': 'A personal Claude subscription (Pro or Max) is for your own use. When other people work with agents here, use an API key or a Team or Enterprise plan.',
     'new.settings.unconfirmed': "The host has not confirmed this folder's Claude Code project settings. The discussion will run without them and without the project's CLAUDE.md until {host} confirms.",
     'new.submit': 'Start discussion',
+    'new.model': "Model of the discussion and the topic's work items",
     'new.failed': 'The topic was not created: {reason}',
     'new.trustFailed': 'The Claude Code settings could not be confirmed: {reason}',
     'new.cannot.editor': "With the role {role} you cannot start a topic: starting one opens an agent session on the host's computer. You can take part in every topic: vote, comment, edit the spec and make suggestions.",
@@ -325,6 +325,24 @@ export const t = defineStrings(
     'start.shared.none': 'Each item gets a fresh checkout. Nothing is shared into it, so agents install what they need first.',
     'start.sharedSetting': 'Shared directories',
     'start.rules.note': 'Everything else asks first.',
+    'start.rules.note.auto': "Everything else goes through Claude Code's check.",
+    // ---- how the items run (DESIGN 0.6.0 D14, D15) and the topic's agent settings (D3, D4)
+    'start.smurgHistory': 'The folder has no git repository of its own. smurg records the folder as it is now in its own history (in .smurg, not a .git of yours), and each item starts from that.',
+    'start.direct.title': 'Without git: work items change the folder directly',
+    'start.direct.body':
+      '{reason} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change. To work in worktrees, install git 2.42 or later and share again.',
+    'start.direct.confirm': 'I understand that these changes land in the shared folder directly',
+    'start.direct.hostOnly': 'Without git, only the host can start work items: they run directly in the shared folder.',
+    'start.nestedRepos': 'These folders are git repositories of their own, and work items do not see them: {paths}. To work in one, share that folder.',
+    'start.cloudSynced': "This folder is synced by a cloud service: smurg's history in .smurg and every work item's worktree are synced too, and a file kept only online can make Start fail.",
+    'start.agent.model': 'Model for these items',
+    'start.agent.mode': 'What their agents may do without asking',
+    'start.agent.note': "Both are the topic's settings: its later items use them too.",
+    'plan.direct.foot': 'Without git, work items run one at a time directly in the shared folder; nothing waits for a merge.',
+    'plan.item.queuedDirect': 'Waits its turn: without git, items run one at a time',
+    'plan.item.waitsDirect': 'Waits for {items} to finish',
+    'topic.agent.title': "Model and permission mode of this topic's work items",
+    'topic.agent.failed': "Could not change the topic's settings: {reason}",
     'handEdit.entry': '{name} ({file}, {time})',
     'handEdit.outside': 'a program outside smurg',
     'changes.title': 'Changes of the spec and the plan',

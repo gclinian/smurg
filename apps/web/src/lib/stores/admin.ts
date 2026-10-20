@@ -5,6 +5,7 @@ import {
   can,
   type AuditEntry,
   type GuestRole,
+  type HostNotice,
   type HostSettings,
   type HostSettingsPatch,
   type InviteInfo,
@@ -43,6 +44,8 @@ export interface AdminStore extends ReadableStore<AdminState> {
   terminateSession(sessionId: string): Promise<void>;
   loadOlderAudit(): Promise<void>;
   setSettings(patch: HostSettingsPatch): Promise<HostSettings>;
+  /** "Got it" of a notice the host has not seen yet (`admin.notice.seen`): its inbox item goes. */
+  seeNotice(notice: HostNotice): Promise<void>;
 }
 
 export const AUDIT_PAGE_SIZE = 200;
@@ -201,6 +204,9 @@ export function createAdminArea(): { store: AdminStore; lifecycle: AreaLifecycle
       const { settings } = await context().conn.request('admin.settings.set', patch);
       state.setState((previous) => ({ ...previous, settings }));
       return settings;
+    },
+    async seeNotice(notice) {
+      await context().conn.request('admin.notice.seen', { notice });
     },
   };
 

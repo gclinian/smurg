@@ -1,6 +1,7 @@
 // The top bar of a workspace, in both modes and in the console: workspace name and host, connection status, member
 // avatars with presence, own role, the console link (host), the mode switch "Sessions | Code mode" (DESIGN §5.1),
-// the layout toggles of the mode on screen, language, theme, and "Leave" (channel.leave).
+// the layout toggles of the mode on screen, language, theme, and "Leave" (channel.leave). While the host lets the
+// workspace's agents ask for nothing, a badge beside the name says so to every member (DESIGN 0.6.0 D13).
 //
 // The mode switch is two links (the mode is a route): the current one is marked aria-current. While code mode is on
 // screen the "Sessions" segment carries the two inbox counts, so a question is not missed while hand-coding; the
@@ -13,11 +14,12 @@ import { routePath } from '../../lib/router.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectOpenConflicts } from '../../lib/stores/conflicts.ts';
 import { selectInboxCounts } from '../../lib/stores/inbox.ts';
+import { selectSettings } from '../../lib/stores/workspace.ts';
 import type { WorkspaceMode } from '../../lib/commands.ts';
 import { useCapabilities, useConnectionState, useMember, useStores, useWorkspaceInfo, useWorkspaceSession } from '../../lib/workspace/context.tsx';
 import { tWorkbench } from '../../strings/workbench.ts';
 import { Avatar, Badge, Button, Dialog, IconButton, LanguageMenu, Segmented, Tooltip, useToast } from '../../ui/index.ts';
-import { IconCode, IconLogOut, IconPanelBottom, IconPanelLeft, IconPanelRight, IconSessions, IconSettings, IconUsers } from '../../ui/icons.tsx';
+import { IconCode, IconLogOut, IconPanelBottom, IconPanelLeft, IconPanelRight, IconSessions, IconSettings, IconShieldAlert, IconUsers } from '../../ui/icons.tsx';
 import { InboxCounts } from '../../features/sidebar/index.tsx';
 import { tUi } from '../../strings/ui.ts';
 import { tApp } from '../../strings/app.ts';
@@ -45,6 +47,8 @@ export function TopBar({ view, layout }: { view: TopBarView; layout?: LayoutTogg
   const member = useMember();
   const caps = useCapabilities();
   const state = useConnectionState();
+  const stores = useStores();
+  const asksNothing = useStore(stores.workspace, (workspace) => selectSettings(workspace)?.permissionMode === 'ask-nothing');
   const [leaving, setLeaving] = useState(false);
 
   return (
@@ -58,6 +62,11 @@ export function TopBar({ view, layout }: { view: TopBarView; layout?: LayoutTogg
           <h1 className="app-topbar__name">{info?.name ?? session.workspaceId}</h1>
           {info ? <span className="app-topbar__host app-hide-narrow">{tWorkbench('topbar.host', { name: info.hostName })}</span> : null}
         </div>
+        {asksNothing ? (
+          <Badge tone="danger" className="app-topbar__asks-nothing" title={tWorkbench('workspace.asksNothing.title')}>
+            <IconShieldAlert size={14} /> {tWorkbench('workspace.asksNothing.badge')}
+          </Badge>
+        ) : null}
         <ConnectionStatusPill state={state} />
       </div>
 

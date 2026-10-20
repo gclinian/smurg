@@ -85,6 +85,8 @@ export interface SelectOption<V extends string> {
   readonly value: V;
   readonly label: string;
   readonly disabled?: boolean;
+  /** A class of the option: text that is not the interface's own words (a model's name and line from the host's agent). */
+  readonly className?: string;
 }
 
 export interface SelectProps<V extends string> extends FieldProps, Omit<SelectHTMLAttributes<HTMLSelectElement>, 'className' | 'value' | 'onChange'> {
@@ -111,7 +113,7 @@ export function Select<V extends string>({ label, hideLabel, hint, error, classN
         {...rest}
       >
         {options.map((option) => (
-          <option key={option.value} value={option.value} disabled={option.disabled}>
+          <option key={option.value} value={option.value} disabled={option.disabled} className={option.className}>
             {option.label}
           </option>
         ))}

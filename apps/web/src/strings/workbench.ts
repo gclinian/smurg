@@ -27,6 +27,10 @@ export const tWorkbench = defineStrings(
     'topbar.toggleDrawer': 'Show or hide activity, transfers and terminal',
     'topbar.leave': 'Leave',
     'topbar.more': 'More options',
+    // While the host lets this workspace's agents ask for nothing (DESIGN 0.6.0 D13), for every member.
+    'workspace.asksNothing.badge': 'Agents ask for nothing',
+    'workspace.asksNothing.title':
+      "The host lets this workspace's agents run commands as the host with no check by Claude Code and no question from smurg; only smurg's fixed limits stay.",
     'mode.label': 'Mode',
     'mode.sessions': 'Sessions',
     'mode.sessions.title': 'Sessions: conversations, plans, specs and reports',
