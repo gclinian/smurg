@@ -89,13 +89,16 @@ export function buildSessionSettings(input: SessionSettingsInput): JsonObject {
   if (watch !== null) hooks['FileChanged'] = [{ matcher: watch, hooks: [handler] }];
   const profile = input.profile ?? { mode: 'default' as const, allow: [], ask: [], deny: [] };
   // A `-p` session without a mode starts in `auto` on the verified version: the mode is always given (flag and file).
+  // Running without asking stays switched off in every file but the one of a session LAUNCHED in it ("Asks for
+  // nothing", DESIGN 0.6.0 D8), whose fallback is auto: a bypass Claude Code refuses lands in auto, not in its default.
+  const bypass = profile.mode === 'bypassPermissions';
   const permissions: JsonObject = {
     allow: [`mcp__${MCP_SERVER_NAME}`, ...profile.allow],
     ask: [...profile.ask],
     // `ListAgents` lists the host's OTHER Claude Code sessions on the machine: no agent session may.
     deny: ['ListAgents', ...profile.deny],
-    disableBypassPermissionsMode: 'disable',
-    defaultMode: profile.mode,
+    ...(bypass ? {} : { disableBypassPermissionsMode: 'disable' }),
+    defaultMode: bypass ? 'auto' : profile.mode,
   };
   const settings: JsonObject = {
     disableAllHooks: false,
@@ -118,7 +121,9 @@ export function buildMcpConfig(command: SelfCommand): JsonObject {
 
 /**
  * The PROFILE flags of one process start (the stream flags are the runner's constant). The sessions module checks them
- * against its allow-list before the spawn. Never a bypass flag, never `--allowedTools`. `--model` when the session
+ * against its allow-list before the spawn. Never `--dangerously-skip-permissions` nor
+ * `--allow-dangerously-skip-permissions`, never `--allowedTools`: running without asking is the mode flag
+ * `bypassPermissions` alone, behind the sessions module's four checks (DESIGN 0.6.0 D8). `--model` when the session
  * has a model (DESIGN 0.6.0 D7: only `--model` on every start, the resume included, decides the model; without it the
  * host's own default applies, as for every session of 0.5.2).
  */
@@ -228,11 +233,13 @@ export async function writeSessionFiles(input: WriteSessionFilesInput): Promise<
     await ensurePrivateDirectory(dir);
     const settingsPath = join(dir, 'settings.json');
     const mcpConfigPath = join(dir, 'mcp.json');
-    await writePrivateJson(dir, 'settings.json', buildSessionSettings(input.settings));
+    // The object written is returned as it was written: the sessions module checks THAT (checkSessionSettings).
+    const settings = buildSessionSettings(input.settings);
+    await writePrivateJson(dir, 'settings.json', settings);
     await writePrivateJson(dir, 'mcp.json', buildMcpConfig(input.settings.command));
     const rolePromptPath = join(dir, 'role.md');
     await writeFile(rolePromptPath, input.rolePrompt, { mode: 0o600, flag: fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW });
-    return Object.freeze({ dir, settingsPath, mcpConfigPath, rolePromptPath, claudeArgs: Object.freeze(claudeArgsFor({ settingsPath, mcpConfigPath, rolePromptPath }, profile)) });
+    return Object.freeze({ dir, settingsPath, mcpConfigPath, rolePromptPath, settings: structuredClone(settings), claudeArgs: Object.freeze(claudeArgsFor({ settingsPath, mcpConfigPath, rolePromptPath }, profile)) });
   });
 }
 

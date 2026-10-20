@@ -30,11 +30,14 @@ export {
 /** The tool list of an execution or free session, as a profile would give it (the names, not the verified list). */
 export const FAKE_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit', 'Bash', 'AskUserQuestion']);
 
-/** A hook registration of a free session opened by a member (`pathRights: 'member'`); override what a test is about. */
+/**
+ * A hook registration of a free session opened by a member (`pathRights: 'member'`), whose process runs in Claude
+ * Code's `default` mode (the gate's G11 and G12 run only in `auto`: DESIGN 0.6.0 D10); override what a test is about.
+ */
 export function buildHookRegistration(
   base: Pick<HookSessionRegistration, 'sessionId' | 'ownerUserId' | 'agentName' | 'root'> & Partial<HookSessionRegistration>,
 ): HookSessionRegistration {
-  return { purpose: 'free', pathRights: 'member', tools: FAKE_TOOLS, ...base };
+  return { purpose: 'free', pathRights: 'member', tools: FAKE_TOOLS, claudeMode: 'default', ...base };
 }
 
 /** What the sessions module asks the hooks module to write: Claude Code's default mode, smurg's own MCP server only, no model (the host's default). */

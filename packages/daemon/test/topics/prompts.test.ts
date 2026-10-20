@@ -49,6 +49,15 @@ describe('role prompts', () => {
     expect(prompt).toContain('"[smurg a1b2]"');
   });
 
+  it('DESIGN 0.6.0 D16: a work item\'s agent is told that a command may need a person\'s permission or be refused by a safety check, and to say why it needs one that was refused', () => {
+    const prompt = executionRolePrompt({ slug: 'checkout', itemId: 'cart-api', smurgTag: 'a1b2', branch: 'smurg/checkout/cart-api' });
+    const flat = prompt.replace(/\n\s*/g, ' ');
+    expect(flat).toContain(
+      "Editing files in your checkout needs no permission. A command may need a person's permission, or a safety check may refuse it: run few, purposeful commands, never one that only prints what you already know, and when one is refused, say in your answer why you need it instead of looking for another way around.",
+    );
+    expect(flat).not.toContain('Most commands need a person');
+  });
+
   it('the format an agent is told is the format the daemon reads: the examples of both prompts parse', () => {
     const plan = `${PLAN_MARKER_START}\n\n### 1. Cart API\n- id: cart-api\n- depends on: none\n- size: m\n- touches: src/cart/**\n\nAdd the endpoints.\n\n${PLAN_MARKER_END}\n`;
     expect(parsePlan(plan).ok).toBe(true);

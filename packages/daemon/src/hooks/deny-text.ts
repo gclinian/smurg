@@ -23,7 +23,16 @@ export const HOOK_DENY_REASONS = Object.freeze({
   badRequest: 'smurg could not read the request for this call. It was blocked.',
 });
 
-/** The rows of the tool gate that deny (hooks/tool-gate.ts). */
+/**
+ * Row G11 (DESIGN 0.6.0 D10, B.4 `bashWhileTyping`): a shell command of a main-workspace session in auto mode writes a
+ * file a person is typing in (or a folder that holds one). `names`: agentSafeName of each person; `path`: the file's
+ * path in the shared folder, as smurg read it from the command.
+ */
+export function bashWhileTypingReason(names: readonly string[], path: string): string {
+  return `Refused by smurg: ${listNames(names)} ${names.length === 1 ? 'is' : 'are'} typing in ${plainPath(path)}. Wait for the lock with mcp__smurg__wait_for_lock, then try again, or leave that file alone.`;
+}
+
+/** The rows of the tool gate that deny with one fixed sentence each (hooks/tool-gate.ts; G11's has the names). */
 export type GateDenyRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
@@ -56,11 +65,27 @@ export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string
 export const BASH_ASK_REASONS = Object.freeze({
   writes: "smurg asks because this command changes a place where this folder's Claude Code project settings keep a script they run (the script itself, or a folder that holds it). Those scripts run as the host.",
   unsure: "smurg asks because this folder's Claude Code project settings run scripts, and smurg cannot tell whether this command leaves them alone.",
+  /** Row G11 (DESIGN 0.6.0 D10, B.4): in auto mode, a teammate's session in the main workspace writes a host-only file. */
+  writesHostOnly: 'smurg asks: this command writes a file only the host may change, and nothing else asks before it runs in auto mode.',
+  /** Row G12 (DESIGN 0.6.0 D10, B.4): in auto mode, a teammate's session writes outside its own folder. */
+  writesOutside: 'smurg asks: this command writes outside your own folder, and in auto mode only the host may allow that for a session a teammate opened or started.',
+  /**
+   * Rows G11 and G12 (DESIGN 0.6.0 D10, GATE_ASKS_WHEN_UNSURE): in auto mode, a command of a teammate's session whose
+   * writes smurg cannot follow (Claude Code 2.1.288 runs some of them with no check: DESIGN R4).
+   */
+  unsureAuto: 'smurg asks: smurg cannot tell where this command writes, and in auto mode it could run with no check at all. Only the host may allow it for a session a teammate opened or started.',
 });
 
 function listNames(names: readonly string[]): string {
   if (names.length <= NAMES_LISTED) return names.join(', ');
   return `${names.slice(0, NAMES_LISTED).join(', ')} and ${names.length - NAMES_LISTED} more`;
+}
+
+/** A path in a sentence for the agent: no control character, at most 200 characters. */
+function plainPath(path: string): string {
+  // eslint-disable-next-line no-control-regex
+  const clean = path.replace(/[\u0000-\u001f\u007f-\u009f]/g, '?');
+  return clean.length > 200 ? `${clean.slice(0, 199)}…` : clean;
 }
 
 // ---- lock decisions (LockService.requestAgent) --------------------------------------------------------------------

@@ -134,8 +134,10 @@ describe('the release composition (DEFAULT_FEATURE_MODULES with the stand-in cla
     const amyCards = recorder(amy.conn, 'permission.updated');
     const hostInbox = recorder(host.conn, 'inbox.changed');
     const amyInbox = recorder(amy.conn, 'inbox.changed');
-    const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Tests' });
-    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: HOST }, permissionMode: 'auto', modeChoice: null });
+    // 0.6.0 on purpose: a session that asks before edits and commands (what 0.5.2 started by default in the main
+    // workspace); the workspace's own default is auto mode now (DESIGN D8), whose edits in the folder need no card.
+    const { session } = await host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' }, title: 'Tests', permissionMode: 'ask-all' });
+    expect(session).toMatchObject({ kind: 'agent', purpose: 'free', title: 'Tests', openedBy: { userId: HOST }, permissionMode: 'ask-all', modeChoice: 'ask-all' });
     const sessionId = session.id;
     await waitFor(() => d.ctx.services.agents.get(sessionId)?.status === 'idle', { timeoutMs: 20_000, what: 'the agent session to be ready' });
     // Claude Code as the runtime found it at this first start: `smurg status` has its line now.

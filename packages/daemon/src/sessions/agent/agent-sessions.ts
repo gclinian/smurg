@@ -12,8 +12,8 @@
 import { execFile } from 'node:child_process';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, resolve } from 'node:path';
 import {
   EVENTS_BATCH_MAX,
   EVENTS_BATCH_MAX_BYTES,
@@ -90,8 +90,19 @@ import { runningHelperPids, type ProcessRunner } from '../process-run.ts';
 import { AgentRunner, type LaunchPlan, type Outgoing, type RunnerHost } from './agent-runner.ts';
 import { ControlError } from './claude-process.ts';
 import type { HostRulesImpl } from './host-rules.ts';
-import { AgentModels } from './models.ts';
-import { RulePathError, buildProfile, checkLaunchArgs, claudeModeFor, fileRule, gateToolsOf } from './profiles.ts';
+import { AgentModels, withoutOneM } from './models.ts';
+import {
+  MAIN_SMURG_EDIT_DENY,
+  ReachRuleError,
+  RulePathError,
+  buildProfile,
+  checkLaunchArgs,
+  checkSessionSettings,
+  fileRule,
+  gateToolsOf,
+  reachDenyRules,
+  type ReachPlaces,
+} from './profiles.ts';
 import type { ProjectTrustImpl } from './project-settings.ts';
 import { freeRolePrompt } from './prompts.ts';
 import { AgentStore, type AgentRecord } from './store.ts';
@@ -168,12 +179,17 @@ export class AgentSessionsImpl implements AgentSessions {
   /** Notifications for the host that wait for a channel of theirs (key → the text). */
   private readonly waitingForHost = new Map<string, MessageRef>();
   private hostConnected: Disposable | null = null;
+  private gateRefusals: Disposable | null = null;
   private storageFull = false;
   private lastRetention = 0;
   /** The host agent's models: the list, the host's default, the probe (DESIGN 0.6.0 D7). */
   private readonly models: AgentModels;
   /** Who wants to know that the host agent's state changed (the handlers send `session.host` to everyone). */
   private readonly hostAgentListeners = new Set<() => void>();
+  /** What Claude Code lets run on this host, as the sessions found it (DESIGN 0.6.0 D9: HostState.agent). */
+  private agentModeState: { autoMode: 'ok' | 'off'; asksNothing: 'ok' | 'off' } = { autoMode: 'ok', asksNothing: 'ok' };
+  /** The daemon's OS user id (running without asking is never launched as root, DESIGN 0.6.0 D8). A seam for tests. */
+  uid: () => number | undefined = () => (typeof process.getuid === 'function' ? process.getuid() : undefined);
 
   /** What a runner may ask of this service. */
   private readonly host: RunnerHost;
@@ -203,6 +219,11 @@ export class AgentSessionsImpl implements AgentSessions {
       effectiveMode: (runner) => this.effectiveMode(runner.record),
       models: (_runner, raw) => this.models.fromInitialize(raw),
       modelEntry: (value) => this.models.entryFor(value),
+      modelEntryByResolved: (id) => this.modelEntryByResolved(id),
+      claudeModeInUse: (runner, mode) => {
+        if (!isStubService(ctx.services.hooks)) ctx.services.hooks.updateSession(runner.id, { claudeMode: mode });
+      },
+      agentModes: (change) => this.agentModes(change),
     };
     const sessionsDir = join(ctx.config.stateDir, 'sessions');
     this.models = new AgentModels({
@@ -259,6 +280,10 @@ export class AgentSessionsImpl implements AgentSessions {
     this.hostConnected = this.ctx.bus.on('conn.opened', ({ conn }) => {
       if (conn.userId === this.ctx.members.hostUserId()) this.deliverToHost();
     });
+    // A call smurg's gate refused did not run: the runner does not audit it as a command that ran (DESIGN 0.6.0 D11).
+    this.gateRefusals = this.ctx.bus.on('agent.tool.gate', ({ sessionId, toolUseId }) => {
+      if (toolUseId !== undefined) this.entries.get(sessionId)?.runner.noteGateRefused(toolUseId);
+    });
     this.sweepTimer = setInterval(() => void this.sweep().catch((err: unknown) => this.logError('agent sweep failed', err)), Math.max(10, this.config.escalationSweepMs));
     this.sweepTimer.unref?.();
   }
@@ -270,6 +295,8 @@ export class AgentSessionsImpl implements AgentSessions {
     this.sweepTimer = undefined;
     this.hostConnected?.dispose();
     this.hostConnected = null;
+    this.gateRefusals?.dispose();
+    this.gateRefusals = null;
     await Promise.all([
       this.models.stop().catch((err: unknown) => this.logError('stopping the probe of the host agent failed', err)),
       ...[...this.entries.values()].map(async (entry) => {
@@ -373,6 +400,8 @@ export class AgentSessionsImpl implements AgentSessions {
       ...(runner.doing === undefined ? {} : { doing: runner.doing }),
       ...(status === 'failed' && record.startFailures >= this.config.startFailuresHostOnly ? { retryHostOnly: true as const } : {}),
       permissionMode: this.effectiveMode(record),
+      // What the running process reported (DESIGN 0.6.0 D9); nothing while there is no process.
+      ...(runner.hasProcess && runner.modeInUse !== undefined ? { modeInUse: runner.modeInUse, ...(runner.modeFallback === undefined ? {} : { modeFallback: runner.modeFallback }) } : {}),
       modeChoice: record.purpose === 'discussion' ? null : record.modeChoice,
       modeFixed: record.purpose === 'discussion',
       model: record.model,
@@ -748,9 +777,30 @@ export class AgentSessionsImpl implements AgentSessions {
   }
 
   hostAgentState(): AgentHostState {
-    // The models: the probe's and every process's own `initialize` (DESIGN 0.6.0 D7). What can run is S4's (D9).
+    // The models: the probe's and every process's own `initialize` (DESIGN 0.6.0 D7). What can run: what the sessions
+    // found (D9: auto refused for a model that supports it, running without asking refused), and root.
     const models = this.models.state();
-    return { models: models.models, modelsKnown: models.modelsKnown, hostDefault: models.hostDefault, autoMode: 'ok', asksNothing: process.getuid?.() === 0 ? 'root' : 'ok' };
+    return {
+      models: models.models,
+      modelsKnown: models.modelsKnown,
+      hostDefault: models.hostDefault,
+      autoMode: this.agentModeState.autoMode,
+      asksNothing: this.uid() === 0 ? 'root' : this.agentModeState.asksNothing,
+    };
+  }
+
+  /** A process ran (or could not run) in auto mode or without asking (DESIGN 0.6.0 D9): everyone is told when that changed. */
+  private agentModes(change: { readonly autoMode?: 'ok' | 'off'; readonly asksNothing?: 'ok' | 'off' }): void {
+    const next = { ...this.agentModeState, ...change };
+    if (next.autoMode === this.agentModeState.autoMode && next.asksNothing === this.agentModeState.asksNothing) return;
+    this.agentModeState = next;
+    this.hostAgentChanged();
+  }
+
+  /** The list entry whose `resolved` is `id` (both without a trailing `[1m]`): the model an `init` reports. */
+  private modelEntryByResolved(id: string): AgentModel | undefined {
+    const wanted = withoutOneM(id);
+    return this.models.state().models.find((entry) => entry.resolved !== undefined && withoutOneM(entry.resolved) === wanted);
   }
 
   /**
@@ -889,11 +939,17 @@ export class AgentSessionsImpl implements AgentSessions {
     await this.deps.trust.refresh(record.root).catch(() => null);
     const trust = this.deps.trust.state(record.root);
     runner.projectSettings = trust;
+    const mode = this.effectiveMode(record);
+    const fallback = runner.fallback;
+    const reach = await this.reachPlaces(root.realPath);
     let profile;
+    let reachRules: string[];
     try {
       profile = buildProfile({
         purpose: record.purpose,
-        mode: this.effectiveMode(record),
+        mode,
+        fallback,
+        reach,
         root: record.root,
         rootRealPath: root.realPath,
         ...(record.topic === undefined ? {} : { topicSlug: record.topic.slug }),
@@ -904,10 +960,29 @@ export class AgentSessionsImpl implements AgentSessions {
         // The session's model on EVERY start, the resume included (U1 E6: only that is deterministic).
         model: record.model,
       });
+      // What the settings file must hold beyond the folder (DESIGN 0.6.0 D8a, D10), checked on the file as written.
+      reachRules = [
+        ...reachDenyRules({ purpose: record.purpose, root: record.root, rootRealPath: root.realPath, reach }),
+        ...(record.root.kind === 'main' ? [fileRule('Edit', root.realPath, MAIN_SMURG_EDIT_DENY)] : []),
+      ];
     } catch (err) {
+      if (err instanceof ReachRuleError) {
+        ctx.log.error('the deny rules beyond the folder of an agent session cannot be written; it does not start', { session: record.id, place: err.place });
+        throw agentError('internal', msg('session.hooks.settingsInvalid'), 'launch-check');
+      }
       // The folder's own name: said in its own sentence (Claude Code has nothing to do with it).
       if (err instanceof RulePathError) throw agentError('conflict', msg('session.folderNotNameable'), 'folder-name');
       throw err;
+    }
+    // Running without asking ("Asks for nothing", DESIGN 0.6.0 D8) is launched only when ALL of these hold: the
+    // session's effective mode says so; the workspace's setting, read again now, says so (it lives in state.json,
+    // which has no MAC: D8a refuses agents' commands that name ~/.smurg, and `smurg host` names the mode at every
+    // start); smurg does not run as root (Claude Code refuses it then); and this process has no fallback. Otherwise a
+    // profile that says `bypassPermissions` is refused by the checks below (fail closed).
+    const bypassChecks = { mode: mode === 'ask-nothing', workspace: ctx.settings.get().permissionMode === 'ask-nothing', notRoot: this.uid() !== 0, noFallback: fallback === 'none' };
+    const bypass = profile.mode === 'bypassPermissions' && Object.values(bypassChecks).every(Boolean);
+    if (profile.mode === 'bypassPermissions' && !bypass) {
+      ctx.log.error('an agent session would run without asking although a check refuses it; it does not start', { session: record.id, failed: Object.entries(bypassChecks).filter(([, ok]) => !ok).map(([name]) => name).join(' ') });
     }
     const credentials = ctx.services.hooks.registerSession({
       sessionId: record.id,
@@ -919,6 +994,7 @@ export class AgentSessionsImpl implements AgentSessions {
       ...(record.item === undefined ? {} : { itemId: record.item.id }),
       pathRights: record.pathRights,
       tools: gateToolsOf(profile),
+      claudeMode: profile.mode,
     });
     let files;
     try {
@@ -927,14 +1003,34 @@ export class AgentSessionsImpl implements AgentSessions {
       if (err instanceof SmurgError && err.text !== undefined) throw err;
       throw agentError('internal', msg('session.hooks.settingsNotWritten'), 'settings-not-written');
     }
-    const problem = checkLaunchArgs(files.claudeArgs);
+    const problem = checkLaunchArgs(files.claudeArgs, { bypass }) ?? checkSessionSettings(files.settings, { bypass, reach: reachRules });
     if (problem !== null) {
-      ctx.log.error('the launch flags of an agent session were refused', { session: record.id, problem });
+      ctx.log.error('the launch flags or the settings file of an agent session were refused', { session: record.id, problem });
       throw agentError('internal', msg('session.hooks.settingsInvalid'), 'launch-check');
     }
     const env = buildHostEnv({ hostEnv: this.deps.hostEnv(), home: this.deps.launch.hostHome, sessionId: record.id, hookEnv: credentials.env });
     this.deps.live.add(record.id);
     return { file: binary.realPath, args: files.claudeArgs, cwd: root.realPath, env, tools: profile.tools, trust };
+  }
+
+  /**
+   * Where the places of DESIGN 0.6.0 D8a are (REACH_DENY): realpaths of the shared folder, the host's home,
+   * CLAUDE_CONFIG_DIR of the host's environment (relative: as Claude Code would read it, from the session's folder),
+   * smurg's state folder and its own executable (also as its realpath when that differs).
+   */
+  private async reachPlaces(rootRealPath: string): Promise<ReachPlaces> {
+    const real = async (path: string): Promise<string> => realpath(path).catch(() => resolve(path));
+    const home = this.ctx.config.sessions.hostHome ?? this.deps.launch.hostHome ?? null;
+    const configDir = this.deps.hostEnv()['CLAUDE_CONFIG_DIR'];
+    const command = this.ctx.config.sessions.selfCommand?.file;
+    const selfCommand = command === undefined ? [] : [...new Set([command, await real(command)])];
+    return {
+      mainRealPath: this.ctx.roots.main.realPath,
+      hostHome: home === null ? null : await real(home),
+      claudeConfigDir: configDir === undefined || configDir.length === 0 ? null : await real(isAbsolute(configDir) ? configDir : resolve(rootRealPath, configDir)),
+      stateDir: await real(this.ctx.config.stateDir),
+      selfCommand,
+    };
   }
 
   releaseLaunch(runner: AgentRunner): void {
@@ -1177,7 +1273,6 @@ export class AgentSessionsImpl implements AgentSessions {
     const entry = this.need(sessionId);
     const record = entry.runner.record;
     if (record.purpose === 'discussion') throw agentError('conflict', msg('session.mode.fixed'), 'mode-fixed');
-    const before = claudeModeFor(record.purpose, this.effectiveMode(record), record.root);
     const person = userOf(by);
     const resetFrom = record.modeChangedBy;
     record.modeChoice = mode;
@@ -1193,8 +1288,8 @@ export class AgentSessionsImpl implements AgentSessions {
     }
     this.save(entry.runner);
     this.touch(entry, false);
-    const after = claudeModeFor(record.purpose, effective, record.root);
-    if (before !== after) await entry.runner.setClaudeMode(after);
+    // A running process takes it now (looser into "Asks for nothing" at its next start): DESIGN 0.6.0 D8.
+    await entry.runner.applyMode();
   }
 
   async setModel(sessionId: string, model: string | null, by: Actor): Promise<void> {
@@ -1231,9 +1326,11 @@ export class AgentSessionsImpl implements AgentSessions {
     this.save(entry.runner);
     this.touch(entry, false);
     if (restart) await entry.runner.restart();
+    // Auto mode may have become possible, or impossible, for the running process (DESIGN 0.6.0 D9).
+    else await entry.runner.modelChanged();
   }
 
-  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void> {
+  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor, reset?: UserRef): Promise<void> {
     const person = userOf(by);
     const workspace = this.ctx.settings.get().permissionMode;
     for (const entry of [...this.entries.values()]) {
@@ -1244,6 +1341,8 @@ export class AgentSessionsImpl implements AgentSessions {
         const before = effectivePermissionMode({ purpose: record.purpose, session: null, topic: previous, workspace });
         const after = this.effectiveMode(record);
         if (before !== after && person !== null) this.push(entry, lineEvent(msg('conversation.mode.topic', { by: person.displayName, mode: after })));
+        // The system put a member's choice back (they went, DESIGN 0.6.0 D12): the line names who had chosen it.
+        else if (before !== after && reset !== undefined) this.push(entry, lineEvent(msg('conversation.mode.reset', { name: reset.displayName })));
         await this.followMode(entry, before, after);
       }
       this.touch(entry, false);
@@ -1253,8 +1352,8 @@ export class AgentSessionsImpl implements AgentSessions {
   /**
    * The workspace's mode changed (the host's setting): every live session that follows it (its own choice null, and
    * for a work item its topic's choice null) runs with the new effective mode; the line `conversation.mode.workspace`
-   * in each. (0.6.0 S1: what is launched stays 0.5.2's two Claude modes; S4 maps the four modes and restarts a session
-   * that loosens into `ask-nothing` at its next idle moment.)
+   * in each. A running process takes it at once; one that loosens into `ask-nothing` starts again at its next idle
+   * moment (DESIGN 0.6.0 D8).
    */
   async workspaceModeChanged(previous: PermissionMode): Promise<void> {
     for (const entry of [...this.entries.values()]) {
@@ -1269,12 +1368,9 @@ export class AgentSessionsImpl implements AgentSessions {
     }
   }
 
-  /** A live process takes the Claude mode its new effective mode launches with, when that is another one. */
+  /** A live process takes the Claude mode of its new effective mode (DESIGN 0.6.0 D8 "Live changes"), when that is another one. */
   private async followMode(entry: Entry, before: PermissionMode, after: PermissionMode): Promise<void> {
-    const record = entry.runner.record;
-    const was = claudeModeFor(record.purpose, before, record.root);
-    const now = claudeModeFor(record.purpose, after, record.root);
-    if (was !== now) await entry.runner.setClaudeMode(now);
+    if (before !== after) await entry.runner.applyMode();
   }
 
   async setRules(sessionId: string, rules: readonly RememberedRule[], by: Actor): Promise<void> {

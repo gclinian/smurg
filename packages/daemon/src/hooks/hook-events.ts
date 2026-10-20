@@ -8,17 +8,18 @@
 //    a JSON deny whose reason is fixed English (deny-text.ts), and a shell command that may change a script the
 //    root's project settings run a JSON "ask" (bash-guard.ts: a person decides, whatever a mode or a rule allows);
 //  * every failure while deciding a PreToolUse is a deny (fail closed).
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { isAbsolute, resolve as resolvePath, basename, dirname, join, relative, sep } from 'node:path';
-import { SmurgError, fileRefKey, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
+import { MAIN_ROOT, SmurgError, agentSafeName, fileRefKey, foldRelPath, isHostOnlyPath, isRelPathWithin, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
-import type { AgentLockResult, HookSessionRegistration, Principal } from '../core/interfaces.ts';
+import type { AgentLockResult, GateRow, HookSessionRegistration, Principal } from '../core/interfaces.ts';
 import { isStubService } from '../core/stubs.ts';
 import { bashPlaces, judgePlaces, type BashVerdict, type ResolvedPlace } from './bash-guard.ts';
-import { BASH_ASK_REASONS, HOOK_DENY_REASONS, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
+import { BASH_ASK_REASONS, HOOK_DENY_REASONS, bashWhileTypingReason, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
 import type { HookInput } from './schemas.ts';
-import { gateDecision, type GateTarget } from './tool-gate.ts';
+import { GATE_ASKS_WHEN_UNSURE, gateDecision, type GateTarget } from './tool-gate.ts';
 import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseAsk, preToolUseDeny, type JsonObject } from './wire.ts';
 
 /** Per-session state the event handlers keep (owned by the HookServer's session entry). */
@@ -148,14 +149,26 @@ function releaseHeld(ctx: DaemonContext, state: HookSessionState, keepKey: strin
   }
 }
 
+/** Claude Code's id of the call a hook event is about, as far as smurg passes it on (the bus, the runner's audit). */
+function toolUseIdOf(input: HookInput): string | undefined {
+  const id = input.tool_use_id;
+  return id === undefined || id.length === 0 ? undefined : id.slice(0, 128);
+}
+
+/** `agent.tool.gate` for the audit (coalesced by the conversation module) and the runner (DESIGN 0.6.0 D11). */
+function emitGate(ctx: DaemonContext, state: HookSessionState, input: HookInput, tool: string, row: GateRow, path: string | undefined): void {
+  const toolUseId = toolUseIdOf(input);
+  ctx.bus.emit('agent.tool.gate', { sessionId: state.registration.sessionId, tool: tool.slice(0, 64), row, ...(path === undefined ? {} : { path }), ...(toolUseId === undefined ? {} : { toolUseId }) });
+}
+
 /** The gate refused: the deny for the model, `agent.tool.gate` for the audit (coalesced by the conversation module). */
-function gateDeny(ctx: DaemonContext, state: HookSessionState, tool: string, row: 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7', path: string | undefined): PreToolUseOutcome {
+function gateDeny(ctx: DaemonContext, state: HookSessionState, input: HookInput, tool: string, row: 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7', path: string | undefined): PreToolUseOutcome {
   const session = state.registration;
   if (row === 'G2' && !state.unknownTools.has(tool) && state.unknownTools.size < 64) {
     state.unknownTools.add(tool);
     ctx.log.info('agent.tool.unknown: a tool outside the session\'s list was refused', { session: session.sessionId, tool: tool.slice(0, 64) });
   }
-  ctx.bus.emit('agent.tool.gate', { sessionId: session.sessionId, tool: tool.slice(0, 64), row, ...(path === undefined ? {} : { path }) });
+  emitGate(ctx, state, input, tool, row, path);
   return deny(gateDenyReason(row, { tool, ...(session.topic === undefined ? {} : { slug: session.topic.slug }) }));
 }
 
@@ -210,9 +223,137 @@ export async function bashVerdict(ctx: DaemonContext, session: HookSessionRegist
   return judgePlaces({ unsure, places }, recorded);
 }
 
+/** Where a path lies inside `folder` (root-relative, `''` the folder itself), or null when it is outside it. */
+function relInside(folder: string, path: string): string | null {
+  const rel = relative(folder, path);
+  if (rel === '') return '';
+  return rel.startsWith('..') || isAbsolute(rel) ? null : rel.split(sep).join('/');
+}
+
+/** The system's temporary folders (agents write scratch files there all the time; nothing loads code from them). */
+let temporaryFolders: Promise<readonly string[]> | null = null;
+function tempFolders(): Promise<readonly string[]> {
+  temporaryFolders ??= (async () => {
+    const out = new Set<string>(['/tmp', '/private/tmp']);
+    for (const dir of [tmpdir(), '/tmp']) {
+      const real = await realpath(dir).catch(() => null);
+      if (real !== null) out.add(real);
+    }
+    return [...out];
+  })();
+  return temporaryFolders;
+}
+
+/** Devices a command writes to all the time (`2>/dev/null`, `> /dev/stderr`): no file of anyone's. */
+const HARMLESS_DEVICES: ReadonlySet<string> = new Set(['/dev/null', '/dev/zero', '/dev/stdout', '/dev/stderr', '/dev/tty']);
+function isHarmlessDevice(path: string): boolean {
+  if (HARMLESS_DEVICES.has(path)) return true;
+  // `/dev/fd/<n>`: a descriptor the command already has open.
+  const fd = path.startsWith('/dev/fd/') ? path.slice('/dev/fd/'.length) : '';
+  return fd.length > 0 && fd.length <= 4 && [...fd].every((char) => char >= '0' && char <= '9');
+}
+
+/** What rows G11 and G12 say about one shell command (DESIGN 0.6.0 D10). */
+export type AutoShellVerdict = { readonly kind: 'pass' } | { readonly kind: 'ask'; readonly reason: 'writesHostOnly' | 'writesOutside' | 'unsureAuto' } | { readonly kind: 'deny'; readonly names: readonly string[]; readonly path: string };
+
+/** The human locks (people typing) on `rel` of the main root, or below it when it is a folder. */
+function typingIn(ctx: DaemonContext, rel: string, folder: boolean): { readonly names: string[]; readonly path: string } | null {
+  const locks = ctx.services.locks;
+  if (isStubService(locks)) return null;
+  const at = foldRelPath(rel);
+  for (const lock of locks.list()) {
+    if (lock.kind !== 'human' || lock.file.root.kind !== 'main') continue;
+    const held = foldRelPath(lock.file.path);
+    if (held === at || (folder && (at === '' || isRelPathWithin(held, at)))) {
+      return { names: lock.holders.map((holder) => agentSafeName(holder.displayName, holder.userId)), path: lock.file.path };
+    }
+  }
+  return null;
+}
+
+/**
+ * Whether PathGuard refuses `rel` of the main root to the session's principal as a write: a host-only path, a script
+ * the trust gate recorded, smurg's `.smurg`, or (`folder`) a folder that holds one (PathGuard's own bounded scan: a
+ * tree too big to look through is refused there, so it asks here). What smurg cannot check asks too.
+ */
+async function hostOnlyFor(ctx: DaemonContext, principal: Principal, rel: string, folder: boolean): Promise<boolean> {
+  try {
+    await ctx.paths.resolve({ root: MAIN_ROOT, path: rel }, { principal, forWrite: true, subtree: folder, allowRoot: true, audit: false });
+    return false;
+  } catch (err) {
+    if (!isPathDeniedError(err)) return true;
+    if (err.reason === 'host-only' || err.reason === 'hidden') return true;
+    // A name PathGuard does not take at all: what it would be is still read from the name.
+    return (err.reason === 'lexical' || err.reason === 'too-long') && isHostOnlyPath(rel);
+  }
+}
+
+/**
+ * Rows G11 and G12 of the gate (DESIGN 0.6.0 D10), for `Bash` while the session's process RUNS in auto mode, from
+ * the places the command writes as smurg reads them (bash-guard.ts), each looked at as the file system has it:
+ *  - G11, a session rooted in the main workspace: a file a person is typing in, or a folder that holds one → deny
+ *    (G11b, every session); for a session with a member's path rights, a place PathGuard refuses to its principal as
+ *    a write → ask, the host's to answer (G11a);
+ *  - G12, a session with a member's path rights: a place outside its own folder, other than the system's temporary
+ *    folders (the shared folder, the host's home and smurg's state folder never count as temporary) → ask, the host's.
+ * A command smurg cannot read (`unsure`) asks the host for a teammate's session while GATE_ASKS_WHEN_UNSURE is true
+ * (DESIGN R4: Claude Code 2.1.288's fast path runs some of them with no check). What a program does that names
+ * nothing, neither row sees.
+ */
+export async function autoShellVerdict(ctx: DaemonContext, session: HookSessionRegistration, principal: Principal, input: HookInput): Promise<AutoShellVerdict> {
+  const member = session.pathRights === 'member';
+  const mainSession = session.root.kind === 'main';
+  if (!member && !mainSession) return { kind: 'pass' };
+  const command = input.tool_input?.command;
+  const root = ctx.roots.get(session.root);
+  const unsureVerdict = (): AutoShellVerdict => (GATE_ASKS_WHEN_UNSURE && member ? { kind: 'ask', reason: 'unsureAuto' } : { kind: 'pass' });
+  if (command === undefined || root === null) return unsureVerdict();
+  const cwd = input.cwd !== undefined && isAbsolute(input.cwd) ? input.cwd : root.realPath;
+  const home = ctx.config.sessions.hostHome ?? undefined;
+  const reading = bashPlaces(command, cwd, home);
+  let unsure = reading.unsure;
+  const writes: { real: string; folder: boolean }[] = [];
+  for (const place of reading.places) {
+    if (place.kind !== 'write') continue;
+    let real: string;
+    try {
+      real = await onDisk(place.path);
+    } catch {
+      unsure = true;
+      continue;
+    }
+    const folder = place.open !== undefined || (await lstat(real).then((st) => st.isDirectory(), () => false));
+    writes.push({ real, folder });
+  }
+  const main = ctx.roots.main.realPath;
+  if (mainSession) {
+    const inMain = writes.flatMap((write) => {
+      const rel = relInside(main, write.real);
+      return rel === null ? [] : [{ rel, folder: write.folder }];
+    });
+    for (const write of inMain) {
+      const typing = typingIn(ctx, write.rel, write.folder);
+      if (typing !== null) return { kind: 'deny', names: typing.names, path: typing.path };
+    }
+    if (member) for (const write of inMain) if (await hostOnlyFor(ctx, principal, write.rel, write.folder)) return { kind: 'ask', reason: 'writesHostOnly' };
+  }
+  if (member) {
+    const temp = await tempFolders();
+    const never = [main, ...(home === undefined ? [] : [await realpath(home).catch(() => home)]), await realpath(ctx.config.stateDir).catch(() => ctx.config.stateDir)];
+    for (const write of writes) {
+      if (relInside(root.realPath, write.real) !== null || isHarmlessDevice(write.real)) continue;
+      const temporary = temp.some((dir) => relInside(dir, write.real) !== null) && !never.some((dir) => relInside(dir, write.real) !== null);
+      if (!temporary) return { kind: 'ask', reason: 'writesOutside' };
+    }
+  }
+  return unsure ? unsureVerdict() : { kind: 'pass' };
+}
+
 /**
  * THE TOOL GATE's daemon side (tool-gate.ts has the table): for every tool call of the session. Rows G2–G7 deny;
- * an edit that passes them takes the agent lock exactly as before (G8); everything else gets no decision (G9).
+ * an edit that passes them takes the agent lock exactly as before (G8); G10, G11 and G12 look at a shell command
+ * (G10 not while the process runs without asking: the host chose no check; G11 and G12 only while it runs in auto
+ * mode, DESIGN 0.6.0 D10); everything else gets no decision (G9).
  */
 export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionState, principal: Principal, input: HookInput): Promise<PreToolUseOutcome> {
   const session = state.registration;
@@ -227,12 +368,21 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
   const decision = gateDecision(session, protectedPaths, tool, target, input.tool_input?.pattern);
   if (decision.kind === 'deny') {
     if (editing) releaseHeld(ctx, state, null);
-    return gateDeny(ctx, state, tool, decision.row, decision.path);
+    return gateDeny(ctx, state, input, tool, decision.row, decision.path);
   }
-  if (tool === BASH_TOOL_NAME && protectedPaths.size > 0) {
+  if (tool === BASH_TOOL_NAME && protectedPaths.size > 0 && session.claudeMode !== 'bypassPermissions') {
     // G10: never a refusal, never an allowance. A person sees the command and the reason on a permission card.
     const verdict = await bashVerdict(ctx, session, protectedPaths, input);
     if (verdict !== 'clear') return { output: preToolUseAsk(BASH_ASK_REASONS[verdict]), granted: null };
+  }
+  if (tool === BASH_TOOL_NAME && session.claudeMode === 'auto') {
+    // G11 and G12: what auto mode would run without asking anyone.
+    const verdict = await autoShellVerdict(ctx, session, principal, input);
+    if (verdict.kind === 'ask') return { output: preToolUseAsk(BASH_ASK_REASONS[verdict.reason]), granted: null };
+    if (verdict.kind === 'deny') {
+      emitGate(ctx, state, input, tool, 'G11', verdict.path);
+      return deny(bashWhileTypingReason(verdict.names, verdict.path));
+    }
   }
   if (decision.kind === 'pass' || !editing) return { output: null, granted: null };
   if (!located.ok) {

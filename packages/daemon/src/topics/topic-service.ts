@@ -17,6 +17,7 @@ import {
   can,
   checkRememberableRule,
   folderHoldsPath,
+  isLooserMode,
   lineEvent,
   noticeEvent,
   relPathSegments,
@@ -48,6 +49,7 @@ import type { AttentionFact, MemberChange, OutboundMessage, Principal, Req, Res,
 import { newId } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
+import { billsUsageCredits } from '../conversation/membership.ts';
 import { requireModelOffered } from '../sessions/model-offered.ts';
 import { applyTopicAgent, userRefOf, type TopicsCore } from './core.ts';
 import { discussionRolePrompt, restartDiscussionMessage, writeSpecMessage, type EarlierDecision } from './prompts.ts';
@@ -513,6 +515,9 @@ export class TopicServiceImpl implements TopicService {
           changed = true;
         }
       }
+      // … the topic's agent settings they chose (DESIGN 0.6.0 D12): a mode looser than the workspace's goes back (a
+      // stricter one stays), a model that may bill usage credits goes back to the host's default (any other stays) …
+      if (!keeps('session.drive') && topic.agent !== undefined && this.resetAgentOf(topic, userId)) changed = true;
       // … and the work items they armed that have not started.
       if (!keeps('session.create')) {
         for (const item of topic.items) {
@@ -549,6 +554,33 @@ export class TopicServiceImpl implements TopicService {
 
   attention(): AttentionFact[] {
     return this.core.attention();
+  }
+
+  /**
+   * DESIGN 0.6.0 D12 for a topic's own agent settings: what `userId` chose and the system puts back. The topic's
+   * item sessions that follow its mode take the new one, each with the line `conversation.mode.reset` naming who had
+   * chosen it (AgentSessions.topicAgentChanged); a model applies to the topic's NEW sessions only. Audited
+   * `topic.agent` by the system. True when something went.
+   */
+  private resetAgentOf(topic: StoredTopic, userId: UserId): boolean {
+    const agent = topic.agent;
+    if (agent === undefined) return false;
+    const workspace = this.ctx.settings.get().permissionMode;
+    const chooser = agent.modeChangedBy;
+    const mode = chooser?.userId === userId && agent.permissionMode !== undefined && isLooserMode(agent.permissionMode, workspace);
+    const model = agent.modelChangedBy?.userId === userId && agent.model !== undefined && billsUsageCredits(this.ctx, agent.model);
+    if (!mode && !model) return false;
+    const previous = agent.permissionMode ?? null;
+    this.core.update(topic.id, (draft) => {
+      draft.agent = applyTopicAgent(draft.agent, { ...(mode ? { permissionMode: null } : {}), ...(model ? { model: null } : {}) }, { userId, displayName: chooser?.displayName ?? '' });
+      if (Object.keys(draft.agent).length === 0) delete draft.agent;
+    });
+    this.ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'topic.agent', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, ...(mode ? { permissionMode: null } : {}), ...(model ? { model: null } : {}), reset: userId } });
+    const agents = this.ctx.services.agents;
+    if (mode && chooser !== undefined && !isStubService(agents)) {
+      void agents.topicAgentChanged(topic.id, previous, SYSTEM_ACTOR, chooser).catch((err: unknown) => this.ctx.log.warn('a topic\'s sessions did not take its mode back', { error: err instanceof Error ? err.name : 'unknown' }));
+    }
+    return true;
   }
 
   // ===================================================================================================================

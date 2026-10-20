@@ -3,7 +3,7 @@
 // `memberRemoved`, the (fake) session registry does its per-session part afterwards.
 import { describe, expect, it } from 'vitest';
 import type { AuditEntry } from '@smurg/protocol';
-import { AMY, HOST, MEI, PARTS, bashRequest, collect, openItemSession, openSession, questionRequest, quiet, startStack, waitFor, watch, type Stack } from './support.ts';
+import { AMY, HOST, MEI, PARTS, bashRequest, collect, openItemSession, openSession, principalOf, questionRequest, quiet, startStack, waitFor, watch, type Stack } from './support.ts';
 
 const ONE_PART = [PARTS[0] as (typeof PARTS)[number]];
 
@@ -17,18 +17,32 @@ function lines(s: Stack, sessionId: string): string[] {
   return s.fakes.agents.eventsOf(sessionId).flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
 }
 
+/** The host agent's list as the stand-in's 2.1.288 answers it, in the wire's shape: Fable may bill usage credits. */
+const MODELS = [
+  { value: 'sonnet', name: 'Sonnet', description: '', resolved: 'claude-sonnet-5-5', auto: true },
+  { value: 'fable', name: 'Fable', description: '', resolved: 'claude-fable-5-1', auto: true, billing: 'usage-credits' as const },
+];
+
 /**
- * What Mei (Agent access) put in place: an always-allowed kind in the host's free session, a loosened mode there, a
- * vote on its open question, a queued message; and a work item's session of her own with an open question.
+ * What Mei (Agent access) put in place: an always-allowed kind in the host's free session, a mode there looser than
+ * the workspace's ("Asks before commands", the host's choice here) and a model that may bill usage credits, a vote on
+ * its open question, a queued message; in a second session of the host a STRICTER mode and a model that bills
+ * nothing extra (DESIGN 0.6.0 D12: those stay); and a work item's session of her own with an open question.
  */
-async function meiAtWork(s: Stack): Promise<{ shared: string; own: string }> {
-  const shared = await openSession(s, HOST);
+async function meiAtWork(s: Stack): Promise<{ shared: string; own: string; strict: string }> {
+  await s.t.ctx.settings.update({ permissionMode: 'ask-commands' }, principalOf(s, HOST));
+  s.fakes.agents.hostAgent = { ...s.fakes.agents.hostAgent, models: MODELS, modelsKnown: true };
+  const shared = await openSession(s, HOST, { modeChoice: null });
+  const strict = await openSession(s, HOST, { modeChoice: null });
   const own = await openItemSession(s, MEI);
   for (const client of [s.host, s.amy]) await watch(client, shared.id);
   s.fakes.agents.raise(shared.id, bashRequest('pr1', 'pnpm test cart', { suggestedRule: { tool: 'Bash', pattern: 'pnpm test *' } }));
   await quiet(s);
   await s.mei.conn.request('permission.decide', { requestId: 'pr1', decision: 'allow-always' });
-  await s.mei.conn.request('session.mode.set', { sessionId: shared.id, mode: 'ask-commands' });
+  await s.mei.conn.request('session.mode.set', { sessionId: shared.id, mode: 'auto' });
+  await s.mei.conn.request('session.model.set', { sessionId: shared.id, model: 'fable' });
+  await s.mei.conn.request('session.mode.set', { sessionId: strict.id, mode: 'ask-all' });
+  await s.mei.conn.request('session.model.set', { sessionId: strict.id, model: 'sonnet' });
   s.fakes.agents.raise(shared.id, questionRequest('q-shared', ONE_PART));
   s.fakes.agents.raise(own.id, questionRequest('q-own', ONE_PART));
   await s.mei.conn.request('question.vote', { questionId: 'q-shared', part: 0, options: [0] });
@@ -39,14 +53,22 @@ async function meiAtWork(s: Stack): Promise<{ shared: string; own: string }> {
   await s.mei.conn.request('session.message.send', { sessionId: waiting.id, text: 'do this when you wake up' });
   expect(s.fakes.agents.rules(shared.id)).toHaveLength(1);
   expect(s.fakes.agents.facts(shared.id)?.modeChangedBy).toBe(MEI);
-  return { shared: shared.id, own: own.id };
+  expect(s.fakes.agents.facts(shared.id)?.modelChangedBy).toBe(MEI);
+  return { shared: shared.id, own: own.id, strict: strict.id };
+}
+
+/** What stays of Mei's choices (DESIGN 0.6.0 D12): the stricter mode and the model that bills nothing extra. */
+function strictStays(s: Stack, strict: string): void {
+  expect(s.fakes.agents.get(strict)).toMatchObject({ permissionMode: 'ask-all', modeChoice: 'ask-all', model: 'sonnet' });
+  expect(s.fakes.agents.facts(strict)).toMatchObject({ modeChangedBy: MEI, modelChangedBy: MEI });
+  expect(lines(s, strict)).toEqual(['conversation.mode.changed', 'conversation.model.changed']);
 }
 
 describe('when a member goes', { timeout: 60_000 }, () => {
   it('S17 a kicked member\'s rule, loosened mode, queued message and vote are gone, and a turn that holds their message stops', async () => {
     const s = await startStack();
     const changes = collect(s.amy, 'question.changed');
-    const { shared, own } = await meiAtWork(s);
+    const { shared, own, strict } = await meiAtWork(s);
     // A running turn of another session still holds a message of hers that Claude Code has not started.
     const busy = await openSession(s, HOST);
     s.fakes.agents.undelivered.set(MEI, [busy.id]);
@@ -56,14 +78,18 @@ describe('when a member goes', { timeout: 60_000 }, () => {
     await quiet(s);
 
     // The always-allowed kind she added is gone, by the system, and the conversation says whose it was. Her mode
-    // choice goes too: the session follows the workspace again (0.6.0: auto, launched as 0.5.2's default was).
+    // choice goes too, as it was LOOSER than what the session follows (0.6.0 on purpose, DESIGN D12: the workspace's
+    // "Asks before commands"), and her model that may bill usage credits (the host's default again).
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'auto', modeChoice: null, ruleCount: 0 });
+    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'ask-commands', modeChoice: null, model: null, ruleCount: 0 });
     expect(s.fakes.agents.facts(shared)?.modeChangedBy).toBeUndefined();
-    // (Those two lines are the agent runtime's own: `setRules` and `setMode` by the system write them.)
-    expect(lines(s, shared)).toEqual(['conversation.rule.added', 'conversation.mode.changed', 'conversation.rule.removed.member', 'conversation.agent.restarting', 'conversation.mode.reset']);
+    expect(s.fakes.agents.facts(shared)?.modelChangedBy).toBeUndefined();
+    // (Those lines are the agent runtime's own: `setRules`, `setMode` and `setModel` by the system write them.)
+    expect(lines(s, shared)).toEqual(['conversation.rule.added', 'conversation.mode.changed', 'conversation.model.changed', 'conversation.rule.removed.member', 'conversation.agent.restarting', 'conversation.mode.reset', 'conversation.model.reset']);
     expect(s.fakes.agents.log.of('setRules')).toEqual([[shared, [], { kind: 'system' }]]);
     expect(s.fakes.agents.log.of('setMode')).toEqual([[shared, null, { kind: 'system' }]]);
+    expect(s.fakes.agents.log.of('setModel')).toEqual([[shared, null, { kind: 'system' }]]);
+    strictStays(s, strict);
     // Her vote left the open question; the watchers saw it go; Amy's stays.
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId)).toEqual([AMY]);
     await waitFor(() => changes.some((change) => change.voteRemoved?.userId === MEI), { what: 'voteRemoved for a watcher' });
@@ -106,11 +132,12 @@ describe('when a member goes', { timeout: 60_000 }, () => {
 
   it('losing agent access takes the rule, the mode and the queued message; the vote stays while the member still holds discuss', async () => {
     const s = await startStack();
-    const { shared, own } = await meiAtWork(s);
+    const { shared, own, strict } = await meiAtWork(s);
     await s.host.conn.request('admin.member.setRole', { userId: MEI, role: 'editor' });
     await quiet(s);
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('auto');
+    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'ask-commands', model: null });
+    strictStays(s, strict);
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId).sort()).toEqual([AMY, MEI].sort());
     // An Editor may still be the one who decides: her own item's question stays hers (the session passed to the host, running).
     expect(s.service.question('q-own')).toMatchObject({ status: 'open', decider: { userId: MEI } });
@@ -127,13 +154,14 @@ describe('when a member goes', { timeout: 60_000 }, () => {
 
   it('leaving takes what a kick takes, without stopping anything', async () => {
     const s = await startStack();
-    const { shared, own } = await meiAtWork(s);
+    const { shared, own, strict } = await meiAtWork(s);
     s.fakes.agents.undelivered.set(MEI, [shared]);
     s.fakes.agents.log.clear();
     await s.mei.conn.request('channel.leave', {});
     await quiet(s);
     expect(s.fakes.agents.rules(shared)).toEqual([]);
-    expect(s.fakes.agents.get(shared)?.permissionMode).toBe('auto');
+    expect(s.fakes.agents.get(shared)).toMatchObject({ permissionMode: 'ask-commands', model: null });
+    strictStays(s, strict);
     expect(s.service.question('q-shared')?.votes.map((vote) => vote.userId)).toEqual([AMY]);
     expect(s.fakes.agents.log.of('interrupt')).toEqual([]);
     expect(s.service.question('q-own')?.status).toBe('open');

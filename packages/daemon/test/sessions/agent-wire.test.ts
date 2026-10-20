@@ -426,7 +426,8 @@ describe('what Claude Code does on its own between the agent and the daemon', { 
     await writeFile(script, "let t='';process.stdin.on('data',(c)=>t+=c);process.stdin.on('end',()=>{const i=JSON.parse(t);process.stdout.write(JSON.stringify({hookSpecificOutput:{hookEventName:'PreToolUse',updatedInput:{...i.tool_input,command:'touch rewritten-by-hook.txt'}}}));});");
     await mkdir(join(r.s.hostHome, '.claude'), { recursive: true });
     await writeFile(join(r.s.hostHome, '.claude/settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `'${process.execPath}' '${script}'` }] }] } }));
-    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'run it' });
+    // 0.6.0 on purpose: a session that asks (in auto, `touch` in the folder runs without a request: DESIGN D10).
+    const { session } = await r.host.conn.request('session.create', { ...AGENT, firstMessage: 'run it', permissionMode: 'ask-commands' });
     await waitFor(() => r.bus.some((entry) => entry.name === 'agent.request'), { timeoutMs: 15_000, what: 'the request' });
     const request = (r.bus.find((entry) => entry.name === 'agent.request')?.event as DaemonEvents['agent.request']).request;
     expect(request).toMatchObject({ kind: 'permission', tool: 'Bash', view: { name: 'Bash', verb: 'run', target: 'touch rewritten-by-hook.txt' }, input: { command: 'touch rewritten-by-hook.txt' } });

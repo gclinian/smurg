@@ -72,6 +72,17 @@ const upgradedLine = (lang: Lang, from: string): string =>
   lang === 'en'
     ? `This workspace was last shared with smurg ${from}: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}`
     : `這個工作區上次是用 smurg ${from} 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT['zh-TW']}`;
+/**
+ * The line after it when that start ran the state step from 0.5.0 or older (DESIGN 0.6.0 D13, `host.agentsAuto`: the
+ * workspace switched to auto mode; as the other notices of a running share, a blank line, then the sentence). A put-back
+ * older state.json is upgraded again by that step, so it is said again.
+ */
+const autoLine = (lang: Lang): string =>
+  lang === 'en'
+    ? `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first`
+    : `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不用先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人主控台的設定裡選「執行指令前先問」。說明：https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問`;
+/** Both lines of a start that upgraded the folder `from` (0.5.0 or older) wrote. */
+const upgradedLines = (lang: Lang, from: '0.4.0' | '0.5.0'): string => `${upgradedLine(lang, from)}\n${autoLine(lang)}`;
 /** The line about a folder set aside beside the workspace's own (`more`: how many more there are). */
 const asideLine = (lang: Lang, path: string, more = 0): string =>
   lang === 'en'
@@ -321,7 +332,7 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
       });
       expect(first.started).toBe(true);
       expect(first.code).toBe(0);
-      const line = upgradedLine(lang, '0.4.0');
+      const line = upgradedLines(lang, '0.4.0');
       // The whole terminal: the one line, then exactly the start summary of every other start.
       expect(first.out).toBe(`${line}\n${cleanStart(lang, first.out)}`);
       // The fixture holds no shared folder: its two worktree folders are not there, and the daemon says so twice. Nothing else.
@@ -353,7 +364,7 @@ describe('smurg host on the folder smurg 0.4.0 left (the owner\'s own update)', 
       const old = { state: await readFile(join(ws, 'state.json')), sessions: await readFile(join(ws, 'agent-sessions.json')) };
       const t = await smurgHost(shared, lang, 'an upgrading start (the folder 0.5.0 left)', { during: (daemon) => expect(daemon.upgraded.map((entry) => [entry.document, entry.from])).toEqual([['state', '0.5.0'], ['agent-sessions', '0.5.0']]) });
       expect(t.code).toBe(0);
-      expect(t.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${cleanStart(lang, t.out, PAUSED_050)}`);
+      expect(t.out).toBe(`${upgradedLines(lang, '0.5.0')}\n${cleanStart(lang, t.out, PAUSED_050)}`);
       expect(stderrOf(t).said).toBe('');
       expect((await readdir(ws)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual(['agent-sessions.json.before-upgrade-from-0.5.0', 'state.json.before-upgrade-from-0.5.0']);
       expect((await readFile(join(ws, 'state.json.before-upgrade-from-0.5.0'))).equals(old.state)).toBe(true);
@@ -768,7 +779,7 @@ describe('smurg host on a workspace folder it refuses: one text per kind and cau
     const again = await smurgHost(shared, 'en', 'after the chmod');
     expect(again.started).toBe(true);
     // The refused start wrote nothing: this one is the first of this smurg on the folder.
-    expect(again.out).toBe(`${upgradedLine('en', '0.5.0')}\n${cleanStart('en', again.out, PAUSED_050)}`);
+    expect(again.out).toBe(`${upgradedLines('en', '0.5.0')}\n${cleanStart('en', again.out, PAUSED_050)}`);
   }, 120_000);
 });
 
@@ -904,7 +915,7 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
           ? 'Warning: an OLDER state.json was put back into this workspace and upgraded again. Everything decided since it was written is undone: ' +
             `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; whoever joined since is no longer a member, and invite links made since no longer work. Guide: ${GUIDE_KEPT.en}`
           : `⚠ 較舊的 state.json 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了；之後才加入的人不再是成員，之後建立的邀請連結也不能用了。說明：${GUIDE_KEPT['zh-TW']}`;
-      expect(putBack.out).toBe(`${warning}\n${cleanStart(lang, putBack.out)}`);
+      expect(putBack.out).toBe(`${warning}\n${autoLine(lang)}\n${cleanStart(lang, putBack.out)}`);
       // What it undoes (documented, not prevented): Gina is a member again.
       expect(gina).toBe('active');
     }
@@ -1020,7 +1031,7 @@ describe('a damaged file that is not the workspace itself: that ONE file is set 
       const again = await smurgHost(shared, lang, 'after that one file was set aside', { during: (daemon) => void (members = daemon.ctx.members.list().map((member) => member.userId)) });
       expect(again.started).toBe(true);
       expect(again.code).toBe(0);
-      expect(again.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${cleanStart(lang, again.out, PAUSED_050)}`);
+      expect(again.out).toBe(`${upgradedLines(lang, '0.5.0')}\n${cleanStart(lang, again.out, PAUSED_050)}`);
       // The workspace is the one it was: the same people, devices and key; every invite link it had is still there.
       const has = JSON.parse(await readFile(join(ws, 'state.json'), 'utf8')) as Core;
       expect(members.length).toBeGreaterThan(5);
@@ -1062,7 +1073,7 @@ describe('a folder named <workspace id>.old* beside the one that is opened (0.5.
 
       const first = await smurgHost(shared, lang, 'a <workspace id>.old folder beside the one that is opened');
       const line = asideLine(lang, `${ws}.old`, 1);
-      expect(first.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${line}\n${cleanStart(lang, first.out, PAUSED_050)}`);
+      expect(first.out).toBe(`${upgradedLines(lang, '0.5.0')}\n${line}\n${cleanStart(lang, first.out, PAUSED_050)}`);
       expect(await picture(`${ws}.old`)).toEqual(oldPicture);
       expect(await readFile(hostLogPath(statePaths(shared.env), shared.copy.workspaceId), 'utf8')).toContain('An earlier state folder of this workspace lies beside the one in use');
 
@@ -1082,7 +1093,7 @@ describe('a name from the disk is never printed as it is (sceptic V1-4)', () => 
       await mkdir(name, { mode: 0o700 });
       const t = await smurgHost(shared, lang, 'a folder set aside whose name holds control characters');
       expect(t.started).toBe(true);
-      expect(t.out).toBe(`${upgradedLine(lang, '0.5.0')}\n${asideLine(lang, `${ws}.old\\u{1b}[2J\\u{1b}]0;pwned\\u{7}\\u{202e}`)}\n${cleanStart(lang, t.out, PAUSED_050)}`);
+      expect(t.out).toBe(`${upgradedLines(lang, '0.5.0')}\n${asideLine(lang, `${ws}.old\\u{1b}[2J\\u{1b}]0;pwned\\u{7}\\u{202e}`)}\n${cleanStart(lang, t.out, PAUSED_050)}`);
       // The whole terminal, line by line: no character that acts on a terminal instead of being read.
       for (const line of `${t.out}\n${t.err}`.split('\n')) expect(LOG_UNSAFE_CHARACTER.test(line), JSON.stringify(line)).toBe(false);
       // The host's log has the line too (the log quotes what it writes), and holds no such character either.
@@ -1121,7 +1132,7 @@ describe('the way back to the folder 0.5.0 told the host to move away', () => {
       },
     });
     // ONE line: the upgrade (this folder was last shared with 0.4.0). Nothing about a folder set aside: there is none.
-    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}\n${cleanStart('en', back.out)}`);
+    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}\n${autoLine('en')}\n${cleanStart('en', back.out)}`);
     expect(keyOf(back.out)).toBe(oldKey);
     expect(members).toEqual(expect.arrayContaining(['dev:host', 'dev:amy', 'dev:bob', 'dev:carol', 'dev:ivan']));
     expect(members).toHaveLength(8);
@@ -1189,7 +1200,7 @@ describe('a page or smurg of another protocol version that the daemon turned awa
       const clean = cleanStart(lang, t.out, PAUSED_050);
       const stopAt = clean.indexOf(lang === 'en' ? '\nReceived SIGTERM' : '\n收到 SIGTERM');
       // The first start (in the first language) is the one that upgraded the folder 0.5.0 left.
-      const upgraded = lang === LANGS[0] ? `${upgradedLine(lang, '0.5.0')}\n` : '';
+      const upgraded = lang === LANGS[0] ? `${upgradedLines(lang, '0.5.0')}\n` : '';
       expect(t.out).toBe(`${upgraded}${clean.slice(0, stopAt)}\n${newer}\n\n${older}\n${clean.slice(stopAt)}`);
     }
   }, 120_000);

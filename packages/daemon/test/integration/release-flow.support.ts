@@ -213,7 +213,9 @@ export async function startFlow(options: FlowOptions = {}): Promise<Flow> {
       timing: { pongWatchdogMs: 365 * 24 * 3600_000 },
       // How many work items may hold an agent process at once defaults from the machine's memory (2 on a small one):
       // fixed here, so the same sessions are parked for a slot, or not, on every machine.
-      settings: { maxLiveAgents: 8, ...options.settings },
+      // The flows tell the story of the cards people answer: their workspace asks before commands, as every 0.5.x
+      // workspace did (0.6.0 on purpose: the default is auto mode now, DESIGN D8; a flow may say otherwise).
+      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands', ...options.settings },
       sessions: { claudePath: claude.path, hostHome, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
     });
     const daemon = d;

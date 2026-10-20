@@ -1,13 +1,35 @@
 // The PURE parts of the agent runtime (DESIGN §2.3, §2.5, §2.10): one Claude Code line → runner events, a tool call →
 // its view and result, a kind of session → its launch profile, the launch check, the file rule, the tool gate's table.
 import { describe, expect, it } from 'vitest';
-import { AGENT_EDIT_DENY_PATTERNS, AGENT_READ_DENY_PATTERNS, MAIN_ROOT, toolViewSchema, toolResultViewSchema, worktreeRoot, type FileRef } from '@smurg/protocol';
+import { AGENT_EDIT_DENY_PATTERNS, AGENT_READ_DENY_PATTERNS, MAIN_ROOT, toolViewSchema, toolResultViewSchema, worktreeRoot, type FileRef, type PermissionMode } from '@smurg/protocol';
+import { buildSessionSettings } from '../../src/hooks/settings-writer.ts';
 import { gateDenyReason } from '../../src/hooks/deny-text.ts';
 import { ANY_MCP_TOOL as GATE_ANY_MCP, gateDecision, patternLeavesRoot } from '../../src/hooks/tool-gate.ts';
 import { questionPartsOf, streamableLength } from '../../src/sessions/agent/agent-runner.ts';
 import { hostRulesOf } from '../../src/sessions/agent/host-rules.ts';
 import { Normaliser, outcomeOfResult } from '../../src/sessions/agent/normalise.ts';
-import { ANY_MCP_TOOL, DISCUSSION_TOOLS, EXECUTION_TOOLS, RulePathError, STREAM_ARGS, buildProfile, checkLaunchArgs, claudeModeFor, daemonAllowsEdits, fileRule, gateToolsOf } from '../../src/sessions/agent/profiles.ts';
+import {
+  ANY_MCP_TOOL,
+  DISCUSSION_TOOLS,
+  EXECUTION_TOOLS,
+  ReachRuleError,
+  RulePathError,
+  STREAM_ARGS,
+  absoluteRule,
+  buildProfile,
+  checkLaunchArgs,
+  checkSessionSettings,
+  claudeModeFor,
+  claudeModeRank,
+  daemonAllowsEdits,
+  fileRule,
+  gateToolsOf,
+  modeWithFallback,
+  reachDenyRules,
+  smurgModeOf,
+  type ClaudeMode,
+  type ProcessFallback,
+} from '../../src/sessions/agent/profiles.ts';
 import { effectsOf, isFlaggedEnvName } from '../../src/sessions/agent/project-settings.ts';
 import { conversationLostText, freeRolePrompt } from '../../src/sessions/agent/prompts.ts';
 import { AgentModels, PROBE_RETRY_MS, PROBE_SETTINGS, agentModelsOf, mayBillUsageCredits, probeFlags, withoutOneM } from '../../src/sessions/agent/models.ts';
@@ -53,7 +75,16 @@ describe('normalise: Claude Code lines → runner events', () => {
     expect(one({ type: 'system', subtype: 'status', status: 'requesting' })).toEqual([]);
     expect(one({ type: 'system', subtype: 'compact_boundary' })).toEqual([{ kind: 'compact.boundary' }]);
     expect(one({ type: 'result', subtype: 'success', is_error: false, terminal_reason: 'completed', duration_ms: 12.4, user_message_uuids: ['u1', 3] })).toEqual([{ kind: 'result', outcome: 'completed', durationMs: 12, uuids: ['u1'], apiError: false }]);
-    for (const ignored of [{ type: 'keep_alive' }, { type: 'system', subtype: 'hook_started' }, { type: 'brand_new_type', x: 1 }, { type: 'system', subtype: 'informational', content: 'x' }]) expect(one(ignored)).toEqual([]);
+    // 0.6.0 (DESIGN D11): auto mode's refusal is an event; Claude Code's informational line is one the runner logs. A
+    // permission_denied of anything but the classifier is not one (its error result follows on its own).
+    expect(one({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 'toolu_9', decision_reason_type: 'classifier', decision_reason: '[Data Exfiltration]', message: 'Permission for this action was denied …' })).toEqual([
+      { kind: 'auto.denied', toolUseId: 'toolu_9', tool: 'Bash', reason: '[Data Exfiltration]' },
+    ]);
+    expect(one({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 'toolu_9', decision_reason_type: 'classifier', message: 'only a message' })).toEqual([{ kind: 'auto.denied', toolUseId: 'toolu_9', tool: 'Bash', reason: 'only a message' }]);
+    expect(one({ type: 'system', subtype: 'permission_denied', tool_name: 'Bash', tool_use_id: 'toolu_9', decision_reason_type: 'rule' })).toEqual([]);
+    expect(one({ type: 'system', subtype: 'informational', content: 'x', level: 'warning' })).toEqual([{ kind: 'informational', level: 'warning', text: 'x' }]);
+    expect(one({ type: 'system', subtype: 'informational', content: 'x' })).toEqual([{ kind: 'informational', level: 'info', text: 'x' }]);
+    for (const ignored of [{ type: 'keep_alive' }, { type: 'system', subtype: 'hook_started' }, { type: 'brand_new_type', x: 1 }]) expect(one(ignored)).toEqual([]);
     expect(Normaliser.parse('not json')).toBeNull();
     expect(Normaliser.parse('[1]')).toBeNull();
   });
@@ -212,7 +243,9 @@ describe('tool views and results', () => {
 });
 
 describe('launch profiles (DESIGN §2.5)', () => {
-  const base = { root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'P', model: null } as const;
+  /** Where the places beyond a session's folder are (DESIGN 0.6.0 D8a): the host's home, smurg's state folder and executable. */
+  const reach = { mainRealPath: '/Users/ian/shop', hostHome: '/Users/ian', claudeConfigDir: null, stateDir: '/Users/ian/.smurg', selfCommand: ['/Users/ian/.local/bin/smurg'] } as const;
+  const base = { root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', rules: [], trust: 'used', agentMcp: false, rolePrompt: 'P', model: null, fallback: 'none', reach } as const;
 
   it('a file rule is written with the absolute form `//<realpath>/<pattern>`; a root or pattern that could end the rule is refused', () => {
     expect(fileRule('Edit', '/Users/ian/shop', 'specs/checkout/SPEC.md')).toBe('Edit(//Users/ian/shop/specs/checkout/SPEC.md)');
@@ -261,19 +294,150 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(buildProfile({ ...base, purpose: 'item', mode: 'ask-all', root, rootRealPath: '/w/wt_1', topicSlug: 'checkout' }).mode).toBe('default');
   });
 
-  it('the common deny rules are generated from the protocol\'s lists; a session rooted in the main workspace never runs in acceptEdits', () => {
+  it('the common deny rules are generated from the protocol\'s lists, then smurg\'s own folder and the places beyond the session\'s folder (DESIGN 0.6.0 D8a, D10); a session rooted in the main workspace never runs in acceptEdits', () => {
     const profile = buildProfile({ ...base, purpose: 'free', mode: 'ask-commands' });
-    expect(profile.deny).toEqual([...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`), ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`)]);
+    // 0.6.0 on purpose: the main root's `.smurg/**` (D10) and D8a's rules follow the protocol's lists.
+    expect(profile.deny).toEqual([
+      ...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`),
+      ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`),
+      'Edit(//Users/ian/shop/.smurg/**)',
+      'Read(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/.gitignore)',
+      'Edit(//Users/ian/.claude/**)',
+      'Edit(//Users/ian/.claude.json)',
+      'Edit(//Users/ian/.ssh/**)',
+      'Read(//Users/ian/.smurg/**)',
+      'Edit(//Users/ian/.smurg/**)',
+      'Edit(//Users/ian/.local/bin/smurg)',
+    ]);
     expect(profile.deny).toContain('Read(//Users/ian/shop/.git/**)');
     expect(profile.deny).toContain('Edit(//Users/ian/shop/**/.claude/**)');
     expect(profile.mode).toBe('default');
-    expect(claudeModeFor('free', 'ask-commands', MAIN_ROOT)).toBe('default');
-    expect(claudeModeFor('free', 'ask-commands', worktreeRoot('wt'))).toBe('acceptEdits');
-    expect(claudeModeFor('free', 'ask-all', worktreeRoot('wt'))).toBe('default');
+    expect(claudeModeFor('free', 'ask-commands', MAIN_ROOT, 'none')).toBe('default');
+    expect(claudeModeFor('free', 'ask-commands', worktreeRoot('wt'), 'none')).toBe('acceptEdits');
+    expect(claudeModeFor('free', 'ask-all', worktreeRoot('wt'), 'none')).toBe('default');
     expect(daemonAllowsEdits('free', 'ask-commands', MAIN_ROOT)).toBe(true);
     expect(daemonAllowsEdits('free', 'ask-all', MAIN_ROOT)).toBe(false);
+    expect(daemonAllowsEdits('free', 'auto', MAIN_ROOT)).toBe(false);
     expect(daemonAllowsEdits('item', 'ask-commands', worktreeRoot('wt'))).toBe(false);
     expect(daemonAllowsEdits('discussion', 'ask-commands', MAIN_ROOT)).toBe(false);
+  });
+
+  it('DESIGN 0.6.0 D8: smurg\'s four modes → Claude Code\'s, for every purpose, root and process fallback (a fallback only makes auto and ask-nothing stricter)', () => {
+    const roots = { main: MAIN_ROOT, worktree: worktreeRoot('wt') } as const;
+    // [mode, fallback] → [main, worktree] for a free session or a work item; a discussion is always `default`.
+    const table: readonly [PermissionMode, ProcessFallback, ClaudeMode, ClaudeMode][] = [
+      ['ask-all', 'none', 'default', 'default'],
+      ['ask-all', 'ask-commands', 'default', 'default'],
+      ['ask-all', 'auto', 'default', 'default'],
+      ['ask-commands', 'none', 'default', 'acceptEdits'],
+      ['ask-commands', 'ask-commands', 'default', 'acceptEdits'],
+      ['ask-commands', 'auto', 'default', 'acceptEdits'],
+      ['auto', 'none', 'auto', 'auto'],
+      ['auto', 'ask-commands', 'default', 'acceptEdits'],
+      ['auto', 'auto', 'auto', 'auto'],
+      ['ask-nothing', 'none', 'bypassPermissions', 'bypassPermissions'],
+      ['ask-nothing', 'ask-commands', 'default', 'acceptEdits'],
+      ['ask-nothing', 'auto', 'auto', 'auto'],
+    ];
+    for (const [mode, fallback, main, worktree] of table) {
+      for (const purpose of ['free', 'item'] as const) {
+        expect(claudeModeFor(purpose, mode, roots.main, fallback), `${purpose} ${mode} ${fallback} main`).toBe(main);
+        expect(claudeModeFor(purpose, mode, roots.worktree, fallback), `${purpose} ${mode} ${fallback} worktree`).toBe(worktree);
+      }
+      for (const root of Object.values(roots)) expect(claudeModeFor('discussion', mode, root, fallback)).toBe('default');
+    }
+    expect(modeWithFallback('auto', 'ask-commands')).toBe('ask-commands');
+    expect(modeWithFallback('ask-all', 'ask-commands')).toBe('ask-all');
+    expect(modeWithFallback('ask-nothing', 'auto')).toBe('auto');
+    // What Claude Code reports, strict to loose; a mode smurg never launches counts as the loosest.
+    expect(['default', 'acceptEdits', 'auto', 'bypassPermissions', 'plan', 'dontAsk', 'x'].map(claudeModeRank)).toEqual([0, 1, 2, 3, 4, 4, 4]);
+    expect((['default', 'acceptEdits', 'auto', 'bypassPermissions'] as const).map(smurgModeOf)).toEqual(['ask-all', 'ask-commands', 'auto', 'ask-nothing']);
+  });
+
+  it('DESIGN 0.6.0 D8a: the deny rules beyond the session\'s folder, for every purpose and root, none for a discussion; CLAUDE_CONFIG_DIR honoured; a home with `[` escaped; a session folder inside one of the places is refused', () => {
+    const worktree = buildProfile({ ...base, purpose: 'item', mode: 'auto', root: worktreeRoot('wt_1'), rootRealPath: '/Users/ian/shop/.smurg/worktrees/wt_1', topicSlug: 'checkout' });
+    const beyond = [
+      'Read(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/.gitignore)',
+      'Edit(//Users/ian/.claude/**)',
+      'Edit(//Users/ian/.claude.json)',
+      'Edit(//Users/ian/.ssh/**)',
+      'Read(//Users/ian/.smurg/**)',
+      'Edit(//Users/ian/.smurg/**)',
+      'Edit(//Users/ian/.local/bin/smurg)',
+    ];
+    // A work item in its worktree: the MAIN root's private files and Claude Code's configuration too.
+    expect(reachDenyRules({ purpose: 'item', root: worktreeRoot('wt_1'), rootRealPath: '/Users/ian/shop/.smurg/worktrees/wt_1', reach })).toEqual([
+      ...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`),
+      ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`),
+      ...beyond,
+    ]);
+    for (const rule of ['Edit(//Users/ian/shop/.git/**)', 'Edit(//Users/ian/shop/.claude/**)', 'Edit(//Users/ian/shop/.mcp.json)', 'Read(//Users/ian/shop/.envrc)', ...beyond]) expect(worktree.deny, rule).toContain(rule);
+    // A worktree session has no rule on smurg's whole folder (its own folder lies in it).
+    expect(worktree.deny).not.toContain('Edit(//Users/ian/shop/.smurg/**)');
+    // A free session in the main workspace: its own rules already cover the main root's files.
+    expect(reachDenyRules({ purpose: 'free', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach })).toEqual(beyond);
+    // Every mode, ask-nothing included.
+    for (const mode of ['auto', 'ask-commands', 'ask-all', 'ask-nothing'] as const) for (const rule of beyond) expect(buildProfile({ ...base, purpose: 'free', mode }).deny).toContain(rule);
+    // None for a discussion (no shell; the gate confines its reads and writes), but the main root's `.smurg/**`.
+    const discussion = buildProfile({ ...base, purpose: 'discussion', mode: 'ask-all', topicSlug: 'checkout' });
+    expect(reachDenyRules({ purpose: 'discussion', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach })).toEqual([]);
+    for (const rule of beyond) expect(discussion.deny).not.toContain(rule);
+    expect(discussion.deny).toContain('Edit(//Users/ian/shop/.smurg/**)');
+    // CLAUDE_CONFIG_DIR of the host's environment; a host home with a bracket; the executable and its realpath.
+    const elsewhere = { ...reach, hostHome: '/Users/[ian]', claudeConfigDir: '/opt/claude config', selfCommand: ['/usr/local/bin/smurg', '/opt/smurg/0.6.0/smurg'] };
+    expect(reachDenyRules({ purpose: 'free', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach: elsewhere })).toEqual([
+      'Read(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/git/**)',
+      'Edit(//Users/ian/shop/.smurg/.gitignore)',
+      'Edit(//Users/\\[ian\\]/.claude/**)',
+      'Edit(//Users/\\[ian\\]/.claude.json)',
+      'Edit(//Users/\\[ian\\]/.ssh/**)',
+      'Edit(//opt/claude config/**)',
+      'Read(//Users/ian/.smurg/**)',
+      'Edit(//Users/ian/.smurg/**)',
+      'Edit(//usr/local/bin/smurg)',
+      'Edit(//opt/smurg/0.6.0/smurg)',
+    ]);
+    expect(absoluteRule('Edit', '/usr/local/bin/smurg')).toBe('Edit(//usr/local/bin/smurg)');
+    expect(absoluteRule('Read', '/Users/ian/.smurg/', '**')).toBe('Read(//Users/ian/.smurg/**)');
+    for (const bad of ['relative', '/a\\b', '/a\nb', '/']) expect(() => absoluteRule('Edit', bad), bad).toThrow(RulePathError);
+    // A place no rule can hold, or a session folder inside one of the places: no start.
+    expect(() => buildProfile({ ...base, purpose: 'free', mode: 'auto', reach: { ...reach, hostHome: '/Users/back\\slash' } })).toThrow(ReachRuleError);
+    for (const inside of ['/Users/ian/.claude/projects/x', '/Users/ian/.ssh', '/Users/ian/.smurg/w', '/opt/claude config/p']) {
+      expect(() => reachDenyRules({ purpose: 'free', root: MAIN_ROOT, rootRealPath: inside, reach: { ...reach, claudeConfigDir: '/opt/claude config' } }), inside).toThrow(ReachRuleError);
+    }
+    expect(() => reachDenyRules({ purpose: 'item', root: worktreeRoot('w'), rootRealPath: '/Users/ian/shop/.smurg/git/x', reach })).toThrow(ReachRuleError);
+  });
+
+  it('DESIGN 0.6.0 D8: the settings file keeps running without asking switched off except for a session launched in it, whose fallback is auto; checkSessionSettings refuses every other file, and one without a rule beyond the folder', () => {
+    const command = { file: '/Users/ian/.local/bin/smurg', args: [] };
+    const settingsFor = (mode: ClaudeMode): Record<string, unknown> => buildSessionSettings({ command, profile: buildProfile({ ...base, purpose: 'free', mode: mode === 'bypassPermissions' ? 'ask-nothing' : mode === 'auto' ? 'auto' : 'ask-all' }) });
+    const reachRules = [...reachDenyRules({ purpose: 'free', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach }), 'Edit(//Users/ian/shop/.smurg/**)'];
+    for (const mode of ['default', 'auto'] as const) {
+      const file = settingsFor(mode);
+      expect(file['permissions']).toMatchObject({ disableBypassPermissionsMode: 'disable', defaultMode: mode });
+      expect(checkSessionSettings(file, { bypass: false, reach: reachRules }), mode).toBeNull();
+      expect(checkSessionSettings(file, { bypass: true, reach: reachRules }), mode).toBe('bypass is disabled by the file');
+    }
+    const bypass = settingsFor('bypassPermissions');
+    expect(bypass['permissions']).not.toHaveProperty('disableBypassPermissionsMode');
+    expect(bypass['permissions']).toMatchObject({ defaultMode: 'auto' });
+    expect(checkSessionSettings(bypass, { bypass: true, reach: reachRules })).toBeNull();
+    expect(checkSessionSettings(bypass, { bypass: false, reach: reachRules })).toBe('bypass is not disabled');
+    const permissions = (file: Record<string, unknown>): Record<string, unknown> => file['permissions'] as Record<string, unknown>;
+    expect(checkSessionSettings({ ...bypass, permissions: { ...permissions(bypass), defaultMode: 'bypassPermissions' } }, { bypass: true, reach: reachRules })).not.toBeNull();
+    expect(checkSessionSettings({ ...bypass, permissions: { ...permissions(bypass), defaultMode: 'plan' } }, { bypass: true, reach: reachRules })).not.toBeNull();
+    // One rule beyond the folder missing: refused.
+    const auto = settingsFor('auto');
+    for (const rule of reachRules) {
+      const without = { ...auto, permissions: { ...permissions(auto), deny: (permissions(auto)['deny'] as string[]).filter((entry) => entry !== rule) } };
+      expect(checkSessionSettings(without, { bypass: false, reach: reachRules }), rule).toBe('a deny rule beyond the folder is missing');
+    }
+    expect(checkSessionSettings({}, { bypass: false, reach: [] })).toBe('no permissions');
   });
 
   it('untrusted project settings: --setting-sources user; the host\'s own MCP servers only with the host setting (then any MCP tool passes the gate\'s list)', () => {
@@ -287,7 +451,7 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(EXECUTION_TOOLS).toEqual(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'AskUserQuestion']);
   });
 
-  it('THE launch check fails closed: the required flags, the two modes, a model id, nothing else', () => {
+  it('THE launch check fails closed: the required flags, the modes (running without asking only with its checks passed), a model id, nothing else', () => {
     const ok = ['--permission-mode', 'default', '--settings', '/s/settings.json', '--mcp-config', '/s/mcp.json', '--tools', 'Read,Bash', '--append-system-prompt-file', '/s/role.md', '--strict-mcp-config', '--setting-sources', 'user'];
     expect(checkLaunchArgs(ok)).toBeNull();
     expect(checkLaunchArgs(ok.slice(0, 8))).toBeNull();
@@ -296,8 +460,15 @@ describe('launch profiles (DESIGN §2.5)', () => {
       return [...ok.slice(0, at), ...ok.slice(at + 2)];
     };
     for (const flag of ['--permission-mode', '--settings', '--mcp-config', '--tools']) expect(checkLaunchArgs(without(flag)), flag).toMatch(/missing/);
-    for (const mode of ['bypassPermissions', 'plan', 'auto', 'dontAsk']) expect(checkLaunchArgs(['--permission-mode', mode, ...ok.slice(2)])).toBe('permission mode not allowed');
-    for (const extra of [['--dangerously-skip-permissions'], ['--allowedTools', 'Bash'], ['--disallowedTools', 'Read'], ['--fallback-model', 'sonnet'], ['--add-dir', '/'], ['stray']]) expect(checkLaunchArgs([...ok, ...extra])).toMatch(/unexpected/);
+    // 0.6.0 on purpose (DESIGN D8): auto is one of smurg's modes; bypassPermissions only with the sessions module's checks passed.
+    for (const mode of ['default', 'acceptEdits', 'auto']) expect(checkLaunchArgs(['--permission-mode', mode, ...ok.slice(2)]), mode).toBeNull();
+    for (const mode of ['bypassPermissions', 'plan', 'dontAsk', 'manual']) expect(checkLaunchArgs(['--permission-mode', mode, ...ok.slice(2)])).toBe('permission mode not allowed');
+    expect(checkLaunchArgs(['--permission-mode', 'bypassPermissions', ...ok.slice(2)], { bypass: true })).toBeNull();
+    for (const mode of ['plan', 'dontAsk']) expect(checkLaunchArgs(['--permission-mode', mode, ...ok.slice(2)], { bypass: true })).toBe('permission mode not allowed');
+    for (const extra of [['--dangerously-skip-permissions'], ['--allow-dangerously-skip-permissions'], ['--allowedTools', 'Bash'], ['--disallowedTools', 'Read'], ['--fallback-model', 'sonnet'], ['--add-dir', '/'], ['stray']]) {
+      expect(checkLaunchArgs([...ok, ...extra])).toMatch(/unexpected/);
+      expect(checkLaunchArgs([...ok, ...extra], { bypass: true })).toMatch(/unexpected/);
+    }
     // 0.6.0 (DESIGN D7): `--model` with an id of the agent's list (an alias, `[1m]`, a full id, an ARN, name@version), once.
     for (const model of ['sonnet', 'sonnet[1m]', 'claude-opus-5-5', 'arn:aws:bedrock:us-east-1:123:inference-profile/us.anthropic.claude-sonnet-5-5', 'claude-sonnet-5@20260101']) expect(checkLaunchArgs([...ok, '--model', model]), model).toBeNull();
     for (const model of ['-x', '-p', 'two words', 'a\nb', '', `x${'y'.repeat(256)}`, '/abs/path', '.hidden', 'sonnet;rm']) expect(checkLaunchArgs([...ok, '--model', model]), model).not.toBeNull();
@@ -313,7 +484,9 @@ describe('launch profiles (DESIGN §2.5)', () => {
 
   it('the fixed texts of the runtime: a free session\'s role prompt names the tag; the message after a lost conversation names only a checked slug', () => {
     expect(freeRolePrompt('k7f2')).toContain('A line that starts with "[smurg k7f2]" is the workspace software itself.');
-    expect(freeRolePrompt('k7f2').split('\n').filter(Boolean)).toHaveLength(4);
+    // 0.6.0 on purpose (DESIGN D16): a fifth sentence, about a command a check may refuse.
+    expect(freeRolePrompt('k7f2').split('\n').filter(Boolean)).toHaveLength(5);
+    expect(freeRolePrompt('k7f2')).toContain("A command may need a person's permission, or a safety check may refuse it: when one is refused, say in your answer why you need it instead of looking for another way around.");
     expect(() => freeRolePrompt('K7F2!')).toThrow();
     expect(conversationLostText('checkout')).toBe('The earlier conversation of this session is no longer available. Read specs/checkout/SPEC.md, specs/checkout/PLAN.md and your report, where they exist, before you continue.');
     expect(conversationLostText(undefined)).toBe('The earlier conversation of this session is no longer available.');

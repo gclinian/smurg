@@ -77,6 +77,9 @@ describe.skipIf(chrome === null || claude === null)(`one pass of the flow with t
         // The release composition, with the sessions module given the isolated environment and the binary under test.
         modules: DEFAULT_FEATURE_MODULES.map((module) => (module.name === 'sessions' ? sessions : module)),
         sessions: { claudePath: binary.path, selfCommand },
+        // The workspace asks before commands, as every 0.5.x workspace did: this pass answers a card (0.6.0 on purpose:
+        // the default is auto mode now, DESIGN D8).
+        settings: { permissionMode: 'ask-commands' },
       },
     });
     const root = env.stack.root;

@@ -319,7 +319,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       selfCommand: { file: process.execPath, args: [CLI_MAIN] },
       // The shortest waiting time a host can set: a question nobody answers reaches the others after one minute.
       // People who typed in a file keep it for ten minutes: only "Let the agent go first" hands it over in this story.
-      settings: { escalateAfterMs: 60_000, humanLockIdleMs: 600_000 },
+      // The workspace asks before commands, as every 0.5.x workspace did: the flow is about the cards people answer
+      // (0.6.0 on purpose: the default is auto mode now, DESIGN D8; S6 adds the auto steps).
+      settings: { escalateAfterMs: 60_000, humanLockIdleMs: 600_000, permissionMode: 'ask-commands' },
     });
     startedAt = Date.now();
     ian = await env.newPage({ width: 1440, height: 900 });

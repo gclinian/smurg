@@ -35,7 +35,8 @@
 // the path back and the terminal gets no control character (`shellWord`).
 //
 // Also here, each ONE line of `smurg host`: a start that upgraded what an earlier smurg wrote, or found an OLDER file
-// put back (Daemon.upgraded / putBack); a folder named `<workspace id>.old*` beside the one that is opened (0.5.0's
+// put back (Daemon.upgraded / putBack); a start that switched the workspace to auto mode, and every start while its
+// agents ask for nothing (0.6.0); a folder named `<workspace id>.old*` beside the one that is opened (0.5.0's
 // advice, followed); a peer of another protocol version that was turned away (once per run and direction, only for a
 // peer the daemon knows: anyone who ever held an invite link can make the daemon answer `version`).
 //
@@ -331,9 +332,33 @@ export function upgradeNotice(daemon: Pick<Daemon, 'upgraded' | 'putBack'>): Tex
     const names = daemon.upgraded.map((entry) => `${entry.document}.json`);
     return m(daemon.upgraded.some((entry) => entry.document === 'state') ? 'host.putBack.state' : 'host.putBack.other', { names });
   }
-  // The step's name is the published smurg whose shape the file had; several steps at once: "an earlier smurg".
-  const from = daemon.upgraded.every((entry) => entry.from === daemon.upgraded[0]?.from) ? daemon.upgraded[0]?.from : undefined;
+  // Who last wrote the folder, as its stamp says (0.5.1 and later stamp it, DESIGN 0.6.0 D13: a 0.5.2 workspace reads
+  // "last shared with smurg 0.5.2"); else the step's name, the published smurg whose shape the file had; several steps
+  // at once: "an earlier smurg".
+  const writer = daemon.upgraded.every((entry) => entry.writer !== undefined && entry.writer === daemon.upgraded[0]?.writer) ? daemon.upgraded[0]?.writer : undefined;
+  const from = writer ?? (daemon.upgraded.every((entry) => entry.from === daemon.upgraded[0]?.from) ? daemon.upgraded[0]?.from : undefined);
   return m('host.upgraded', from !== undefined && parseVersion(from) !== null ? { from } : {});
+}
+
+/**
+ * The ONE line of a start that switched the workspace to auto mode (DESIGN 0.6.0 D13; the owner's decision): this start
+ * ran the state step from 0.5.0 (`state` upgraded from 0.5.0 or an older smurg: a later release's own state step does
+ * not say it again). Null otherwise.
+ */
+export function agentsAutoNotice(daemon: Pick<Daemon, 'upgraded'>): Text | null {
+  const state = daemon.upgraded.find((entry) => entry.document === 'state');
+  if (state === undefined) return null;
+  const from = parseVersion(state.from);
+  const step = parseVersion('0.5.0');
+  return from !== null && step !== null && compareVersions(from, step) <= 0 ? m('host.agentsAuto') : null;
+}
+
+/**
+ * The ONE line of EVERY start while the workspace's agents ask for nothing (DESIGN 0.6.0 D13): the host is reminded,
+ * and a mode the host did not set (state.json has no MAC) shows here. Null otherwise.
+ */
+export function asksNothingNotice(daemon: Pick<Daemon, 'settings'>): Text | null {
+  return daemon.settings().permissionMode === 'ask-nothing' ? m('host.asksNothing') : null;
 }
 
 /** Whether a smurg that stamps its folders (0.5.1 or later) has opened this workspace folder before. */

@@ -100,6 +100,9 @@ describe.skipIf(chrome === null)('a conversation with an agent in real browsers 
         git: true,
         projectFiles: { 'README.md': '# Bookshop\n', 'src/cart.ts': 'export const cart = [];\n' },
         sessions: { claudePath: claude.path, selfCommand: { file: '/usr/bin/true', args: [] } },
+        // The workspace asks before edits and commands, as a 0.5.x session in the main workspace did: this story is
+        // about the cards people read (0.6.0 on purpose: the default is auto mode now, DESIGN D8).
+        settings: { permissionMode: 'ask-all' },
       },
     });
     host = await env.newPage({ width: 1440, height: 900 });

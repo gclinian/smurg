@@ -14,7 +14,9 @@ import {
   type TerminalSession,
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
+import { buildSessionSettings } from '../../hooks/settings-writer.ts';
 import type {
+  ClaudeMode,
   ClientConnection,
   HookServer,
   HookSessionCredentials,
@@ -250,6 +252,12 @@ export class FakeHookServer implements HookServer {
     if (registration) this.registrations.set(sessionId, { ...registration, ownerUserId }); // pathRights untouched
   }
 
+  updateSession(sessionId: string, update: { readonly claudeMode: ClaudeMode }): void {
+    this.log.record('updateSession', sessionId, update);
+    const registration = this.registrations.get(sessionId);
+    if (registration) this.registrations.set(sessionId, { ...registration, claudeMode: update.claudeMode });
+  }
+
   unregisterSession(sessionId: string): void {
     this.log.record('unregisterSession', sessionId);
     this.registrations.delete(sessionId);
@@ -264,6 +272,8 @@ export class FakeHookServer implements HookServer {
     const files = { dir, settingsPath: `${dir}/settings.json`, mcpConfigPath: `${dir}/mcp.json`, rolePromptPath: `${dir}/role.md` };
     return {
       ...files,
+      // What the real writer would write (hooks/settings-writer.ts), so the sessions module's checks see the real thing.
+      settings: buildSessionSettings({ command: { file: '/fake/bin/smurg', args: [] }, profile: launch }),
       claudeArgs: [
         '--settings', files.settingsPath,
         '--mcp-config', files.mcpConfigPath,

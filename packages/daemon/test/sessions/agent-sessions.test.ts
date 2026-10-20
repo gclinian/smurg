@@ -74,7 +74,7 @@ describe('a free agent session, end to end with the stand-in claude', { timeout:
     const states: PayloadOf<'session.state'>['session'][] = [];
     host.conn.on('session.state', (payload) => states.push(payload.session));
     const { session } = await host.conn.request('session.create', { ...AGENT, firstMessage: 'Add a test for the empty cart' });
-    // 0.6.0: the session follows the workspace (auto, on the wire), launched as 0.5.2's default for it (`default`).
+    // 0.6.0: the session follows the workspace (auto, on the wire), launched in Claude Code's auto mode (DESIGN D8).
     expect(session).toMatchObject({ kind: 'agent', purpose: 'free', openedBy: { userId: TEST_HOST_USER }, responsible: null, permissionMode: 'auto', modeChoice: null, model: null, modeFixed: false, title: 'Add a test for the empty cart', root: MAIN_ROOT });
     await r.until(session.id, (now) => now.status === 'idle' && now.lastSeq >= 8, 'the first turn to end');
     const events = await r.events(session.id);
@@ -93,9 +93,10 @@ describe('a free agent session, end to end with the stand-in claude', { timeout:
     // session.state reached the client for the status changes, the last one idle.
     await waitFor(() => states.at(-1)?.kind === 'agent' && states.at(-1)?.status === 'idle', { what: 'session.state idle' });
     expect(states.some((state) => state.kind === 'agent' && state.status === 'running' && state.runningSince !== undefined)).toBe(true);
-    // The profile of a free session in the main workspace: Claude Code's default mode, the execution tools, only smurg's MCP server.
+    // The profile of a free session in the main workspace: auto mode (0.6.0 on purpose: the workspace's default, DESIGN
+    // D8), the execution tools, only smurg's MCP server.
     const { profile } = r.s.fakes.hooks.profiles[0] as (typeof r.s.fakes.hooks.profiles)[number];
-    expect(profile).toMatchObject({ mode: 'default', strictMcp: true, settingSources: 'all', ask: [], allow: [] });
+    expect(profile).toMatchObject({ mode: 'auto', strictMcp: true, settingSources: 'all', ask: [], allow: [] });
     expect(profile.tools).toContain('Bash');
     expect(profile.deny.some((rule) => rule.startsWith('Read(//') && rule.endsWith('/.envrc)'))).toBe(true);
     expect(profile.rolePrompt).toMatch(/^You are an agent in a shared smurg workspace/);

@@ -431,8 +431,8 @@ describe('the release composition: one topic from the discussion to the archive,
     const sessions = (await leo.conn.request('session.list', { topicId })).sessions as AgentSession[];
     expect(sessions.map((session) => `${session.purpose} ${session.itemId ?? ''} ${session.item?.number ?? ''} ${session.responsible?.displayName ?? '-'} ${session.permissionMode} ${session.branch ?? ''}`)).toEqual([
       'discussion   - ask-all ',
-      'item cart-api 1 Mei auto smurg/checkout/cart-api',
-      'item receipt-email 3 Ian auto smurg/checkout/receipt-email',
+      'item cart-api 1 Mei ask-commands smurg/checkout/cart-api',
+      'item receipt-email 3 Ian ask-commands smurg/checkout/receipt-email',
     ]);
     expect((await audited(flow, 'scheduler.start')).map((entry) => entry.detail)).toMatchObject([
       { topicId, itemId: 'cart-api', sessionId: cartId, worktreeId: cartWt, attempt: 1, startedBy: MEI, commit: pinned },

@@ -32,18 +32,18 @@ import { stateShapeV040, suggestionsShapeV040 } from '../src/frozen/v0.4.0.ts';
 import { agentSessionsShapeV050, stateShapeV050 } from '../src/frozen/v0.5.0.ts';
 import { looseKey } from '../src/files/util.ts';
 import { bashPlaces, judgePlaces, type BashReading, type ResolvedPlace } from '../src/hooks/bash-guard.ts';
-import { daemonUnreachableReason, gateDenyReason, pathDeniedReason } from '../src/hooks/deny-text.ts';
+import { bashWhileTypingReason, daemonUnreachableReason, gateDenyReason, pathDeniedReason } from '../src/hooks/deny-text.ts';
 import { fileChangedMatcher } from '../src/hooks/settings-writer.ts';
 import { patternLeavesRoot, toolInList } from '../src/hooks/tool-gate.ts';
 import { projectHookInput, sniffHookEventName } from '../src/hooks/wire.ts';
 import { excerptOf } from '../src/inbox/derive.ts';
 import { lockKeyOf } from '../src/locks/keys.ts';
 import { clipText, safeDisplayName, safeToolName, shownPath, summary } from '../src/locks/text.ts';
-import { questionPartsOf, streamableLength } from '../src/sessions/agent/agent-runner.ts';
+import { autoDeniedReason, isHookRefusal, questionPartsOf, streamableLength } from '../src/sessions/agent/agent-runner.ts';
 import { hostRulesOf } from '../src/sessions/agent/host-rules.ts';
 import { agentModelsOf, mayBillUsageCredits } from '../src/sessions/agent/models.ts';
 import { Normaliser } from '../src/sessions/agent/normalise.ts';
-import { checkLaunchArgs, fileRule } from '../src/sessions/agent/profiles.ts';
+import { absoluteRule, checkLaunchArgs, fileRule } from '../src/sessions/agent/profiles.ts';
 import { cannotFollow, effectsOf, headerEffectsOf, isGuardable, namesAPath, scriptCandidates } from '../src/sessions/agent/project-settings.ts';
 import { buildToolResult, buildToolView, diffFromPatch, editOf, headTail, safeId, stripAnsi, suggestedRuleOf, toolName } from '../src/sessions/agent/tool-view.ts';
 import { envEntryPidsFromPs, parseProcessTable } from '../src/sessions/kill-tree.ts';
@@ -129,7 +129,10 @@ const LOOKS: Readonly<Record<string, Look>> = {
     run: (text) => void [headerEffectsOf('.claude/agents/a.md', `---\n${text}\n---\nBody.\n`), headerEffectsOf('.claude/agents/a.md', `---\nhooks:\n${text}\n---\n`), headerEffectsOf('.claude/agents/a.md', text)],
     fronts: ['hooks:', '  - command: ', '  command', 'allowed-tools: ', 'allowed-tools:\n  ', 'permissionMode: "', 'a', '---\n'],
   },
-  'fileRule, checkLaunchArgs and fileChangedMatcher (what a session is started with)': { run: (text) => void [fileRule('Edit', '/work/shop', text), checkLaunchArgs(['--settings', text]), checkLaunchArgs(['--model', text]), fileChangedMatcher([text, text])], throws: true },
+  'fileRule, absoluteRule, checkLaunchArgs and fileChangedMatcher (what a session is started with)': {
+    run: (text) => void [fileRule('Edit', '/work/shop', text), absoluteRule('Edit', `/${text}`), checkLaunchArgs(['--settings', text]), checkLaunchArgs(['--model', text]), fileChangedMatcher([text, text])],
+    throws: true,
+  },
   // ---- what Claude Code says of its models (DESIGN 0.6.0 D7): the host's own list, a refusal's code, an API error
   'agentModelsOf, mayBillUsageCredits and the codes the normaliser keeps (the models Claude Code offers, its error codes)': {
     run: (text) =>
@@ -189,7 +192,11 @@ const LOOKS: Readonly<Record<string, Look>> = {
     },
   },
   'hostRulesOf (the host\u2019s own allow rules)': { run: (text) => void hostRulesOf({ state: { rules: [{ behavior: 'allow', source: 'userSettings', rule: text }, { behavior: 'allow', source: 'localSettings', rule: `Bash(${text})` }] } }) },
-  'gateDenyReason, pathDeniedReason and daemonUnreachableReason (what an agent is told)': { run: (text) => void [gateDenyReason('G2', { tool: text, slug: text }), pathDeniedReason(text), daemonUnreachableReason(text)] },
+  'gateDenyReason, pathDeniedReason, daemonUnreachableReason and bashWhileTypingReason (what an agent is told)': {
+    run: (text) => void [gateDenyReason('G2', { tool: text, slug: text }), pathDeniedReason(text), daemonUnreachableReason(text), bashWhileTypingReason([text, text], text)],
+  },
+  // ---- auto mode (DESIGN 0.6.0 D11): the reason of a refused call, a hook's refusal in a call's result
+  'autoDeniedReason and isHookRefusal (what auto mode and a hook say of a call)': { run: (text) => void [autoDeniedReason(text), isHookRefusal(text), isHookRefusal(`PreToolUse:Bash hook error: ${text}`)], fronts: ['PreToolUse:', 'PreToolUse:Bash', ' \t\n'] },
   'patternLeavesRoot and toolInList (a search pattern, a tool name)': { run: (text) => void [patternLeavesRoot(text), toolInList([text, 'Bash'], text)], fronts: ['../', 'a/../', 'mcp__'] },
   'sniffHookEventName and projectHookInput (what a hook sends)': {
     run: (text) => void [sniffHookEventName(text), projectHookInput({ hook_event_name: 'PreToolUse', tool_name: 'Bash', cwd: text, tool_input: { command: text, file_path: text, path: text, pattern: text } }, { command: true })],
@@ -571,7 +578,7 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // (0.5.0's own rules, as 0.4.0's above: the same scalars and paths, and a mark run read without HFS+'s ignorables.)
   'frozen/v0.5.0.ts': 19,
   'hooks/bash-guard.ts': 6,
-  'hooks/deny-text.ts': 3,
+  'hooks/deny-text.ts': 4,
   'hooks/schemas.ts': 1,
   'hooks/settings-writer.ts': 2,
   'hooks/tool-gate.ts': 1,
@@ -581,7 +588,7 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'locks/lock-manager.ts': 1,
   'locks/text.ts': 2,
   'net/identity.ts': 2,
-  'sessions/agent/agent-runner.ts': 7,
+  'sessions/agent/agent-runner.ts': 9,
   'sessions/agent/host-rules.ts': 1,
   // (models.ts: a description's unshowable characters, and "fable" in a name; normalise.ts: what a code may be)
   'sessions/agent/models.ts': 2,

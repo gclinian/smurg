@@ -261,7 +261,8 @@ export interface DaemonEvents {
   /** FileChanged hook (activity feed only; correctness never depends on it, §7.6). */
   'agent.file-changed': { readonly sessionId: string; readonly ownerUserId: UserId; readonly file: FileRef; readonly change: 'add' | 'change' | 'unlink' };
   /** The tool gate refused a tool call (rows G2–G7). Emitted by hooks; conversation audits `permission.auto-deny`, coalesced. */
-  'agent.tool.gate': { readonly sessionId: string; readonly tool: string; readonly row: GateRow; readonly path?: string };
+  /** `toolUseId`: Claude Code's id of the refused call, when its hook said it (the runner's audit leaves such a call out, DESIGN 0.6.0 D11). */
+  'agent.tool.gate': { readonly sessionId: string; readonly tool: string; readonly row: GateRow; readonly path?: string; readonly toolUseId?: string };
   /**
    * An agent's process answered `initialize`. Emitted by sessions. The RUNNER itself writes what follows from it (the
    * notices `notice.notLoggedIn` and `notice.personalSubscription`, the account state, the host's rules it reported):
@@ -1249,7 +1250,7 @@ export interface TurnMessage {
   readonly suggestionId?: string;
 }
 /** The rows of the tool gate that deny (ARCHITECTURE §7.7). */
-export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
+export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G11' | 'G12';
 export type AttentionSource = 'topics' | 'sessions' | 'trust' | 'host-rules' | 'settings';
 
 /**
@@ -1532,9 +1533,10 @@ export interface AgentSessions {
    * A topic's agent settings changed (TopicService.setAgent, PlanService.start with `agent`; `previous`: the topic's
    * mode choice before): every live item session of the topic that follows the topic's mode (its own choice null) runs
    * with the new effective mode; the line `conversation.mode.topic` {by, mode} in each whose effective mode changed.
-   * Emits session.updated for every session of the topic.
+   * By the system putting back a member's choice (TopicService.memberRemoved, DESIGN 0.6.0 D12, `reset`: who had
+   * chosen it): the line `conversation.mode.reset` {name} instead. Emits session.updated for every session of the topic.
    */
-  topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void>;
+  topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor, reset?: UserRef): Promise<void>;
   /**
    * Replaces the session's own remembered rules (a topic's rules are read from TopicService.rules at each process
    * start). For each rule that WENT: by a person the line `conversation.rule.removed` and audit `session.rule.remove`;
@@ -1775,6 +1777,12 @@ export interface HookSessionRegistration {
   readonly pathRights: 'member' | 'host';
   /** The profile's `--tools` list: the gate refuses anything else that is not `mcp__smurg__*`. */
   readonly tools: readonly string[];
+  /**
+   * The Claude Code mode the session's process RUNS in (DESIGN 0.6.0 D9, D10): the launch mode at registration, then
+   * what Claude Code reports (HookServer.updateSession). The gate's rows G10, G11 and G12 read it. A mode smurg never
+   * launches with (`plan`, `dontAsk`, anything unknown) is registered as `auto`, where every one of those rows runs.
+   */
+  readonly claudeMode: ClaudeMode;
 }
 
 export interface HookSessionCredentials {
@@ -1783,10 +1791,16 @@ export interface HookSessionCredentials {
   readonly env: Readonly<Record<string, string>>;
 }
 
+/** Claude Code's own permission modes that smurg launches with (DESIGN 0.6.0 D8; sessions/agent/profiles.ts). */
+export type ClaudeMode = 'default' | 'acceptEdits' | 'auto' | 'bypassPermissions';
+
 /** What the sessions module asks the hooks module to write for one process start (ARCHITECTURE §7.6 "Profiles"). */
 export interface LaunchProfile {
-  /** Claude Code's own mode. A session in the main workspace is never `acceptEdits`. */
-  readonly mode: 'default' | 'acceptEdits';
+  /**
+   * Claude Code's own mode (DESIGN 0.6.0 D8). A session in the main workspace is never `acceptEdits`;
+   * `bypassPermissions` only behind the sessions module's four checks.
+   */
+  readonly mode: ClaudeMode;
   readonly tools: readonly string[];
   /** Rules for `permissions.allow` / `ask` / `deny`, one string per element (never parsed as a list). */
   readonly allow: readonly string[];
@@ -1809,6 +1823,8 @@ export interface SessionLaunchFiles {
   readonly settingsPath: string;
   readonly mcpConfigPath: string;
   readonly rolePromptPath: string;
+  /** The settings object written to `settingsPath`, as written: the sessions module checks it before the spawn (DESIGN 0.6.0 D8). */
+  readonly settings: Readonly<Record<string, unknown>>;
   /** The profile flags; the sessions module checks them against its allow-list before the spawn (fail closed). */
   readonly claudeArgs: readonly string[];
 }
@@ -1822,6 +1838,8 @@ export interface HookServer {
   registerSession(session: HookSessionRegistration): HookSessionCredentials;
   /** Handover: whose locks the agent's are. Never touches `pathRights`. */
   reassignSession(sessionId: string, ownerUserId: UserId): void;
+  /** The Claude Code mode the session's process runs in now (DESIGN 0.6.0 D9: what Claude Code reported). Never touches anything else. */
+  updateSession(sessionId: string, update: { readonly claudeMode: ClaudeMode }): void;
   /** Revokes the token, aborts the session's waits, releases its locks and removes its launch files. */
   unregisterSession(sessionId: string): void;
   /**

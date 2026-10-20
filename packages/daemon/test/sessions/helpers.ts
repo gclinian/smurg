@@ -59,6 +59,15 @@ export class FakeHooks implements HookServer {
     if (registration) this.registered.set(sessionId, { ...registration, ownerUserId });
   }
 
+  /** The Claude Code modes each session's process was said to run in (HookServer.updateSession), newest last. */
+  readonly claudeModes: { sessionId: string; claudeMode: string }[] = [];
+
+  updateSession(sessionId: string, update: { readonly claudeMode: HookSessionRegistration['claudeMode'] }): void {
+    this.claudeModes.push({ sessionId, claudeMode: update.claudeMode });
+    const registration = this.registered.get(sessionId);
+    if (registration) this.registered.set(sessionId, { ...registration, claudeMode: update.claudeMode });
+  }
+
   /** The hooks module's own writer (settings-writer.ts), fed what HookServerImpl feeds it: one source of truth. */
   async writeSessionFiles(sessionId: string, launch: LaunchProfile): Promise<SessionLaunchFiles> {
     const ctx = this.ctx;

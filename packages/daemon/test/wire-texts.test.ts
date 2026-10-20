@@ -225,6 +225,8 @@ describe('fixed English and language-neutral names', () => {
       'state-dir-inside-share',
       'share-inside-state-dir',
       'smurg-not-a-directory',
+      // 0.6.0 (DESIGN D8a): a folder in the host's Claude Code settings or .ssh folder.
+      'inside-agent-config',
     ]);
     for (const reason of SHARE_ERROR_REASONS) {
       const error = new ShareError(reason);

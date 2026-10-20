@@ -200,7 +200,13 @@ const tool = (name: string, input: Record<string, unknown>): MockStep => ({ tool
 const bash = (command: string): MockStep => tool('Bash', { command, description: 'run' });
 const QUESTION = { questions: [{ question: 'Which database?', header: 'Database', multiSelect: false, options: [{ label: 'SQLite', description: 'One file' }, { label: 'Postgres', description: 'A server' }] }] };
 const TOPIC = { id: 'tp_checkout', slug: 'checkout', name: 'Checkout' };
-const freeSession = async (s: Stack, firstMessage: string): Promise<AgentSession> => (await s.t.ctx.services.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, firstMessage }, null as never, s.host())) as AgentSession;
+/**
+ * A free session in the main workspace that asks before edits and commands: what 0.5.2 launched by default (Claude
+ * Code's `default`). 0.6.0 on purpose: these cases are about cards, and the workspace's default is auto mode now
+ * (DESIGN D8); auto mode with the real claude is test/sessions/modes-claude-real.test.ts.
+ */
+const freeSession = async (s: Stack, firstMessage: string): Promise<AgentSession> =>
+  (await s.t.ctx.services.sessions.create({ kind: 'agent', workspace: { mode: 'main' }, firstMessage, permissionMode: 'ask-all' }, null as never, s.host())) as AgentSession;
 const allowAll = (request: AgentRequest, agents: AgentSessionsImpl, sessionId: string): void => {
   if (request.kind === 'permission') agents.decidePermission(sessionId, request.id, { allow: true });
 };

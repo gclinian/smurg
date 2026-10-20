@@ -12,7 +12,7 @@
 //                                         // → handlers disposed → keep-awake released → logs flushed
 import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
-import { SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
+import { SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type HostSettings, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
 import { ensurePrivateDirectory, loadOrCreateDaemonIdentity, nodeCryptoSuite, type LoadedStaticKey } from '@smurg/protocol/node';
 import { relayHttpUrl, wsHostUrl, xferHostUrl } from '@smurg/protocol/relay';
 import { registerAdminHandlers } from './admin/handlers.ts';
@@ -171,6 +171,11 @@ export interface Daemon {
   start(): Promise<void>;
   stop(reason?: string): Promise<void>;
   status(): DaemonStatus;
+  /**
+   * The host settings as this start loaded them (state.json, after any upgrade step), and as they are from then on
+   * (DESIGN 0.6.0 D13: `smurg host` names the workspace's mode at every start while it is "Asks for nothing").
+   */
+  settings(): HostSettings;
   /**
    * A fresh relay session token for the host sockets (the host ran `smurg login` again): used from the next upgrade,
    * at once when the relay refused the old one (link state 'auth-rejected', bus event 'relay.link').
@@ -723,6 +728,10 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
 
       updateRelayToken(token: string): void {
         for (const link of links.values()) link.setToken(token);
+      },
+
+      settings(): HostSettings {
+        return structuredClone(ctx.settings.get());
       },
 
       status(): DaemonStatus {

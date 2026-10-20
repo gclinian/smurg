@@ -31,9 +31,10 @@
 //     are on disk) and come back idle at the next start, so the last line says how many are paused when there are any.
 import { createWriteStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  AGENT_CONFIG_DIRS,
   DEFAULT_FEATURE_MODULES,
   HOMES_PARENTS,
   KeepAwake,
@@ -77,7 +78,21 @@ import { CLI_VERSION } from '../version.ts';
 import { m, renderText, roleText, type MessageId, type Text } from '../i18n/index.ts';
 import type { DurationUnit } from '../i18n/en.ts';
 import { say, tr, type CommandContext } from './context.ts';
-import { entryUnreadProblem, foldersSetAside, formatTime, oldFolderNotice, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, watchSmurgTracked, type RefusalContext } from './host-state.ts';
+import {
+  agentsAutoNotice,
+  asksNothingNotice,
+  entryUnreadProblem,
+  foldersSetAside,
+  formatTime,
+  oldFolderNotice,
+  shown,
+  stateFileProblem,
+  upgradeNotice,
+  wasStamped,
+  watchRefusedPeers,
+  watchSmurgTracked,
+  type RefusalContext,
+} from './host-state.ts';
 
 /** `smurg host --help`; the --relay default depends on the built-in relay (../relay/default-relay.ts). */
 export function hostUsage(): Text {
@@ -150,7 +165,17 @@ export async function validateFolder(ctx: CommandContext, folderArg: string): Pr
   const stateDir = await realpath(ctx.paths.stateDir).catch(() => resolve(ctx.paths.stateDir));
   if (isInside(stateDir, real)) throw usageError(m('host.folder.containsState', { stateDir: ctx.paths.stateDir }), m('host.folder.containsState.hint'));
   if (isInside(real, stateDir)) throw usageError(m('host.folder.insideState'));
+  // DESIGN 0.6.0 D8a: Claude Code's settings and the ssh folder would go to every member (the daemon refuses it too).
+  for (const config of await agentConfigFolders(home, ctx.io.env['CLAUDE_CONFIG_DIR'])) if (isInside(real, config)) throw usageError(m('host.folder.insideConfig', { folder: folderArg }));
   return real;
+}
+
+/** The realpaths of `~/.claude`, `~/.ssh` and CLAUDE_CONFIG_DIR (when set), as far as they exist. */
+async function agentConfigFolders(home: string | null, configDir: string | undefined): Promise<string[]> {
+  const candidates = [...(home === null ? [] : AGENT_CONFIG_DIRS.map((dir) => join(home, dir))), ...(configDir === undefined || configDir.length === 0 || !isAbsolute(configDir) ? [] : [configDir])];
+  const out: string[] = [];
+  for (const candidate of candidates) out.push(await realpath(candidate).catch(() => resolve(candidate)));
+  return out;
 }
 
 /** Keep-awake that tells the host command when the daemon released it: the last step of daemon.stop(). */
@@ -290,6 +315,7 @@ const SHARE_REFUSALS: Readonly<Record<ShareErrorReason, MessageId>> = {
   'state-dir-inside-share': 'host.share.stateInside',
   'share-inside-state-dir': 'host.folder.insideState',
   'smurg-not-a-directory': 'host.share.smurgNotDirectory',
+  'inside-agent-config': 'host.folder.insideConfig',
 };
 
 /**
@@ -462,7 +488,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
 
   // What this start found in the workspace's folder, ONE line each, before the links (the daemon wrote an upgrade in
   // createDaemon, so it is said now: a start that fails later would never say it again). The log gets the same.
-  const found: (Text | null)[] = [upgradeNotice(daemon), stampedBefore ? null : oldFolderNotice(await foldersSetAside(workspaceDir))];
+  // 0.6.0 (DESIGN D13): after the upgrade lines, the one about auto mode, and the reminder while agents ask for nothing.
+  const found: (Text | null)[] = [upgradeNotice(daemon), agentsAutoNotice(daemon), asksNothingNotice(daemon), stampedBefore ? null : oldFolderNotice(await foldersSetAside(workspaceDir))];
   for (const line of found) {
     if (line === null) continue;
     say(ctx, line);

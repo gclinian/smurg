@@ -8,8 +8,6 @@
 import type { MessageId } from '@smurg/protocol/i18n';
 
 const BY_PACKAGE: Readonly<Record<string, readonly MessageId[]>> = {
-  // 0.6.0 S4, permissions (DESIGN D9, D10): auto mode's own check, and a mode Claude Code does not run.
-  'S4 permissions': ['conversation.autoMode.blocked', 'notice.autoUnavailable.model', 'notice.autoUnavailable.settings', 'notice.asksNothingRefused'],
   // 0.6.0 S5, no git (DESIGN D14, D15): items that run directly in the folder, and smurg's own history.
   'S5 no git': [
     'conversation.started.itemDirect',

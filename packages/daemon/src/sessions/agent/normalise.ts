@@ -61,6 +61,13 @@ export type RunnerEvent =
   | { readonly kind: 'api.retry'; readonly error: string; readonly attempt: number; readonly max: number; readonly auth: boolean }
   | { readonly kind: 'rate.limit'; readonly allowed: boolean; readonly resetsAt?: number }
   | { readonly kind: 'status'; readonly compacting?: boolean; readonly permissionMode?: string }
+  /**
+   * Auto mode's check refused a call (`system/permission_denied` with `decision_reason_type: 'classifier'`, U4 B3):
+   * the call does not run; its error result follows. `reason`: Claude Code's short reason (`[Data Exfiltration]`).
+   */
+  | { readonly kind: 'auto.denied'; readonly toolUseId: string; readonly tool: string; readonly reason: string }
+  /** `system/informational` (Claude Code's own notes, e.g. a replaced model or its classifier's billing): logged only. */
+  | { readonly kind: 'informational'; readonly level: string; readonly text: string }
   | { readonly kind: 'compact.boundary' }
   | { readonly kind: 'result'; readonly outcome: TurnOutcome; readonly durationMs: number; readonly uuids: readonly string[]; readonly apiError: boolean };
 
@@ -265,6 +272,16 @@ export class Normaliser {
       }
       case 'compact_boundary':
         return [{ kind: 'compact.boundary' }];
+      case 'permission_denied': {
+        // Only auto mode's check: a deny rule's or a person's refusal has its own path (the error result, a card).
+        if (message['decision_reason_type'] !== 'classifier') return [];
+        const toolUseId = str(message['tool_use_id']);
+        if (toolUseId === undefined) return [];
+        const reason = str(message['decision_reason']) ?? str(message['message']) ?? '';
+        return [{ kind: 'auto.denied', toolUseId, tool: str(message['tool_name']) ?? '', reason }];
+      }
+      case 'informational':
+        return [{ kind: 'informational', level: (str(message['level']) ?? 'info').slice(0, 16), text: str(message['content']) ?? '' }];
       case 'api_retry': {
         const error = (str(message['error']) ?? 'error').slice(0, 64);
         return [{ kind: 'api.retry', error, attempt: Math.max(0, Math.trunc(num(message['attempt']) ?? 0)), max: Math.max(0, Math.trunc(num(message['max_retries']) ?? 0)), auth: error === 'authentication_failed' }];

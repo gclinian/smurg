@@ -2,7 +2,7 @@
 // from git), and refuses locations that would expose its own state or the whole home directory. Also the Claude Code
 // version policy of config.sessions (minimum, verified versions, verdict).
 import { execFile } from 'node:child_process';
-import { lstat, readFile, readdir, readlink, rm, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
+import { lstat, readFile, readdir, readlink, realpath, rm, stat, mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -239,6 +239,21 @@ describe('prepareShare', () => {
     await expect(prepareShare(homes, join(base, 'state'), options)).rejects.toThrow(/contains the home directories/);
     const shared = await createTempProject(homes, 'Shared', { files: { 'a.txt': 'a' } }); // like /Users/Shared/proj
     expect(await prepareShare(shared, join(base, 'state'), options)).toMatchObject({ realPath: shared });
+  });
+
+  it("DESIGN 0.6.0 D8a: refuses a folder in the host's ~/.claude, ~/.ssh or CLAUDE_CONFIG_DIR (every member would get Claude Code's settings or the keys), before touching it", async () => {
+    const home = join(base, 'cfg-home');
+    const configDir = join(base, 'claude-config');
+    for (const dir of [join(home, '.claude', 'projects', 'p'), join(home, '.ssh', 'keys'), join(configDir, 'plugins'), join(home, 'code', 'shop')]) await mkdir(dir, { recursive: true });
+    const options = { homeDir: home, homesParents: [], claudeConfigDir: configDir };
+    for (const folder of [join(home, '.claude'), join(home, '.claude', 'projects', 'p'), join(home, '.ssh'), join(home, '.ssh', 'keys'), configDir, join(configDir, 'plugins')]) {
+      await expect(prepareShare(folder, join(base, 'state'), options), folder).rejects.toMatchObject({ name: 'ShareError', reason: 'inside-agent-config' });
+      await expect(stat(join(folder, '.smurg')), folder).rejects.toMatchObject({ code: 'ENOENT' });
+    }
+    // A project folder of the host's is fine; so is one whose name only looks like it.
+    expect(await prepareShare(join(home, 'code', 'shop'), join(base, 'state'), options)).toMatchObject({ realPath: await realpath(join(home, 'code', 'shop')) });
+    await mkdir(join(home, '.claude-notes'), { recursive: true });
+    expect(await prepareShare(join(home, '.claude-notes'), join(base, 'state'), options)).toMatchObject({ isGitRepo: false });
   });
 });
 

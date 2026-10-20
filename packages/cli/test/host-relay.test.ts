@@ -172,6 +172,16 @@ describe('smurg host', () => {
     const nested = testIo({ env: { HOME: dirs.home, SMURG_HOME: join(dirs.project, '.smurg-state') } });
     expect(await runCli(['host', dirs.project], nested)).toBe(2);
     expect(nested.err()).toContain("smurg's state folder");
+    // DESIGN 0.6.0 D8a: a folder in ~/.claude, ~/.ssh or CLAUDE_CONFIG_DIR: Claude Code's settings and the keys.
+    for (const dir of [join(dirs.home, '.claude', 'projects'), join(dirs.home, '.ssh')]) {
+      await mkdir(dir, { recursive: true });
+      expect(await run(dir), dir).toMatchObject({ code: 2, err: expect.stringContaining(`smurg host does not share ${dir}: it lies in your Claude Code settings or your .ssh folder`) });
+    }
+    const configDir = join(dirs.home, 'claude-config');
+    await mkdir(join(configDir, 'plugins'), { recursive: true });
+    const inConfig = testIo({ env: { ...env, CLAUDE_CONFIG_DIR: configDir } });
+    expect(await runCli(['host', join(configDir, 'plugins'), '--no-keep-awake'], inConfig)).toBe(2);
+    expect(inConfig.err()).toContain('it lies in your Claude Code settings or your .ssh folder');
     const bad = testIo({ env });
     expect(await runCli(['host', dirs.project, '--role', 'host'], bad)).toBe(2);
     expect(bad.err()).toContain('An invite link cannot have the Host role');

@@ -11,7 +11,21 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, STAMP_FILE, StateFileError } from '@smurg/daemon';
 import { createTempDir, removeTempDir } from '@smurg/daemon/testing';
 import { formatFailure } from '../src/cli/errors.ts';
-import { foldersSetAside, oldFolderNotice, shellWord, shown, stateFileProblem, upgradeNotice, wasStamped, watchRefusedPeers, watchSmurgTracked, type FileLook, type RefusalContext } from '../src/commands/host-state.ts';
+import {
+  agentsAutoNotice,
+  asksNothingNotice,
+  foldersSetAside,
+  oldFolderNotice,
+  shellWord,
+  shown,
+  stateFileProblem,
+  upgradeNotice,
+  wasStamped,
+  watchRefusedPeers,
+  watchSmurgTracked,
+  type FileLook,
+  type RefusalContext,
+} from '../src/commands/host-state.ts';
 import { SET_ASIDE_DOCUMENTS } from '../src/i18n/en.ts';
 import { m, renderText, type Text } from '../src/i18n/index.ts';
 import { CLI_VERSION } from '../src/version.ts';
@@ -645,6 +659,56 @@ describe('the one line of a start that upgraded, or found an older file put back
         `之後才加入的人不再是成員，之後建立的邀請連結也不能用了。說明：${GUIDE_KEPT['zh-TW']}`,
     );
     for (const text of [other, both]) for (const lang of ['en', 'zh-TW'] as const) expect(show(text, lang)).not.toContain('\n');
+  });
+});
+
+describe('0.6.0 (DESIGN D13): the line about auto mode, the line while agents ask for nothing, and who last wrote the folder', () => {
+  const copy = (name: string, from: string, writer?: string): { document: string; from: string; copy: string; writer?: string } => ({
+    document: name,
+    from,
+    copy: `${DIR}/${name}.json.before-upgrade-from-${from}`,
+    ...(writer === undefined ? {} : { writer }),
+  });
+  const GUIDE_AGENTS = { en: 'https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first', 'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問' };
+
+  it('the upgrade line names the smurg the stamp says last wrote the folder: a 0.5.2 workspace reads "smurg 0.5.2", not the step\'s 0.5.0', () => {
+    const fromStamp = upgradeNotice({ upgraded: [copy('state', '0.5.0', '0.5.2'), copy('agent-sessions', '0.5.0', '0.5.2')], putBack: false });
+    expect(renderText('en', fromStamp as Text)).toBe(`This workspace was last shared with smurg 0.5.2: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}`);
+    expect(renderText('zh-TW', fromStamp as Text)).toBe(`這個工作區上次是用 smurg 0.5.2 分享的：成員、邀請連結和設定都已沿用。有哪些改變：${GUIDE_KEPT['zh-TW']}`);
+    // No stamp (0.5.0 and older wrote none): the step's name, as before.
+    expect(renderText('en', upgradeNotice({ upgraded: [copy('state', '0.5.0'), copy('agent-sessions', '0.5.0')], putBack: false }) as Text)).toContain('last shared with smurg 0.5.0:');
+    // A stamp that names no version: an earlier smurg.
+    expect(renderText('en', upgradeNotice({ upgraded: [copy('state', '0.5.0', 'dev')], putBack: false }) as Text)).toContain('last shared with an earlier smurg:');
+  });
+
+  it('agentsAutoNotice: only for a start that ran the state step from 0.5.0 (or one before it), one line in both languages', () => {
+    for (const from of ['0.4.0', '0.5.0']) {
+      const text = agentsAutoNotice({ upgraded: [copy('state', from)] });
+      expect(text, from).not.toBeNull();
+      expect(renderText('en', text as Text)).toBe(
+        `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: ${GUIDE_AGENTS.en}`,
+      );
+      expect(renderText('zh-TW', text as Text)).toBe(
+        `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不用先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人主控台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS['zh-TW']}`,
+      );
+    }
+    // Nothing upgraded, another document only, or a later release's own state step: nothing.
+    expect(agentsAutoNotice({ upgraded: [] })).toBeNull();
+    expect(agentsAutoNotice({ upgraded: [copy('suggestions', '0.4.0')] })).toBeNull();
+    expect(agentsAutoNotice({ upgraded: [copy('state', '0.6.0')] })).toBeNull();
+    expect(agentsAutoNotice({ upgraded: [copy('state', 'legacy')] })).toBeNull();
+  });
+
+  it('asksNothingNotice: at every start whose workspace asks for nothing, and at no other', () => {
+    const daemon = (permissionMode: string): Parameters<typeof asksNothingNotice>[0] => ({ settings: () => ({ permissionMode }) as ReturnType<Parameters<typeof asksNothingNotice>[0]['settings']> });
+    const text = asksNothingNotice(daemon('ask-nothing'));
+    expect(renderText('en', text as Text)).toBe(
+      `\nAgents here ask for nothing: every command runs as you, with no check by Claude Code and no question from smurg (only smurg's fixed limits stay). To change it, choose another mode in the host console's settings. Guide: ${GUIDE_AGENTS.en}`,
+    );
+    expect(renderText('zh-TW', text as Text)).toBe(
+      `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人主控台的設定裡選其他模式。說明：${GUIDE_AGENTS['zh-TW']}`,
+    );
+    for (const mode of ['auto', 'ask-commands', 'ask-all']) expect(asksNothingNotice(daemon(mode)), mode).toBeNull();
   });
 });
 

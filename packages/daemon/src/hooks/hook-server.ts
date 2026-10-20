@@ -19,6 +19,7 @@ import { SmurgError, fileRefKey, opaqueIdSchema, rootRefSchema, type FileRef, ty
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import type {
+  ClaudeMode,
   HookServer,
   HookSessionCredentials,
   HookSessionRegistration,
@@ -94,6 +95,9 @@ export const DEFAULT_HOOK_SERVER_LIMITS: HookServerLimits = Object.freeze({
   bashEventsBurst: 60,
 });
 
+/** The Claude Code modes a registration may name (core/interfaces.ts ClaudeMode). */
+const CLAUDE_MODES: ReadonlySet<string> = new Set(['default', 'acceptEdits', 'auto', 'bypassPermissions']);
+
 interface SessionEntry extends HookSessionState {
   readonly tokenHash: string;
   readonly bucket: TokenBucket;
@@ -148,7 +152,7 @@ export class HookServerImpl implements HookServer {
   registerSession(session: HookSessionRegistration): HookSessionCredentials {
     if (this.stopped) throw new SmurgError('internal', msg('session.startWhileStopping'), { reason: 'stopping' });
     // The registration comes from the session manager, but it names paths and people: validate it anyway.
-    if (!opaqueIdSchema.safeParse(session.sessionId).success || !rootRefSchema.safeParse(session.root).success) {
+    if (!opaqueIdSchema.safeParse(session.sessionId).success || !rootRefSchema.safeParse(session.root).success || !CLAUDE_MODES.has(session.claudeMode)) {
       throw new SmurgError('internal', undefined, { reason: 'invalid-hook-registration' });
     }
     this.unregisterSession(session.sessionId);
@@ -207,6 +211,16 @@ export class HookServerImpl implements HookServer {
     const entry = this.byId.get(sessionId);
     if (!entry) return;
     (entry as { registration: HookSessionRegistration }).registration = Object.freeze({ ...entry.registration, ownerUserId });
+  }
+
+  /**
+   * The Claude Code mode the session's process runs in now (DESIGN 0.6.0 D9: what it reported): the gate's rows G10,
+   * G11 and G12 read it from the next tool call on. Nothing else of the registration changes.
+   */
+  updateSession(sessionId: string, update: { readonly claudeMode: ClaudeMode }): void {
+    const entry = this.byId.get(sessionId);
+    if (!entry || !CLAUDE_MODES.has(update.claudeMode)) return;
+    (entry as { registration: HookSessionRegistration }).registration = Object.freeze({ ...entry.registration, claudeMode: update.claudeMode });
   }
 
   /**

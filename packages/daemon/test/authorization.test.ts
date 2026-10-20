@@ -368,7 +368,8 @@ describe('the release composition: every request type × every role in front of 
     expect(sessions.map((session) => (session.kind === 'agent' ? `${session.purpose} by ${session.openedBy.userId}` : session.kind)).sort()).toEqual(['discussion by dev:host', 'free by dev:host', 'free by dev:rita']);
     const { topics } = await host.conn.request('topic.list', {});
     expect(topics).toMatchObject([{ name: 'Checkout', slug: 'checkout', createdBy: { userId: 'dev:host' } }]);
-    await waitFor(async () => (await claude.echoed()).filter((entry) => entry.kind === 'argv').length === 3, { timeoutMs: 20_000, what: 'the three agent sessions to have started' });
+    // (The model probe, which asks Claude Code once which models it offers, is a start of the stand-in too: not a session.)
+    await waitFor(async () => (await claude.echoed()).filter((entry) => entry.kind === 'argv' && !String(entry.session).startsWith('smurg-probe-')).length === 3, { timeoutMs: 20_000, what: 'the three agent sessions to have started' });
     // An Editor and a Viewer opened nothing, and the one invite a person made is the host's.
     expect(sessions.some((session) => ['dev:eddie', 'dev:vera'].includes(session.openedBy.userId))).toBe(false);
     expect(entries.filter((e) => e.action === 'invite.create' && e.actor.kind === 'user').map((e) => (e.actor.kind === 'user' ? e.actor.userId : ''))).toEqual(['dev:host']);

@@ -302,6 +302,28 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     expect((await s.host.conn.request('permission.decide', { requestId: 'writes', decision: 'deny' })).request).toMatchObject({ status: 'denied', gate: 'writes-settings-script' });
   });
 
+  it('DESIGN 0.6.0 D10: the two rows that still ask in auto mode say so on the card, and each is the HOST\'s to answer: a teammate\'s session writing a file only the host may change (G11a), or outside its own folder (G12)', async () => {
+    const s = await startStack();
+    const session = await openSession(s, MEI, { modeChoice: 'auto', model: null });
+    s.fakes.agents.raise(session.id, bashRequest('host-only', 'echo x >> CLAUDE.md', { reasonType: 'hook', reason: BASH_ASK_REASONS.writesHostOnly }));
+    s.fakes.agents.raise(session.id, bashRequest('outside', 'echo x >> ~/notes.txt', { reasonType: 'hook', reason: BASH_ASK_REASONS.writesOutside, suggestedRule: { tool: 'Bash', pattern: 'echo *' } }));
+    expect(await card(s, 'host-only')).toMatchObject({ status: 'open', what: 'command', command: 'echo x >> CLAUDE.md', gate: 'writes-host-only', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.writesHostOnly });
+    expect(await card(s, 'outside')).toMatchObject({ status: 'open', gate: 'writes-outside', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.writesOutside });
+    expect(await card(s, 'outside')).not.toHaveProperty('alwaysRule');
+    for (const id of ['host-only', 'outside']) {
+      expect(s.fakes.agents.answerTo(session.id, id)).toBeUndefined();
+      expect(await refusal(s.mei.conn.request('permission.decide', { requestId: id, decision: 'allow' }))).toMatchObject({ code: 'host_only' });
+    }
+    expect((await s.host.conn.request('permission.decide', { requestId: 'outside', decision: 'allow' })).request).toMatchObject({ status: 'allowed', gate: 'writes-outside' });
+    // The same sentences from anything but a hook are no gate's.
+    s.fakes.agents.raise(session.id, bashRequest('rule', 'echo y >> CLAUDE.md', { reasonType: 'rule', reason: BASH_ASK_REASONS.writesHostOnly }));
+    expect(await card(s, 'rule')).not.toHaveProperty('gate');
+    // A command whose writes the gate cannot follow (GATE_ASKS_WHEN_UNSURE): the host's too, its sentence the reason.
+    s.fakes.agents.raise(session.id, bashRequest('unsure', 'F=CLAUDE.md; rm "$F"', { reasonType: 'hook', reason: BASH_ASK_REASONS.unsureAuto }));
+    expect(await card(s, 'unsure')).toMatchObject({ status: 'open', hostOnly: true, noAlways: 'host-only', reason: BASH_ASK_REASONS.unsureAuto });
+    expect(await card(s, 'unsure')).not.toHaveProperty('gate');
+  });
+
   it('S6 a request that cannot be shown whole is denied', async () => {
     const s = await startStack();
     const session = await openSession(s, MEI);
@@ -458,6 +480,21 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     const strict = await openSession(s, HOST);
     s.fakes.agents.raise(strict.id, editRequest('e4', 'src/cart.ts', { kind: 'write', text: 'c\n' }));
     expect(await card(s, 'e4')).toMatchObject({ what: 'edit', status: 'open', hostOnly: false });
+    // DESIGN 0.6.0 D8: what the process RUNS in decides (modeInUse): a session in auto whose process asks before
+    // commands (its model has no auto mode) gets the daemon's edits; one that runs in auto, or that stricter Claude
+    // Code runs asking before edits, a card.
+    const fallback = await openSession(s, MEI, { modeChoice: 'auto', model: null });
+    s.fakes.agents.reportMode(fallback.id, 'ask-commands', 'model-no-auto');
+    s.fakes.agents.raise(fallback.id, editRequest('e5', 'src/cart.ts', { kind: 'write', text: 'd\n' }));
+    await quiet(s);
+    expect(s.service.permission('e5', true)).toBeNull();
+    expect(s.fakes.agents.answerTo(fallback.id, 'e5')).toEqual({ allow: true });
+    s.fakes.agents.reportMode(fallback.id, 'auto');
+    s.fakes.agents.raise(fallback.id, editRequest('e6', 'src/cart.ts', { kind: 'write', text: 'e\n' }));
+    expect(await card(s, 'e6')).toMatchObject({ what: 'edit', status: 'open' });
+    s.fakes.agents.reportMode(session.id, 'ask-all');
+    s.fakes.agents.raise(session.id, editRequest('e7', 'src/cart.ts', { kind: 'write', text: 'f\n' }));
+    expect(await card(s, 'e7')).toMatchObject({ what: 'edit', status: 'open' });
   });
 
   it('before a member allows an edit the lock is asked again: a file a person types in keeps the card open', async () => {

@@ -137,8 +137,9 @@ other checkouts. Do your item and nothing else.
   you verify.
 - A decision that belongs to the team: ask it with the AskUserQuestion tool (two to four options with a
   one-sentence description each, your recommendation first; decisions that do not depend on each other together).
-- Editing files in your checkout needs no permission. Most commands need a person's permission and that person may
-  be busy: run few, purposeful commands, and never one that only prints what you already know.
+- Editing files in your checkout needs no permission. A command may need a person's permission, or a safety check
+  may refuse it: run few, purposeful commands, never one that only prints what you already know, and when one is
+  refused, say in your answer why you need it instead of looking for another way around.
 - Do not commit, push, merge or change branches. smurg records your changes when you are done.
 - When the item is finished, write ${report} in the format below, call the tool check_report, fix
   what it reports until it answers ok, and stop.

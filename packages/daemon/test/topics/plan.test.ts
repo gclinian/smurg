@@ -521,6 +521,28 @@ describe('a topic\'s agent settings (topic.agent.set, plan.start `agent`)', () =
     expect(test.topic(topic.id).agent).toEqual({ model: null, permissionMode: null });
   });
 
+  it('DESIGN 0.6.0 D12: when a member who chose a topic\'s settings goes, a mode LOOSER than the workspace\'s goes back (a stricter one stays), and a model that may bill usage credits goes back to the host\'s default (any other stays)', async () => {
+    test = await setupTopics();
+    test.fakes.agents.hostAgent = { ...structuredClone(OFFERED), models: [...OFFERED.models, { value: 'fable', name: 'Fable', description: '', auto: true, billing: 'usage-credits' }] } as never;
+    await test.t.ctx.settings.update({ permissionMode: 'ask-commands' }, test.principals.host);
+    const loose = (await createTopic(test)).topic;
+    const strict = (await test.mei.conn.request('topic.create', { name: 'Billing' })).topic;
+    await test.mei.conn.request('topic.agent.set', { topicId: loose.id, permissionMode: 'auto', model: 'fable' });
+    await test.mei.conn.request('topic.agent.set', { topicId: strict.id, permissionMode: 'ask-all', model: 'sonnet' });
+    test.fakes.agents.log.clear();
+    test.t.ctx.services.topics.memberRemoved('dev:mei', 'kicked');
+    expect(test.topic(loose.id).agent).toEqual({ model: null, permissionMode: null });
+    expect(test.topic(strict.id).agent).toEqual({ model: 'sonnet', permissionMode: 'ask-all' });
+    // The item sessions that follow the topic take the workspace's mode, each with the line that names who had chosen it.
+    await waitFor(() => test.fakes.agents.log.of('topicAgentChanged').length === 1, { what: 'the topic\'s sessions to follow' });
+    expect(test.fakes.agents.log.of('topicAgentChanged')).toEqual([[loose.id, 'auto', { kind: 'system' }, { userId: 'dev:mei', displayName: 'Mei' }]]);
+    expect((await test.audit('topic.agent')).at(-1)).toMatchObject({ actor: { kind: 'system' }, detail: { topicId: loose.id, permissionMode: null, model: null, reset: 'dev:mei' } });
+    // A role that keeps agent access takes nothing.
+    await test.mei.conn.request('topic.agent.set', { topicId: loose.id, permissionMode: 'auto' });
+    test.t.ctx.services.topics.memberRemoved('dev:mei', 'role-changed', 'agent');
+    expect(test.topic(loose.id).agent).toEqual({ model: null, permissionMode: 'auto' });
+  });
+
   it('the Start dialog says how its items will run (the folder\'s history, the topic\'s settings, the mode in effect)', async () => {
     test = await setupTopics();
     const { topic } = await topicWithPlan(test, THREE);

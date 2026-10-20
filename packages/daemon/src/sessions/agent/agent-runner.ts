@@ -35,6 +35,7 @@ import {
   type ConversationEventInput,
   type FileRef,
   type LoginState,
+  type ModeFallback,
   type PayloadInputOf,
   type PermissionMode,
   type ProjectSettingsState,
@@ -47,13 +48,13 @@ import {
 import { msg } from '@smurg/protocol/i18n';
 import type { AgentsConfig } from '../../core/config.ts';
 import type { DaemonContext } from '../../core/context.ts';
-import type { AgentRequest, TurnMessage } from '../../core/interfaces.ts';
+import type { AgentRequest, ClaudeMode, TurnMessage } from '../../core/interfaces.ts';
 import { newId } from '../../core/lifecycle.ts';
 import { ClaudeProcess, ControlError, type ClaudeExit } from './claude-process.ts';
 import { hostRulesOf, type HostRule } from './host-rules.ts';
 import { withoutOneM } from './models.ts';
 import { Normaliser, type RunnerEvent } from './normalise.ts';
-import { STREAM_ARGS, claudeModeFor } from './profiles.ts';
+import { STREAM_ARGS, asClaudeMode, claudeModeFor, claudeModeRank, modeWithFallback, smurgModeOf, type ProcessFallback } from './profiles.ts';
 import { conversationLostText, QUESTION_REFUSED_TEXT, REQUEST_WITHDRAWN_TEXT } from './prompts.ts';
 import { PENDING_MESSAGES_MAX, type AgentRecord } from './store.ts';
 import { buildToolResult, buildToolView, clip, editOf, safeId, suggestedRuleOf, toolName, toolPathOf, type Located } from './tool-view.ts';
@@ -113,8 +114,14 @@ export interface RunnerHost {
   effectiveMode(runner: AgentRunner): PermissionMode;
   /** The `models` of this process's `initialize` answer (the host agent's list: the newest answer wins, DESIGN 0.6.0 D7). */
   models(runner: AgentRunner, raw: unknown): void;
-  /** The list entry of a model value (its display name, the id it runs as), when the list holds it. */
-  modelEntry(value: string): AgentModel | undefined;
+  /** The list entry of a model value (its display name, the id it runs as), when the list holds it; null: the host's default's. */
+  modelEntry(value: string | null): AgentModel | undefined;
+  /** The list entry whose `resolved` is this id (what an `init` reports), when the list holds one. */
+  modelEntryByResolved(id: string): AgentModel | undefined;
+  /** The Claude Code mode the process runs in now (the hook registration learns it: the gate's G10–G12, DESIGN 0.6.0 D9). */
+  claudeModeInUse(runner: AgentRunner, mode: ClaudeMode): void;
+  /** What Claude Code lets run on this host (HostState.agent `autoMode`, `asksNothing`, DESIGN 0.6.0 D9). */
+  agentModes(change: { readonly autoMode?: 'ok' | 'off'; readonly asksNothing?: 'ok' | 'off' }): void;
 }
 
 interface OpenRequest {
@@ -161,6 +168,18 @@ const NOT_LOGGED_IN = /not logged in|\/login/i;
 const NO_CONVERSATION = /No conversation found/i;
 const ALREADY_IN_USE = /already in use/i;
 const CONTROL_MS = 10_000;
+/** The error result of a call a PreToolUse hook refused (Claude Code: "PreToolUse:<Tool> hook error: <reason>"): it did not run. */
+const HOOK_REFUSAL = /^PreToolUse:[A-Za-z0-9_.-]{1,64} hook error: /;
+
+/** Whether a call's error result says a PreToolUse hook refused it (it did not run: DESIGN 0.6.0 D11). */
+export function isHookRefusal(text: string): boolean {
+  return HOOK_REFUSAL.test(text);
+}
+
+/** Claude Code's reason for a call auto mode's check refused, as the conversation and the audit log say it: one line, masked, ≤ 200 characters. */
+export function autoDeniedReason(text: string): string {
+  return mask(text.replace(/\s+/g, ' ').trim()).slice(0, 200);
+}
 
 export class AgentRunner {
   readonly record: AgentRecord;
@@ -179,6 +198,12 @@ export class AgentRunner {
   blockedBy: 'logged-out' | 'usage-limit' | null = null;
   /** The model Claude Code reported at the `init` of this session's latest turn (DESIGN 0.6.0 D7: the wire's `modelInUse`). */
   modelInUse: string | undefined;
+  /**
+   * The mode this session's process RUNS with, as Claude Code reported it (DESIGN 0.6.0 D9: the wire's `modeInUse`);
+   * undefined while no process has reported one. `modeFallback`: why it is not the session's effective mode.
+   */
+  modeInUse: PermissionMode | undefined;
+  modeFallback: ModeFallback | undefined;
 
   private readonly host: RunnerHost;
   private proc: ClaudeProcess | null = null;
@@ -217,6 +242,21 @@ export class AgentRunner {
   private substitutedSaid = new Set<string>();
   /** The turn whose model the API refused (its notice is said once, and its generic error notice not at all). */
   private refusedTurn: string | null = null;
+  /** What this process runs instead of the session's mode (DESIGN 0.6.0 D9); reset at every start. */
+  private fallbackNow: ProcessFallback = 'none';
+  /** The Claude Code mode this process was launched with, then the latest one it reported or smurg switched it to. */
+  private claudeModeNow: string | null = null;
+  /** The list entry of the model this process runs on, as far as smurg knows it (its start, `set_model`, an `init`). */
+  private modelEntryCurrent: AgentModel | undefined;
+  /** A `set_permission_mode` smurg sent and Claude Code has not answered yet: what is reported meanwhile is not judged. */
+  private switching: ClaudeMode | null = null;
+  /** The mode notices this process has said (each once per process). */
+  private modeNoticesSaid = new Set<string>();
+  /**
+   * Calls of this process that did not run although their result came: auto mode's check refused them, smurg's gate
+   * or a person did (DESIGN 0.6.0 D11: such a call is not audited as a command that ran).
+   */
+  private readonly refusedCalls = new Set<string>();
 
   constructor(host: RunnerHost, record: AgentRecord, rolePrompt: string) {
     this.host = host;
@@ -238,6 +278,11 @@ export class AgentRunner {
 
   get pid(): number | null {
     return this.proc !== null && this.proc.running ? (this.proc.pid ?? null) : null;
+  }
+
+  /** What this process runs instead of the session's mode (DESIGN 0.6.0 D9): what the launch profile is built with. */
+  get fallback(): ProcessFallback {
+    return this.fallbackNow;
   }
 
   get runningSince(): number | undefined {
@@ -369,6 +414,19 @@ export class AgentRunner {
 
   private async spawn(): Promise<void> {
     const host = this.host;
+    // What this process runs (DESIGN 0.6.0 D9 rule 1): smurg does not rely on Claude Code's own fallback, which differs
+    // between versions. A session in auto on a model without auto mode starts as "Asks before commands".
+    this.fallbackNow = 'none';
+    this.modeFallback = undefined;
+    this.modeInUse = undefined;
+    this.claudeModeNow = null;
+    this.modeNoticesSaid = new Set();
+    this.refusedCalls.clear();
+    this.modelEntryCurrent = host.modelEntry(this.record.model);
+    if (host.effectiveMode(this) === 'auto' && this.modelEntryCurrent?.auto === false) {
+      this.fallbackNow = 'ask-commands';
+      this.modeFallback = 'model-no-auto';
+    }
     const plan = await host.prepareLaunch(this);
     if (this.record.state === 'ended' || this.stopping) {
       host.releaseLaunch(this);
@@ -383,6 +441,8 @@ export class AgentRunner {
     this.substitutedSaid = new Set();
     const resume = this.record.hasConversation;
     this.planTools = plan.tools;
+    const at = plan.args.indexOf('--permission-mode');
+    this.claudeModeNow = at === -1 ? null : (plan.args[at + 1] ?? null);
     const args = [...STREAM_ARGS, resume ? '--resume' : '--session-id', this.record.claudeSessionId, ...plan.args];
     const proc = new ClaudeProcess({
       file: plan.file,
@@ -621,13 +681,48 @@ export class AgentRunner {
     });
   }
 
-  /** Control `set_permission_mode` for the running process (the record keeps the mode for the next start). */
-  async setClaudeMode(mode: 'default' | 'acceptEdits'): Promise<void> {
-    if (this.proc === null || this.phase !== 'ready') return;
+  /**
+   * Control `set_permission_mode` for the running process (DESIGN 0.6.0 D8; the record keeps the mode for the next
+   * start). Claude Code's answer decides by its `error_code` (ControlError.code): `auto_mode_model` (the model has no
+   * auto mode) and `auto_mode_settings` (the host's settings turn it off) → this process asks before commands at once
+   * (D9's fallback); `bypass_not_launched` and `bypass_disabled` (2.1.288 sends the second whenever the settings file
+   * disables bypass, as every file but a bypass session's does) → the process starts again at its next idle moment;
+   * any other refusal, or no answer → the same, logged. Success: the gate learns the mode at once, the `status` line
+   * that follows confirms it.
+   */
+  async setClaudeMode(mode: ClaudeMode): Promise<void> {
+    const proc = this.proc;
+    if (proc === null || this.phase !== 'ready') return;
+    this.switching = mode;
     try {
-      await this.proc.control({ subtype: 'set_permission_mode', mode }, CONTROL_MS);
+      await proc.control({ subtype: 'set_permission_mode', mode }, CONTROL_MS);
+      this.switching = null;
+      if (this.proc === proc) {
+        this.claudeModeNow = mode;
+        this.host.claudeModeInUse(this, mode);
+        // What runs now (the status line that follows is the same; one that says otherwise is judged by checkMode).
+        if (mode === this.expectedClaudeMode()) this.inUse(modeWithFallback(this.host.effectiveMode(this), this.fallbackNow), mode);
+      }
     } catch (err) {
-      this.host.ctx.log.warn('the agent did not take the permission mode; it applies at its next start', { session: this.id, error: err instanceof Error ? err.name : 'unknown' });
+      this.switching = null;
+      if (this.proc !== proc) return;
+      const code = err instanceof ControlError ? err.code : undefined;
+      if (err instanceof ControlError && err.why === 'exit') return; // the process is gone: the next one starts in the record's mode
+      if (mode === 'auto' && (code === 'auto_mode_model' || code === 'auto_mode_settings')) {
+        this.fallbackNow = 'ask-commands';
+        this.modeFallback = code === 'auto_mode_model' ? 'model-no-auto' : 'auto-off';
+        if (code === 'auto_mode_settings') this.host.agentModes({ autoMode: 'off' });
+        const fallback = this.expectedClaudeMode();
+        if (fallback !== this.claudeModeNow) await this.setClaudeMode(fallback);
+        else if (this.claudeModeNow !== null) this.inUse('ask-commands', this.claudeModeNow);
+        return;
+      }
+      this.host.ctx.log.warn('the agent did not take the permission mode; it applies at its next start', { session: this.id, mode, code: code ?? 'none', error: err instanceof Error ? err.name : 'unknown' });
+      if (code === 'bypass_not_launched' || code === 'bypass_disabled') {
+        if (!this.restartPending) this.host.append(this, lineEvent(msg('conversation.agent.restarting')));
+        await this.restart();
+        return;
+      }
       this.restartPending = true;
     }
   }
@@ -737,6 +832,8 @@ export class AgentRunner {
     if (known !== undefined && known.kind === 'question' && decision.allow) throw new SmurgError('bad_request', undefined, { reason: 'not-a-permission' });
     const request = this.take(requestId);
     if (!decision.allow) {
+      // Refused by a person or by the daemon: the call does not run, and is not audited as one that ran.
+      this.refused(request.toolUseId);
       this.proc?.respond(request.claudeRequestId, { behavior: 'deny', message: decision.message });
       this.settled();
       return;
@@ -759,6 +856,7 @@ export class AgentRunner {
     this.open.clear();
     this.waitingSince = undefined;
     for (const request of requests) {
+      this.refused(request.toolUseId);
       // The CLI may still wait for an answer (an end, a stop it has not withdrawn yet): it must not hang.
       if (reason !== 'failed') this.proc?.respond(request.claudeRequestId, { behavior: 'deny', message: REQUEST_WITHDRAWN_TEXT });
       this.host.ctx.bus.emit('agent.request.withdrawn', { sessionId: this.id, requestId: request.id, reason, ...(by === undefined ? {} : { by }) });
@@ -766,13 +864,51 @@ export class AgentRunner {
     this.host.publish(this);
   }
 
-  private auditCommand(toolUseId: string, verb: string, why: string, command: string | undefined): void {
+  /**
+   * A command of the agent in the audit log: one a person or the daemon allowed (`why: decision:<card>`), or one that
+   * ran without a request (`why: unasked`, DESIGN 0.6.0 D11: also one that ran and failed, `outcome: error`, with the
+   * mode the process ran in).
+   */
+  private auditCommand(toolUseId: string, verb: string, why: string, command: string | undefined, ran?: { readonly ok: boolean; readonly mode: PermissionMode }): void {
     this.host.ctx.audit.record({
       actor: this.host.agentActor(this),
       action: 'agent.command',
-      outcome: 'ok',
+      outcome: ran === undefined || ran.ok ? 'ok' : 'error',
       target: this.id,
-      detail: { sessionId: this.id, toolUseId: safeId(toolUseId, 'tu'), verb, why, ...(command === undefined ? {} : { command }) },
+      detail: { sessionId: this.id, toolUseId: safeId(toolUseId, 'tu'), verb, why, ...(command === undefined ? {} : { command }), ...(ran === undefined ? {} : { mode: ran.mode }) },
+      fullText: ['command'],
+    });
+  }
+
+  /** A call of this process that did not run (auto mode's check, smurg's gate, a person refused it). */
+  private refused(toolUseId: string): void {
+    if (this.refusedCalls.size >= 512) this.refusedCalls.delete(this.refusedCalls.values().next().value as string);
+    this.refusedCalls.add(toolUseId);
+  }
+
+  /** smurg's gate refused this call (`agent.tool.gate` with its id, DESIGN 0.6.0 D11): it is not audited as one that ran. */
+  noteGateRefused(toolUseId: string): void {
+    this.refused(toolUseId);
+  }
+
+  /**
+   * Auto mode's check refused a call (DESIGN 0.6.0 D11): the conversation says so with Claude Code's reason, the audit
+   * log has `agent.command.blocked` (the command whole), and the call's error result is not a command that ran.
+   */
+  private autoDenied(event: Extract<RunnerEvent, { kind: 'auto.denied' }>): void {
+    const host = this.host;
+    this.refused(event.toolUseId);
+    const reason = autoDeniedReason(event.reason);
+    host.append(this, lineEvent(msg('conversation.autoMode.blocked', { reason })));
+    const call = this.tools.get(event.toolUseId);
+    const tool = toolName(event.tool || (call?.view.name ?? ''));
+    const command = call?.view.target;
+    host.ctx.audit.record({
+      actor: host.agentActor(this),
+      action: 'agent.command.blocked',
+      outcome: 'denied',
+      target: this.id,
+      detail: { sessionId: this.id, toolUseId: safeId(event.toolUseId, 'tu'), tool, reason, ...(command === undefined ? {} : { command }) },
       fullText: ['command'],
     });
   }
@@ -833,8 +969,12 @@ export class AgentRunner {
             host.ctx.log.info('the agent has a tool that is not in its tool list; the gate refuses it', { session: this.id, tool: tool.slice(0, 64) });
           }
         }
-        if (event.permissionMode !== undefined) this.checkMode(event.permissionMode);
+        // The model first (DESIGN 0.6.0 D9): what this turn runs on decides whether auto mode can run at all.
         const modelChanged = event.model !== undefined && this.noteModel(event.model);
+        const entry = event.model === undefined ? undefined : host.modelEntryByResolved(event.model);
+        if (entry !== undefined) this.modelEntryCurrent = entry;
+        if (entry !== undefined && this.reviewModelFallback(entry)) void this.applyMode();
+        if (event.permissionMode !== undefined) this.checkMode(event.permissionMode);
         const wasOpen = this.turn !== null;
         this.openTurn();
         if (modelChanged && wasOpen) host.publish(this);
@@ -958,22 +1098,184 @@ export class AgentRunner {
         host.append(this, noticeEvent('info', msg('notice.compacted')));
         host.publish(this);
         return;
+      case 'auto.denied':
+        this.autoDenied(event);
+        return;
+      case 'informational':
+        // Claude Code's own notes (a replaced model, its classifier's billing): the log has them, the conversation not.
+        host.ctx.log.info('a note of the agent', { session: this.id, level: event.level, text: mask(event.text).slice(0, 200) });
+        return;
       case 'result':
         this.onResult(event);
         return;
     }
   }
 
+  /** The Claude Code mode this process should run in now: the session's effective mode after this process's fallback. */
+  private expectedClaudeMode(): ClaudeMode {
+    return claudeModeFor(this.record.purpose, this.host.effectiveMode(this), this.record.root, this.fallbackNow);
+  }
+
+  /** A mode notice, once per process. */
+  private modeNotice(key: string, text: Parameters<typeof noticeEvent>[1]): void {
+    if (this.modeNoticesSaid.has(key)) return;
+    this.modeNoticesSaid.add(key);
+    this.host.append(this, noticeEvent('warning', text));
+  }
+
+  /** The model's name for a notice: the list entry's name for the session's model (or the host's default), else its id. */
+  private modelNameNow(): string {
+    const entry = this.record.model === null ? (this.modelInUse === undefined ? this.host.modelEntry(null) : this.host.modelEntryByResolved(this.modelInUse)) : this.host.modelEntry(this.record.model);
+    return entry?.name ?? this.record.model ?? this.modelInUse ?? "the host's default";
+  }
+
   /**
-   * Only smurg changes the mode. A mode Claude Code reports that is not the one this session has (and is looser than
-   * `default`) does not stand: it is set back, and logged. (A change smurg itself asked for is reported as the
-   * session's mode; `default` where the session may have `acceptEdits` only asks more.)
+   * DESIGN 0.6.0 D9 rule 1, live: the model this process runs on now (`entry`, after `set_model` or at an `init`) has
+   * no auto mode while the session runs in auto: the process asks before commands until it runs on another model; the
+   * reverse ends that fallback. True when the fallback changed.
+   */
+  private reviewModelFallback(entry: AgentModel): boolean {
+    const effective = this.host.effectiveMode(this);
+    if (effective === 'auto' && !entry.auto && this.fallbackNow === 'none') {
+      this.fallbackNow = 'ask-commands';
+      this.modeFallback = 'model-no-auto';
+      return true;
+    }
+    if (this.fallbackNow === 'ask-commands' && this.modeFallback === 'model-no-auto' && entry.auto) {
+      this.fallbackNow = 'none';
+      this.modeFallback = undefined;
+      return true;
+    }
+    return false;
+  }
+
+  /** `modeInUse` (and with it the hook registration's Claude mode and the wire) after Claude Code reported `claudeMode`. */
+  private inUse(mode: PermissionMode, claudeMode: string): void {
+    const known = asClaudeMode(claudeMode);
+    // A mode smurg never launches with counts as auto for the gate: G10, G11 and G12 all run there.
+    this.host.claudeModeInUse(this, known ?? 'auto');
+    if (this.modeFallback !== undefined) {
+      const key = `fallback:${this.modeFallback}`;
+      if (this.modeFallback === 'model-no-auto') this.modeNotice(key, msg('notice.autoUnavailable.model', { model: this.modelNameNow() }));
+      else if (this.modeFallback === 'auto-off') this.modeNotice(key, msg('notice.autoUnavailable.settings'));
+      else this.modeNotice(key, msg('notice.asksNothingRefused'));
+    }
+    if (this.modeInUse === mode) return;
+    this.modeInUse = mode;
+    this.host.publish(this);
+  }
+
+  /**
+   * DESIGN 0.6.0 D9 rule 2: the mode Claude Code reports at every `init` and `status`, against what smurg expects.
+   *  - the same: `modeInUse` is the smurg mode that stands for;
+   *  - auto expected, `default` reported: auto mode was refused (the model has none, or the host's settings turn it
+   *    off): the process asks before commands (in a worktree it is switched to acceptEdits), and the session says why;
+   *  - bypass expected, `auto` or `default` reported: running without asking was refused (the host's settings): the
+   *    process runs in auto (or asks before commands), and the session says so;
+   *  - LOOSER than expected (`plan`, `dontAsk` and anything unknown count as looser): only smurg changes the mode, so it
+   *    is set back, and logged;
+   *  - stricter: accepted (it only asks more).
    */
   private checkMode(claudeMode: string): void {
-    const expected = claudeModeFor(this.record.purpose, this.host.effectiveMode(this), this.record.root);
-    if (claudeMode === expected || claudeMode === 'default') return;
-    this.host.ctx.log.warn('an agent runs in a permission mode smurg did not set; it is set back', { session: this.id, mode: claudeMode.slice(0, 40), expected });
-    void this.setClaudeMode(expected);
+    const host = this.host;
+    // While smurg switches the mode, a line may still say the one before: the switch's own status line is judged.
+    if (this.switching !== null) return;
+    this.dropStaleFallback();
+    const expected = this.expectedClaudeMode();
+    this.claudeModeNow = claudeMode;
+    const effective = host.effectiveMode(this);
+    if (claudeMode === expected) {
+      if (expected === 'auto') host.agentModes({ autoMode: 'ok' });
+      if (expected === 'bypassPermissions') host.agentModes({ asksNothing: 'ok' });
+      this.inUse(modeWithFallback(effective, this.fallbackNow), claudeMode);
+      return;
+    }
+    if (expected === 'auto' && claudeMode === 'default') {
+      const noAuto = this.modelEntryNow()?.auto === false;
+      this.fallbackNow = 'ask-commands';
+      this.modeFallback = noAuto ? 'model-no-auto' : 'auto-off';
+      if (!noAuto) host.agentModes({ autoMode: 'off' });
+      if (this.record.root.kind === 'worktree') void this.setClaudeMode('acceptEdits');
+      this.inUse('ask-commands', claudeMode);
+      return;
+    }
+    if (expected === 'bypassPermissions' && (claudeMode === 'auto' || claudeMode === 'default')) {
+      this.fallbackNow = claudeMode === 'auto' ? 'auto' : 'ask-commands';
+      this.modeFallback = 'ask-nothing-off';
+      host.agentModes({ asksNothing: 'off' });
+      if (claudeMode === 'default' && this.record.root.kind === 'worktree') void this.setClaudeMode('acceptEdits');
+      this.inUse(claudeMode === 'auto' ? 'auto' : 'ask-commands', claudeMode);
+      return;
+    }
+    if (claudeModeRank(claudeMode) > claudeModeRank(expected)) {
+      host.ctx.log.warn('an agent runs in a permission mode smurg did not set; it is set back', { session: this.id, mode: claudeMode.slice(0, 40), expected });
+      // The gate treats the process as running in what it reported until the change is confirmed.
+      host.claudeModeInUse(this, asClaudeMode(claudeMode) ?? 'auto');
+      void this.setClaudeMode(expected);
+      return;
+    }
+    // Stricter than expected: it only asks more.
+    this.inUse(smurgModeOf(asClaudeMode(claudeMode) ?? 'default'), claudeMode);
+  }
+
+  /**
+   * A fallback stands in for one mode (DESIGN 0.6.0 D9): `model-no-auto` and `auto-off` for auto, `ask-nothing-off` for
+   * "Asks for nothing". When the session's mode is another one now, it no longer applies (rule 1 sets it again for a
+   * model without auto mode; the host's settings refuse auto again when it is asked for).
+   */
+  private dropStaleFallback(): void {
+    if (this.modeFallback === undefined) return;
+    const effective = this.host.effectiveMode(this);
+    const standsFor = this.modeFallback === 'ask-nothing-off' ? 'ask-nothing' : 'auto';
+    if (effective === standsFor) return;
+    this.fallbackNow = 'none';
+    this.modeFallback = undefined;
+  }
+
+  /** The list entry of the model this process runs on: its latest `init`'s, else the one it was started or switched to. */
+  private modelEntryNow(): AgentModel | undefined {
+    return this.modelEntryCurrent ?? this.host.modelEntry(this.record.model);
+  }
+
+  /**
+   * The session's model changed while this process runs (`set_model` was taken, DESIGN 0.6.0 D7): auto mode may have
+   * become possible, or impossible (D9 rule 1, live; 2.1.288 stays in auto after a switch to a model without it).
+   */
+  async modelChanged(): Promise<void> {
+    if (this.proc === null || this.phase !== 'ready') return;
+    const entry = this.host.modelEntry(this.record.model);
+    this.modelEntryCurrent = entry;
+    if (entry !== undefined && this.reviewModelFallback(entry)) await this.applyMode();
+  }
+
+  /**
+   * The session's mode, its topic's or the workspace's changed, or this process's fallback did (DESIGN 0.6.0 D8 "Live
+   * changes"): a ready process takes the Claude mode it should run in now. Loosening INTO running without asking
+   * always waits for a fresh start (smurg never launches with `--allow-dangerously-skip-permissions`): the process
+   * starts again at its next idle moment; tightening out of it is immediate. A parked session takes it at its next start.
+   */
+  async applyMode(): Promise<void> {
+    // A start in progress was launched with the mode as it was: the change waits for it to be ready.
+    if (this.launching !== null) await this.launching;
+    if (this.proc === null || this.phase !== 'ready') return;
+    this.dropStaleFallback();
+    // A session in auto on a model without auto mode asks before commands (rule 1), also after a change of its mode.
+    if (this.fallbackNow === 'none' && this.host.effectiveMode(this) === 'auto' && this.modelEntryNow()?.auto === false) {
+      this.fallbackNow = 'ask-commands';
+      this.modeFallback = 'model-no-auto';
+    }
+    const expected = this.expectedClaudeMode();
+    if (expected === this.claudeModeNow) {
+      // Nothing to switch, but what runs may now be the session's own mode (a fallback that no longer applies).
+      if (this.claudeModeNow !== null) this.inUse(modeWithFallback(this.host.effectiveMode(this), this.fallbackNow), this.claudeModeNow);
+      return;
+    }
+    if (expected === 'bypassPermissions') {
+      if (!this.restartPending) this.host.append(this, lineEvent(msg('conversation.agent.restarting')));
+      await this.restart();
+      return;
+    }
+    await this.setClaudeMode(expected);
   }
 
   /** A model as a person reads it: the list entry's display name, else the value itself. */
@@ -1150,9 +1452,13 @@ export class AgentRunner {
     if (event.ok && turn !== null && call.view.file !== undefined && (call.view.verb === 'edit' || call.view.verb === 'create') && rootRefEquals(call.view.file.root, this.record.root)) {
       turn.edited.push({ file: call.view.file, seq: call.seq });
     }
-    // A command that ran without a card (a rule, the host's own rule, Claude Code's own exception) is audited here;
-    // one a person or the daemon allowed was audited with that decision.
-    if (event.ok && call.decidedBy === undefined && AUDITED_VERBS.has(call.view.verb)) this.auditCommand(event.toolUseId, call.view.verb, 'unasked', call.view.target);
+    // A command that ran without a card (auto mode, a rule, the host's own rule, Claude Code's own exception) is
+    // audited here, also when it ran and failed (DESIGN 0.6.0 D11); one a person or the daemon allowed was audited with
+    // that decision; one that did not run (auto mode's check, smurg's gate, a person, a hook refused it) is none.
+    const notRun = this.refusedCalls.delete(event.toolUseId) || (!event.ok && isHookRefusal(event.text));
+    if (!notRun && call.decidedBy === undefined && AUDITED_VERBS.has(call.view.verb)) {
+      this.auditCommand(event.toolUseId, call.view.verb, 'unasked', call.view.target, { ok: event.ok, mode: this.modeInUse ?? host.effectiveMode(this) });
+    }
   }
 
   private async onRequest(proc: ClaudeProcess, event: Extract<RunnerEvent, { kind: 'request' }>): Promise<void> {

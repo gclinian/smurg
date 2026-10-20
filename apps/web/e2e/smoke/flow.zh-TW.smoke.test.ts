@@ -128,6 +128,8 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
         git: true,
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
+        // The workspace asks before commands, as every 0.5.x workspace did (0.6.0 on purpose: the default is auto now).
+        settings: { permissionMode: 'ask-commands' },
       },
     });
     host = await env.newPage({ width: 1440, height: 900, locale: 'zh-TW' });

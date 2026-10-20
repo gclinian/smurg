@@ -81,7 +81,7 @@ export {
 export { wsHostSocketFactory, type HostSocket, type HostSocketFactory, type HostSocketHandlers } from './net/host-socket.ts';
 export { IDENTITY_TOKEN_TYPE, jwksKeySource, staticKeySource, type IdentityKeySource } from './net/identity.ts';
 export { KeepAwake } from './workspace/power.ts';
-export { HOMES_PARENTS, SHARE_ERROR_REASONS, ShareError, type ShareErrorReason } from './workspace/share.ts';
+export { AGENT_CONFIG_DIRS, HOMES_PARENTS, SHARE_ERROR_REASONS, ShareError, type ShareErrorReason } from './workspace/share.ts';
 export { SHARE_LOCK_MARKER, ShareLockError } from './workspace/share-lock.ts';
 export type { RelayLinkState } from './net/relay-connection.ts';
 export type { UnsavedDocument } from './core/state-store.ts';

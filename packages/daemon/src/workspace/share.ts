@@ -26,6 +26,7 @@ export const SHARE_ERROR_REASONS = [
   'state-dir-inside-share',
   'share-inside-state-dir',
   'smurg-not-a-directory',
+  'inside-agent-config',
 ] as const;
 export type ShareErrorReason = (typeof SHARE_ERROR_REASONS)[number];
 
@@ -40,6 +41,7 @@ const SHARE_ERROR_MESSAGES: Readonly<Record<ShareErrorReason, string>> = {
   'state-dir-inside-share': 'the daemon state directory must not be inside the shared folder',
   'share-inside-state-dir': 'the shared folder must not be inside the daemon state directory',
   'smurg-not-a-directory': '.smurg in the shared folder is not a directory',
+  'inside-agent-config': "the shared folder must not lie in the host's Claude Code settings or .ssh folder",
 };
 
 export class ShareError extends Error {
@@ -54,6 +56,14 @@ export class ShareError extends Error {
 
 /** Where the accounts' home directories live (macOS, Linux). */
 export const HOMES_PARENTS: readonly string[] = Object.freeze(['/Users', '/home', '/root', '/var/root']);
+
+/**
+ * The folders of the host's home that hold Claude Code's settings (hooks, allow rules, memory) and the ssh keys and
+ * config (DESIGN 0.6.0 D8a): no shared folder may lie in one, nor in CLAUDE_CONFIG_DIR. Every member would get them,
+ * and the deny rules of every agent session (sessions/agent/profiles.ts REACH_DENY) would refuse the session its own
+ * folder.
+ */
+export const AGENT_CONFIG_DIRS: readonly string[] = Object.freeze(['.claude', '.ssh']);
 
 export interface PreparedShare {
   readonly realPath: string;
@@ -72,7 +82,12 @@ export type SmurgIgnoreOutcome = 'written' | 'ours' | 'other' | 'failed';
 export async function prepareShare(
   shareDir: string,
   stateDir: string,
-  options: { readonly homeDir?: string; /** TEST ONLY: default HOMES_PARENTS. */ readonly homesParents?: readonly string[] } = {},
+  options: {
+    readonly homeDir?: string;
+    /** CLAUDE_CONFIG_DIR of the host's environment (default: this process's). */
+    readonly claudeConfigDir?: string;
+    /** TEST ONLY: default HOMES_PARENTS. */ readonly homesParents?: readonly string[];
+  } = {},
 ): Promise<PreparedShare> {
   const share = await realpath(shareDir).catch(() => {
     throw new ShareError('not-found');
@@ -92,6 +107,14 @@ export async function prepareShare(
   const state = await realpath(stateDir).catch(() => stateDir);
   if (isInside(state, share)) throw new ShareError('state-dir-inside-share');
   if (isInside(share, state)) throw new ShareError('share-inside-state-dir');
+  // Claude Code's settings and the ssh folder (DESIGN 0.6.0 D8a): sharing them hands every member the host's hooks,
+  // allow rules and keys, as sharing the home folder would.
+  const configDir = options.claudeConfigDir ?? process.env['CLAUDE_CONFIG_DIR'];
+  const agentConfig = [...(home === null ? [] : AGENT_CONFIG_DIRS.map((dir) => join(home, dir))), ...(configDir !== undefined && configDir.startsWith('/') ? [configDir] : [])];
+  for (const dir of agentConfig) {
+    const real = await realpath(dir).catch(() => dir);
+    if (isInside(share, real)) throw new ShareError('inside-agent-config');
+  }
 
   const smurgDir = join(share, '.smurg');
   const existing = await lstatOrNull(smurgDir);

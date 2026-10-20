@@ -37,6 +37,7 @@ import {
   type ConversationEvent,
   type ConversationEventInput,
   type LoginState,
+  type ModeFallback,
   type PayloadInputOf,
   type PermissionMode,
   type ProjectSettingsState,
@@ -359,17 +360,29 @@ export class FakeAgentSessions implements AgentSessions {
     this.update(record, { model });
   }
 
-  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor): Promise<void> {
-    this.log.record('topicAgentChanged', topicId, previous, by);
+  async topicAgentChanged(topicId: string, previous: SessionModeChoice | null, by: Actor, reset?: UserRef): Promise<void> {
+    this.log.record('topicAgentChanged', topicId, previous, by, ...(reset === undefined ? [] : [reset]));
     const person = userOf(by);
     for (const record of this.records.values()) {
       if (record.session.topicId !== topicId || record.session.status === 'ended') continue;
       const effective = this.effective(record.session.purpose, record.session.modeChoice, topicId);
-      if (record.session.purpose === 'item' && record.session.modeChoice === null && effective !== record.session.permissionMode && person !== null) {
-        this.push(record, lineEvent(msg('conversation.mode.topic', { by: person.displayName, mode: effective })));
+      if (record.session.purpose === 'item' && record.session.modeChoice === null && effective !== record.session.permissionMode) {
+        if (person !== null) this.push(record, lineEvent(msg('conversation.mode.topic', { by: person.displayName, mode: effective })));
+        else if (reset !== undefined) this.push(record, lineEvent(msg('conversation.mode.reset', { name: reset.displayName })));
       }
       this.update(record, { permissionMode: effective });
     }
+  }
+
+  /**
+   * TEST: what Claude Code reports the session's process runs in (DESIGN 0.6.0 D9: the wire's `modeInUse`, with
+   * `modeFallback` when it is not the session's mode); undefined: nothing reported (no process).
+   */
+  reportMode(sessionId: string, modeInUse: PermissionMode | undefined, modeFallback?: ModeFallback): void {
+    const record = this.records.get(sessionId);
+    if (!record) throw new Error(`FakeAgentSessions: no session ${sessionId}`);
+    const { modeInUse: _mode, modeFallback: _fallback, ...rest } = record.session;
+    record.session = { ...rest, ...(modeInUse === undefined ? {} : { modeInUse, ...(modeFallback === undefined ? {} : { modeFallback }) }) } as AgentSession;
   }
 
   hostAgentState(): AgentHostState {

@@ -287,8 +287,9 @@ describe('T topics flow: one topic through the real relay, five SDK clients and 
       projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': APP_BEFORE },
       claude: scenario(CART_GOES_ON),
       // How many work items may hold an agent process at once defaults from the machine's memory (2 on a small one):
-      // fixed, so the same sessions run on every machine.
-      settings: { maxLiveAgents: 8 },
+      // fixed, so the same sessions run on every machine. The workspace asks before commands, as every 0.5.x workspace
+      // did: the story is about the cards people answer (0.6.0 on purpose: the default is auto mode now, DESIGN D8).
+      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands' },
     });
     startedAt = Date.now();
     ian = member(stack.hostClient, 'Ian', 'host');

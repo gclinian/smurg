@@ -83,8 +83,10 @@ describe('the tool gate on the hook socket', () => {
     expect(await ask('AskUserQuestion', { questions: [] })).toBeNull();
     expect(await ask('mcp__smurg__check_plan', {})).toBeNull();
     expect(s.gate.map((event) => event.row)).toEqual(['G6', 'G6', 'G6', 'G6', 'G5', 'G5', 'G5', 'G5', 'G5', 'G2', 'G2', 'G2']);
-    expect(s.gate[0]).toEqual({ sessionId: s.sessionId('discussion'), tool: 'Write', row: 'G6', path: 'src/cart.ts' });
-    expect(s.gate[3]).toEqual({ sessionId: s.sessionId('discussion'), tool: 'Write', row: 'G6' });
+    // 0.6.0 on purpose (DESIGN D11): the event names Claude Code's id of the refused call (the runner does not audit
+    // such a call as a command that ran).
+    expect(s.gate[0]).toEqual({ sessionId: s.sessionId('discussion'), tool: 'Write', row: 'G6', path: 'src/cart.ts', toolUseId: expect.stringMatching(/^toolu_Write_/) });
+    expect(s.gate[3]).toEqual({ sessionId: s.sessionId('discussion'), tool: 'Write', row: 'G6', toolUseId: expect.stringMatching(/^toolu_Write_/) });
   });
 
   it('a work item never edits its topic\'s spec or plan; a free session of a member never Claude Code\'s configuration or a host-only path; commands get NO decision (Claude Code\'s rules and people decide)', async () => {

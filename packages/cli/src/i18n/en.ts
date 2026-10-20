@@ -143,6 +143,8 @@ const SET_ASIDE: Readonly<Record<SetAsideDocument, string>> = {
  */
 const GUIDE_KEPT = 'https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps';
 const GUIDE_GOING_BACK = 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to';
+/** Host guide 5.2 (what agents do by themselves): printed by `smurg host`, so the heading can never be renamed (0.6.0). */
+const GUIDE_AGENTS = 'https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first';
 
 /** "A file of this workspace's state is" / "3 files of this workspace's state are" (+ "; the first" before its details). */
 const stateFiles = (count: number, one: string, many: string): string => (count === 1 ? `A file of this workspace's state ${one}` : `${count} files of this workspace's state ${many}`);
@@ -475,6 +477,9 @@ Docs: https://smurg.ai/docs/
   'host.folder.containsState': (p: { stateDir: string }) => `This folder cannot be shared: smurg's state folder (${p.stateDir}) is inside it`,
   'host.folder.containsState.hint': () => 'The state folder holds keys and logins that your teammates must not see. Share the project folder itself.',
   'host.folder.insideState': () => "A folder inside smurg's state folder cannot be shared",
+  // DESIGN 0.6.0 D8a: a folder in ~/.claude, ~/.ssh or CLAUDE_CONFIG_DIR (the daemon refuses it too: inside-agent-config).
+  'host.folder.insideConfig': (p: { folder?: string }) =>
+    `smurg host does not share ${p.folder ?? 'this folder'}: it lies in your Claude Code settings or your .ssh folder, and every member would get them. Share a project folder instead.`,
   'host.share.notFound': () => 'The folder to share was not found',
   'host.share.notDirectory': () => 'What you want to share is not a folder',
   'host.share.root': () => 'The whole file system cannot be shared',
@@ -587,6 +592,12 @@ Docs: https://smurg.ai/docs/
   'host.oldFolder': (p: { path: string; more: number }) =>
     `An earlier state folder of this workspace lies beside the one in use: ${p.path}${p.more > 0 ? ` (and ${p.more} more)` : ''}. smurg does not use it. ` +
     `If you moved it away because smurg 0.5.0 told you to after an update, it still holds the members, invite links and daemon key you had before, and the guide says how to go back to it: ${GUIDE_GOING_BACK}`,
+  // DESIGN 0.6.0 D13: the update switched the workspace to auto mode (said once, by the start that ran the state step).
+  'host.agentsAuto': () =>
+    `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: ${GUIDE_AGENTS}`,
+  // DESIGN 0.6.0 D13: at every start while the workspace asks for nothing.
+  'host.asksNothing': () =>
+    `\nAgents here ask for nothing: every command runs as you, with no check by Claude Code and no question from smurg (only smurg's fixed limits stay). To change it, choose another mode in the host console's settings. Guide: ${GUIDE_AGENTS}`,
   'host.peer.newer': () => "\nWarning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
   'host.peer.older': () => "\nA teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again.",
   'host.smurgTracked': () => "\nsmurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit.",

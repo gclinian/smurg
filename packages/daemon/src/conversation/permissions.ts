@@ -8,8 +8,8 @@
 //   - a write to Claude Code's configuration or to a file the trust gate records → deny ("the host edits these")
 //   - a request that suggests exactly one rule, a rule of the session's topic,
 //     and is itself one plain command (or one URL) of that kind                → allow, with that rule for this process
-//   - an edit tool in a main-workspace session in `ask-commands`               → allow, after the host-only check and
-//                                                                                 the lock (a held file: deny)
+//   - an edit tool in a main-workspace session that RUNS in `ask-commands`     → allow, after the host-only check and
+//     (modeInUse, else its mode: DESIGN 0.6.0 D8)                                 the lock (a held file: deny)
 //   - content too large to show whole                                          → deny (never clipped)
 //
 // A person never allows what they cannot see: a command whole, an edit as the diff it would make, any other tool's
@@ -83,6 +83,14 @@ export type AutoAnswer = 'discussion' | 'claude-config' | 'topic-rule' | 'main-e
 type Assessment =
   | { readonly kind: 'card'; readonly card: PermissionRequest }
   | { readonly kind: 'auto'; readonly answer: AutoAnswer; readonly decision: AgentDecision; readonly path?: string; readonly rule?: string };
+
+/** smurg's own gate's sentences (hooks/deny-text.ts) → what the card says the gate asked about. */
+const GATE_REASONS: ReadonlyMap<string, NonNullable<PermissionRequest['gate']>> = new Map([
+  [BASH_ASK_REASONS.writes, 'writes-settings-script'],
+  [BASH_ASK_REASONS.unsure, 'may-reach-settings-script'],
+  [BASH_ASK_REASONS.writesHostOnly, 'writes-host-only'],
+  [BASH_ASK_REASONS.writesOutside, 'writes-outside'],
+]);
 
 /** The label of a file a card cannot name (outside every root, or the host's private data). */
 const UNNAMED_FILE = 'file';
@@ -323,12 +331,16 @@ export class Permissions {
       refs.some((ref) => isHostPathInRoot(ref) || trustProtected(ref)) ||
       named.some((entry) => isHostHomePath(entry.abs, home, this.ctx.config.stateDir));
 
-    // smurg's own gate asked (hooks/bash-guard.ts): the request carries the gate's sentence back as a hook's reason.
-    // A command that writes where a script of the project settings is, is the host's to answer, like any other
-    // request that names such a script. (A hook of the host's own that used the same words gets the same label.)
-    const gate: PermissionRequest['gate'] =
-      request.reasonType !== 'hook' ? undefined : request.reason === BASH_ASK_REASONS.writes ? 'writes-settings-script' : request.reason === BASH_ASK_REASONS.unsure ? 'may-reach-settings-script' : undefined;
-    if (gate === 'writes-settings-script') hostOnly = true;
+    // smurg's own gate asked (hooks/bash-guard.ts, hook-events.ts): the request carries the gate's sentence back as a
+    // hook's reason. A command that writes where a script of the project settings is, is the host's to answer, like
+    // any other request that names such a script; so are the two rows that still ask in auto mode (DESIGN 0.6.0 D10):
+    // a teammate's session writing a file only the host may change (G11a) or outside its own folder (G12). (A hook of
+    // the host's own that used the same words gets the same label.)
+    const gate: PermissionRequest['gate'] = request.reasonType !== 'hook' ? undefined : GATE_REASONS.get(request.reason ?? '');
+    if (gate === 'writes-settings-script' || gate === 'writes-host-only' || gate === 'writes-outside') hostOnly = true;
+    // A teammate's command in auto mode whose writes smurg cannot follow (GATE_ASKS_WHEN_UNSURE): the host's too. The
+    // card has no label of its own for it (protocol 5 has none): it shows the gate's sentence as its reason.
+    if (request.reasonType === 'hook' && request.reason === BASH_ASK_REASONS.unsureAuto) hostOnly = true;
 
     // A rule of the session's topic that this process does not have yet: what a click on "Always allow" would send.
     // Only for a request that IS of that kind as the daemon reads it (one plain command that starts with the rule's
@@ -348,9 +360,10 @@ export class Permissions {
       }
     }
 
-    // A main-workspace session in `ask-commands` never runs in Claude Code's acceptEdits: its edit tools are allowed
-    // here instead, after the host-only check and the lock; every shell write still asks.
-    if (!hostOnly && isEditTool(request.tool) && view.file !== undefined && session.root.kind === 'main' && session.permissionMode === 'ask-commands' && rootRefEquals(view.file.root, session.root)) {
+    // A main-workspace session that RUNS as "Asks before commands" (chosen, or auto mode's fallback: `modeInUse`,
+    // DESIGN 0.6.0 D8) never runs in Claude Code's acceptEdits: its edit tools are allowed here instead, after the
+    // host-only check and the lock; every shell write still asks.
+    if (!hostOnly && isEditTool(request.tool) && view.file !== undefined && session.root.kind === 'main' && (session.modeInUse ?? session.permissionMode) === 'ask-commands' && rootRefEquals(view.file.root, session.root)) {
       if (await this.agentMayWrite(session, facts, view.file)) {
         const lock = this.relock(session, facts, view.file);
         if (lock !== null && !lock.granted) return { kind: 'auto', answer: 'main-edit-locked', decision: { allow: false, message: lock.reason }, path: view.file.path };

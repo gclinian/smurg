@@ -26,8 +26,14 @@
 //      files needed a step (0.4.0), the one-line upgrade notice appears, the old state.json is kept beside the new one
 //      byte for byte, and the stamp names the shapes; when they needed none (0.5.0), nothing of that appears;
 //   5. the new executable stops;
-//   6. a state file that other users can read is refused by the new executable (run in Traditional Chinese): the text
+//   6. the OLD executable shares the folder once more (0.6.0, DESIGN D2): it refuses what the new one wrote, before it
+//      connects anywhere, with its own words (0.5.1 and later: "Run smurg update. Nothing was changed."), and the
+//      workspace's state folder is byte for byte what it was;
+//   7. a state file that other users can read is refused by the new executable (run in Traditional Chinese): the text
 //      names the file and the one chmod, never "move", and the file is as it was.
+// 0.6.0 (DESIGN D6, D13): every published smurg's state.json needs the step to 0.6.0 (workspaces switch to auto mode,
+// the owner's decision), so for each of them the upgrade line AND the line about auto mode are printed, the old file
+// is kept, and the stamp names shapes 2.
 // The relay is the fake relay of these tests (the relay never reads a frame, and its own source did not change between
 // 0.4.0 and 0.5.0): logins and the workspace claim are its HTTP API; the NEW host's relay links are tunnelled to an
 // in-memory relay so that the test can reach it as the host's console does. Only processes this test started are ever
@@ -85,6 +91,32 @@ if (PLAN.kind === 'failed') {
  * in both languages, by host-state-file.test.ts; here it is the real executable that has to say them.
  */
 const UPGRADE_NOTICE = /last shared with (?:smurg \d+\.\d+\.\d+|an earlier smurg).*carried over/i;
+/** The line of a start that switched the workspace to auto mode (DESIGN 0.6.0 D13; `host.agentsAuto`, held word for word by host-state-words.test.ts). */
+const AGENTS_AUTO = /^Agents now run in auto mode: .*Guide: https:\/\/smurg\.ai\/docs\/hosting\/#52-what-agents-do-by-themselves-and-what-they-ask-first$/;
+/**
+ * What each published smurg says of a folder 0.6.0 wrote (recorded with the published executables, 2026-10-20): 0.5.1
+ * and later read the stamp (`shapes` 2) and say it is a newer smurg's; 0.4.0 and 0.5.0 have no stamp reader, and their
+ * strict schema refuses state.json version 2 with their one refusal text.
+ */
+function refusalWords(version: string): readonly string[] {
+  if (/^0\.(4\.|5\.0$)/.test(version)) return ["This workspace's state files were written by another smurg version", 'the daemon refused to start'];
+  return ['a newer smurg than this one', 'Nothing was changed.', 'Run smurg update, then smurg host again.'];
+}
+
+/** Every file of a folder, by its path inside it, with its bytes (what "byte for byte" compares). */
+async function filesOf(dir: string): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const walk = async (rel: string): Promise<void> => {
+    for (const entry of await readdir(join(dir, rel), { withFileTypes: true })) {
+      const path = rel === '' ? entry.name : `${rel}/${entry.name}`;
+      if (entry.isDirectory()) await walk(path);
+      else if (entry.isFile()) out.set(path, (await readFile(join(dir, path))).toString('base64'));
+      else out.set(path, `<${entry.isSymbolicLink() ? 'link' : 'other'}>`);
+    }
+  };
+  await walk('');
+  return out;
+}
 
 /** SMURG_SHOW_TERMINAL=<file>: what the new executable printed is appended to it (for a release's report). */
 function show(title: string, host: Host): void {
@@ -234,42 +266,51 @@ describe.runIf(PLAN.kind === 'run')('the upgrade with real executables: what eac
       expect(invites.find((listed) => listed.id === (invite as { id: string }).id)).toMatchObject({ role: 'editor', revoked: false });
       channel.close();
 
-      // What the daemon's part of the upgrade left (DESIGN A5, A9): the old file kept byte for byte when a step ran,
-      // nothing kept when none was needed, and the stamp of the smurg that wrote the folder last.
+      // What the daemon's part of the upgrade left (DESIGN A5, A9; 0.6.0 D6): the old state.json kept byte for byte,
+      // named after the first step that ran (0.4.0 for what 0.4.0 wrote, else 0.5.0: the step to 0.6.0), and the
+      // stamp of the smurg that wrote the folder last, with today's shapes.
       const copies = (await readdir(stateDir)).filter((name) => name.includes('.before-upgrade-from-')).sort();
-      const stepRan = (oldVersion as string).startsWith('0.4.');
-      if (stepRan) {
-        expect(copies).toContain('state.json.before-upgrade-from-0.4.0');
-        expect((await readFile(join(stateDir, 'state.json.before-upgrade-from-0.4.0'))).equals(oldState)).toBe(true);
-        expect((await lstat(join(stateDir, 'state.json.before-upgrade-from-0.4.0'))).mode & 0o777).toBe(0o600);
-      } else {
-        expect(copies).toEqual([]);
-      }
+      const from = (oldVersion as string).startsWith('0.4.') ? '0.4.0' : '0.5.0';
+      expect(copies).toContain(`state.json.before-upgrade-from-${from}`);
+      expect((await readFile(join(stateDir, `state.json.before-upgrade-from-${from}`))).equals(oldState)).toBe(true);
+      expect((await lstat(join(stateDir, `state.json.before-upgrade-from-${from}`))).mode & 0o777).toBe(0o600);
       const stamp = JSON.parse(await readFile(join(stateDir, 'written-by.json'), 'utf8')) as { smurg: unknown; shapes: unknown };
-      expect(stamp.shapes).toBe(1);
+      expect(stamp.shapes).toBe(2);
       expect(typeof stamp.smurg).toBe('string');
+      expect((JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8')) as { version: unknown; settings: { permissionMode: unknown } })).toMatchObject({ version: 2, settings: { permissionMode: 'auto' } });
 
-      // The command's part (DESIGN A7, C; step K3B): the upgrade is said in ONE line when a step ran, never otherwise.
-      const noticeLines = after
-        .out()
-        .split('\n')
-        .filter((line) => UPGRADE_NOTICE.test(line));
-      if (stepRan) {
-        expect(noticeLines, `the one-line upgrade notice in what smurg host printed:\n${after.out()}`).toHaveLength(1);
-        // The owner's own case: it starts, ONE line, the two links. The line names the smurg that wrote the folder.
-        expect(noticeLines[0]).toContain(`last shared with smurg ${(oldVersion as string).replace(/-.*$/, '')}:`);
-        expect(after.out().startsWith(`${noticeLines[0]}\n\nsmurg is sharing "`), after.out()).toBe(true);
-      } else {
-        // Nothing but what a start has always printed.
-        expect(noticeLines, after.out()).toEqual([]);
-        expect(after.out().startsWith('\nsmurg is sharing "'), after.out()).toBe(true);
-      }
+      // The command's part (DESIGN A7, C; step K3B; 0.6.0 D13): the upgrade in ONE line, naming the smurg that last
+      // wrote the folder, then ONE line about auto mode, then the start as always.
+      const lines = after.out().split('\n');
+      const noticeLines = lines.filter((line) => UPGRADE_NOTICE.test(line));
+      const autoLines = lines.filter((line) => AGENTS_AUTO.test(line));
+      expect(noticeLines, `the one-line upgrade notice in what smurg host printed:\n${after.out()}`).toHaveLength(1);
+      expect(autoLines, `the line about auto mode in what smurg host printed:\n${after.out()}`).toHaveLength(1);
+      expect(noticeLines[0]).toContain(`last shared with smurg ${(oldVersion as string).replace(/-.*$/, '')}:`);
+      expect(after.out().startsWith(`${noticeLines[0]}\n\n${autoLines[0]}\n\nsmurg is sharing "`), after.out()).toBe(true);
       expect(after.err(), 'the new executable said nothing on stderr').toBe('');
 
       const end = await smurg(bin, ['stop'], env, project);
       expect(end.stdout).toContain('Stopped sharing.');
       expect(await after.exited).toBe(0);
       show(`smurg ${newVersion} (${basename(bin)}) on the folder smurg ${oldVersion} left`, after);
+
+      // ---- the OLD executable once more, on what the new one wrote (DESIGN 0.6.0 D2): refused before it connects,
+      // and the workspace's state folder is byte for byte what it was.
+      const stateBefore = await filesOf(stateDir);
+      const oldAgain = startHost(old, project, relay.origin, env);
+      await waitFor(() => !oldAgain.alive() || (oldAgain.out().match(/\/join\//g) ?? []).length >= 2, { timeoutMs: 120_000, what: `smurg ${oldVersion} to refuse or start` });
+      if (oldAgain.alive()) throw new Error(`smurg ${oldVersion} shared a folder smurg ${newVersion} wrote:\n${oldAgain.out()}`);
+      const code = await oldAgain.exited;
+      const said = `${oldAgain.out()}${oldAgain.err()}`;
+      console.info(`[sea-upgrade] smurg ${oldVersion} on what smurg ${newVersion} wrote: exit ${String(code)}\n${said}`);
+      expect(code, said).not.toBe(0);
+      for (const words of refusalWords(oldVersion as string)) expect(said, oldVersion as string).toContain(words);
+      expect(await filesOf(stateDir)).toEqual(stateBefore);
+      // What the share's `.smurg` holds afterwards: what 0.6.0 left (its .gitignore); the refusing start's lock is gone.
+      const smurgDir = [...(await filesOf(join(project, '.smurg'))).keys()].sort();
+      console.info(`[sea-upgrade] what the share's .smurg holds after smurg ${oldVersion}: ${JSON.stringify(smurgDir)}`);
+      expect(smurgDir).toEqual(['.gitignore']);
 
       // ---- a refusal, as the real executable words it (here in Traditional Chinese): a state file that other users
       // of the computer can read. The text names the file and the one command; nothing is changed; no "move".
