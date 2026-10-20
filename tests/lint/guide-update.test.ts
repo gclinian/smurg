@@ -198,7 +198,11 @@ describe('the upgrade test with the published executables, as the release guide 
     expect(skipped).toBe('[sea-upgrade] SKIPPED: the upgrade from the published executables was NOT tested.');
     expect(text.includes(skipped), `docs/RELEASING.md §4.5 does not quote: ${skipped}`).toBe(true);
     expect(text).toContain('Tests 1 skipped (1)');
-    expect(text).toContain('Tests 2 passed (2)');
+    // One passed test per old executable the printed command names (0.6.0: four, 0.4.0 to 0.5.2).
+    const printed = shBlocks(dryRun).find((lines) => lines.some((line) => line.endsWith('vitest run test/sea-upgrade.test.ts'))) ?? [];
+    const binaries = (/^SMURG_PREVIOUS_BINARIES=(\S+) \\$/.exec(printed[0] ?? '')?.[1] ?? '').split(':').filter((path) => path !== '');
+    expect(binaries.length).toBeGreaterThanOrEqual(2);
+    expect(text).toContain(`Tests ${binaries.length} passed (${binaries.length})`);
   });
 
   it("says that a release's gate fails without the two variables, and prints the gate with them", () => {

@@ -2,7 +2,7 @@
 // E-tests; docs/RELEASING.md runs it before every release with the executable of every published version `smurg update`
 // can start from). Opt-in, beside sea-update.test.ts. From the repository's root:
 //
-//   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
+//   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64:/path/to/v0.5.1/smurg-darwin-arm64:/path/to/v0.5.2/smurg-darwin-arm64 \
 //   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
 //     pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
 //

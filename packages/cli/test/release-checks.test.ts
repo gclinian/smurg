@@ -225,4 +225,19 @@ describe('scripts/release-assets.sh --publish-checks', () => {
     expect(rootManifest['homepage']).toBe('https://smurg.ai');
     expect(rootManifest['bugs']).toBe('https://github.com/gclinian/smurg/issues');
   });
+
+  it('this repository: the version every package.json says has its section in both changelogs, under the same heading (its date, or YYYY-MM-DD until the release), and --check-changelog finds it', async () => {
+    const root = fileURLToPath(new URL('../../../', import.meta.url));
+    const version = (JSON.parse(await readFile(join(root, 'packages/daemon/package.json'), 'utf8')) as { version: string }).version;
+    const headingOf = async (path: string): Promise<string | undefined> =>
+      (await readFile(join(root, path), 'utf8')).split('\n').find((line) => line.startsWith(`## [${version}]`));
+    const heading = await headingOf('CHANGELOG.md');
+    // A version bumped without its notes is refused here, long before a tag: --publish-checks then also wants the date.
+    expect(heading).toMatch(new RegExp(`^## \\[${version.replaceAll('.', '\\.')}\\] - (\\d{4}-\\d{2}-\\d{2}|YYYY-MM-DD)$`));
+    expect(await headingOf('docs/zh-TW/CHANGELOG.md')).toBe(heading);
+    // What the release workflow's first job runs (.github/workflows/release.yml), against this repository.
+    const found = await runShell('/bin/bash', [RELEASE_ASSETS, '--version', version, '--check-changelog'], { PATH: SYSTEM_PATH, HOME: '/nonexistent' });
+    expect(found.out).toContain(`release-assets: CHANGELOG.md has a section for ${version}:`);
+    expect(found.code).toBe(0);
+  });
 });

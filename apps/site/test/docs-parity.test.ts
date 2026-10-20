@@ -148,7 +148,11 @@ describe('the guides and the changelog in both languages', () => {
     expect(skeleton('docs/zh-TW/CHANGELOG.md').h2).toEqual(en);
     const released = en.filter((heading) => heading !== '[Unreleased]');
     expect(en.indexOf('[Unreleased]')).toBeLessThanOrEqual(0);
-    for (const heading of released) expect(heading).toMatch(/^\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}$/);
+    // The newest may still say `YYYY-MM-DD` (0.6.0: written before its date is known; scripts/release-assets.sh
+    // --publish-checks and the release workflow refuse a tag until the owner writes it, docs/RELEASING.md §4 step 2).
+    for (const [index, heading] of released.entries()) {
+      expect(heading).toMatch(index === 0 ? /^\[\d+\.\d+\.\d+\] - (\d{4}-\d{2}-\d{2}|YYYY-MM-DD)$/ : /^\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}$/);
+    }
     const versions = released.map((heading) => (/^\[(\d+)\.(\d+)\.(\d+)\]/.exec(heading) ?? []).slice(1).map(Number));
     const sorted = [...versions].sort((a, b) => (b[0] as number) - (a[0] as number) || (b[1] as number) - (a[1] as number) || (b[2] as number) - (a[2] as number));
     expect(versions).toEqual(sorted);

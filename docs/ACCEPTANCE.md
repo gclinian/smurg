@@ -70,6 +70,24 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   `PATH` or named by `SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude`, and skips loudly otherwise. For a release it is
   run with `SMURG_TEST_CLAUDE_BIN` pointing at 2.1.288 ("Other ways to run" below; `docs/RELEASING.md` §4.5). No real
   Claude account is used at any point.
+- **Expected result, v0.6.0** (English and zh-TW, protocol 5; `SMURG_RELEASE_GATE=1` with the published executables
+  of 0.4.0, 0.5.0, 0.5.1 and 0.5.2 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so the
+  upgrade from all four ran with the real files; 2026-10-21, the release's code, its changelog heading still
+  `YYYY-MM-DD`):
+  - macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code 2.1.288, the gate
+    run as its four parts (`docs/RELEASING.md` §4.5 step 1), each with the same variables: `pnpm typecheck` exit 0;
+    `--project @smurg/daemon`: `Test Files  163 passed (163)`, `Tests  2048 passed | 10 skipped (2058)`, 191 s;
+    `--project @smurg/web --project @smurg/web-smoke --project @smurg/e2e`: `Test Files  166 passed (166)`,
+    `Tests  1790 passed (1790)`, 416 s; `--project @smurg/cli --project @smurg/protocol --project @smurg/relay
+    --project @smurg/site --project @smurg/lint`: `Test Files  130 passed (130)`, `Tests  6207 passed | 1 skipped
+    (6208)`, 92 s. Together `Test Files  459 passed (459)` and `Tests  10045 passed | 11 skipped (10056)`, about
+    700 s of vitest, exit 0; no file skipped (the tests of the packaged executable ran, the upgrade from the four
+    published executables among them, 4 of 4: the build is 112.9 MiB; the real-Claude suite and `flow.claude.smoke`
+    ran). The eleven skipped tests: the seven Linux-only ones, the three comparisons of
+    `daemon/upgrade/wire.test.ts` with v0.5.2 (the protocol changed on purpose, and they say so) and the opt-in test of
+    `cli/test/dev-stack.test.ts`. The real-Claude suite alone (eight files since 0.6.0, "Other ways to run" below):
+    `Test Files  8 passed (8)`, `Tests  60 passed (60)`.
+  - The Ubuntu 24.04 VM was not run for this build (no VM where it was built): the owner's step before the tag.
 - **Expected result, v0.5.2** (English and zh-TW, protocol 4; `SMURG_RELEASE_GATE=1 pnpm check` with the published
   executables of 0.4.0, 0.5.0 and 0.5.1 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so
   the upgrade from all three ran with the real files; 2026-10-09, the release's code):
@@ -155,7 +173,9 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   its usual place, or the browser `SMURG_TEST_CHROME=/absolute/path` names; nothing is ever downloaded), the
   real-`claude` tests (R8.1 with `claude`, SPEC §13 item 1, and since v0.5.0 the agent runtime's own suite,
   `daemon/sessions/agent-claude-real.test.ts`: T2.1, T4.2, S4, S5, S6, S8, S10, S12, S15, S22, and the trust gate's,
-  `daemon/sessions/trust-claude-real.test.ts`: S10) skip loudly without a `claude` of the verified version, `web/e2e/smoke/flow.claude.smoke.test.ts` skips unless `SMURG_TEST_CLAUDE_BIN` names one (it
+  `daemon/sessions/trust-claude-real.test.ts`: S10; since v0.6.0 the models' and the permission modes' own,
+  `daemon/sessions/models-claude-real.test.ts` and `daemon/sessions/modes-claude-real.test.ts`: N1 to N5, N9, and the
+  real cases of `daemon/hooks/mock-anthropic.test.ts`) skip loudly without a `claude` of the verified version, `web/e2e/smoke/flow.claude.smoke.test.ts` skips unless `SMURG_TEST_CLAUDE_BIN` names one (it
   never takes a `claude` from `PATH`), the macOS-only
   tests (keychain, `caffeinate`) do not run on Linux. (Until D-15 the guest sandbox's Linux-only files and describes
   skipped on macOS too; they are gone.)
@@ -197,7 +217,8 @@ prompt line in the web smoke test).
   `daemon/files/download.test.ts`, the Linux describe of `daemon/files/nfd-listings.test.ts` (one directory listing
   per operation for Mac-made names) and the NFD case of the upload plan's numbering in `daemon/files/upload.test.ts`.
 - **Still not run on Linux**: a real `claude`. The VM and CI's runners have no Claude Code, so the hooks' real-`claude`
-  files (R8.1) and, since v0.5.0, the daemon's real-Claude suites (five files, 35 tests) and
+  files (R8.1) and, since v0.5.0, the daemon's real-Claude suites (five files, 35 tests; eight files, 60 tests since
+  v0.6.0) and
   `web/e2e/smoke/flow.claude.smoke.test.ts` skip there, loudly: **real Claude Code was not tested on Linux for
   v0.5.0**, only on macOS. Also not run on Linux: keep-awake through `systemd-inhibit` from a local
   desktop session (from an SSH session polkit refuses it: checked in the VM, and `smurg host` reports it as refused),
@@ -236,7 +257,8 @@ pnpm --filter @smurg/e2e exec vitest run test/r3.e2ee.test.ts --silent=false   #
 # repository's fake Anthropic API with a dummy key and its own temporary HOME and config dir; never a real account:
 SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 \
   pnpm --filter @smurg/daemon exec vitest run test/hooks/claude-e2e.test.ts test/hooks/claude-bash.test.ts \
-  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts test/sessions/trust-claude-real.test.ts
+  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts test/sessions/trust-claude-real.test.ts \
+  test/sessions/models-claude-real.test.ts test/sessions/modes-claude-real.test.ts test/hooks/mock-anthropic.test.ts
 ```
 
 The web-smoke project's numbers on macOS (2026-10-07, with `SMURG_TEST_CLAUDE_BIN` set, the machine busy with other
@@ -272,8 +294,10 @@ Test layers (ARCHITECTURE §10):
   stand-in `claude` (`packages/daemon/src/testing/fake-claude.mjs`) through the real runner.
 - Real Claude Code (`daemon/hooks/claude-e2e.test.ts`, `daemon/hooks/claude-bash.test.ts`,
   `daemon/hooks/claude-failmodes.test.ts`, `daemon/sessions/agent-claude-real.test.ts`,
-  `daemon/sessions/trust-claude-real.test.ts`): the host's own binary of the verified version against the fake
-  Anthropic API, as "How to run the gate" says.
+  `daemon/sessions/trust-claude-real.test.ts`, and since v0.6.0 `daemon/sessions/models-claude-real.test.ts`,
+  `daemon/sessions/modes-claude-real.test.ts` and the real cases of `daemon/hooks/mock-anthropic.test.ts`): the host's
+  own binary of the verified version against the fake Anthropic API (since v0.6.0 it also answers auto mode's
+  check), as "How to run the gate" says.
 - `apps/web/e2e` (Vite dev server + system Chrome) and `apps/web/e2e/smoke` (the production build served by the real
   relay's Worker + system Chrome): real browsers, fresh contexts, dev login, no cookies imported.
 

@@ -5,6 +5,43 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [0.6.0] - YYYY-MM-DD
+
+- **Choose the model.** The host and members with agent access choose an agent session's model from the list the
+  host's Claude Code offers, Fable included: when they open a session or a topic, at Start for a topic's work items,
+  and later in the session's strip, where a change applies from the agent's next turn. The strip shows the model
+  Claude Code really runs. A session nobody chose a model for runs on the host's own Claude Code default, as before.
+  On some plans Fable is billed to usage credits, and Claude Code does not ask first in an agent session; the
+  dialogs say so ([host guide](docs/HOSTING.md) §5.2).
+- **Agents run in auto mode.** The new permission mode "Auto: runs what a check allows" is the default of every
+  agent session and work item: Claude Code's check decides which commands run without asking anyone (file edits and
+  simple file commands inside the agent's own folder run without it), and what it stops is shown in the
+  conversation. Its checks can count toward the host's usage.
+  Workspaces shared with an earlier smurg switch to auto at the update: `smurg host` says so in one line, and the
+  host console's settings say how to be asked again. "Asks before commands" and "Asks before edits and commands"
+  stay, for the workspace, a topic or a session ([host guide](docs/HOSTING.md) §5.2).
+- **In the main workspace, two shell commands still wait for a person in auto mode**: one that changes a file only
+  the host may change, in a session a teammate opened (only the host can allow it), and one that writes a file
+  someone is typing in (refused until they stop) ([host guide](docs/HOSTING.md) §5.2).
+- **A teammate's session asks before it writes outside its own folder** in auto mode, when smurg can read where the
+  command writes: only the host can allow it ([host guide](docs/HOSTING.md) §5.2).
+- **In every mode, smurg refuses what no agent should change**: an agent's edits of Claude Code's settings (yours and
+  the project's), of `.git`, of your `.ssh` folder and of smurg's own files, and commands that name those places, also
+  from a work item's worktree ([host guide](docs/HOSTING.md) §5.2).
+- **The host can let agents ask for nothing**, for the whole workspace, in the host console's settings and behind a
+  warning: every command then runs as the host with no sandbox and no check, and only the refusals above stay. Every
+  member sees that the workspace asks for nothing, and `smurg host` says so at every start ([host
+  guide](docs/HOSTING.md) §5.2).
+- **Work items without a git repository.** A shared folder without `.git` no longer stops Start: smurg keeps its own
+  history of the folder in `.smurg` (never a `.git` in your folder), and work items run in worktrees with a result
+  report, a diff and your merge; smurg's history keeps every version of what it recorded. Without the git program,
+  only the host can start work items, and they run one at a time directly in the shared folder, with no diff, no
+  review before a change lands and no undo; the Start dialog says so and asks you to confirm ([host
+  guide](docs/HOSTING.md) §10.2).
+- **The protocol changed (version 5).** Update before you share again (`smurg update`): until then, teammates' pages
+  say "The host's smurg is older than this page". A tab from before the update says "This tab is from before an
+  update" and needs a reload. If you run your own relay, deploy it again.
+
 ## [0.5.2] - 2026-10-09
 
 - **A folder can become a git repository while it is shared.** smurg 0.5.1 looked at git only when sharing started:

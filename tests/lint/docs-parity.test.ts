@@ -136,8 +136,13 @@ describe('the two changelogs carry the same sections', () => {
   it('the same `## ` headings in the same order: [Unreleased] first when present, then the versions', () => {
     expect(chinese.map((section) => section.heading)).toEqual(english.map((section) => section.heading));
     expect(english.length).toBeGreaterThanOrEqual(3);
+    // The newest version may still say `YYYY-MM-DD` (0.6.0: a release written before its date is known; the owner
+    // writes the date at the release, and scripts/release-assets.sh --publish-checks and the release workflow refuse
+    // a tag until then: docs/RELEASING.md §4 step 2). Every older section has its date.
+    const newest = english.findIndex((section) => section.heading !== '[Unreleased]');
     for (const [index, section] of english.entries()) {
       if (section.heading === '[Unreleased]') expect(index).toBe(0);
+      else if (index === newest) expect(section.heading).toMatch(/^\[\d+\.\d+\.\d+\] - (\d{4}-\d{2}-\d{2}|YYYY-MM-DD)$/);
       else expect(section.heading).toMatch(/^\[\d+\.\d+\.\d+\] - \d{4}-\d{2}-\d{2}$/);
     }
   });

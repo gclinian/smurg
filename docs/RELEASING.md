@@ -261,8 +261,10 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    two more things are done before the tag, by a person on their own machine, because CI has no Claude Code: the
    real-Claude suite and the release dry run, both in §4.5.
 2. The changelogs: the section `## [X.Y.Z] - YYYY-MM-DD` in `CHANGELOG.md` and, with the same heading, in
-   `docs/zh-TW/CHANGELOG.md`, written for hosts and members. Set `"version": "X.Y.Z"` in all eight `package.json`
-   files. Commit, then check what the workflow's first job will check:
+   `docs/zh-TW/CHANGELOG.md`, written for hosts and members. A section written before the release's date is known
+   keeps the literal `YYYY-MM-DD` in its heading (0.6.0's was written so); write the date into both headings now. Set
+   `"version": "X.Y.Z"` in all eight `package.json` files. Commit, then check what the workflow's first job will
+   check:
 
    ```sh
    scripts/release-assets.sh --version X.Y.Z --publish-checks
@@ -277,38 +279,59 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    says another version, or not `"license": "MIT"`, or not `"private": true`. Optional: Actions → Release → Run
    workflow (version X.Y.Z) is a dry run of the whole pipeline that releases nothing and keeps the notes,
    `SHA256SUMS`, `install.sh` and the notices as an artifact (there the `--publish-checks` step only warns).
-3. Redeploy the shared relay from the commit you are about to tag (a clean checkout of it), §2:
+3. **The shared relay, in the order the protocol version decides.** `app.smurg.ai` serves the one web app that every
+   host's members and console use, whatever version the host runs. It decodes each daemon's `channel.welcome` and
+   settings with strict schemas (ARCHITECTURE §5), so a web app older than the daemon refuses it, while a newer one
+   accepts older daemons of the same protocol version (a daemon of another protocol version is refused at the
+   handshake, and so is a page of another one by the daemon). Which order holds depends on `PROTOCOL_VERSION`
+   (`packages/protocol/src/constants.ts`) against the version published before:
+
+   **(a) A release that keeps `PROTOCOL_VERSION`** (0.5.1 and 0.5.2 kept 4): deploy first, then tag. Redeploy the
+   shared relay now, from the commit you are about to tag (a clean checkout of it), §2:
 
    ```sh
    scripts/deploy-relay.sh --keep-assets <assets folder of the previous published web build>   # §2; ends with "Done: …": every outside check passed
    scripts/deploy-relay.sh --check https://app.smurg.ai    # later, from the same checkout: "All checks passed."
    ```
 
-   Why: `app.smurg.ai` serves the one web app that every host's members and console use, whatever version the host
-   runs. It decodes each daemon's `channel.welcome` and settings with strict schemas (ARCHITECTURE §5), so a web app
-   older than the daemon refuses it, while a newer one accepts older daemons of the same protocol version (a daemon
-   of another protocol version is refused at the handshake). The web app must therefore be at least as new as the
-   release before anyone can install the release. If the workflow fails and you tag a fixed commit instead, redeploy
-   from that one.
+   The web app must be at least as new as the release before anyone can install the release, and nobody is cut off
+   by the deploy: the page of the release and the hosts of the version before connect to each other. If the workflow
+   fails and you tag a fixed commit instead, redeploy from that one.
 
-   **For 0.5.0 the order "redeploy first, then publish" decides whether the release works at all.** 0.5.0 speaks
-   protocol 4, and nothing of protocol 3 is kept: there is no compatibility code on either side (ARCHITECTURE
-   §4.3). Until `app.smurg.ai` serves the build of the release commit, a browser that opens the invite
-   link of a 0.5.0 host is refused at the handshake (the page of 0.5.0 says "Incompatible versions"); from the
-   moment it does, a host that still runs an older smurg is refused the same way until it updates. So: deploy from
-   the release commit, wait for "Done: …", run `--check` (it compares the live web app with this checkout's build),
-   and only then tag, build and publish (steps 4 to 7), without a pause in between. Never publish while `--check`
-   still reports another web build. Say in the release notes that hosts update before they share again
-   (`smurg update`).
+   **(b) A release that raises it (0.6.0 raises it to 5): tag first, deploy and publish at once after the build.**
+   Do not deploy now. Go on with steps 4 to 6 (the tag, the workflow's builds and its GitHub release, `gh release
+   view`); then, from a clean checkout of the TAGGED commit, deploy the relay with the previous published version's
+   web build kept (for 0.6.0: v0.5.2's, made from its tag as §2 says) and check it, and publish (step 7) right after,
+   without a pause:
 
-   **A release that keeps the protocol version (0.5.1 keeps 4) has no such moment**: the page of the release and
-   the hosts of the version before connect to each other, and nobody is cut off by the deploy. When a release does
-   change it, both sides are told who has to act since 0.5.1: a freshly loaded page says "The host's smurg is older
-   than this page" (the host stops sharing, runs `smurg update` and shares again), a tab from before the deploy says
-   "This tab is from before an update" (reload), `smurg attach` says the same in a terminal, and `smurg host` prints
-   one line when it turned away a teammate it knows (`docs/HOSTING.md` §8, `docs/JOINING.md` §8). A host of 0.5.0
-   or earlier has none of these lines: it only stops accepting the newer page. What 0.5.1 could not add without
-   changing the wire (the refusal carries no version numbers) is in ARCHITECTURE §11 D-24.
+   ```sh
+   git checkout vX.Y.Z && git status --short                                    # prints nothing
+   scripts/deploy-relay.sh --keep-assets <assets folder of the previous published web build>   # §2; ends with "Done: …"
+   scripts/deploy-relay.sh --check https://app.smurg.ai                         # "All checks passed."
+   scripts/publish-downloads.sh --version X.Y.Z --from-release                  # step 7, at once
+   ```
+
+   Why: from the moment the new page is live, a browser is refused by every host that still runs the older protocol
+   until that host updates, and a host can update only once the release is on `downloads.smurg.ai`. Tagging first
+   keeps that time to the minutes of the upload instead of the whole build; and no host of the new version exists
+   before step 7, so nobody meets the older page. **Never deploy before the release's executables have passed step
+   6** (a failed workflow then cuts nobody off: fix, delete the tag and tag again, below), and never publish before
+   `--check` says "All checks passed." for this build. The release notes say that hosts update before they share
+   again (`smurg update`); 0.6.0's last changelog item says so.
+
+   **0.5.0 took the other order** (protocol 3 to 4, no compatibility code on either side, ARCHITECTURE §4.3): it
+   deployed from the release commit first, waited for `--check`, then tagged, built and published without a pause
+   (steps 4 to 7). A browser that opened the invite link of a 0.5.0 host was refused at the handshake until
+   `app.smurg.ai` served the new build ("Incompatible versions"), and from that moment the hosts of older versions
+   were refused the same way, during the whole build.
+
+   When a release changes the protocol, both sides are told who has to act since 0.5.1: a freshly loaded page says
+   "The host's smurg is older than this page" (the host stops sharing, runs `smurg update` and shares again), a tab
+   from before the deploy says "This tab is from before an update" (reload), `smurg attach` says the same in a
+   terminal, and `smurg host` prints one line when it turned away a teammate it knows (`docs/HOSTING.md` §8,
+   `docs/JOINING.md` §8). A host of 0.5.0 or earlier has none of these lines: it only stops accepting the newer page.
+   What 0.5.1 could not add without changing the wire (the refusal carries no version numbers) is in ARCHITECTURE
+   §11 D-24.
 4. Tag and push the tag:
 
    ```sh
@@ -325,7 +348,8 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    jobs" (it refuses to continue while any release for the tag exists). If the notices differ (another Node.js
    release came out during the run), re-run all jobs. The job summary prints the commands of step 7.
 6. `gh release view vX.Y.Z --repo gclinian/smurg`: the notes and two files. The executables are not on
-   `downloads.smurg.ai` yet; do step 7 right away.
+   `downloads.smurg.ai` yet; do step 7 right away (a release that raises the protocol version deploys the relay
+   first, step 3 (b), and then does step 7 without a pause).
 7. **Publish.** From a checkout with the wrangler login (§1.2):
 
    ```sh
@@ -390,7 +414,9 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
 If the workflow fails before the GitHub release is made, fix the cause, delete the tag
 (`git push --delete origin vX.Y.Z && git tag -d vX.Y.Z`) and tag the fixed commit again. If the GitHub release exists
 but nothing was uploaded to `downloads.smurg.ai` (step 7 never ran), delete the release and the tag, and do the same.
-After step 7, never: cut X.Y.(Z+1).
+After step 7, never: cut X.Y.(Z+1). In step 3 (b), when step 7 cannot finish after the deploy, the hosts of the older
+protocol stay cut off from browsers until it does: finish it (`--resume`, step 7), or roll the relay back to the
+deploy of the latest published release (§7) while you find the cause.
 
 ### 4.1 Deploying the product page smurg.ai
 
@@ -513,21 +539,36 @@ machine whose `claude` has moved on has not run it. So name the binary:
 cd <repo> && source scripts/env.sh
 SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 \
   pnpm --filter @smurg/daemon exec vitest run test/hooks/claude-e2e.test.ts test/hooks/claude-bash.test.ts \
-  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts test/sessions/trust-claude-real.test.ts
+  test/hooks/claude-failmodes.test.ts test/sessions/agent-claude-real.test.ts test/sessions/trust-claude-real.test.ts \
+  test/sessions/models-claude-real.test.ts test/sessions/modes-claude-real.test.ts test/hooks/mock-anthropic.test.ts
 ```
 
-No file may print `SKIPPED` (five files, 35 tests). What it proves that the stand-in cannot: that real Claude Code
+No file may print `SKIPPED` (eight files, 60 tests for 0.6.0: the five of 0.5.x with 35, then since 0.6.0
+`models-claude-real` with 3, `modes-claude-real` with 6 and `mock-anthropic` with 16, 12 of them on the real binary).
+Since 0.6.0 the fake API also answers auto mode's check, the classifier's two stages, with the severity a test gives
+(`classifier` in `mock-anthropic.ts`), so auto mode runs here as it does for a host, without a model; what the real
+classifier decides is never tested (no account). What the suite proves that the stand-in cannot: that real Claude Code
 runs smurg's hook before every tool and obeys its refusal, on a host whose own settings allow everything; that a
 discussion agent writes only its topic's two files; that commands ask and "always allow" holds; that the host's
 private files stay out of reach of the search and read tools; that project settings nobody confirmed are not
 loaded; that the hook's question about a shell command near a confirmed hook script stands above the edit mode and
 above the host's own allow rules; that no subagent starts; that an `@path` in a message stays text; that a
 conversation is resumed after its process ended (`docs/ACCEPTANCE.md`: T2.1, T4.2, S4, S5, S6, S8, S10, S12, S15,
-S16, S22, R8.1). The built app's one
+S16, S22, R8.1). Since 0.6.0 also R1 to R8 (ACCEPTANCE N1 to N5, N9): the model chosen at the start, at the resume
+and live, and a model the API refuses (R1); the probe that asks Claude Code for its models runs none of the host's
+own hooks and leaves nothing behind (R7); in auto mode a work item's places beyond its folder are refused and its
+own commands run, the check's block is a line and an audit entry and the third one asks (R2); a teammate's shell
+write that only the host may allow asks the host, and one into a file someone is typing in is refused (R3); a
+command whose target smurg cannot read (R4, the evidence for
+`GATE_ASKS_WHEN_UNSURE`); "Asks for nothing" launches bypass with every deny rule still holding, and falls back to
+auto when the host's own settings turn bypass off (R5); auto on a model without it falls back (R6); and a process
+keeps its rules after its `--settings` file was overwritten (R8). The stand-in's answers are held up against the real
+binary in `mock-anthropic.test.ts`. The built app's one
 pass with real Claude Code in system Chrome belongs to this step too and takes its binary from the same variable
-(`flow.claude.smoke` of the web-smoke project: a session without a topic, its first message, a tool, a command that
-a member with agent access allows and that really runs, a question and its answer). It runs only when the variable
-is set; unlike the daemon's suite it never looks for a `claude` on `PATH`:
+(`flow.claude.smoke` of the web-smoke project: a session without a topic, opened "Asks before commands", its first
+message, a tool, a command that a member with agent access allows and that really runs, a question and its answer;
+then the session follows the workspace's auto mode again and its next command runs with no card). It runs only when
+the variable is set; unlike the daemon's suite it never looks for a `claude` on `PATH`:
 
 ```sh
 SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude-2.1.288 pnpm exec vitest run --project @smurg/web-smoke flow.claude
@@ -537,7 +578,23 @@ Both were run on macOS only: the Linux VM and CI's runners have no Claude Code, 
 Linux (`docs/ACCEPTANCE.md`, "Linux verification").
 
 Making a newer Claude Code the verified one is a code change with a release of its own, not a release step: run
-this suite against it, then change the two constants in the same commit as whatever the suite made necessary.
+this suite against it, then change the two constants in the same commit as whatever the suite made necessary. No
+newer binary is downloaded for a release: 0.6.0 is verified on 2.1.288, as 0.5.x was. What to look at again, beyond
+the suite (ARCHITECTURE §11 D-23 has the list with the reasons):
+
+- **For every newer version, whatever its changelog says**: that the `--settings` file is still read once, at the
+  start, and not reloaded while a session runs (an agent can read and overwrite its own launch file; R8 proves the
+  process keeps the rules it started with); that absolute deny rules still refuse Bash commands that name the path,
+  in auto mode and in bypass (R2, R5); and that auto mode's fast path still covers only the agent's own folder (R2,
+  R4), including whether it still runs a command whose target is a variable with no check (R4: 2.1.288 does, so
+  `GATE_ASKS_WHEN_UNSURE` is true; the stand-in sends every `$` to its classifier).
+- **For the versions after 2.1.288 whose changelogs name these changes**: 2.1.293 (the `haiku` alias becomes Haiku
+  5.5: its `supportsAutoMode`, the fallback when auto cannot run, the model list), 2.1.296 (new stream shapes for a
+  call auto mode could not check: `normalise.ts`), 2.1.299 (after `set_model` to a model without auto mode, Claude
+  Code itself moves the session to `default` and a `status` line arrives: smurg's fallback must agree), 2.1.301 (the
+  `fable` alias may retry on the previous Fable model: the substituted-model notice), 2.1.302 (`-p` without a mode
+  starts in Manual, while smurg always passes one; `CLAUDE_CODE_AUTO_MODE_MODEL`; the check's compaction on the
+  server), 2.1.304 (`/auto-mode-setup`).
 
 **The release dry run.** Nothing in it tags, pushes, publishes or deploys; those stay steps 3 to 8 of §4.
 
@@ -549,10 +606,17 @@ this suite against it, then change the two constants in the same commit as whate
    of its architecture). From the repository's root:
 
    ```sh
-   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
+   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64:/path/to/v0.5.1/smurg-darwin-arm64:/path/to/v0.5.2/smurg-darwin-arm64 \
    SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
      SMURG_RELEASE_GATE=1 pnpm check
    ```
+
+   For 0.6.0 the list is the four published versions, 0.4.0, 0.5.0, 0.5.1 and 0.5.2; every later release adds the
+   executable of the version before it (step 5). The gate takes about 13 minutes on an Apple M3; where one command
+   may not run that long, the same gate is these four commands with the same variables, all four green:
+   `pnpm typecheck`; `pnpm exec vitest run --project @smurg/daemon`; `pnpm exec vitest run --project @smurg/web
+   --project @smurg/web-smoke --project @smurg/e2e`; `pnpm exec vitest run --project @smurg/cli --project
+   @smurg/protocol --project @smurg/relay --project @smurg/site --project @smurg/lint`.
 
    With `SMURG_SEA_BINARY` set, the gate also runs the three other suites of the executable (`test/sea.test.ts`,
    `test/sea-update.test.ts` and `test/sea-git-while-sharing.test.ts` of `packages/cli`), which are skipped without it. CI sets none of these variables:
@@ -560,7 +624,7 @@ this suite against it, then change the two constants in the same commit as whate
    "Linux verification").
 2. The executable for this machine: `scripts/build-sea.sh --version X.Y.Z` (it runs the smoke tests). Then, by hand,
    with the built executable, a scratch `HOME` and a scratch `SMURG_HOME` whose path is SHORT (the control socket
-   lies in it, and a Unix socket's path has a small limit): `--version` (it says `protocol v4`), `licenses`,
+   lies in it, and a Unix socket's path has a small limit): `--version` (it says `protocol v5` since 0.6.0), `licenses`,
    `login --relay http://localhost:8787 --dev-user host` against a local relay (`apps/relay/README.md`, "Local
    development"), then `host` on a scratch folder that is a git repository, with the stand-in `claude` in place of
    Claude Code. smurg runs the first `claude` on the host's `PATH`: for that shell only, put the wrapper that
@@ -580,7 +644,8 @@ this suite against it, then change the two constants in the same commit as whate
    environment the way `claude-harness.ts` does (the folder trusted and the dummy key approved, as its
    `seedClaudeTrust` does); start `smurg host` ITSELF from the built executable inside that environment, with a
    `PATH` whose first `claude` is the 2.1.288 binary; open a session with an SDK client and let the fake API answer
-   with tool calls (one that passes the gate, one that asks a person); and time every `smurg hook` process from the
+   with tool calls (one that passes the gate, one that asks a person: since 0.6.0 the session is opened "Asks before
+   commands" for it, as agents run in auto mode by default); and time every `smurg hook` process from the
    moment it appears as a child of `claude` to its exit, watching only (it signals nothing). Check afterwards that
    the agent's own environment named the fake API and the scratch folders. Making this an opt-in test of the
    repository is the next step.
@@ -599,13 +664,14 @@ this suite against it, then change the two constants in the same commit as whate
    0.0.1 -> X.Y.Z`. Never run a release's `install.sh` without `--base-url` or `SMURG_INSTALL_BASE_URL`: its
    built-in location is the real downloads site.
 5. **The upgrade from every published version that `smurg update` can start from** (since 0.5.1; for 0.5.1: 0.4.0
-   and 0.5.0), with the real executables. Download each one from `https://downloads.smurg.ai/v<version>/` into a
-   scratch folder and check it against that version's `SHA256SUMS` (they are the files hosts have: a published
-   version's files stay in the bucket, §7). Then, with the executable of step 2, from the repository's root (a path
-   that is not absolute is read from the root, whatever folder the runner is in):
+   and 0.5.0; for 0.6.0: 0.4.0, 0.5.0, 0.5.1 and 0.5.2), with the real executables. Download each one from
+   `https://downloads.smurg.ai/v<version>/` into a scratch folder and check it against that version's `SHA256SUMS`
+   (they are the files hosts have: a published version's files stay in the bucket, §7). Then, with the executable
+   of step 2, from the repository's root (a path that is not absolute is read from the root, whatever folder the
+   runner is in):
 
    ```sh
-   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64 \
+   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64:/path/to/v0.5.1/smurg-darwin-arm64:/path/to/v0.5.2/smurg-darwin-arm64 \
    SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
      pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
    ```
@@ -613,10 +679,14 @@ this suite against it, then change the two constants in the same commit as whate
    For each old executable, in a scratch `HOME` and `SMURG_HOME` of its own: the old one logs in to a local relay,
    shares a scratch folder, prints its key fingerprint and stops; the new one shares the same folder and must show
    the same workspace code and the same fingerprint, list the old invite link, and, when the old files needed a step
-   (0.4.0), print the one-line notice, keep the old `state.json` beside the new one byte for byte and write the
-   stamp; a state file that other users can read is refused with the one `chmod`, never "move". A run that tested
-   ends with `Tests  2 passed (2)` (one test per old executable) and nothing skipped. Without both variables the
-   test is SKIPPED: one line on stderr, whatever the reporter,
+   (for 0.6.0 every published version's do: its workspaces switch to auto mode), print the one-line notice naming
+   the smurg that last wrote the folder (and, since 0.6.0, the line about auto mode), keep the old `state.json`
+   beside the new one byte for byte (`state.json.before-upgrade-from-<version>`) and write the stamp (shapes 2 since
+   0.6.0); then, since 0.6.0, the OLD executable shares the folder once more and refuses what the new one wrote with
+   its own words (0.5.1 and later: "Run smurg update. Nothing was changed."), the workspace's state folder byte for
+   byte as it was; a state file that other users can read is refused with the one `chmod`, never "move". A run that
+   tested ends with one passed test per old executable (for 0.6.0 `Tests  4 passed (4)`) and nothing skipped.
+   Without both variables the test is SKIPPED: one line on stderr, whatever the reporter,
    `[sea-upgrade] SKIPPED: the upgrade from the published executables was NOT tested.` (it goes on to name the two
    variables), then `Test Files  1 passed (1)` and `Tests  1 skipped (1)`, exit 0. "skipped" in the last lines of
    this test always means "not tested": a dry run in which it was skipped has not done this step. It FAILS, with
@@ -642,23 +712,32 @@ rule and how the daemon keeps it are in ARCHITECTURE §11 D-24; `CONTRIBUTING.md
 stored shape. For a release it means:
 
 - **The gate runs from a checkout that has the tags of the published versions.**
-  `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.5.0`
-  with `git archive` and lets that code and this tree open each other's workspace folders. Without the tag its tests
-  skip, each with the reason in its name line (CI has the tags: its checkout fetches the whole history); with
-  `SMURG_RELEASE_GATE=1` a missing tag fails. In the Ubuntu VM, whose copy of the tree has no `.git`, name the
-  mounted repository: `GIT_DIR=<the mounted repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made
-  beforehand instead (`<folder>/v0.5.0/packages/{daemon,protocol}`). `packages/daemon/test/upgrade/wire.test.ts`
+  `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.5.2`
+  (the newest published smurg; its two tests of 0.5.0's own refusal take `v0.5.0`) with `git archive` and lets that
+  code and this tree open each other's workspace folders, and `packages/cli/test/ctl-other-version.test.ts` takes
+  v0.5.2's protocol package the same way. Without the tag their tests skip, each with the reason in its name line
+  (CI has the tags: its checkout fetches the whole history); with `SMURG_RELEASE_GATE=1` a missing tag fails. In the
+  Ubuntu VM, whose copy of the tree has no `.git`, name the mounted repository: `GIT_DIR=<the mounted
+  repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made beforehand instead
+  (`<folder>/v0.5.2/packages/{daemon,protocol}` and the same for `v0.5.0`). `packages/daemon/test/upgrade/wire.test.ts`
   needs the tag in the same way: while the protocol version is the published one, it holds this tree's wire to the
   tag's (every registered message type with its shape, every exported schema and constant, and every source file of
-  `packages/protocol/src` except the ones it names with a reason).
+  `packages/protocol/src` except the ones it names with a reason). 0.6.0 raises the protocol version: its two
+  comparisons say that the wire changed on purpose and skip, and its release-gate check that the tag is at hand runs.
 - **A released version gets its fixture.** `packages/daemon/test/fixtures/published/<version>/` holds what that
   version wrote, made by running that version's own code until every stored shape has an instance (its `README.md`
-  says how each was made and how a test copies one; the driver that made 0.5.0's is not in the repository). After
-  X.Y.Z is published: make its fixture from the tag, name the version in `PUBLISHED_VERSIONS`
+  says how each was made and how a test copies one; the driver that made 0.5.0's is not in the repository, and the
+  one driver that made 0.5.1's and 0.5.2's, run in each tag's own tree, is not either: their READMEs say what it
+  did). After X.Y.Z is published: make its fixture from the tag, name the version in `PUBLISHED_VERSIONS`
   (`test/upgrade/fixture.ts`) with its story in `STORIES` and what its files become in `UPGRADES`
   (`test/upgrade/opens.test.ts`), empty `NOT_PUBLISHED_YET` (`test/upgrade/fixtures.test.ts`), and add the tag to
   `other-version.test.ts` and `wire.test.ts` (`TAG` in both; the list `CHANGED_WITHOUT_A_WIRE_CHANGE` of the
-  second is emptied then). The newest fixture is the one whose coverage must match today's schemas exactly.
+  second is emptied then). The newest fixture is the one whose coverage must match today's schemas exactly. **After
+  0.6.0 is published** its fixture is made the same way, and it must hold every point that `NOT_PUBLISHED_YET` lists
+  today (a topic's agent settings, direct items and the history of their pins; smurg's own history in
+  `worktrees.json`, the records that say which repository they belong to, a merge's recorded base) and, as the
+  newest fixture, every point of today's schemas; `TAG` moves to `v0.6.0` in both tests, and
+  `ctl-other-version.test.ts` reads v0.6.0's protocol package.
 - **A stored shape that changed since the last release has its step.** While a version is built, the pin
   (`test/upgrade/pin.test.ts`) fails when one of the places that decide what a stored file accepts changes (what it
   sees, and what it does not, is in `CONTRIBUTING.md`) and asks the question; the answer
@@ -759,7 +838,8 @@ A rollback restores the Worker's code and configuration, not the Durable Objects
 disconnects every socket. Cloudflare does not roll a Worker back across a Durable Object migration (fix forward
 instead). Its web app is rolled back too, and an older web app refuses the `channel.welcome` of a newer daemon (§4
 step 3): do not roll back past the version deployed for the latest release. Across 0.5.0 that is absolute: the web
-app deployed before it speaks protocol 3 and refuses every 0.5.0 host at the handshake.
+app deployed before it speaks protocol 3 and refuses every 0.5.0 host at the handshake. Across 0.6.0 too: the web
+app deployed before it speaks protocol 4, and every 0.6.0 host turns it away.
 
 **Stopping the relay in an emergency** (a leaked signing key, abuse): remove the custom domain from the Worker
 (dashboard → Workers & Pages → smurg-relay → Settings → Domains & Routes); put a new `RELAY_SIGNING_KEY`; then deploy
