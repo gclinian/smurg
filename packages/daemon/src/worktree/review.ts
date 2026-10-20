@@ -51,8 +51,13 @@ export const DEFAULT_REVIEW_LIMITS: ReviewLimits = Object.freeze({
 
 export interface MainRepo {
   readonly git: GitRunner;
-  /** realpath of <share>/.git */
+  /** realpath of <share>/.git, or of smurg's own history `<share>/.smurg/git` (both with the shared folder as work tree) */
   readonly gitDir: string;
+  /**
+   * `folder`: the shared folder's own repository (its history is the host's). `smurg`: smurg's own history of a folder
+   * without `.git` (DESIGN 0.6.0 D14): the folder is recorded by a snapshot before smurg uses its HEAD.
+   */
+  readonly kind: 'folder' | 'smurg';
 }
 
 const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;

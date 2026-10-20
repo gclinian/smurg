@@ -15,6 +15,13 @@
 // The same file keeps an item's state in step with its session (failed, ended, a turn started), with its merge
 // request, and finishes an item that is merged and reviewed (its session ends, its worktree goes): never while the
 // item's worktree holds something the main workspace does not have.
+//
+// 0.6.0 (DESIGN D14, D15): an item starts only in the history its Start used (its pin's `history`): a worktree of the
+// folder's own `.git`, a worktree of smurg's own history, or, only when that Start said so (`direct`), directly in the
+// shared folder. When that history cannot be used now (git missing or unusable, the folder's `.git` gone or changed,
+// smurg's history refused), the item is disarmed with `plan.start.historyChanged`: for EVERY armed item, retried ones
+// included, before and outside the hash part of the pin check. Direct items run one at a time (direct-folder.ts holds
+// the folder); `maxLiveAgents` is not theirs.
 import {
   LIST_MAX_ITEMS,
   MAIN_ROOT,
@@ -32,11 +39,12 @@ import {
 } from '@smurg/protocol';
 import { defaultErrorRef, msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, principalCan } from '../core/permissions.ts';
+import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { pausedItems } from './attention.ts';
 import type { TopicsCore } from './core.ts';
-import { continueItemMessage, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
+import { DirectFolder } from './direct-folder.ts';
+import { continueItemMessage, directExecutionRolePrompt, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
 import type { StoredItem, StoredTopic } from './store.ts';
 import { EMPTY_HASH } from './text.ts';
 
@@ -62,10 +70,21 @@ export class Scheduler {
   private readonly parking = new Set<string>();
   /** What each item session last looked like to the plans (its status and who is responsible): only a change is announced. */
   private readonly seen = new Map<string, string>();
+  /** The one-agent hold of the shared folder for items that run directly in it (DESIGN 0.6.0 D15). */
+  readonly folder: DirectFolder;
 
   constructor(ctx: DaemonContext, core: TopicsCore) {
     this.ctx = ctx;
     this.core = core;
+    this.folder = new DirectFolder({
+      released: (sessionId) => {
+        const agents = this.ctx.services.agents;
+        if (!isStubService(agents)) agents.releaseHeld(sessionId);
+      },
+      // A queued item may start now (one that waited for the folder, or what depends on the one that just finished).
+      free: () => this.request(),
+      log: ctx.log,
+    });
   }
 
   attach(reports: SchedulerReports): void {
@@ -113,27 +132,45 @@ export class Scheduler {
     for (const listed of this.core.topics()) {
       if (listed.archived || !listed.items.some((item) => item.armed)) continue;
       const topicId = listed.id;
+      // ---- THE HISTORY (DESIGN 0.6.0 D15): for EVERY armed item, retried ones included, the history its Start used
+      //      must still be usable (not while the plan is paused: the check runs before anything starts after "Continue all") ----
+      if (!listed.plan.paused) {
+        const states = new Map<string, Awaited<ReturnType<typeof worktrees.historyState>>>();
+        for (const item of listed.items.filter((candidate) => candidate.armed)) {
+          const history = historyOf(item);
+          let state = states.get(history);
+          if (state === undefined) {
+            state = await worktrees.historyState(history).catch(() => 'unknown' as const);
+            states.set(history, state);
+          }
+          if (state === 'changed') this.disarm(topicId, item.id, 'start-failed', historyChanged());
+        }
+      }
       // ---- PIN CHECK (not for a retried item: its worktree already holds the copy it was started from; not while
-      //      the plan is paused: nothing can start then, and the check runs before anything does after "Continue all") ----
-      const pinned = listed.plan.paused ? [] : listed.items.filter((item) => item.armed && !item.retry);
+      //      the plan is paused: nothing can start then, and the check runs before anything does after "Continue all").
+      //      The two files hash as pinned in the working tree, and at HEAD of the history the Start used (an item that
+      //      runs directly in the folder has no history: the working tree alone) ----
+      const checked = this.core.topic(topicId) ?? listed;
+      const pinned = checked.plan.paused ? [] : checked.items.filter((item) => item.armed && !item.retry);
       if (pinned.length > 0) {
         const specPath = topicSpecPath(listed.slug);
         const planPath = topicPlanPath(listed.slug);
-        const [spec, plan, head] = await Promise.all([
-          this.core.readFile(MAIN_ROOT, specPath),
-          this.core.readFile(MAIN_ROOT, planPath),
-          worktrees.headBlobs([specPath, planPath]).catch(() => null),
-        ]);
+        const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
+        const heads = new Map<string, Record<string, string | null> | null>();
         for (const item of pinned) {
           const pin = item.pin;
+          const history = historyOf(item);
+          let head: Record<string, string | null> | null = null;
+          if (history !== 'direct') {
+            if (!heads.has(history)) heads.set(history, await worktrees.headBlobs([specPath, planPath], { history }).catch(() => null));
+            head = heads.get(history) ?? null;
+          }
           const asPinned =
             pin !== undefined &&
             item.number > 0 &&
             (spec?.hash ?? EMPTY_HASH) === pin.specHash &&
             (plan?.hash ?? EMPTY_HASH) === pin.planHash &&
-            head !== null &&
-            (head[specPath] ?? null) === pin.specBlob &&
-            (head[planPath] ?? null) === pin.planBlob;
+            (history === 'direct' || (head !== null && (head[specPath] ?? null) === pin.specBlob && (head[planPath] ?? null) === pin.planBlob));
           if (!asPinned) this.disarm(topicId, item.id, 'plan-changed');
         }
       }
@@ -147,10 +184,15 @@ export class Scheduler {
       }
       this.core.publish(topicId);
       if (afterPins.plan.paused) continue;
-      // ---- queued → running, in plan order, while a slot is free ----
+      // ---- queued → running, in plan order, while a slot is free (an item that runs directly in the folder: while
+      //      the folder is free, one at a time; `maxLiveAgents` is not consulted for it) ----
       const queued = [...(this.core.topic(topicId)?.items ?? [])].filter((item) => item.armed && item.state === 'queued').sort((a, b) => a.number - b.number);
       for (const item of queued) {
         if (this.ctx.stopping.aborted) return;
+        if (historyOf(item) === 'direct') {
+          if (this.folder.isFree()) await this.startItem(topicId, item.id);
+          continue;
+        }
         const slots = this.core.slots();
         if (slots.inUse >= slots.max) {
           this.freeSlot();
@@ -195,9 +237,21 @@ export class Scheduler {
     const attempt = item.attempt + 1;
     const responsibleId = this.core.responsibleOf(topic, item);
     const responsible = responsibleId !== null && this.core.mayBeResponsible(responsibleId) ? this.ctx.members.userRef(responsibleId) : null;
+    // 0. the history its Start used, if it can still be used (DESIGN 0.6.0 D15): a first start, a retry, "Continue all"
+    const history = historyOf(item);
+    const state = await worktrees.historyState(history).catch(() => 'unknown' as const);
+    if (state === 'changed') {
+      this.disarm(topicId, itemId, 'start-failed', historyChanged());
+      return;
+    }
+    if (history === 'direct') {
+      await this.startDirect(topicId, itemId, starter, responsible);
+      return;
+    }
     try {
-      // 1. the item's own worktree at the main workspace's HEAD (a retry reuses it; an existing report file is removed)
-      const handle = await worktrees.acquireForItem({ topic: { id: topic.id, slug: topic.slug }, itemId, owner: starter });
+      // 1. the item's own worktree at the main workspace's HEAD (a retry reuses it; an existing report file is removed),
+      // of the history its Start used
+      const handle = await worktrees.acquireForItem({ topic: { id: topic.id, slug: topic.slug }, itemId, owner: starter, history });
       const worktreeId = handle.worktree.id;
       // 2. its session: it follows its topic's mode, else the workspace's (DESIGN 0.6.0 D3); its model is the topic's
       // when it starts (a retry: the model of the item's previous session), else the host's default (D7)
@@ -254,6 +308,84 @@ export class Scheduler {
         },
       });
     } catch (err) {
+      this.disarm(topicId, itemId, 'start-failed', err);
+    }
+  }
+
+  /**
+   * An item whose Start said it runs directly in the shared folder (DESIGN 0.6.0 D15): no worktree, its session in the
+   * main workspace (the gate applies as to any of it: G7 keeps the spec and plan away, G8 locks, G11 in auto), the
+   * direct role prompt, and the folder held from its first turn. Only the host starts it (Start and Retry are the
+   * host's): a starter who is not the host now disarms it.
+   */
+  private async startDirect(topicId: string, itemId: string, starter: NonNullable<ReturnType<DaemonContext['members']['principalOf']>>, responsible: UserRef | null): Promise<void> {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    if (topic === null || item === null || !item.armed) return;
+    if (!isHostPrincipal(starter)) {
+      this.disarm(topicId, itemId, 'start-failed', new SmurgError('forbidden', msg('plan.start.directHostOnly'), { reason: 'direct-host-only' }));
+      return;
+    }
+    if (!this.folder.isFree()) return; // it waits its turn (queued)
+    const agents = this.ctx.services.agents;
+    const retry = item.retry;
+    const attempt = item.attempt + 1;
+    const key = DirectFolder.key(topicId, itemId);
+    this.folder.takeForStart(key);
+    try {
+      const model = this.modelOf(topic, item, retry);
+      const session = await agents.start({
+        purpose: 'item',
+        topic: { id: topic.id, slug: topic.slug, name: topic.name },
+        item: { id: item.id, number: item.number, title: item.title, attempt },
+        openedBy: starter,
+        responsible,
+        workspace: { mode: 'main' },
+        modeChoice: null,
+        model: model.model,
+        ...(model.by === undefined ? {} : { modelChangedBy: model.by }),
+        rolePrompt: ({ smurgTag }) => directExecutionRolePrompt({ slug: topic.slug, itemId: item.id, smurgTag }),
+        opening: retry ? msg('conversation.retry', { name: item.startedBy?.displayName ?? '', attempt }) : msg('conversation.started.itemDirect', { number: item.number }),
+        firstMessage: retry
+          ? { kind: 'smurg', purpose: 'retry-item', text: retryItemMessage(), ...(item.startedBy === undefined ? {} : { by: item.startedBy }) }
+          : { kind: 'smurg', purpose: 'start-item', text: startItemMessage({ slug: topic.slug, itemId: item.id, number: item.number, responsible }) },
+      });
+      const now = this.ctx.clock.now();
+      this.core.updateItem(topicId, itemId, (draft) => {
+        draft.sessionId = session.id;
+        draft.sessions = [...draft.sessions, session.id].slice(-64);
+        delete draft.worktreeId;
+        draft.direct = true;
+        draft.attempt = attempt;
+        draft.armed = false;
+        draft.retry = false;
+        draft.state = 'running';
+        draft.since = now;
+        draft.nudged = false;
+        delete draft.stalledBy;
+        delete draft.disarmed;
+        delete draft.startError;
+        delete draft.fix;
+        if (responsible === null) draft.responsible = null;
+      });
+      this.ctx.audit.record({
+        actor: SYSTEM_ACTOR,
+        action: 'scheduler.start',
+        outcome: 'ok',
+        target: topicId,
+        detail: {
+          topicId,
+          itemId,
+          sessionId: session.id,
+          history: 'direct',
+          attempt,
+          startedBy: item.startedBy?.userId,
+          model: model.model,
+          ...(item.pin === undefined ? {} : { planRevision: item.pin.planRevision, specHash: item.pin.specHash, planHash: item.pin.planHash }),
+        },
+      });
+    } catch (err) {
+      this.folder.ended(key);
       this.disarm(topicId, itemId, 'start-failed', err);
     }
   }
@@ -355,6 +487,8 @@ export class Scheduler {
       const hit = this.core.bySession(session.id);
       if (hit !== null && hit.item !== null && hit.item.sessionId === session.id) {
         const { topic, item } = hit;
+        // A direct item whose process failed holds the shared folder no more ("Try again" takes it again).
+        if (session.status === 'failed' && item.direct === true) this.folder.ended(DirectFolder.key(topic.id, item.id));
         if (session.status === 'failed' && (item.state === 'running' || item.state === 'stalled')) this.core.setItemState(topic.id, item.id, 'failed');
         // A failed item runs again when its session is inside a turn. A session that is merely there again (idle after
         // a restart of smurg or of its process, renamed, given to someone else) works on nothing: "Try again" stays.
@@ -382,8 +516,9 @@ export class Scheduler {
     const hit = this.core.bySession(session.id);
     if (hit !== null && hit.item !== null && hit.item.sessionId === session.id) {
       const { topic, item } = hit;
+      if (item.direct === true) this.folder.ended(DirectFolder.key(topic.id, item.id));
       // Ended on purpose before a report was there: "Try again" gives it a new session in the same worktree.
-      if (reason !== 'merged' && (item.state === 'running' || item.state === 'stalled' || item.state === 'failed')) this.core.setItemState(topic.id, item.id, 'stopped');
+      if (reason !== 'merged' && reason !== 'reviewed' && (item.state === 'running' || item.state === 'stalled' || item.state === 'failed')) this.core.setItemState(topic.id, item.id, 'stopped');
     }
     this.core.publishAll();
     this.request();
@@ -449,8 +584,20 @@ export class Scheduler {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
     if (topic === null || item === null || topic.archived || !item.merged || this.reports?.isReviewed(topicId, itemId) !== true) return;
-    if (item.merge !== undefined && item.merge.status !== 'merged') return;
     const agents = this.ctx.services.agents;
+    if (item.direct === true) {
+      // It ran in the folder itself: nothing waits for a merge. Reviewed, it is complete and its session ends.
+      if (item.sessionId !== undefined && !isStubService(agents)) {
+        const session = agents.get(item.sessionId);
+        if (session !== null && session.status !== 'ended') {
+          agents.append(item.sessionId, lineEvent(msg('conversation.ended.reviewed')));
+          await agents.end(item.sessionId, { by: SYSTEM_ACTOR, reason: 'reviewed', keepWorktree: true });
+        }
+      }
+      this.core.publish(topicId);
+      return;
+    }
+    if (item.merge !== undefined && item.merge.status !== 'merged') return;
     const worktrees = this.ctx.services.worktrees;
     if (item.worktreeId !== undefined && !isStubService(worktrees) && worktrees.get(item.worktreeId) !== null && this.holdsUnmerged(topicId, item.worktreeId)) return;
     if (item.sessionId !== undefined && !isStubService(agents)) {
@@ -578,6 +725,8 @@ export class Scheduler {
    */
   async afterRestart(): Promise<void> {
     const agents = this.ctx.services.agents;
+    // A turn of an item that runs directly in the folder asks the one-agent hold first (DESIGN 0.6.0 D15).
+    if (!isStubService(agents)) agents.setDirectGate(this.folder);
     const now = this.ctx.clock.now();
     for (const listed of this.core.topics()) {
       if (listed.archived) continue;
@@ -604,4 +753,14 @@ export class Scheduler {
     }
     this.restored = true;
   }
+}
+
+/** The history the Start of an item used (its pin): absent means the folder's own repository, as every 0.5.x pin. */
+function historyOf(item: StoredItem): 'folder' | 'smurg' | 'direct' {
+  return item.pin?.history ?? 'folder';
+}
+
+/** An armed item whose Start's history cannot be used now (DESIGN 0.6.0 D15). */
+function historyChanged(): SmurgError {
+  return new SmurgError('conflict', msg('plan.start.historyChanged'), { reason: 'history-changed' });
 }

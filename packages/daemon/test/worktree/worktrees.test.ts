@@ -122,14 +122,16 @@ describe('worktree creation (shared clone, ARCHITECTURE §5.7)', { timeout: 60_0
     expect(await readFile(join(dir, 'assets', 'logo.txt'), 'utf8')).toBe('logo\n');
   });
 
+  // 0.6.0 (DESIGN D14): a share without `.git` gets smurg's own history, but a teammate's request never makes smurg look
+  // for git on the host's computer: before anyone did, it is refused with what to wait for.
   it('refuses worktree mode with a clear error when the share is not a git repository', async () => {
     stack = await startWorktreeStack({ git: false });
     const s = stack;
     await s.connect('dev:amy', 'agent');
     const error = await settleError(s.manager.acquireForSession({ owner: s.principal('dev:amy'), sessionId: 'ses_nogit' }));
-    expect(error).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
-    expect(error).toMatchObject({ text: { id: 'worktree.unavailable.notAGitRepo' } });
-    expect(error?.message).toBe('The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.');
+    expect(error).toMatchObject({ code: 'conflict', reason: 'unchecked' });
+    expect(error).toMatchObject({ text: { id: 'worktree.unavailable.unchecked' } });
+    expect(error?.message).toBe("smurg has not checked git on the host's computer yet. Once the host has opened a topic's Start dialog or created a worktree, you can create one.");
     expect(await s.host.conn.request('worktree.list', {})).toEqual({ worktrees: [] });
   });
 

@@ -57,6 +57,7 @@ import { unaddressableNames } from '../src/workspace/fs-util.ts';
 import { decodeGitPath, diffText, parseNameOnly, parseStatusPaths } from '../src/worktree/git-parse.ts';
 import { checkpointMessage } from '../src/worktree/main-repo.ts';
 import { excludePattern, gitIdentity, ownerSlug, worktreeBranch } from '../src/worktree/names.ts';
+import { hiddenExcludeLines, isCloudSynced } from '../src/worktree/hidden-repo.ts';
 
 // ---- the files and commands a text stands in
 
@@ -222,6 +223,12 @@ const LOOKS: Readonly<Record<string, Look>> = {
     run: (text) => void [ownerSlug(text), gitIdentity(text, text), excludePattern(text), checkpointMessage(text, [text, `Co-authored-by: ${text}`]), worktreeBranch(text, 'wt_000000000000000000000000')],
     fronts: ['a', '.'],
     throws: true,
+  },
+  // 0.6.0 (DESIGN D14): the paths of the shared folder smurg's own history leaves out (shared directories, nested
+  // repositories, host-private files under any spelling), and the folder's place below the home.
+  'hiddenExcludeLines and isCloudSynced (paths of the shared folder named to git)': {
+    run: (text) => void [hiddenExcludeLines({ sharedDirs: [text], nestedRepos: [text, `${text}/x`], hostPrivate: [text] }), isCloudSynced(`/Users/ian/Dropbox/${text}`, '/Users/ian')],
+    fronts: ['a', '.', '/'],
   },
 };
 
@@ -616,6 +623,9 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'worktree/fs-ops.ts': 1,
   'worktree/git-parse.ts': 4,
   'worktree/git.ts': 5,
+  // (0.6.0: a name smurg made below .smurg, the glob escape of the protocol's fixed host-private names, a line of `git
+  // count-objects -v`: anchored or single characters, on the program's own text)
+  'worktree/hidden-repo.ts': 4,
   'worktree/main-repo.ts': 4,
   'worktree/names.ts': 11,
   'worktree/review.ts': 2,
@@ -663,6 +673,8 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'topics/scheduler.ts': 3,
   'topics/split.ts': 4,
   'worktree/stage-commit.ts': 2,
+  // (0.6.0: the nested repositories of one listing, compared as they are; the top-level entries, by their size)
+  'worktree/hidden-repo.ts': 2,
   'worktree/worktree-manager.ts': 2,
 };
 

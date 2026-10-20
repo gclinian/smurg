@@ -6,7 +6,7 @@
 // alternates). Fail closed: any difference refuses the operation.
 import { createHash } from 'node:crypto';
 import { constants as fsConstants } from 'node:fs';
-import { lstat, open, realpath } from 'node:fs/promises';
+import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
@@ -87,4 +87,85 @@ export async function verifyWorktreeRepo(dir: string, expected: PinnedHashes): P
   if (now.configHash !== expected.configHash) throw new WorktreeTamperedError('config-changed');
   if (now.headHash !== expected.headHash) throw new WorktreeTamperedError('head-changed');
   if (now.alternatesHash !== expected.alternatesHash) throw new WorktreeTamperedError('alternates-changed');
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// smurg's own history of a folder without `.git` (DESIGN 0.6.0 D14, hidden-repo.ts)
+// ---------------------------------------------------------------------------------------------------------------------
+
+/** Entries of smurg's own history whose mere presence redirects it, adds config or rewrites what its history says. */
+const FORBIDDEN_HIDDEN_ENTRIES = [
+  'commondir',
+  'gitdir',
+  'config.worktree',
+  join('info', 'attributes'),
+  join('info', 'grafts'),
+  'shallow',
+  join('objects', 'info', 'alternates'),
+  join('objects', 'info', 'http-alternates'),
+];
+
+/** The hashes of smurg's own history as smurg made it (worktrees.json `hidden`). */
+export interface HiddenRepoHashes {
+  readonly configHash: string;
+  readonly headHash: string;
+}
+
+function hiddenRepoChanged(problem: string): SmurgError {
+  return new SmurgError('conflict', msg('worktree.hidden.changed'), { reason: 'hidden-repo-changed', problem });
+}
+
+/** Hashes of `config` and `HEAD` of a history smurg just made. */
+export async function hiddenRepoHashes(gitDir: string): Promise<HiddenRepoHashes> {
+  const hashOf = async (name: string): Promise<string> => {
+    let bytes: Buffer | null;
+    try {
+      bytes = await readPinned(join(gitDir, name));
+    } catch {
+      throw hiddenRepoChanged(`${name}-not-a-plain-file`);
+    }
+    if (bytes === null) throw hiddenRepoChanged(`missing-${name}`);
+    return sha256Hex(bytes);
+  };
+  return { configHash: await hashOf('config'), headHash: await hashOf('HEAD') };
+}
+
+/**
+ * Before every command on smurg's own history (DESIGN 0.6.0 D14 "Integrity"): `gitDir` is a real directory at exactly
+ * that path (no link on the way), `config` and `HEAD` are plain files with the recorded hashes (HEAD is the symbolic ref
+ * smurg never changes), nothing redirects it or rewrites what its history says (linked-worktree files, attributes,
+ * grafts, `shallow`, alternates, replace refs, loose or packed). Throws `worktree.hidden.changed` otherwise (fail closed).
+ */
+export async function verifyHiddenRepo(gitDir: string, expected: HiddenRepoHashes): Promise<void> {
+  const st = await lstat(gitDir).catch(() => null);
+  if (st === null || !st.isDirectory()) throw hiddenRepoChanged('not-a-directory');
+  if ((await realpath(gitDir).catch(() => null)) !== gitDir) throw hiddenRepoChanged('moved');
+  for (const entry of FORBIDDEN_HIDDEN_ENTRIES) {
+    if ((await lstat(join(gitDir, entry)).catch(() => null)) !== null) throw hiddenRepoChanged(`unexpected-${entry.replaceAll('/', '-')}`);
+  }
+  const replace = join(gitDir, 'refs', 'replace');
+  const replaceStat = await lstat(replace).catch(() => null);
+  if (replaceStat !== null && (!replaceStat.isDirectory() || (await readdir(replace).catch(() => ['?'])).length > 0)) throw hiddenRepoChanged('replace-refs');
+  const packed = await readPinnedLarge(join(gitDir, 'packed-refs'));
+  if (packed === 'unreadable' || (packed !== null && packed.includes('refs/replace/'))) throw hiddenRepoChanged('replace-refs');
+  const now = await hiddenRepoHashes(gitDir);
+  if (now.configHash !== expected.configHash) throw hiddenRepoChanged('config-changed');
+  if (now.headHash !== expected.headHash) throw hiddenRepoChanged('head-changed');
+}
+
+/** A plain file's text (never through a link), at most 8 MiB; null when missing. */
+async function readPinnedLarge(path: string): Promise<string | null | 'unreadable'> {
+  let handle;
+  try {
+    handle = await open(path, fsConstants.O_RDONLY | fsConstants.O_NOFOLLOW | fsConstants.O_NONBLOCK);
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ENOENT' ? null : 'unreadable';
+  }
+  try {
+    const st = await handle.stat();
+    if (!st.isFile() || st.size > 8 * 1024 * 1024) return 'unreadable';
+    return (await handle.readFile()).toString('latin1');
+  } finally {
+    await handle.close();
+  }
 }

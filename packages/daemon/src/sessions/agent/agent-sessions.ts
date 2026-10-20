@@ -65,6 +65,7 @@ import type {
   AgentSessionFacts,
   AgentSessions,
   AgentStartInput,
+  DirectFolderGate,
   AppendableEvent,
   AttentionFact,
   ClientConnection,
@@ -193,6 +194,8 @@ export class AgentSessionsImpl implements AgentSessions {
 
   /** What a runner may ask of this service. */
   private readonly host: RunnerHost;
+  /** The topics module's hold of the shared folder for direct items (DESIGN 0.6.0 D15); null: none composed. */
+  private directGate: DirectFolderGate | null = null;
 
   constructor(ctx: DaemonContext, deps: AgentSessionsDeps) {
     this.ctx = ctx;
@@ -224,6 +227,7 @@ export class AgentSessionsImpl implements AgentSessions {
         if (!isStubService(ctx.services.hooks)) ctx.services.hooks.updateSession(runner.id, { claudeMode: mode });
       },
       agentModes: (change) => this.agentModes(change),
+      mayRunTurn: (runner) => this.mayRunTurn(runner),
     };
     const sessionsDir = join(ctx.config.stateDir, 'sessions');
     this.models = new AgentModels({
@@ -677,7 +681,38 @@ export class AgentSessionsImpl implements AgentSessions {
   }
 
   idle(runner: AgentRunner): void {
+    // A direct item's turn is over: the shared folder may go to the next one (DESIGN 0.6.0 D15).
+    if (this.directGate !== null && isDirectItem(runner.record)) {
+      try {
+        this.directGate.idle(runner.id);
+      } catch (err) {
+        this.logError('the shared folder was not released', err);
+      }
+    }
     if (runner.restartPending && runner.parkable) void runner.park('restart').catch((err: unknown) => this.logError('parking an agent failed', err));
+  }
+
+  /** The one-agent hold of the shared folder (DESIGN 0.6.0 D15): only a direct item's turn asks it. */
+  private mayRunTurn(runner: AgentRunner): boolean {
+    const record = runner.record;
+    const gate = this.directGate;
+    if (gate === null || !isDirectItem(record) || record.topic === undefined || record.item === undefined) return true;
+    try {
+      return gate.mayRunTurn({ sessionId: record.id, topicId: record.topic.id, itemId: record.item.id });
+    } catch (err) {
+      this.logError('the shared folder could not be asked; the turn waits', err);
+      return false;
+    }
+  }
+
+  setDirectGate(gate: DirectFolderGate | null): void {
+    this.directGate = gate;
+  }
+
+  releaseHeld(sessionId: string): void {
+    const entry = this.entries.get(sessionId);
+    if (entry === undefined) return;
+    entry.runner.releaseHeld();
   }
 
   rootGone(runner: AgentRunner): void {
@@ -1644,4 +1679,9 @@ export class AgentSessionsImpl implements AgentSessions {
   private logError(message: string, err: unknown): void {
     this.ctx.log.error(message, { error: err instanceof SmurgError ? `${err.code}:${String(err.detail?.['reason'] ?? '')}` : err instanceof Error ? `${err.name}: ${err.message.slice(0, 200)}` : 'unknown' });
   }
+}
+
+/** A work item that runs directly in the shared folder (no git, DESIGN 0.6.0 D15): an item session of the main workspace. */
+function isDirectItem(record: AgentRecord): boolean {
+  return record.purpose === 'item' && record.root.kind === 'main';
 }

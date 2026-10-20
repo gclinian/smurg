@@ -111,13 +111,18 @@ export async function linkSharedDirs(worktreeDir: string, shareReal: string, sha
   return { links, skipped };
 }
 
-/** Writes the clone's `.git/info/exclude` (a fresh clone from an empty template has none): the shared links. */
-export async function writeExclude(gitDir: string, links: readonly SharedLinkPlan[]): Promise<void> {
+/**
+ * Writes the clone's `.git/info/exclude` (a fresh clone from an empty template has none): the shared links. A clone of
+ * smurg's own history (DESIGN 0.6.0 D14, `repo: 'smurg'`) gets that history's lines too (`hiddenLines`: the dependency
+ * folders, the host-private names, nested repositories): the folder usually has no `.gitignore`, and an agent that
+ * installs dependencies in its checkout must not have them committed. Rewritten before every commit of such a clone.
+ */
+export async function writeExclude(gitDir: string, links: readonly SharedLinkPlan[], hiddenLines: readonly string[] = []): Promise<void> {
   const info = join(gitDir, 'info');
   const st = await lstatOrNull(info);
   if (st === null) await mkdir(info, { mode: 0o755 });
   else if (!st.isDirectory()) throw new Error('.git/info is not a directory');
-  const lines = ['# smurg: read-only links to the shared directories (D12), never committed', ...links.map((link) => excludePattern(link.path))];
+  const lines = [...hiddenLines, '# smurg: read-only links to the shared directories (D12), never committed', ...links.map((link) => excludePattern(link.path))];
   const handle = await open(join(info, 'exclude'), fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | fsConstants.O_NOFOLLOW, 0o644);
   try {
     await handle.writeFile(`${lines.join('\n')}\n`, 'utf8');

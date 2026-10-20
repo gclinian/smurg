@@ -281,6 +281,8 @@ export function registerSessionHandlers(router: Router, ctx: DaemonContext, sess
   // d→c `session.host`: the account state, the main folder's trust state or the host's agent (its models, its default)
   // changed, to everyone.
   stack.add(ctx.bus.on('account.changed', () => void ctx.hub.broadcast('session.host', hostState(ctx))));
+  // How work items run here changed (the worktree module looked: smurg's own history, direct, the folder's own git).
+  stack.add(ctx.bus.on('work.changed', () => void ctx.hub.broadcast('session.host', hostState(ctx))));
   stack.add(agents.onHostAgentChanged(() => void ctx.hub.broadcast('session.host', hostState(ctx))));
   stack.add(
     ctx.bus.on('trust.changed', (event) => {

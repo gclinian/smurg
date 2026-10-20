@@ -53,6 +53,12 @@ export interface StageCommitInput {
    * alternates). The commit then has two parents and is made even when the tree equals the branch head's.
    */
   readonly secondParent?: string;
+  /**
+   * Run right before the working tree is staged: a clone of smurg's own history writes its `.git/info/exclude` again
+   * (DESIGN 0.6.0 D14: the dependency folders an agent installed, the host-private names, nested repositories are never
+   * committed, whatever happened to that file in the session).
+   */
+  readonly beforeStage?: () => Promise<void>;
   readonly limits?: Partial<StageCommitLimits>;
 }
 
@@ -305,6 +311,7 @@ export async function stageCommit(input: StageCommitInput): Promise<StageCommitR
       await utimes(store.indexFile, seconds, seconds);
     }
 
+    await input.beforeStage?.();
     requireOk(await git.run({ gitDir, workTree, store, args: ['add', '--all'], timeoutMs }), 'stage');
     const staged = await git.run({ gitDir, workTree, store, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], timeoutMs });
     // With a second parent the commit is made whatever the tree: it is what joins the two histories.

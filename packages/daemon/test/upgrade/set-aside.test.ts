@@ -20,8 +20,10 @@
 // rest of the state handle their absence turns that evidence around and may then say `canSetAside: true`.
 //
 // The table for the command and the guide: W/X1/SET-ASIDE.md of the 0.5.1 work, docs/HOSTING.md §9.3.
-import { chmod, readFile, readdir, rename, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { chmod, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import type { DocumentDeclaration } from '../../src/core/state-store.ts';
 import type { TestDaemon } from '../../src/testing/index.ts';
@@ -30,6 +32,8 @@ import { PUBLISHED_DIR, copyOf, readJson, type FixtureCopy } from './fixture.ts'
 import { documentsOfThisSmurg } from './persisted.ts';
 
 type Json = Record<string, unknown>;
+
+const run = promisify(execFile);
 
 /**
  * Every declared document other than state.json: may a host set it aside? PROVEN below, one test each. A document a
@@ -318,6 +322,29 @@ describe('one file of the workspace folder set aside: what smurg 0.5.0 wrote, st
     expect(keysOf(view.inbox).filter((key) => key.startsWith('merge:'))).toEqual([]);
     expect(idsOf(view.topics)).toEqual(idsOf(whole.view.topics));
     expect(idsOf(view.sessions)).toEqual(idsOf(whole.view.sessions));
+  });
+
+  // 0.6.0 (DESIGN D14): a folder without `.git` has smurg's own history in `.smurg/git`, and worktrees.json holds its
+  // record. A history without its record is never adopted (its config could make the daemon run code, and nothing says
+  // what it holds): setting worktrees.json aside also means moving `.smurg/git` out of the folder (docs/HOSTING.md §9.3).
+  it('worktrees.json with smurg\'s own history beside it: the history, now without its record, is refused and left as it is until the host moves it away', async () => {
+    let hidden = '';
+    const { t } = await startWith(async (made) => {
+      hidden = join(made.project, '.smurg', 'git');
+      await mkdir(join(made.project, '.smurg'), { recursive: true });
+      await run('git', ['--git-dir', hidden, 'init', '-q'], { env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin', HOME: made.project, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1' } });
+      await setAside(made, 'worktrees.json');
+    });
+    const before = await readFile(join(hidden, 'config'), 'utf8');
+    const manager = t.ctx.services.worktrees;
+    expect(await manager.mainState()).toMatchObject({ history: 'smurg', unavailable: { id: 'worktree.hidden.unknown' } });
+    const host = t.ctx.members.principalOf('dev:host');
+    if (host === null) throw new Error('the fixture has no host');
+    await expect(manager.acquireForSession({ owner: host, sessionId: 'ses_after_set_aside' })).rejects.toMatchObject({ detail: { reason: 'hidden-repo-unknown' } });
+    expect(await readFile(join(hidden, 'config'), 'utf8')).toBe(before);
+    // Moved out of the folder: the next use makes smurg's own history anew.
+    await rename(hidden, `${hidden}-moved-away`);
+    expect((await manager.mainState()).unavailable).toBeNull();
   });
 
   it('sessions.json: nothing a member sees changes (it holds which terminals ran when smurg last wrote it: after a hard stop their processes are then not ended by the next start)', async () => {

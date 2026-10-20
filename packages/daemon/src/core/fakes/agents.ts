@@ -60,6 +60,7 @@ import type {
   AttentionFact,
   ClientConnection,
   DaemonStatus,
+  DirectFolderGate,
   EventsPage,
   GateRow,
   HostRules,
@@ -387,6 +388,17 @@ export class FakeAgentSessions implements AgentSessions {
 
   hostAgentState(): AgentHostState {
     return structuredClone(this.hostAgent);
+  }
+
+  /** The one-agent hold the topics module gave (DESIGN 0.6.0 D15); the fake only keeps it (tests may ask it). */
+  directGate: DirectFolderGate | null = null;
+
+  setDirectGate(gate: DirectFolderGate | null): void {
+    this.directGate = gate;
+  }
+
+  releaseHeld(sessionId: string): void {
+    this.log.record('releaseHeld', sessionId);
   }
 
   async setRules(sessionId: string, rules: readonly RememberedRule[], by: Actor): Promise<void> {

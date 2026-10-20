@@ -122,6 +122,12 @@ export interface RunnerHost {
   claudeModeInUse(runner: AgentRunner, mode: ClaudeMode): void;
   /** What Claude Code lets run on this host (HostState.agent `autoMode`, `asksNothing`, DESIGN 0.6.0 D9). */
   agentModes(change: { readonly autoMode?: 'ok' | 'off'; readonly asksNothing?: 'ok' | 'off' }): void;
+  /**
+   * Whether this session may run a turn now (DESIGN 0.6.0 D15: a work item that runs directly in the shared folder runs
+   * a turn only while it holds the folder). Asked before a message is written to the process; true for every other
+   * session.
+   */
+  mayRunTurn(runner: AgentRunner): boolean;
 }
 
 interface OpenRequest {
@@ -252,6 +258,8 @@ export class AgentRunner {
   private switching: ClaudeMode | null = null;
   /** The mode notices this process has said (each once per process). */
   private modeNoticesSaid = new Set<string>();
+  /** `conversation.direct.waits` was said for the wait that is on now (DESIGN 0.6.0 D15). */
+  private heldSaid = false;
   /**
    * Calls of this process that did not run although their result came: auto mode's check refused them, smurg's gate
    * or a person did (DESIGN 0.6.0 D11: such a call is not audited as a command that ran).
@@ -331,17 +339,52 @@ export class AgentRunner {
 
   // ---- messages -----------------------------------------------------------------------------------------------------
 
-  /** Writes the message to the process, or queues it and starts one. Returns true when it had to be queued. */
+  /**
+   * Writes the message to the process, or queues it and starts one. Returns true when it had to be queued. A message
+   * whose turn may not run yet (mayRunTurn: a direct item waiting for the shared folder) stays queued, and the
+   * conversation says so once (`conversation.direct.waits`), until releaseHeld.
+   */
   send(message: Outgoing): boolean {
-    if (this.phase === 'ready' && this.proc !== null && this.queue.length === 0) {
+    const mayRun = this.host.mayRunTurn(this);
+    if (mayRun && this.phase === 'ready' && this.proc !== null && this.queue.length === 0) {
       this.write(message);
       this.rememberPending();
       return false;
     }
     this.queue.push(message);
     this.rememberPending();
+    if (!mayRun) {
+      this.noteHeld();
+      return true;
+    }
     void this.launch();
     return true;
+  }
+
+  /** What this session's queue waits for is the shared folder (said once per wait). */
+  private noteHeld(): void {
+    if (this.heldSaid) return;
+    this.heldSaid = true;
+    this.host.append(this, lineEvent(msg('conversation.direct.waits')));
+  }
+
+  /** The shared folder is this session's now (DESIGN 0.6.0 D15): what waits is written, or a process is started for it. */
+  releaseHeld(): void {
+    this.heldSaid = false;
+    if (this.queue.length === 0 || this.record.state === 'ended' || this.stopping) {
+      // Nothing waits any more (its messages were withdrawn, the session ended): the folder goes on at once.
+      this.host.idle(this);
+      return;
+    }
+    if (!this.host.mayRunTurn(this)) return;
+    if (this.phase === 'ready' && this.proc !== null) {
+      const queued = this.queue;
+      this.queue = [];
+      for (const message of queued) this.write(message);
+      this.rememberPending();
+      return;
+    }
+    void this.launch();
   }
 
   /**
@@ -493,6 +536,11 @@ export class AgentRunner {
     if (this.projectSettings !== 'ignored') this.record.untrustedSaid = false;
     host.save(this);
     host.publish(this);
+    // A direct item that waits for the shared folder keeps its messages until the folder is its own (releaseHeld).
+    if (this.queue.length > 0 && !host.mayRunTurn(this)) {
+      this.noteHeld();
+      return;
+    }
     const queued = this.queue;
     this.queue = [];
     for (const message of queued) this.write(message);

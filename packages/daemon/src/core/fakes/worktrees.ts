@@ -19,7 +19,7 @@ import {
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
-import type { MainState, Principal, Req, Res, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
+import type { HistoryState, MainState, Principal, Req, Res, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
 import { buildMergeRequest, buildWorktree } from './build.ts';
 import { CallLog, fakeId, type FakeEnv } from './env.ts';
 
@@ -36,9 +36,14 @@ export class FakeWorktreeManager implements WorktreeManager {
   readonly log = new CallLog();
   /**
    * What `mainState` answers. Without `unavailable` it is made from the three facts as the real module orders them:
-   * no usable git, no repository, no commit.
+   * no usable git (0.6.0: history `direct`, which does not stop a Start), no repository (0.6.0: smurg's own history,
+   * nothing in the way), no commit. Without `history` it is made from the same facts.
    */
-  main: Omit<MainState, 'unavailable'> & { unavailable?: MessageRef | null } = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: false, free: 64 };
+  main: Omit<MainState, 'unavailable' | 'history'> & { unavailable?: MessageRef | null; history?: MainState['history'] } = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: false, free: 64 };
+  /** What `prepareStart` answers (the Start dialog's facts of smurg's own history). */
+  startFacts: StartFolderFacts = { nestedRepos: [], cloudSynced: false, problem: null };
+  /** What `historyState` answers per history (default `usable`). */
+  readonly historyStates = new Map<'folder' | 'smurg' | 'direct', HistoryState>();
   /** How often `refreshGitState` was asked. */
   refreshes = 0;
   /** What the next `snapshot` of a worktree answers instead of a draft (a policy refusal), once. */
@@ -177,7 +182,7 @@ export class FakeWorktreeManager implements WorktreeManager {
 
   // ---- work items --------------------------------------------------------------------------------------------------
 
-  async acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal }): Promise<WorktreeHandle> {
+  async acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal; readonly history?: 'folder' | 'smurg' }): Promise<WorktreeHandle> {
     this.log.record('acquireForItem', input);
     const existing = [...this.worktrees.values()].find((worktree) => worktree.topicId === input.topic.id && worktree.itemId === input.itemId);
     if (existing) {
@@ -217,7 +222,13 @@ export class FakeWorktreeManager implements WorktreeManager {
     return this.putRequest({ ...this.needRequest(requestId), reviewed });
   }
 
-  async commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{ readonly commit: string; readonly created: boolean; readonly branch: string; readonly blobs: Readonly<Record<string, string>> }> {
+  async commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{
+    readonly commit: string;
+    readonly created: boolean;
+    readonly branch: string;
+    readonly blobs: Readonly<Record<string, string>>;
+    readonly history: 'folder' | 'smurg';
+  }> {
     this.log.record('commitMainPaths', input);
     const blobs: Record<string, string> = {};
     let created = false;
@@ -227,36 +238,48 @@ export class FakeWorktreeManager implements WorktreeManager {
       this.head.set(path, blob);
       blobs[path] = blob;
     }
-    return { commit: this.nextCommit('main'), created, branch: this.main.branch ?? 'main', blobs };
+    return { commit: this.nextCommit('main'), created, branch: this.main.branch ?? 'main', blobs, history: this.main.isRepo ? 'folder' : 'smurg' };
   }
 
-  async headBlobs(paths: readonly string[]): Promise<Record<string, string | null>> {
+  async headBlobs(paths: readonly string[], _options: { readonly history?: 'folder' | 'smurg' } = {}): Promise<Record<string, string | null>> {
     return Object.fromEntries(paths.map((path) => [path, this.head.get(path) ?? null]));
   }
 
-  /** What `workState()` answers; default: from `main` (a repository: `folder`; git unusable: `direct`; else `unchecked`). */
+  async prepareStart(): Promise<StartFolderFacts> {
+    this.log.record('prepareStart');
+    return structuredClone(this.startFacts);
+  }
+
+  async historyState(history: 'folder' | 'smurg' | 'direct'): Promise<HistoryState> {
+    return this.historyStates.get(history) ?? 'usable';
+  }
+
+  /** What `workState()` answers; default: from `main` (git unusable: `direct`; a repository: `folder`; else `smurg`). */
   work: WorkState | null = null;
 
   workState(): WorkState {
     if (this.work !== null) return structuredClone(this.work);
     if (!this.main.gitOk) return { history: 'direct', reason: wireText(msg('worktree.unavailable.gitCannotRun')) };
-    return this.main.isRepo ? { history: 'folder' } : { history: 'unchecked' };
+    return this.main.isRepo ? { history: 'folder' } : { history: 'smurg' };
   }
 
   async mainState(): Promise<MainState> {
     await this.refreshGitState();
     const main = this.main;
+    const history = main.history ?? (!main.gitOk ? 'direct' : main.isRepo ? 'folder' : 'smurg');
     const unavailable =
       main.unavailable !== undefined
         ? main.unavailable
         : !main.gitOk
           ? msg('worktree.unavailable.gitCannotRun')
-          : !main.isRepo
-            ? msg('worktree.unavailable.notAGitRepo')
-            : !main.hasCommit
-              ? msg('worktree.unavailable.noCommit')
-              : null;
-    return { ...main, unavailable };
+          : history === 'smurg'
+            ? null
+            : !main.isRepo
+              ? msg('worktree.unavailable.notAGitRepo')
+              : !main.hasCommit
+                ? msg('worktree.unavailable.noCommit')
+                : null;
+    return { ...main, unavailable, history };
   }
 
   async refreshGitState(): Promise<void> {

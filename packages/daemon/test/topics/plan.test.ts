@@ -374,28 +374,37 @@ describe('the Start dialog (plan.preflight)', () => {
     test = await setupTopics();
     const { topic } = await topicWithPlan(test, THREE);
     const blockers = async (): Promise<string[]> => (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.blockers.map((blocker) => blocker.text.id);
-    // (0.5.2: the worktree module names the reason; the blocker is its sentence, the same one a worktree refusal has.)
+    // (0.6.0, DESIGN D14: a folder without `.git` has smurg's own history: no blocker, no commit line (no branch of the
+    // folder's to name), and what the Start dialog found about the folder: nested repositories, a cloud-synced folder.)
     test.fakes.worktrees.main = { isRepo: false, hasCommit: false, gitOk: true, branch: null, busy: false, free: 64 };
-    expect(await blockers()).toEqual(['worktree.unavailable.notAGitRepo']);
-    expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.commit).toBeNull();
+    test.fakes.worktrees.startFacts = { nestedRepos: ['frontend'], cloudSynced: true, problem: null };
+    const smurg = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
+    expect(smurg).toMatchObject({ blockers: [], history: 'smurg', direct: null, commit: null, nestedRepos: ['frontend'], cloudSynced: true });
     expect(test.topic(topic.id).versioned).toBe(false);
-    const pins = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
-    expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: pins.planRevision, specHash: pins.specHash, planHash: pins.planHash }))).toMatchObject({
-      code: 'conflict',
-      text: { id: 'worktree.unavailable.notAGitRepo' },
-      message: 'The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.',
-    });
+    // What smurg's own history cannot record now is the blocker (here: the folder is too large to copy into checkouts).
+    const tooLarge = msg('worktree.hidden.tooLarge', { size: '3 GB', files: '90,000', maxSize: '1 GB', maxFiles: '50,000', largest: 'data (2 GB)' });
+    test.fakes.worktrees.startFacts = { nestedRepos: [], cloudSynced: false, problem: tooLarge };
+    expect(await blockers()).toEqual(['worktree.hidden.tooLarge']);
+    test.fakes.worktrees.startFacts = { nestedRepos: [], cloudSynced: false, problem: null };
     // A repository without a commit: its own sentence, and no commit line (there is no branch to name yet).
     test.fakes.worktrees.main = { isRepo: true, hasCommit: false, gitOk: true, branch: 'main', busy: false, free: 64 };
     expect(await blockers()).toEqual(['worktree.unavailable.noCommit']);
     expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.commit).toBeNull();
     expect(test.topic(topic.id).versioned).toBe(true);
-    // Whatever the module says is the reason is what the dialog shows (here: git is too old).
+    // Whatever the module says is the reason git cannot be used is what the dialog shows (here: git is too old). 0.6.0
+    // (DESIGN D15): that is no blocker any more, the items would run directly in the folder; only the host may start
+    // them (Mei is told so).
     test.fakes.worktrees.main = { isRepo: true, hasCommit: false, gitOk: false, branch: null, busy: false, free: 64, unavailable: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }) };
     const tooOld = (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
-    expect(tooOld.blockers).toEqual([
-      { text: { id: 'worktree.unavailable.gitTooOld', params: { version: '2.39.5', minVersion: '2.42.0' } }, fallback: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal." },
-    ]);
+    expect(tooOld.blockers).toEqual([]);
+    expect(tooOld).toMatchObject({
+      history: 'direct',
+      direct: {
+        reason: { text: { id: 'worktree.unavailable.gitTooOld', params: { version: '2.39.5', minVersion: '2.42.0' } }, fallback: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later. The host can update git, stop sharing, and share again from a new terminal." },
+        hostOnly: true,
+      },
+    });
+    expect((await test.host.conn.request('plan.preflight', { topicId: topic.id })).preflight.direct?.hostOnly).toBe(false);
     expect(tooOld.commit).toBeNull();
     test.fakes.worktrees.main = { isRepo: true, hasCommit: true, gitOk: true, branch: 'main', busy: true, free: 64 };
     expect(await blockers()).toEqual(['plan.start.commit.busy']);

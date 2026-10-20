@@ -179,13 +179,20 @@ describe('commitMainPaths: the checkpoint commit of a Start', { timeout: 60_000 
 });
 
 describe('headBlobs and mainState', { timeout: 60_000 }, () => {
+  // 0.6.0 (DESIGN D14): a folder without `.git` has smurg's own history. Nothing is at its HEAD before a first
+  // snapshot; the checkpoint of a Start records the whole folder there.
   it('a folder that is no git repository: nothing is at HEAD, nothing can start, and the facts say why', async () => {
     stack = await startWorktreeStack({ git: false, files: { ...BASE, [SPEC]: '# Checkout\n' } });
     const s = stack;
-    expect(await s.manager.mainState()).toEqual({ isRepo: false, hasCommit: false, gitOk: true, unavailable: { id: 'worktree.unavailable.notAGitRepo' }, branch: null, busy: false, free: 64 });
+    expect(await s.manager.mainState()).toEqual({ isRepo: false, hasCommit: false, gitOk: true, unavailable: null, branch: null, busy: false, free: 64, history: 'smurg' });
     expect(await s.manager.headBlobs([SPEC, PLAN])).toEqual({ [SPEC]: null, [PLAN]: null });
     expect(await s.manager.diffMainPaths({ paths: [SPEC, PLAN], against: 'head', maxBytes: 1024 })).toEqual([]);
-    expect(await settleError(s.manager.commitMainPaths({ paths: [SPEC], message: 'm', trailers: [], as: s.principal(s.host.userId) }))).toMatchObject({ code: 'conflict', reason: 'not-a-git-repo' });
+    const checkpoint = await s.manager.commitMainPaths({ paths: [SPEC], message: 'm', trailers: [], as: s.principal(s.host.userId) });
+    expect(checkpoint).toMatchObject({ created: true, history: 'smurg' });
+    expect(Object.keys(checkpoint.blobs)).toEqual([SPEC]);
+    expect(await s.manager.headBlobs([SPEC, PLAN])).toEqual({ [SPEC]: checkpoint.blobs[SPEC], [PLAN]: null });
+    // No `.git` of the user's: the folder is as it was.
+    expect(await lstat(join(s.t.root, '.git')).catch(() => null)).toBeNull();
     expect(s.manager.unmerged('tp_checkout')).toEqual([]);
   });
 

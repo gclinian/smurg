@@ -384,6 +384,8 @@ export interface DaemonEvents {
    * worktree mode becomes available (the start, or a repository that appeared while sharing); at most once a run.
    */
   'worktree.smurg-tracked': { readonly count: number };
+  /** How work items run here changed (WorktreeManager.workState, DESIGN 0.6.0 D5): every member gets `session.host`. */
+  'work.changed': { readonly work: WorkState };
 }
 
 export type DaemonEventName = keyof DaemonEvents;
@@ -1636,8 +1638,28 @@ export interface AgentSessions {
    * `session.host` to everyone.
    */
   hostAgentState(): AgentHostState;
+  /**
+   * The one-agent hold of the shared folder for work items that run directly in it (DESIGN 0.6.0 D15; the topics
+   * module's topics/direct-folder.ts): a turn of a direct item's session (an item session in the main workspace) is
+   * written to its process only while the gate lets it; until then its message waits in the session's queue (delivery
+   * `queued`) and the conversation says so once (`conversation.direct.waits`). null: no gate (every turn runs).
+   */
+  setDirectGate(gate: DirectFolderGate | null): void;
+  /** The folder is this session's now: what waits in it is written to its process (DirectFolderGate's owner calls it). */
+  releaseHeld(sessionId: string): void;
   /** Subjects `account`, `storage` (both open the console's `sessions` section). */
   attention(): AttentionFact[];
+}
+
+/** What AgentSessions asks of the one-agent hold of the shared folder (DESIGN 0.6.0 D15). */
+export interface DirectFolderGate {
+  /**
+   * Whether this direct item's session may run a turn now. True: it holds the folder (it took it, or held it already)
+   * until `idle` says its turn is over (its first run: until its report is registered or it stops). False: it waits.
+   */
+  mayRunTurn(session: { readonly sessionId: string; readonly topicId: string; readonly itemId: string }): boolean;
+  /** The session has no turn open and nothing written that a turn has not taken. */
+  idle(sessionId: string): void;
 }
 
 /**
@@ -2175,7 +2197,27 @@ export interface MainState {
   readonly branch: string | null;
   readonly busy: boolean;
   readonly free: number;
+  /**
+   * How the items a Start starts now would run (DESIGN 0.6.0 D14, D15): `folder` (the folder's own repository, or a
+   * `.git` git does not take: `unavailable` says why), `smurg` (no `.git` at all and a usable git: smurg's own history,
+   * `isRepo` false; `unavailable` says what stops smurg from using it), `direct` (the git program cannot be used:
+   * items run in the folder itself; `unavailable` is its reason, which does not stop a Start).
+   */
+  readonly history: 'folder' | 'smurg' | 'direct';
 }
+
+/** What the Start dialog adds for smurg's own history (WorktreeManager.prepareStart, DESIGN 0.6.0 D14). */
+export interface StartFolderFacts {
+  /** Folders that are git repositories of their own: work items do not see them (at most PREFLIGHT_NESTED_REPOS_MAX). */
+  readonly nestedRepos: readonly string[];
+  /** The shared folder lies in a folder a cloud service syncs. */
+  readonly cloudSynced: boolean;
+  /** Why smurg's own history cannot record the folder now (too large, unknown, changed, gone); null: nothing. */
+  readonly problem: MessageRef | null;
+}
+
+/** Whether the history a Start used can still be used (WorktreeManager.historyState, DESIGN 0.6.0 D15). */
+export type HistoryState = 'usable' | 'changed' | 'unknown';
 
 /**
  * Worktrees (R9, deviation D-2: `git clone --shared`). Module: src/worktree/. Registers every worktree with the
@@ -2217,7 +2259,17 @@ export interface WorktreeManager {
    * existing specs/<slug>/reports/<item id>.md. Registers the root with `item` (PathGuard: nobody writes
    * specs/<slug>/**). Item worktrees do not count toward the per-owner limit.
    */
-  acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal }): Promise<WorktreeHandle>;
+  acquireForItem(input: {
+    readonly topic: { readonly id: string; readonly slug: string };
+    readonly itemId: string;
+    readonly owner: Principal;
+    /**
+     * The history the item's Start used (its pin, DESIGN 0.6.0 D15): a NEW worktree is made from that repository only
+     * (`smurg`: smurg's own history, whatever the folder has now; absent or `folder`: the folder's own `.git`). A retry
+     * reuses the item's worktree, whose record says its repository.
+     */
+    readonly history?: 'folder' | 'smurg';
+  }): Promise<WorktreeHandle>;
   /**
    * The first half of requestMerge, run by the daemon: stage, verify, commit, fetch into refs/smurg/merge/<id>, policy
    * check → a draft request (replacing the worktree's older draft), or the reason the policy refused. After
@@ -2226,7 +2278,11 @@ export interface WorktreeManager {
   snapshot(input: { readonly worktreeId: string; readonly message: string; readonly topicSlug?: string }): Promise<SnapshotResult>;
   /** Emits merge.changed. */
   setReviewed(requestId: string, reviewed: boolean): MergeRequest;
-  /** The checkpoint commit in the main workspace: exactly `paths`, with trailers, as `as`. Serialized with merges. */
+  /**
+   * The checkpoint commit in the main workspace: exactly `paths`, with trailers, as `as`. Serialized with merges. With
+   * smurg's own history (DESIGN 0.6.0 D14, `history: 'smurg'`) it is a snapshot of the WHOLE folder (smurg's history is
+   * created first when it is not there), and the blobs are those of `paths` in it.
+   */
   commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{
     readonly commit: string;
     /** false: nothing to commit, HEAD already holds this content. */
@@ -2234,9 +2290,28 @@ export interface WorktreeManager {
     readonly branch: string;
     /** Blob ids of `paths` at the new HEAD. */
     readonly blobs: Readonly<Record<string, string>>;
+    /** Which history the commit is in. */
+    readonly history: 'folder' | 'smurg';
   }>;
-  /** Blob ids of files at the main workspace's HEAD (null: not in HEAD): the scheduler's pin check. */
-  headBlobs(paths: readonly string[]): Promise<Record<string, string | null>>;
+  /**
+   * Blob ids of files at the main workspace's HEAD (null: not in HEAD): the scheduler's pin check. `history`: of that
+   * history (a pin of smurg's own history reads it whatever the folder has now); default: the folder's history now.
+   */
+  headBlobs(paths: readonly string[], options?: { readonly history?: 'folder' | 'smurg' }): Promise<Record<string, string | null>>;
+  /**
+   * The Start dialog (DESIGN 0.6.0 D14): with smurg's own history, smurg's history is made when it is not there yet and
+   * the folder is listed (the size bound, nested repositories); after the answer, in the `main` queue, the folder's files
+   * are hashed into it (the warm-up: Start's own snapshot then only adds what changed). Nothing for the other histories.
+   */
+  prepareStart(): Promise<StartFolderFacts>;
+  /**
+   * Whether work items of a Start with this history can start now (DESIGN 0.6.0 D15, for every armed item): `direct`
+   * while the git program cannot be used; `smurg` while git runs and smurg's own history is there as smurg left it;
+   * `folder` while the folder's own `.git` is a repository git can use. `unknown`: it could not be looked at just now
+   * (the item stays armed; its start says why it fails). Looks for git first when no look did yet in this run (a pin of
+   * these histories was made where git ran, or by the host who knows it does not).
+   */
+  historyState(history: 'folder' | 'smurg' | 'direct'): Promise<HistoryState>;
   /**
    * The main workspace as Start needs it, looked at now (refreshGitState first). `free`: worktrees left before
    * `maxWorktrees`. `unavailable`: why no work item can run in a worktree, as far as git goes (null: nothing in the
@@ -2245,9 +2320,10 @@ export interface WorktreeManager {
   mainState(): Promise<MainState>;
   /**
    * How work items run here as far as is known NOW (`HostState.work`, DESIGN 0.6.0 D5): it never runs git (a teammate's
-   * request must not make smurg look for git on the host's computer). `folder` while the shared folder has a git
-   * repository of its own; `direct` once the git executable was found unusable (with its reason); else `unchecked`.
-   * (0.6.0 S1: smurg's own history, `smurg`, comes with S5.)
+   * request must not make smurg look for git on the host's computer). `direct` once the git executable was found
+   * unusable (with its reason); `folder` while something is at the shared folder's `.git` (or records of its own
+   * repository wait for it); `smurg` when nothing is there and git is known to run; else `unchecked`. A change emits
+   * `work.changed` (the sessions module sends `session.host` to everyone).
    */
   workState(): WorkState;
   /**

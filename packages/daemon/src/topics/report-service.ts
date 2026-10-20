@@ -15,10 +15,16 @@
 // A turn a person stopped, or that ended with an error, stalls at once. This file also keeps follow-ups (the answer is
 // the final text of the turn that took the message), review marks, who the reviewers are, and the escalation of a
 // report that waits too long.
+//
+// An item that ran directly in the shared folder (no git, DESIGN 0.6.0 D15) writes its report where every item does,
+// but in the shared folder itself: it counts by the same rule, is registered without a snapshot (`no-history`: there
+// is no diff), and the item counts as merged at registration (its changes are in the folder already). Its first run
+// then gives the shared folder back (direct-folder.ts).
 import {
   CHECKED_HASHES_MAX,
 } from './store.ts';
 import {
+  MAIN_ROOT,
   MESSAGE_TEXT_MAX_CHARS,
   REPORT_BY_HAND_MAX,
   REPORT_FOLLOW_UPS_MAX,
@@ -47,6 +53,7 @@ import { newId, type Disposable, toDisposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { userRefOf, type FileContent, type TopicsCore } from './core.ts';
+import { DirectFolder } from './direct-folder.ts';
 import { fixFileMessage, nudgeReportMessage } from './prompts.ts';
 import { parseReport, type ParsedReport } from './report-format.ts';
 import type { Scheduler, SchedulerReports } from './scheduler.ts';
@@ -191,9 +198,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       else this.core.publish(topicId);
       return;
     }
-    if (item.worktreeId === undefined) return;
+    const root = reportRootOf(item);
+    if (root === null) return;
     const path = topicReportPath(topic.slug, item.id);
-    const file = await this.core.readFile(worktreeRoot(item.worktreeId), path);
+    const file = await this.core.readFile(root, path);
     if (file === null) {
       if (registered !== null) return; // a version exists and its file is simply not there any more: nothing new
       if (!item.nudged) await this.nudge(topic, item);
@@ -271,6 +279,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   /** The session is idle without a registered report: the item needs someone ("Stopped without a report · Continue"). */
   private stall(topic: StoredTopic, item: StoredItem, by: NonNullable<StoredItem['stalledBy']>): void {
     this.core.setItemState(topic.id, item.id, 'stalled', by);
+    // A direct item that needs someone gives the shared folder back ("Continue" takes it again, as a later turn).
+    if (item.direct === true) this.scheduler.folder.firstRunOver(DirectFolder.key(topic.id, item.id));
     const agents = this.ctx.services.agents;
     if (item.sessionId !== undefined && !isStubService(agents)) {
       try {
@@ -331,10 +341,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   private async register(topic: StoredTopic, item: StoredItem, sessionId: string, file: FileContent, parsed: ParsedReport): Promise<boolean> {
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
-    const root: RootRef = worktreeRoot(item.worktreeId as string);
+    const direct = item.direct === true;
+    const root: RootRef = direct ? MAIN_ROOT : worktreeRoot(item.worktreeId as string);
     let changes: ReportInfo['changes'];
     let noChanges: ReportInfo['noChanges'];
-    if (!isStubService(worktrees)) {
+    // In the folder itself there is no history: no snapshot, no diff (the report and the guides say so).
+    if (direct) noChanges = 'no-history';
+    else if (!isStubService(worktrees)) {
       // The snapshot IS the report's diff: a draft merge request the reviewer reads and the host can merge.
       let snapshot: SnapshotResult;
       try {
@@ -405,6 +418,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       delete draft.changesAsked;
       delete draft.snapshotOwed;
       if (changes !== undefined) draft.merge = { requestId: changes.requestId, status: 'draft', ready: false };
+      // Its changes are in the folder already: what depends on it may start (once the folder is free).
+      if (direct) draft.merged = true;
     });
     try {
       agents.append(sessionId, { kind: 'pointer', target: 'report', topicId: topic.id, itemId: item.id, version });
@@ -420,6 +435,11 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       detail: { topicId: topic.id, itemId: item.id, version, contentHash: file.hash, sessionId, outcome: parsed.outcome, ...(changes === undefined ? {} : { requestId: changes.requestId }), ...(noChanges === undefined ? {} : { noChanges }) },
     });
     this.core.publishReport(topic.id, item.id, previous === null ? null : this.core.summaryOf(previous));
+    if (direct) {
+      // The first run is over with its report: the folder goes once its turn is, and what depends on it may start.
+      this.scheduler.folder.firstRunOver(DirectFolder.key(topic.id, item.id));
+      this.scheduler.request();
+    }
     return true;
   }
 
@@ -428,9 +448,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     return this.core.serialize(`report:${topicId}:${itemId}`, async () => {
       const topic = this.core.topic(topicId);
       const item = topic === null ? null : this.core.item(topic, itemId);
-      if (topic === null || item === null || item.sessionId === undefined || item.worktreeId === undefined) return false;
+      const root = item === null ? null : reportRootOf(item);
+      if (topic === null || item === null || item.sessionId === undefined || root === null) return false;
       const sessionId = item.sessionId;
-      const file = await this.core.readFile(worktreeRoot(item.worktreeId), topicReportPath(topic.slug, item.id));
+      const file = await this.core.readFile(root, topicReportPath(topic.slug, item.id));
       if (file === null || !item.checked.some((entry) => entry.sessionId === sessionId && entry.hash === file.hash)) return false;
       const registered = this.core.report(topicId, itemId);
       if (registered !== null && registered.contentHash === file.hash && item.snapshotOwed !== true) return true;
@@ -640,4 +661,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     if (this.sweepTimer !== null) clearInterval(this.sweepTimer);
     this.sweepTimer = null;
   }
+}
+
+/** Where an item's report is read: its worktree, or the shared folder itself for an item that runs there (DESIGN 0.6.0 D15). */
+function reportRootOf(item: StoredItem): RootRef | null {
+  if (item.direct === true) return MAIN_ROOT;
+  return item.worktreeId === undefined ? null : worktreeRoot(item.worktreeId);
 }

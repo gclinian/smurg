@@ -21,9 +21,10 @@
 // fake relay of these tests with the host's relay links tunnelled to an in-memory relay, and the stand-in `claude`
 // first on the host's PATH (never the real one: nothing is billed, nothing leaves the machine). The test is the host:
 // it asks through the host's own link, as the web app does, and types git "in a terminal" (a scratch git identity).
-//   1. The owner's flow: a topic with a SPEC.md and a one-item PLAN.md; Start is asked three times, the same share
-//      all along: not a repository; after `git init`, no commit yet; after a first commit, nothing in the way, and
-//      nothing of smurg's own .smurg folder was committed. Start gives the item a worktree of that commit.
+//   1. The owner's flow (0.6.0, DESIGN D14): a topic with a SPEC.md and a two-item PLAN.md, the same share all along:
+//      not a repository, and Start gives the first item a worktree of smurg's own history (`.smurg/git`, no `.git` in
+//      the folder); after `git init`, new work needs the folder's first commit; after it, nothing in the way, nothing of
+//      smurg's own .smurg folder was committed, and Start gives the second item a worktree of that commit.
 //   2. `.git` moved away while an item has its worktree: Start says to put it back (never `git init`) and nothing is
 //      removed; put back, Start's checks pass and the next item gets its worktree.
 // Both end with `smurg stop`: the host's exit code is 0, it said nothing on stderr, and no process of the share is
@@ -310,9 +311,10 @@ interface ItemWorktree {
 
 /**
  * The dialog's Start button, with the pins of what the dialog was shown (`asked`, and the same `itemIds`); then the
- * item `itemId` has a session and a worktree, which is a checkout of the commit the shared folder is at.
+ * item `itemId` has a session and a worktree, which is a checkout of the commit the shared folder is at (`history`:
+ * of the folder's own repository, or of smurg's own history, DESIGN 0.6.0 D14).
  */
-async function start(s: Share, topic: TopicWithPlan, asked: StartPreflight, itemId: string, itemIds?: readonly string[]): Promise<ItemWorktree> {
+async function start(s: Share, topic: TopicWithPlan, asked: StartPreflight, itemId: string, itemIds?: readonly string[], history: 'folder' | 'smurg' = 'folder'): Promise<ItemWorktree> {
   await s.channel.request('plan.start', { topicId: topic.topicId, ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }), planRevision: asked.planRevision, specHash: asked.specHash, planHash: asked.planHash });
   const item = async () => (await s.channel.request('plan.get', { topicId: topic.topicId })).plan?.items.find((one) => one.id === itemId);
   let started = await item();
@@ -328,7 +330,7 @@ async function start(s: Share, topic: TopicWithPlan, asked: StartPreflight, item
   expect((await lstat(dir)).isDirectory()).toBe(true);
   const { worktrees } = await s.channel.request('worktree.list', {});
   expect(worktrees.find((one) => one.id === worktreeId)).toMatchObject({ topicId: topic.topicId, itemId });
-  const head = await s.git(['rev-parse', 'HEAD']);
+  const head = await s.git(history === 'smurg' ? ['--git-dir', join(s.folder, '.smurg', 'git'), 'rev-parse', 'HEAD'] : ['rev-parse', 'HEAD']);
   expect(head.code, head.stderr).toBe(0);
   expect((await s.git(['rev-parse', 'HEAD'], dir)).stdout).toBe(head.stdout);
   expect(await readFile(join(dir, 'notes.txt'), 'utf8')).toBe('hello\n');
@@ -379,21 +381,25 @@ if (BINARY !== null) {
     beforeAll(() => requireSeaBinary());
 
     it('not a repository, `git init`, a first commit: Start names each reason in turn, then gives the item a worktree, in ONE share; smurg stop leaves nothing', async () => {
-      const item = { id: 'sum-1-to-100', title: 'Add sum_1_to_100.py' };
+      const first = { id: 'sum-1-to-100', title: 'Add sum_1_to_100.py' };
+      const item = { id: 'sum-tests', title: 'Add a test of the sum' };
       const s = await share(bin);
-      const topic = await topicWithPlan(s, [item]);
+      const topic = await topicWithPlan(s, [first, item]);
 
-      // ---- not a git repository: the one thing in the way, and no commit to speak of
-      const notARepository = await preflight(s, topic);
-      expect(blockerIds(notARepository)).toEqual(['worktree.unavailable.notAGitRepo']);
-      expect(notARepository.commit).toBeNull();
-      expect(notARepository.startsNow).toEqual([item.id]);
-      // smurg made no repository itself, and its own folder ignores itself before there is one: a host who now runs
-      // `git init && git add -A && git commit` commits nothing of it (the share lock, trash, uploads, worktrees).
+      // ---- not a git repository (0.6.0, DESIGN D14): smurg's own history, nothing in the way, no commit to speak of
+      const notARepository = await preflight(s, topic, [first.id]);
+      expect(notARepository).toMatchObject({ history: 'smurg', blockers: [], commit: null });
+      expect(notARepository.startsNow).toEqual([first.id]);
+      // Start: the first item runs in a worktree of smurg's own history, and the folder has no `.git` of the user's.
+      const hidden = await start(s, topic, notARepository, first.id, [first.id], 'smurg');
+      expect((await lstat(join(s.folder, '.smurg', 'git'))).isDirectory()).toBe(true);
+      // smurg made no repository of the folder's, and its own folder ignores itself before there is one: a host who now
+      // runs `git init && git add -A && git commit` commits nothing of it (the share lock, trash, uploads, worktrees, its
+      // own history).
       await expect(lstat(join(s.folder, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
       expect((await readFile(join(s.folder, '.smurg', '.gitignore'), 'utf8')).split('\n')).toContain('*');
 
-      // ---- `git init` while the folder stays shared: now it is the commit that is missing
+      // ---- `git init` while the folder stays shared: new work uses it, and now it is the commit that is missing
       await gitInit(s);
       const noCommit = await preflight(s, topic);
       expect(blockerIds(noCommit)).toEqual(['worktree.unavailable.noCommit']);
@@ -412,16 +418,18 @@ if (BINARY !== null) {
       expect(ready.startsNow).toEqual([item.id]);
 
       // ---- Start: the item runs in a worktree of that commit; what git tracks is what it tracked, nothing of .smurg
+      expect(ready.history).toBe('folder');
       const worktree = await start(s, topic, ready, item.id);
       const trackedAfterStart = await tracked(s);
       expect(underSmurg(trackedAfterStart)).toEqual([]);
       expect(trackedAfterStart).toEqual(committed);
-      await startedByTheStandIn(s, [topic.sessionId, worktree.sessionId]);
+      await startedByTheStandIn(s, [topic.sessionId, hidden.sessionId, worktree.sessionId]);
       expect(s.host.alive()).toBe(true);
 
       await stopAndNothingLeft(s);
-      // The item's worktree is kept for the next share.
+      // The items' worktrees are kept for the next share.
       expect((await lstat(worktree.dir)).isDirectory()).toBe(true);
+      expect((await lstat(hidden.dir)).isDirectory()).toBe(true);
     }, 600_000);
 
     it('`.git` moved away while an item has its worktree: Start says to put it back and nothing is removed; put back, the next item gets its worktree', async () => {
@@ -444,8 +452,10 @@ if (BINARY !== null) {
       expect(gone.commit).toBeNull();
       expect(gone.startsNow).toEqual([second.id]);
       expect(gone.alreadyStarted).toEqual([first.id]);
-      // smurg made no repository of its own in its place, and removed nothing: the worktree, its record, the item's.
+      // smurg made no repository of its own in its place (no `.git`, and no history of its own: the folder's records wait
+      // for its `.git`), and removed nothing: the worktree, its record, the item's.
       await expect(lstat(join(s.folder, '.git'))).rejects.toMatchObject({ code: 'ENOENT' });
+      await expect(lstat(join(s.folder, '.smurg', 'git'))).rejects.toMatchObject({ code: 'ENOENT' });
       expect(await readFile(join(worktree.dir, 'notes.txt'), 'utf8')).toBe('hello\n');
       expect((await s.channel.request('worktree.list', {})).worktrees.map((one) => one.id)).toEqual([worktree.worktreeId]);
       expect((await s.channel.request('plan.get', { topicId: topic.topicId })).plan?.items.find((one) => one.id === first.id)).toMatchObject({ worktreeId: worktree.worktreeId, sessionId: worktree.sessionId });

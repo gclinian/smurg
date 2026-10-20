@@ -2,17 +2,18 @@
 // by the v0.5.2 experiment U3 with the released 0.5.1). The REAL daemon with the real files, worktree and topics modules
 // (fakes for the agent runtime only), over scratch folders: git runs with a scratch HOME and identity, as the host would
 // run it in a terminal. What it holds:
-//  - a folder that is no repository: Start names that reason; after `git init` (same daemon) the reason is "no commit
-//    yet"; after a first commit Start starts and the item runs in a worktree. No restart, and no commit line before
-//    there is a branch to name;
+//  - a folder that is no repository: (0.6.0, DESIGN D14) Start offers smurg's own history and names no reason; after
+//    `git init` (same daemon) the reason is "no commit yet"; after a first commit Start starts and the item runs in a
+//    worktree of that repository. No restart, and no commit line before there is a branch to name;
 //  - `.smurg/` (the share lock marker, a delete cut short in trash/, an upload staged in the share) is never part of
 //    what the host commits, in whatever order `git init`, `git add -A` and `git commit` come;
 //  - a share whose .git is a gitfile (a linked worktree) is told why, not "run git init", and has no commit line; so
 //    is one whose .git is a link to a git directory, and neither is called "not a repository" anywhere (the welcome,
 //    the status, a topic's `versioned`: what the plan column and the new-session dialog read);
 //  - `.git` that goes once an item has its worktree: Start says the .git is gone and to put it back, not "git init";
-//  - a folder that is no repository on a computer whose git is too old or does not run: Start names git, and so does
-//    a session that asks for a worktree (one reason, not two);
+//  - a folder that is no repository on a computer whose git is too old or does not run: Start names git as the reason
+//    its items run directly in the folder (0.6.0, DESIGN D15), and a session that asks for a worktree is refused with
+//    the same words (one reason, not two);
 //  - a repository that already tracks `.smurg/` (a `git add -A` while sharing with 0.5.1): Start, the item's worktree,
 //    its snapshot, the merge and an update from the main workspace still work; the host is told once.
 import { execFile } from 'node:child_process';
@@ -120,6 +121,8 @@ async function look(t: TestDaemon, client: TestClient, topicId: string) {
   return {
     blockers: preflight.blockers.map((blocker) => blocker.text.id),
     fallbacks: preflight.blockers.map((blocker) => blocker.fallback),
+    history: preflight.history,
+    direct: preflight.direct,
     commit: preflight.commit,
     versioned: t.ctx.services.topics.get(topicId)?.versioned,
     isGitRepo: t.ctx.workspace.info.isGitRepo,
@@ -145,10 +148,10 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
     const amy = await t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
     const topicId = await topicWithPlan(t, host);
 
-    // 1. No repository: that reason, what the host can do, and no commit line (there is no branch to name).
+    // 1. No repository: (0.6.0, DESIGN D14) smurg's own history, nothing in the way, and no commit line (there is no
+    //    branch of the folder's to name).
     const notRepo = await look(t, host, topicId);
-    expect(notRepo).toMatchObject({ blockers: ['worktree.unavailable.notAGitRepo'], commit: null, versioned: false, isGitRepo: false });
-    expect(notRepo.fallbacks).toEqual(['The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.']);
+    expect(notRepo).toMatchObject({ blockers: [], history: 'smurg', commit: null, versioned: false, isGitRepo: false });
 
     // What a running share keeps in .smurg/: the lock marker, a delete cut short in trash/, a partial upload staged in
     // the share (the state dir on another volume, simulated as the upload tests do).
@@ -268,7 +271,8 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
     const host = await t.connectHost();
     const topicId = await topicWithPlan(t, host);
     const before = await look(t, host, topicId);
-    expect(before.blockers).toEqual(['worktree.unavailable.notAGitRepo']);
+    // (0.6.0: smurg's own history; the Start below finds the folder's own repository and uses it)
+    expect(before).toMatchObject({ blockers: [], history: 'smurg' });
     await git(root, 'init');
     await git(root, 'add', '-A');
     await git(root, 'commit', '-q', '-m', 'first');
@@ -376,11 +380,12 @@ describe('a shared folder that becomes a git repository while it is shared (0.5.
       const owner = t.ctx.members.principalOf(mei.userId);
       if (owner === null) throw new Error('mei is not a member');
       const start = await look(t, host, topicId);
-      expect(start).toMatchObject({ blockers: [one.id], commit: null, versioned: false, isGitRepo: false });
+      // (0.6.0, DESIGN D15) no blocker: the items would run directly in the folder, and the dialog says why.
+      expect(start).toMatchObject({ blockers: [], history: 'direct', direct: { reason: { text: { id: one.id } }, hostOnly: false }, commit: null, versioned: false, isGitRepo: false });
       // The same reason, with the same words (what the new-session dialog shows of a refusal).
       const refused = await settleError(manager.acquireForSession({ owner, sessionId: `ses_${one.reason}` }));
       expect(refused).toMatchObject({ code: 'conflict', reason: one.reason, text: { id: one.id } });
-      expect(refused?.message).toBe(start.fallbacks[0]);
+      expect(refused?.message).toBe(start.direct?.reason.fallback);
       expect(await settleError(manager.acquireForItem({ topic: { id: topicId, slug: 'sum' }, itemId: ITEM.id, owner }))).toMatchObject({ reason: one.reason, text: { id: one.id } });
       await t.cleanup();
       daemons.splice(daemons.indexOf(t), 1);

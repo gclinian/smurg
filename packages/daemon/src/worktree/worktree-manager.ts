@@ -42,13 +42,28 @@
 // looked for only at the start, when a repository appears, and once when a folder that is no repository is first
 // asked about: never on a timer (on a Mac without the Command Line Tools, running /usr/bin/git puts a system prompt on
 // the host's screen).
+//
+// smurg's own history (0.6.0, DESIGN D14, hidden-repo.ts): when NOTHING is at `<share>/.git` and the git executable is
+// usable, the main repository is `<share>/.smurg/git` with the shared folder as its work tree, and topics work as with
+// a repository. Its HEAD is the folder as the last snapshot recorded it: a snapshot is taken at Start (the checkpoint),
+// before a new worktree (its base), before a merge (what the merge is made against) and before an update from the main
+// workspace. Records say which repository they belong to (`repo: 'smurg'`; absent: the folder's own `.git`), and every
+// operation on a record uses its repository, whatever the folder has now. A merge of smurg's history is made against
+// the merge base its review recorded (`base`). The executable is still looked for lazily (lookForGit): by the Start
+// dialog, the host's own worktree request, a merge view and what works on smurg's history; never at the start of
+// sharing, never on a timer; a teammate's worktree request while that was not done is refused (`unchecked`).
+//
+// Without a usable git program (0.6.0, DESIGN D15) work items run directly in the shared folder (the topics module):
+// `workState()` says `direct` with the reason, and worktrees are refused with it as in 0.5.2.
 import { lstat } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
   ITEM_ID_PATTERN,
   LIST_MAX_ITEMS,
   MAIN_ROOT,
   MERGE_FILES_MAX,
+  PREFLIGHT_NESTED_REPOS_MAX,
   REPORT_BY_HAND_MAX,
   REVIEWERS_MAX,
   SmurgError,
@@ -71,15 +86,37 @@ import {
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import type { DaemonEvents, MainState, MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
+import type { DaemonEvents, HistoryState, MainState, MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
+import { diskReport, nodeStatfs, type StatfsFunction } from '../files/disk.ts';
 import { SYSTEM_ACTOR, isHostPrincipal, principalCan, userActor } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { excludeSmurgDir, isRepositoryFolder, observeGit, sameGitObservation, type GitObservation } from '../workspace/share.ts';
-import { ensureWorktreesDir, filesWithConflictMarkers, linkSharedDirs, removeEntryBelow, removeWorktreeDir, sweepRemovals, untrackedInTheWay, writeExclude } from './fs-ops.ts';
+import { ensureWorktreesDir, filesWithConflictMarkers, linkSharedDirs, plainFileKind, removeEntryBelow, removeWorktreeDir, sweepRemovals, untrackedInTheWay, writeExclude } from './fs-ops.ts';
 import { GIT_MIN_VERSION, GitRunner, GitUnavailableError, findGit, firstLine, gitVersionAtLeast, listedPaths, requireOk, type GitIdentity } from './git.ts';
 import { parseMergeTree, parseNameOnly, parseNameStatus, parseStatusPaths } from './git-parse.ts';
-import { pinnedHashes, verifyWorktreeRepo } from './integrity.ts';
-import { blobsAt, busyMarker, commitMainPaths, currentBranch, diffMainPaths } from './main-repo.ts';
+import {
+  HIDDEN_LOOSE_OBJECTS_MAX,
+  HIDDEN_MAX_BYTES,
+  HIDDEN_MAX_FILES,
+  HIDDEN_SNAPSHOT_TIMEOUT_MS,
+  ensureHiddenRepo,
+  hiddenExcludeLines,
+  hiddenChanged,
+  hiddenGitDir,
+  hiddenGone,
+  hiddenOnDisk,
+  hiddenProblem,
+  isCloudSynced,
+  listFolder,
+  removeStaleLock,
+  sizeText,
+  snapshotFolder,
+  tooLargeError,
+  writeHiddenExclude,
+  type HiddenRun,
+} from './hidden-repo.ts';
+import { pinnedHashes, verifyHiddenRepo, verifyWorktreeRepo } from './integrity.ts';
+import { blobsAt, busyMarker, checkpointMessage, commitMainPaths, currentBranch, diffMainPaths } from './main-repo.ts';
 import { MERGE_REF_PREFIX, gitIdentity, itemBranch, mergeRef, newMergeId, newWorktreeId, worktreeBranch } from './names.ts';
 import {
   DEFAULT_REVIEW_LIMITS,
@@ -109,6 +146,7 @@ import {
   worktreesDocumentSchema,
   type StoredItem,
   type StoredMerge,
+  type StoredHiddenRepo,
   type StoredWorktree,
   type WorktreesDocument,
 } from './store.ts';
@@ -134,6 +172,13 @@ export interface WorktreeLimits {
    * still differs from its last commit: until then it counts as holding unmerged work.
    */
   readonly treeCheckDelayMs: number;
+  /** Each command of a snapshot of smurg's own history (DESIGN 0.6.0 D14: longer than a first snapshot of a big folder). */
+  readonly hiddenSnapshotTimeoutMs: number;
+  /** What smurg's own history records at most (DESIGN 0.6.0 D14: 50,000 files, 1 GiB); beyond it a snapshot is refused. */
+  readonly hiddenMaxFiles: number;
+  readonly hiddenMaxBytes: number;
+  /** Loose objects after which smurg's own history is repacked. */
+  readonly hiddenLooseObjectsMax: number;
 }
 
 export const DEFAULT_WORKTREE_LIMITS: WorktreeLimits = Object.freeze({
@@ -145,6 +190,10 @@ export const DEFAULT_WORKTREE_LIMITS: WorktreeLimits = Object.freeze({
   mergeTimeoutMs: 300_000,
   statusOutputBytes: 32 * 1024 * 1024,
   treeCheckDelayMs: 2_000,
+  hiddenSnapshotTimeoutMs: HIDDEN_SNAPSHOT_TIMEOUT_MS,
+  hiddenMaxFiles: HIDDEN_MAX_FILES,
+  hiddenMaxBytes: HIDDEN_MAX_BYTES,
+  hiddenLooseObjectsMax: HIDDEN_LOOSE_OBJECTS_MAX,
 });
 
 export interface WorktreeModuleOptions {
@@ -154,6 +203,8 @@ export interface WorktreeModuleOptions {
    */
   readonly gitPath?: string;
   readonly limits?: Partial<WorktreeLimits>;
+  /** The free space of the disk before a clone of smurg's own history (default: node's statfs; tests inject one). */
+  readonly statfs?: StatfsFunction;
 }
 
 type Available = { readonly ok: true; readonly git: GitRunner; readonly repo: MainRepo } | { readonly ok: false; readonly error: SmurgError };
@@ -178,7 +229,8 @@ function binaryUnavailable(binary: GitBinary): Extract<Available, { ok: false }>
 }
 
 /**
- * Why `<share>/.git` as it is seen cannot hold worktrees (null: it is a plain git directory). Nothing there, or a
+ * Why `<share>/.git` as it is seen cannot hold worktrees (null: it is a plain git directory). Nothing there (0.6.0:
+ * only asked when records of the folder's own repository wait for it, else smurg's own history is used), or a
  * directory git does not take for a repository (no HEAD): not a repository yet (`git init` makes it one). A gitfile
  * (a linked worktree, a submodule), a link, or anything else: not an ordinary folder. The second is exactly what
  * people are told is a repository (isRepositoryFolder: `WorkspaceInfo.isGitRepo`), so no page says "run git init"
@@ -214,6 +266,23 @@ function notAvailable(reason: string, message: MessageRef): Extract<Available, {
 
 const NOT_FOUND = (): SmurgError => new SmurgError('not_found', msg('worktree.notFound'), { reason: 'unknown-worktree' });
 const MERGE_NOT_FOUND = (): SmurgError => new SmurgError('not_found', msg('merge.notFound'), { reason: 'unknown-merge-request' });
+
+/** Messages of the snapshots smurg's own history takes (fixed English, one shared history; DESIGN 0.6.0 D14). */
+export const HIDDEN_WORKTREE_MESSAGE = 'smurg: the shared folder for a new worktree';
+export function hiddenMergeMessage(branch: string): string {
+  return `smurg: the shared folder before merging ${branch}`;
+}
+export function hiddenUpdateMessage(branch: string): string {
+  return `smurg: the shared folder before updating ${branch}`;
+}
+
+/** Who smurg's own snapshots of the warm-up are written as (nothing is committed then: only objects and the index). */
+const SMURG_IDENTITY: GitIdentity = Object.freeze({ name: 'smurg', email: 'daemon@smurg.invalid' });
+
+/** `worktree.unavailable.unchecked`: no `.git`, and git was not looked for yet (a teammate's request never looks). */
+function uncheckedState(): Extract<Available, { ok: false }> {
+  return notAvailable('unchecked', msg('worktree.unavailable.unchecked'));
+}
 
 /** A commit of the working tree is refused while files the daemon merged still have conflict markers. */
 function markersError(files: readonly string[]): SmurgError {
@@ -255,6 +324,16 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private available: Available = notAvailable('starting', msg('worktree.unavailable.starting'));
   /** What the git executable is, whatever the folder is; null: not looked for yet. */
   private gitBinary: GitBinary | null = null;
+  /** A runner of the git executable once it is known to run (smurg's own history, a record of it, an item's clone). */
+  private runner: GitRunner | null = null;
+  /** git was looked for since the last detection: the next look detects again although `.git` did not change. */
+  private binaryChanged = false;
+  /** `workState()` as it was last announced (`work.changed`). */
+  private workKey = '';
+  /** The bytes and nested repositories of the last listing of the folder (smurg's own history: the disk check). */
+  private lastListing: { readonly bytes: number; readonly nested: readonly string[] } | null = null;
+  /** The warm-up of the Start dialog that is queued or running (one at a time). */
+  private warmingUp: Promise<void> | null = null;
   /** The one look for the git executable a folder that is no repository gets (mainState), while it runs. */
   private binaryLook: Promise<GitBinary> | null = null;
   /** What the last look at `<share>/.git` saw (null: not looked yet); `observedFailed`: the detection after it threw. */
@@ -293,6 +372,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
   /** Never throws for a workspace without git: worktree mode is then unavailable with a clear error. */
   async start(): Promise<void> {
     this.doc = await this.ctx.state.document(WORKTREES_DOCUMENT, worktreesDocumentSchema, initialWorktreesDocument);
+    // The daemon's own stores, whatever the folder is (no git process): what a stopped daemon left in staging goes.
+    this.templateDir = await this.ctx.state.privateDir('git-template');
+    this.stagingDir = await this.ctx.state.privateDir('git-staging');
+    await sweepStaging(this.stagingDir);
     // The start's look at `.git` is the first shared look: a refresh asked while it runs (the topics module's sweep
     // ticks from its registration on) waits for it, rather than looking beside it and being overwritten by it.
     const look = this.firstLook();
@@ -327,6 +410,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       this.observed = seen.observed;
       this.ctx.workspace.noteGitRepo(isRepositoryFolder(seen.observed));
     }
+    this.announceWork();
   }
 
   async stop(): Promise<void> {
@@ -347,31 +431,43 @@ export class WorktreeManagerImpl implements WorktreeManager {
   /**
    * Whether worktree mode can run in the folder as it was seen: the folder first (no git process for a folder that is
    * no repository), then the git executable (found on the daemon's PATH, runs, new enough), then the worktrees folder.
-   * Only at the start are the daemon's staging stores swept: later, a commit or a diff could be using them.
+   * (The daemon's staging stores are swept at the start only, start(): later, a commit or a diff could be using them.)
+   * Nothing at `.git` (0.6.0): smurg's own history with the git executable already known, never a look for it here.
    */
-  private async detect(observed: GitObservation, options: { readonly atStart: boolean }): Promise<Available> {
+  private async detect(observed: GitObservation, _options: { readonly atStart: boolean }): Promise<Available> {
     const ctx = this.ctx;
+    const share = ctx.roots.main.realPath;
+    if (!observed.exists) {
+      // Nothing at `.git` (0.6.0, DESIGN D14): smurg's own history, once git is known to run. git is never looked for
+      // here (the start, the sweep and a teammate's request must not run it in a folder that is no repository):
+      // lookForGit does that for the requests that may.
+      if (this.gitBinary === null) return uncheckedState();
+      const binary = binaryUnavailable(this.gitBinary);
+      if (binary !== null) return binary;
+      if (this.runner === null) return uncheckedState();
+      if (!(await ensureWorktreesDir(share, ctx.roots.worktreesDir))) {
+        return notAvailable('worktrees-dir-unusable', msg('worktree.unavailable.worktreesDirUnusable'));
+      }
+      return { ok: true, git: this.runner, repo: { git: this.runner, gitDir: hiddenGitDir(share), kind: 'smurg' } };
+    }
     const folder = folderUnavailable(observed);
     if (folder !== null) return folder;
-    const share = ctx.roots.main.realPath;
     const gitDir = join(share, '.git');
     const gitPath = this.options.gitPath ?? (await findGit(process.env['PATH']));
     if (gitPath === null) {
       this.gitBinary = { kind: 'not-found' };
+      this.runner = null;
       return binaryUnavailable(this.gitBinary) as Available;
     }
-    const home = await ctx.state.privateDir('git-home');
-    this.templateDir = await ctx.state.privateDir('git-template');
-    this.stagingDir = await ctx.state.privateDir('git-staging');
-    if (options.atStart) await sweepStaging(this.stagingDir);
-    const git = new GitRunner({ gitPath, home, signal: ctx.stopping });
+    const git = new GitRunner({ gitPath, home: await ctx.state.privateDir('git-home'), signal: ctx.stopping });
     this.gitBinary = binaryOf(await git.version().catch(() => null));
     const binary = binaryUnavailable(this.gitBinary);
+    this.runner = binary === null ? git : null;
     if (binary !== null) return binary;
     if (!(await ensureWorktreesDir(share, ctx.roots.worktreesDir))) {
       return notAvailable('worktrees-dir-unusable', msg('worktree.unavailable.worktreesDirUnusable'));
     }
-    return { ok: true, git, repo: { git, gitDir } };
+    return { ok: true, git, repo: { git, gitDir, kind: 'folder' } };
   }
 
   /**
@@ -382,16 +478,39 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (this.gitBinary !== null) return Promise.resolve(this.gitBinary);
     this.binaryLook ??= (async (): Promise<GitBinary> => {
       let binary: GitBinary;
+      let runner: GitRunner | null = null;
       try {
         const gitPath = this.options.gitPath ?? (await findGit(process.env['PATH']));
-        binary = gitPath === null ? { kind: 'not-found' } : binaryOf(await new GitRunner({ gitPath, home: await this.ctx.state.privateDir('git-home'), signal: this.ctx.stopping }).version().catch(() => null));
+        if (gitPath === null) binary = { kind: 'not-found' };
+        else {
+          const git = new GitRunner({ gitPath, home: await this.ctx.state.privateDir('git-home'), signal: this.ctx.stopping });
+          binary = binaryOf(await git.version().catch(() => null));
+          if (binary.kind === 'ok') runner = git;
+        }
       } catch {
         binary = { kind: 'cannot-run' };
       }
-      this.gitBinary ??= binary;
+      if (this.gitBinary === null) {
+        this.gitBinary = binary;
+        this.runner = runner;
+        this.binaryChanged = true;
+      }
+      this.announceWork();
       return this.gitBinary;
     })();
     return this.binaryLook;
+  }
+
+  /**
+   * The git executable, looked for (once a run) by a request that may (DESIGN 0.6.0 D14): the Start dialog and Start,
+   * the host's own worktree request, a merge view, what works on a record of smurg's own history, the scheduler for a
+   * pin of a Start; then worktree mode is detected again with what was found. Never a teammate's new worktree, never
+   * the start of sharing or the sweep.
+   */
+  private async lookForGit(): Promise<void> {
+    if (this.stopped || this.doc === null) return;
+    if (this.gitBinary === null) await this.gitBinaryNow();
+    for (let round = 0; round < GIT_LOOKS_MAX && this.binaryChanged && !this.stopped; round++) await this.refreshGitState();
   }
 
   /**
@@ -426,7 +545,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private async lookAgain(timer: boolean): Promise<void> {
     const first = await observeGit(this.ctx.roots.main.realPath);
     const before = this.observed;
-    if (this.stopped || (before !== null && sameGitObservation(first, before) && (!this.observedFailed || timer))) return;
+    if (this.stopped || (before !== null && sameGitObservation(first, before) && (!this.observedFailed || timer) && !this.binaryChanged)) return;
+    this.binaryChanged = false;
     const seen: { observed: GitObservation | null } = { observed: first };
     let available: Available;
     try {
@@ -451,7 +571,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
         this.observed = seen.observed;
         this.observedFailed = true;
         this.ctx.workspace.noteGitRepo(isRepositoryFolder(seen.observed));
-        if (!this.available.ok) this.available = notAvailable('check-failed', msg('worktree.unavailable.checkFailed'));
+        // (0.6.0: "available" stays only for the history this observation means: the folder's own `.git` when
+        // something is there, smurg's own history when nothing is; the other one is about what was there before.)
+        const kind = seen.observed.exists ? 'folder' : 'smurg';
+        if (!this.available.ok || this.available.repo.kind !== kind) this.available = notAvailable('check-failed', msg('worktree.unavailable.checkFailed'));
       }
       throw err;
     }
@@ -472,6 +595,18 @@ export class WorktreeManagerImpl implements WorktreeManager {
       const inspection = this.inspection;
       this.inspection = Promise.all([inspection, this.inspectItemWorktrees(), this.lookForTrackedSmurg(available)]).then(() => {});
     }
+    this.announceWork();
+  }
+
+  /** `work.changed` when `workState()` is not what was last announced (HostState.work: every member is told). */
+  private announceWork(): void {
+    if (this.stopped || this.doc === null) return;
+    const work = this.workState();
+    const key = JSON.stringify(work);
+    if (key === this.workKey) return;
+    const first = this.workKey === '';
+    this.workKey = key;
+    if (!first) this.ctx.bus.emit('work.changed', { work });
   }
 
   /**
@@ -486,11 +621,12 @@ export class WorktreeManagerImpl implements WorktreeManager {
     let observed = first;
     seen.observed = observed;
     for (let round = 1; ; round++) {
-      const folder = folderUnavailable(observed);
+      // Nothing at `.git` is smurg's own history (detect); anything else that is no plain git directory is refused.
+      const folder = observed.exists ? folderUnavailable(observed) : null;
       if (folder !== null) return folder;
       // smurg's folder is kept out of a repository that appeared while sharing (prepareShare did it for the one that
       // was there at the start), before git runs there.
-      if (!options.atStart || round > 1) {
+      if (observed.exists && (!options.atStart || round > 1)) {
         await excludeSmurgDir(join(share, '.git')).catch((err: unknown) =>
           this.ctx.log.warn('.smurg could not be added to .git/info/exclude', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' }),
         );
@@ -511,7 +647,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
    * and stop, and every item worktree checks it out). The host is told once (`worktree.smurg-tracked`, the log).
    */
   private async lookForTrackedSmurg(available: Extract<Available, { ok: true }>): Promise<void> {
-    if (this.smurgTrackedTold || this.stopped) return;
+    if (this.smurgTrackedTold || this.stopped || available.repo.kind !== 'folder') return;
     const listed = await available.git
       .run({ gitDir: available.repo.gitDir, workTree: this.ctx.roots.main.realPath, args: ['ls-files', '-z', '--', '.smurg'], readOnly: true, maxStdoutBytes: 64 * 1024 })
       .catch(() => null);
@@ -579,6 +715,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
    */
   private async sweepReviewRefs(available: Extract<Available, { ok: true }>): Promise<void> {
     const repo = available.repo;
+    // smurg's own history: only one that is there as smurg left it (never made for this).
+    if (repo.kind === 'smurg' && (await this.knownRepoOf({ repo: 'smurg' })) === null) return;
     const prefix = MERGE_REF_PREFIX;
     const listed = await repo.git.run({ gitDir: repo.gitDir, args: ['for-each-ref', '--format=%(refname)', prefix], readOnly: true, maxStdoutBytes: 4 * 1024 * 1024 }).catch(() => null);
     if (listed === null || listed.code !== 0 || listed.truncated) {
@@ -616,7 +754,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   /** Why worktree mode is unavailable, as a refusal says it now (null when it is available). */
   unavailableReason(): SmurgError | null {
-    return this.available.ok ? null : this.refusal(this.available);
+    const available = this.forNewWork();
+    return available.ok ? null : this.refusal(available);
   }
 
   // =================================================================================================================
@@ -626,6 +765,9 @@ export class WorktreeManagerImpl implements WorktreeManager {
   async acquireForSession(input: { readonly owner: Principal; readonly sessionId: string; readonly worktreeId?: string }): Promise<WorktreeHandle> {
     const member = this.memberOf(input.owner);
     await this.refreshGitState();
+    // The host's own worktree request may look for git (DESIGN 0.6.0 D14: smurg's own history needs it); a teammate's
+    // new worktree never does, and is refused with `worktree.unavailable.unchecked` while no look was made.
+    if (input.worktreeId === undefined && isHostPrincipal(input.owner)) await this.lookForGit();
     if (input.worktreeId !== undefined) {
       const worktreeId = input.worktreeId;
       return this.serial.run(`wt:${worktreeId}`, () => this.resume(member, worktreeId, input.sessionId));
@@ -669,7 +811,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (record.sessionId !== undefined && record.sessionId !== sessionId && this.sessionLive(record.sessionId)) {
       throw new SmurgError('conflict', msg('worktree.usedByAnotherSession'), { reason: 'worktree-in-use' });
     }
-    this.requireAvailableForWork();
+    // Its own repository must be usable (smurg's own history or the folder's `.git`, whatever the folder has now).
+    await this.repoOf(record);
     await verifyWorktreeRepo(this.dirOf(record.id), record);
     const root = this.ctx.roots.get({ kind: 'worktree', worktreeId }) ?? (await this.registerRoot(record));
     const updated = this.updateWorktree(worktreeId, (draft) => {
@@ -682,9 +825,29 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return { worktree: toWorktreeInfo(updated), root };
   }
 
-  /** A fresh clone at the main workspace's HEAD: for a session (its first user) or for a work item. */
-  private async create(member: MemberRecord, target: { readonly sessionId: string } | { readonly item: StoredItem }): Promise<WorktreeHandle> {
-    const { git, repo } = this.requireAvailableForWork();
+  /**
+   * A fresh clone at the main workspace's HEAD: for a session (its first user) or for a work item. With smurg's own
+   * history (DESIGN 0.6.0 D14) its HEAD is first a snapshot of the folder as it is now (the worktree's base), the disk
+   * is checked, the clone is made of that history's git dir, and its exclude file gets that history's lines.
+   * `history`: an item's Start's (its pin): a new worktree only of that repository.
+   */
+  private async create(member: MemberRecord, target: { readonly sessionId: string } | { readonly item: StoredItem }, history?: 'folder' | 'smurg'): Promise<WorktreeHandle> {
+    let source: { readonly git: GitRunner; readonly repo: MainRepo };
+    // smurg's own history may be made for this worktree only when new work uses it now.
+    let mayMakeHidden = false;
+    if (history === 'smurg') {
+      const now = this.forNewWork();
+      if (now.ok && now.repo.kind === 'smurg') {
+        source = { git: now.git, repo: now.repo };
+        mayMakeHidden = true;
+      } else source = await this.repoOf({ repo: 'smurg' });
+    } else {
+      source = this.requireAvailableForWork();
+      if (history === 'folder' && source.repo.kind !== 'folder') throw new SmurgError('conflict', msg('worktree.unavailable.gitDirGone'), { reason: 'git-dir-gone' });
+      mayMakeHidden = source.repo.kind === 'smurg';
+    }
+    const { git, repo } = source;
+    const hidden = repo.kind === 'smurg';
     const item = 'item' in target ? target.item : undefined;
     const records = this.records();
     if (records.length >= this.limits.maxWorktrees) throw new SmurgError('conflict', msg('worktree.limit'), { reason: 'worktree-limit' });
@@ -692,8 +855,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (item === undefined && records.filter((record) => record.item === undefined && record.ownerUserId === member.userId).length >= this.limits.maxWorktreesPerOwner) {
       throw new SmurgError('conflict', msg('worktree.limitOwner'), { reason: 'worktree-limit-owner' });
     }
-    const base = await mainHead(repo);
-    if (base === null) throw new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' });
+    const folderBase = hidden ? null : await mainHead(repo);
+    if (!hidden && folderBase === null) throw new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' });
     const share = this.ctx.roots.main.realPath;
     if (!(await ensureWorktreesDir(share, this.ctx.roots.worktreesDir))) {
       throw new SmurgError('conflict', msg('worktree.unavailable.worktreesDirUnusable'), { reason: 'worktrees-dir-unusable' });
@@ -703,16 +866,36 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const gitDir = join(dir, '.git');
     const branch = item !== undefined ? itemBranch(item.topicSlug, item.itemId) : worktreeBranch(member.userId, id);
     const timeoutMs = this.limits.gitTimeoutMs;
-    const auditDetail = item !== undefined ? { topicId: item.topicId, itemId: item.itemId } : { sessionId: (target as { sessionId: string }).sessionId };
+    const auditDetail = {
+      ...(item !== undefined ? { topicId: item.topicId, itemId: item.itemId } : { sessionId: (target as { sessionId: string }).sessionId }),
+      ...(hidden ? { history: 'smurg' } : {}),
+    };
     let registered = false;
     try {
-      requireOk(await git.clone({ source: share, dest: dir, cwd: this.ctx.roots.worktreesDir, template: this.templateDir, timeoutMs }), 'createWorktree');
-      // The clone gets no remote pointing back at the host's repository.
-      requireOk(await git.run({ gitDir, args: ['remote', 'remove', 'origin'], timeoutMs }), 'configureWorktree');
-      requireOk(await git.run({ gitDir, workTree: dir, args: ['checkout', '--quiet', '-b', branch, base], timeoutMs }), 'checkout');
+      const clone = async (): Promise<string> => {
+        let base = folderBase;
+        if (hidden) {
+          // On the `main` queue: the snapshot, the disk check and the clone, with no merge or repack in between.
+          if (mayMakeHidden) await this.ensureHidden(git);
+          else {
+            await this.verifyHidden();
+            await removeStaleLock(repo.gitDir, this.ctx.log);
+          }
+          base = (await this.snapshotHidden(git, { message: HIDDEN_WORKTREE_MESSAGE, identity: gitIdentity(member.userId, member.displayName) })).head;
+          await this.diskCheck();
+        }
+        if (base === null) throw new SmurgError('conflict', msg('worktree.unavailable.noCommit'), { reason: 'no-commits' });
+        // smurg's own history is cloned from its git dir (the folder has no `.git` to find).
+        requireOk(await git.clone({ source: hidden ? repo.gitDir : share, dest: dir, cwd: this.ctx.roots.worktreesDir, template: this.templateDir, timeoutMs }), 'createWorktree');
+        // The clone gets no remote pointing back at the host's repository.
+        requireOk(await git.run({ gitDir, args: ['remote', 'remove', 'origin'], timeoutMs }), 'configureWorktree');
+        requireOk(await git.run({ gitDir, workTree: dir, args: ['checkout', '--quiet', '-b', branch, base], timeoutMs }), 'checkout');
+        return base;
+      };
+      const base = hidden ? await this.serial.run('main', clone) : await clone();
       const linked = await linkSharedDirs(dir, share, this.ctx.settings.get().sharedDirs);
       for (const skip of linked.skipped) this.ctx.log.warn('shared directory not linked', { module: 'worktree', worktree: id, path: skip.path, reason: skip.reason });
-      await writeExclude(gitDir, linked.links);
+      await writeExclude(gitDir, linked.links, hidden ? this.cloneExcludeLines() : []);
       // A result report that is already there (committed earlier, or planted) is not this start's: the agent writes its own.
       if (item !== undefined) await this.removeStaleReport(dir, item);
       const hashes = await pinnedHashes(gitDir);
@@ -727,6 +910,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
         sharedDirs: linked.links.map((link) => link.mainPath),
         baseCommit: base,
         ...hashes,
+        ...(hidden ? { repo: 'smurg' as const } : {}),
       };
       const root = await this.registerRoot(record);
       registered = true;
@@ -755,6 +939,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
     }
   }
 
+  /** What a clone of smurg's own history never commits (its `.git/info/exclude`, with the shared links after it). */
+  private cloneExcludeLines(): string[] {
+    return hiddenExcludeLines({ sharedDirs: this.sharedDirs(), nestedRepos: this.lastListing?.nested ?? [], forClone: true });
+  }
+
   private registerRoot(record: StoredWorktree): Promise<RootInfo> {
     return this.ctx.roots.registerWorktree({
       worktreeId: record.id,
@@ -769,7 +958,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
   // Work items
   // =================================================================================================================
 
-  async acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal }): Promise<WorktreeHandle> {
+  async acquireForItem(input: { readonly topic: { readonly id: string; readonly slug: string }; readonly itemId: string; readonly owner: Principal; readonly history?: 'folder' | 'smurg' }): Promise<WorktreeHandle> {
     const member = this.memberOf(input.owner);
     // The three become a ref name, a path and a root's facts: only the protocol's own forms.
     if (!opaqueIdSchema.safeParse(input.topic.id).success || !TOPIC_SLUG_PATTERN.test(input.topic.slug) || !ITEM_ID_PATTERN.test(input.itemId)) {
@@ -777,10 +966,12 @@ export class WorktreeManagerImpl implements WorktreeManager {
     }
     const item: StoredItem = { topicId: input.topic.id, topicSlug: input.topic.slug, itemId: input.itemId };
     await this.refreshGitState();
+    // An item's worktree is for a Start someone made (it looked for git): this may look too (after a restart).
+    await this.lookForGit();
     return this.serial.run('create', async () => {
       const existing = this.records().find((record) => record.item?.topicId === item.topicId && record.item.itemId === item.itemId);
       if (existing) return this.serial.run(`wt:${existing.id}`, () => this.reuseForItem(existing.id));
-      return this.create(member, { item });
+      return this.create(member, { item }, input.history);
     });
   }
 
@@ -788,7 +979,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private async reuseForItem(worktreeId: string): Promise<WorktreeHandle> {
     const record = this.record(worktreeId);
     if (!record || record.item === undefined) throw NOT_FOUND();
-    this.requireAvailableForWork();
+    await this.repoOf(record);
     const dir = this.dirOf(record.id);
     await verifyWorktreeRepo(dir, record);
     const root = this.ctx.roots.get({ kind: 'worktree', worktreeId }) ?? (await this.registerRoot(record));
@@ -856,7 +1047,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     this.writes.set(worktreeId, (this.writes.get(worktreeId) ?? 0) + 1);
     const state = this.trees.get(worktreeId);
     if (state) state.dirty = true;
-    if (this.stopped || !this.available.ok) return;
+    // (any usable git: the look is at the worktree's own repository, whichever history it was cloned from)
+    if (this.stopped || this.runner === null) return;
     const pending = this.treeChecks.get(worktreeId);
     if (pending !== undefined) clearTimeout(pending);
     const timer = setTimeout(() => {
@@ -931,7 +1123,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   /** After a start: the branch head and whether the working tree has uncommitted changes, for every item worktree. */
   private async inspectItemWorktrees(): Promise<void> {
-    if (!this.available.ok) return;
+    if (this.runner === null) return;
     for (const record of this.records()) {
       if (this.stopped) return;
       if (record.item === undefined || this.trees.has(record.id)) continue;
@@ -949,8 +1141,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
    */
   private async lookAtTree(worktreeId: string): Promise<void> {
     const record = this.record(worktreeId);
-    if (!record || record.item === undefined || !this.available.ok || this.stopped) return;
-    const git = this.available.git;
+    const git = this.runner;
+    if (!record || record.item === undefined || git === null || this.stopped) return;
     const dir = this.dirOf(worktreeId);
     const gitDir = join(dir, '.git');
     const writesBefore = this.writes.get(worktreeId) ?? 0;
@@ -1036,6 +1228,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private async commitWorktree(record: StoredWorktree, options: { readonly git: GitRunner; readonly identity: GitIdentity; readonly message: string; readonly verify: boolean }): Promise<Committed> {
     const dir = this.dirOf(record.id);
     await verifyWorktreeRepo(dir, record);
+    // A clone of smurg's own history: its exclude file is written again before every commit (DESIGN 0.6.0 D14).
+    const beforeStage = record.repo === 'smurg' ? () => writeExclude(join(dir, '.git'), record.sharedDirs.map((path) => ({ path, mainPath: path })), this.cloneExcludeLines()) : undefined;
     const pending = record.merge;
     if (pending !== undefined) {
       const markers = await filesWithConflictMarkers(dir, pending.conflicted);
@@ -1059,6 +1253,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
         stagingRoot: this.stagingDir,
         verify: options.verify,
         ...(pending !== undefined ? { secondParent: pending.parent } : {}),
+        ...(beforeStage !== undefined ? { beforeStage } : {}),
         limits: { timeoutMs: this.limits.gitTimeoutMs },
       });
     } catch (err) {
@@ -1085,7 +1280,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
       .merges.filter((merge) => merge.worktreeId === record.id && (merge.status === 'pending' || merge.status === 'conflict')).length;
     if (open >= this.limits.maxOpenMergesPerWorktree) throw new SmurgError('conflict', msg('merge.tooManyOpen'), { reason: 'too-many-open-merges' });
     const member = this.memberOf(principal);
-    const { git, repo } = await this.availableNow();
+    // The worktree's own repository (smurg's own history, or the folder's `.git`), whatever the folder has now.
+    const { git, repo } = await this.repoOf(record);
     const timeoutMs = this.limits.gitTimeoutMs;
     const requesterIsHost = isHostPrincipal(principal);
 
@@ -1118,19 +1314,21 @@ export class WorktreeManagerImpl implements WorktreeManager {
             action: 'worktree.merge.request',
             outcome: 'ok',
             target: updated.id,
-            detail: { requestId: updated.id, worktreeId: current.id, branch: current.branch, commit, fromDraft: true, ...(updated.message !== undefined ? { message: updated.message } : {}) },
+            detail: { requestId: updated.id, worktreeId: current.id, branch: current.branch, commit, fromDraft: true, ...(updated.message !== undefined ? { message: updated.message } : {}), ...(updated.repo === 'smurg' ? { history: 'smurg' } : {}) },
           });
           this.publishMerge(updated, principal);
           await this.persist();
           return toMergeRequest(updated);
         }
         // 2. Bring exactly that commit into the main repository, under a ref of its own.
+        if (repo.kind === 'smurg') await this.verifyHidden();
         const requestId = newMergeId();
         const ref = await this.fetchCommit(git, repo, current, commit, requestId);
         try {
           const head = await mainHead(repo);
           if (head === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
-          const files = await reviewFiles(repo, await reviewBase(repo, head, commit), commit);
+          const base = await reviewBase(repo, head, commit);
+          const files = await reviewFiles(repo, base, commit);
           const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(current.item !== undefined ? { topicSlug: current.item.topicSlug } : {}), recorded: this.recordedScripts(current.id), timeoutMs });
           if (violation) {
             this.auditRefusedRequest(principal.actor, current, commit, violation, false);
@@ -1146,6 +1344,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
             status: 'pending',
             ...itemFacts(current),
             createdAt: this.ctx.clock.now(),
+            // smurg's own history: the merge base this version's review shows (every view and the approval check it).
+            ...(repo.kind === 'smurg' ? { repo: 'smurg' as const, base } : {}),
           };
           this.storeMerge(stored);
           this.ctx.audit.record({
@@ -1153,7 +1353,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
             action: 'worktree.merge.request',
             outcome: 'ok',
             target: requestId,
-            detail: { requestId, worktreeId: current.id, branch: current.branch, commit, files: files.length, ...(stored.message !== undefined ? { message: stored.message } : {}) },
+            detail: { requestId, worktreeId: current.id, branch: current.branch, commit, files: files.length, ...(stored.message !== undefined ? { message: stored.message } : {}), ...(stored.repo === 'smurg' ? { history: 'smurg' } : {}) },
           });
           this.publishMerge(stored, principal);
           await this.persist();
@@ -1167,7 +1367,9 @@ export class WorktreeManagerImpl implements WorktreeManager {
   }
 
   async snapshot(input: { readonly worktreeId: string; readonly message: string; readonly topicSlug?: string }): Promise<SnapshotResult> {
-    const { git, repo } = await this.availableNow();
+    const known = this.record(input.worktreeId);
+    if (!known) throw NOT_FOUND();
+    const { git, repo } = await this.repoOf(known);
     const timeoutMs = this.limits.gitTimeoutMs;
     return this.serial.run(`wt:${input.worktreeId}`, async () => {
       const current = this.record(input.worktreeId);
@@ -1184,6 +1386,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       const commit = committed.commit;
       return this.serial.run('main', async () => {
         const record = this.record(current.id) ?? current;
+        if (repo.kind === 'smurg') await this.verifyHidden();
         const head = await mainHead(repo);
         if (head === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
         // Nothing changed since the last snapshot: it stands.
@@ -1199,7 +1402,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
         const requestId = newMergeId();
         const ref = await this.fetchCommit(git, repo, record, commit, requestId);
         try {
-          const files = await reviewFiles(repo, await reviewBase(repo, head, commit), commit);
+          const base = await reviewBase(repo, head, commit);
+          const files = await reviewFiles(repo, base, commit);
           // 3. The policy of a request nobody of the host's rank made: no host-only paths, not the topic's two files.
           const violation = await checkMergePolicy(repo, files, { requesterIsHost: false, ...(topicSlug !== undefined ? { topicSlug } : {}), recorded: this.recordedScripts(record.id), timeoutMs });
           if (violation) {
@@ -1222,6 +1426,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
             ...itemFacts(record),
             ...(record.item === undefined && topicSlug !== undefined ? { topicSlug } : {}),
             createdAt: this.ctx.clock.now(),
+            ...(repo.kind === 'smurg' ? { repo: 'smurg' as const, base } : {}),
           };
           this.storeMerge(stored);
           this.ctx.audit.record({
@@ -1229,7 +1434,16 @@ export class WorktreeManagerImpl implements WorktreeManager {
             action: 'worktree.merge.request',
             outcome: 'ok',
             target: requestId,
-            detail: { requestId, worktreeId: record.id, branch: record.branch, commit, files: files.length, draft: true, ...(record.item !== undefined ? { topicId: record.item.topicId, itemId: record.item.itemId } : {}) },
+            detail: {
+              requestId,
+              worktreeId: record.id,
+              branch: record.branch,
+              commit,
+              files: files.length,
+              draft: true,
+              ...(record.item !== undefined ? { topicId: record.item.topicId, itemId: record.item.itemId } : {}),
+              ...(stored.repo === 'smurg' ? { history: 'smurg' } : {}),
+            },
           });
           this.publishMerge(stored);
           await this.persist();
@@ -1255,14 +1469,24 @@ export class WorktreeManagerImpl implements WorktreeManager {
   }
 
   async updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {
-    const { git, repo } = await this.availableNow();
+    const known = this.record(worktreeId);
+    if (!known) throw NOT_FOUND();
+    const { git, repo } = await this.repoOf(known);
     return this.serial.run(`wt:${worktreeId}`, async () => {
       const record = this.record(worktreeId);
       if (!record) throw NOT_FOUND();
       // What people typed into files of the worktree and is not on disk yet belongs to its work.
       const docs = this.ctx.services.docs;
       if (!isStubService(docs)) await docs.flushAll();
-      const mainCommit = await mainHead(repo);
+      // smurg's own history: the folder as it is now is what the worktree is brought up to date with (a snapshot).
+      const mainCommit =
+        repo.kind === 'smurg'
+          ? await this.serial.run('main', async () => {
+              await this.verifyHidden();
+              await removeStaleLock(repo.gitDir, this.ctx.log);
+              return (await this.snapshotHidden(git, { message: hiddenUpdateMessage(record.branch), identity: gitIdentity(record.ownerUserId, record.ownerName) })).head;
+            })
+          : await mainHead(repo);
       if (mainCommit === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
       // 1. The worktree's work is a commit on its branch; the working tree is clean against it. (An earlier update
       //    that was resolved but never committed is committed here, with its own second parent.)
@@ -1306,7 +1530,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   async diff(input: PayloadOf<'worktree.merge.diff'>, principal: Principal): Promise<ResultInputOf<'worktree.merge.diff'>> {
     const merge = this.requireMergeVisible(input.requestId, principal);
-    const { repo } = await this.availableNow();
+    const { repo } = await this.repoOf(merge);
     const { base, files } = await this.review(repo, merge);
     // Host-private files are the host's alone: for everyone else they are listed as hidden and left out of the text.
     const withheld = isHostPrincipal(principal) ? new Set<ReviewFile>() : new Set(files.filter((entry) => isWithheldFile(entry.file)));
@@ -1319,7 +1543,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   async fileDiff(input: PayloadOf<'worktree.merge.fileDiff'>, principal: Principal): Promise<ResultInputOf<'worktree.merge.fileDiff'>> {
     const merge = this.requireMergeVisible(input.requestId, principal);
-    const { repo } = await this.availableNow();
+    const { repo } = await this.repoOf(merge);
     const { base, files } = await this.review(repo, merge);
     // Only a path of this request's file list: never a pathspec the client made up.
     const entry = files.find((item) => item.file.path === input.path);
@@ -1331,16 +1555,32 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   async approve(input: PayloadOf<'worktree.merge.approve'>, principal: Principal): Promise<MergeRequest> {
     if (!principalCan(principal, 'worktree.merge.decide') || principal.kind === 'system') throw new AuthorizationError(undefined, { reason: 'capability' });
-    const { git, repo } = await this.availableNow();
+    // The request's own repository (smurg's own history, or the folder's `.git`), looked at before the queue.
+    const { git, repo } = await this.repoOf(this.requireMerge(input.requestId));
+    const hidden = repo.kind === 'smurg';
     return this.serial.run('main', async () => {
       const found = this.requireMerge(input.requestId);
       if (found.status !== 'pending' && found.status !== 'conflict' && found.status !== 'draft') throw new SmurgError('conflict', msg('merge.notPending'), { reason: 'not-pending', status: found.status });
+      if (hidden) {
+        await this.verifyHidden();
+        await removeStaleLock(repo.gitDir, this.ctx.log);
+      }
       if (!(await commitExists(repo, found.commit))) throw new SmurgError('conflict', msg('merge.commitGone'), { reason: 'commit-gone' });
       const share = this.ctx.roots.main.realPath;
-      const pre = await mainHead(repo);
-      if (pre === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
       await this.assertMainIdle(repo);
+      let pre: string | null;
+      if (hidden) {
+        // smurg's own history (DESIGN 0.6.0 D14): the folder as it is now is what the merge is made against; a person's
+        // edit since the item's base is a change on that side (a conflict is named, the folder untouched).
+        const docs = this.ctx.services.docs;
+        if (!isStubService(docs)) await docs.flushAll();
+        const host = this.memberOf(principal);
+        pre = (await this.snapshotHidden(git, { message: hiddenMergeMessage(this.branchOf(found)), identity: gitIdentity(host.userId, host.displayName) })).head;
+      } else pre = await mainHead(repo);
+      if (pre === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
       const base = await reviewBase(repo, pre, found.commit);
+      // ...and against the base the review recorded: a history changed since makes the merge differ from what was reviewed.
+      if (hidden && found.base !== undefined && base !== found.base) throw hiddenChanged('merge-base');
       const files = await reviewFiles(repo, base, found.commit);
       // Policy again: the requester's role may have changed since the request. A draft nobody asked for is held to
       // what a member's request is held to, whoever approves it.
@@ -1363,7 +1603,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
       const trial = await git.run({
         gitDir: repo.gitDir,
         attrSource: pre,
-        args: ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', pre, merge.commit],
+        // smurg's own history: exactly the base the review showed (git 2.40), not one derived from history again.
+        args: ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', ...(hidden ? ['--merge-base', base] : []), pre, merge.commit],
         maxStdoutBytes: 64 * 1024 * 1024,
         timeoutMs,
       });
@@ -1429,6 +1670,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return this.serial.run('main', async () => {
       const merge = this.requireMerge(input.requestId);
       if (merge.status !== 'pending' && merge.status !== 'conflict' && merge.status !== 'draft') throw new SmurgError('conflict', msg('merge.notPending'), { reason: 'not-pending', status: merge.status });
+      const refRepo = await this.knownRepoOf(merge);
       const whose = merge.requestedBy?.displayName ?? this.ownerNameOf(merge);
       // The worktree is not touched at all (R9.3); only the main repository's review ref goes.
       const updated = this.updateMerge(merge.id, (draft) => {
@@ -1439,7 +1681,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       this.auditDecision(principal, updated, 'ok', input.reason !== undefined ? { reason: input.reason } : {});
       this.publishMerge(updated, principal, whose);
       await this.persist();
-      if (this.available.ok) await this.deleteRef(this.available.repo, mergeRef(merge.id));
+      if (refRepo !== null) await this.deleteRef(refRepo, mergeRef(merge.id));
       return toMergeRequest(updated);
     });
   }
@@ -1486,7 +1728,27 @@ export class WorktreeManagerImpl implements WorktreeManager {
     this.requireDoc().update((draft) => {
       draft.merges = draft.merges.filter((merge) => !ids.has(merge.id));
     });
-    if (this.available.ok) for (const merge of dropped) await this.deleteRef(this.available.repo, mergeRef(merge.id));
+    for (const merge of dropped) {
+      const repo = await this.knownRepoOf(merge);
+      if (repo !== null) await this.deleteRef(repo, mergeRef(merge.id));
+    }
+  }
+
+  /**
+   * A record's repository as it is known now, without looking again (for the `main` queue, where a look would wait for
+   * the queue itself): null when it cannot be used now.
+   */
+  private async knownRepoOf(record: { readonly repo?: 'smurg' | undefined }): Promise<MainRepo | null> {
+    if (record.repo === 'smurg') {
+      if (this.runner === null) return null;
+      try {
+        await this.verifyHidden();
+      } catch {
+        return null;
+      }
+      return this.hiddenRepo(this.runner);
+    }
+    return this.available.ok && this.available.repo.kind === 'folder' ? this.available.repo : null;
   }
 
   private async review(repo: MainRepo, merge: StoredMerge): Promise<{ base: string; files: ReviewFile[] }> {
@@ -1495,6 +1757,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const against = merge.status === 'merged' && merge.mergeCommit !== undefined ? `${merge.mergeCommit}^1` : await mainHead(repo);
     if (against === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
     const base = await reviewBase(repo, against, merge.commit);
+    // smurg's own history: the base this version's review recorded (DESIGN 0.6.0 D14); another one is a changed history.
+    if (repo.kind === 'smurg' && merge.base !== undefined && base !== merge.base) throw hiddenChanged('merge-base');
     return { base, files: await reviewFiles(repo, base, merge.commit, DEFAULT_REVIEW_LIMITS) };
   }
 
@@ -1582,6 +1846,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
         status: merge.status,
         ...(merge.requestedBy !== undefined ? { requestedBy: merge.requestedBy.userId } : {}),
         ...(merge.itemId !== undefined ? { topicId: merge.topicId, itemId: merge.itemId } : {}),
+        // (DESIGN 0.6.0 D14: what uses smurg's own history says so)
+        ...(merge.repo === 'smurg' ? { history: 'smurg' } : {}),
         ...detail,
       },
     });
@@ -1631,52 +1897,115 @@ export class WorktreeManagerImpl implements WorktreeManager {
   // The main workspace's own files (the checkpoint of a Start, the pin check, "Show the changes")
   // =================================================================================================================
 
-  async commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{ readonly commit: string; readonly created: boolean; readonly branch: string; readonly blobs: Readonly<Record<string, string>> }> {
+  async commitMainPaths(input: { readonly paths: readonly string[]; readonly message: string; readonly trailers: readonly string[]; readonly as: Principal }): Promise<{
+    readonly commit: string;
+    readonly created: boolean;
+    readonly branch: string;
+    readonly blobs: Readonly<Record<string, string>>;
+    readonly history: 'folder' | 'smurg';
+  }> {
     const member = this.memberOf(input.as);
-    const { repo } = await this.availableNow();
+    // A Start's checkpoint may look for git (Start looked already: smurg's own history needs it).
+    await this.refreshGitState();
+    if (this.observed !== null && !this.observed.exists) await this.lookForGit();
+    const { git, repo } = await this.availableNow();
+    const identity = gitIdentity(member.userId, member.displayName);
+    if (repo.kind === 'smurg') {
+      // smurg's own history (DESIGN 0.6.0 D14): the checkpoint records the WHOLE folder as it is (the Start dialog says
+      // so, `start.smurgHistory`), as the member who pressed Start; the history is made first when it is not there.
+      return this.serial.run('main', async () => {
+        await this.ensureHidden(git);
+        const snapshot = await this.snapshotHidden(git, { message: checkpointMessage(input.message, input.trailers), identity });
+        const at = await blobsAt(repo, snapshot.head, input.paths, this.limits.gitTimeoutMs);
+        const blobs: Record<string, string> = {};
+        for (const path of input.paths) {
+          const blob = at[path];
+          if (blob !== null && blob !== undefined) blobs[path] = blob;
+          // What the member confirmed is a file: a snapshot that left it out (a `.gitignore` of the folder) is not its checkpoint.
+          else if ((await plainFileKind(this.ctx.roots.main.realPath, path)) === 'file') throw new SmurgError('conflict', msg('plan.start.commit.ignored', { path }), { reason: 'git-ignored', path });
+        }
+        return { commit: snapshot.head, created: snapshot.created, branch: (await currentBranch(repo)) ?? 'HEAD', blobs, history: 'smurg' as const };
+      });
+    }
     // On the queue of merges: a merge and the checkpoint never interleave their steps.
-    return this.serial.run('main', () =>
-      commitMainPaths({
-        repo,
-        workTree: this.ctx.roots.main.realPath,
-        paths: input.paths,
-        message: input.message,
-        trailers: input.trailers,
-        identity: gitIdentity(member.userId, member.displayName),
-        timeoutMs: this.limits.gitTimeoutMs,
-      }),
+    const result = await this.serial.run('main', () =>
+      commitMainPaths({ repo, workTree: this.ctx.roots.main.realPath, paths: input.paths, message: input.message, trailers: input.trailers, identity, timeoutMs: this.limits.gitTimeoutMs }),
     );
+    return { ...result, history: 'folder' as const };
   }
 
-  async headBlobs(paths: readonly string[]): Promise<Record<string, string | null>> {
+  async headBlobs(paths: readonly string[], options: { readonly history?: 'folder' | 'smurg' } = {}): Promise<Record<string, string | null>> {
     const none = (): Record<string, string | null> => Object.fromEntries(paths.map((path) => [path, null]));
     await this.refreshGitState();
-    if (!this.available.ok || this.stopped) return none();
-    const repo = this.available.repo;
+    if (this.stopped) return none();
+    const repo = await this.historyRepo(options.history).catch(() => null);
+    if (repo === null) return none();
     const head = await mainHead(repo);
     return head === null ? none() : blobsAt(repo, head, paths, this.limits.gitTimeoutMs);
+  }
+
+  /**
+   * The repository of a history as it can be read now, never made (null: none to read): `smurg` (verified), `folder`
+   * (the folder's own while worktree mode uses it), or by default the one new work uses now.
+   */
+  private async historyRepo(history: 'folder' | 'smurg' | undefined): Promise<MainRepo | null> {
+    const available = this.forNewWork();
+    const kind = history ?? (available.ok ? available.repo.kind : null);
+    if (kind === null) return null;
+    if (kind === 'folder') return available.ok && available.repo.kind === 'folder' ? available.repo : null;
+    if (this.runner === null || this.gitBinary?.kind !== 'ok') return null;
+    const record = this.hiddenRecord();
+    if (record === undefined || (await hiddenOnDisk(this.ctx.roots.main.realPath)) === 'absent') return null;
+    await verifyHiddenRepo(hiddenGitDir(this.ctx.roots.main.realPath), record);
+    return this.hiddenRepo(this.runner);
   }
 
   workState(): WorkState {
     // Only what is known: never a git run (a teammate's request must not make smurg look for git, DESIGN 0.6.0 D14).
     const binary = this.gitBinary === null ? null : binaryUnavailable(this.gitBinary);
     if (binary !== null) return { history: 'direct', reason: wireText(binary.error.text ?? msg('worktree.unavailable.gitCannotRun')) };
-    return this.ctx.workspace.info.isGitRepo ? { history: 'folder' } : { history: 'unchecked' };
+    // Something at `.git` (a repository, or one git does not take: Start says why) is the folder's own history; so is
+    // nothing at all while records of the folder's own repository wait for it (gitDirGone: put it back).
+    const observed = this.observed;
+    const atGit = observed === null ? this.ctx.workspace.info.isGitRepo : observed.exists;
+    if (atGit || this.folderRecordsWait()) return { history: 'folder' };
+    return this.gitBinary?.kind === 'ok' ? { history: 'smurg' } : { history: 'unchecked' };
+  }
+
+  /** MainState.history: how items started now would run (an unchecked folder counts as its own, with its refusal). */
+  private historyNow(): MainState['history'] {
+    const work = this.workState();
+    return work.history === 'unchecked' ? 'folder' : work.history;
   }
 
   async mainState(): Promise<MainState> {
     await this.refreshGitState();
+    // The Start dialog and Start may look for git (0.5.2's preflight already did for a folder that is no repository):
+    // smurg's own history needs it.
+    if (this.observed !== null && !this.observed.exists) await this.lookForGit();
     const isRepo = this.ctx.workspace.info.isGitRepo;
     const free = Math.max(0, this.limits.maxWorktrees - this.records().length);
-    const available = this.available;
+    const available = this.forNewWork();
     if (!available.ok) {
       // git itself first (`git init` needs it), then what the folder lacks (a `.git` that went, when worktrees or
       // open merge requests are on record: refusal).
       const binary = await this.gitBinaryNow();
-      const reason = binaryUnavailable(binary)?.error ?? this.refusal(available);
-      return { isRepo, hasCommit: false, gitOk: binary.kind === 'ok', unavailable: reason.text ?? msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free };
+      const unusable = binaryUnavailable(binary);
+      const reason = unusable?.error ?? this.refusal(available);
+      return { isRepo, hasCommit: false, gitOk: binary.kind === 'ok', unavailable: reason.text ?? msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free, history: unusable !== null ? 'direct' : this.historyNow() };
     }
     const repo = available.repo;
+    if (repo.kind === 'smurg') {
+      // Nothing is made here (the Start dialog's prepareStart does): what stops its use as it is found.
+      try {
+        const problem = await this.hiddenProblemNow();
+        const there = problem === null && (await hiddenOnDisk(this.ctx.roots.main.realPath)) === 'present';
+        const head = there ? await mainHead(repo).catch(() => null) : null;
+        return { isRepo: false, hasCommit: head !== null, gitOk: true, unavailable: problem?.text ?? null, branch: null, busy: there && (await busyMarker(repo)) !== null, free, history: 'smurg' };
+      } catch {
+        return { isRepo: false, hasCommit: false, gitOk: true, unavailable: msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free, history: 'smurg' };
+      }
+    }
     try {
       const head = await mainHead(repo);
       return {
@@ -1687,18 +2016,95 @@ export class WorktreeManagerImpl implements WorktreeManager {
         branch: await currentBranch(repo),
         busy: (await busyMarker(repo)) !== null,
         free,
+        history: 'folder',
       };
     } catch {
-      return { isRepo, hasCommit: false, gitOk: false, unavailable: msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free };
+      return { isRepo, hasCommit: false, gitOk: false, unavailable: msg('worktree.unavailable.checkFailed'), branch: null, busy: false, free, history: 'folder' };
     }
+  }
+
+  async prepareStart(): Promise<StartFolderFacts> {
+    const nothing: StartFolderFacts = { nestedRepos: [], cloudSynced: false, problem: null };
+    // (the Start dialog looked already, mainState: this is the same look)
+    await this.refreshGitState();
+    if (this.observed !== null && !this.observed.exists) await this.lookForGit();
+    const available = this.forNewWork();
+    if (this.stopped || !available.ok || available.repo.kind !== 'smurg') return nothing;
+    const git = available.git;
+    const cloudSynced = isCloudSynced(this.ctx.roots.main.realPath, this.home());
+    try {
+      // The history is made when it is not there (cheap), and the folder listed: the bound and nested repositories.
+      const listing = await this.serial.run('main', async () => {
+        await this.ensureHidden(git);
+        const run = this.hiddenRun(git);
+        await writeHiddenExclude(run.gitDir, hiddenExcludeLines({ sharedDirs: this.sharedDirs() }));
+        return listFolder(run);
+      });
+      this.lastListing = { bytes: listing.bytes, nested: listing.nested };
+      const nestedRepos = listing.nested.slice(0, PREFLIGHT_NESTED_REPOS_MAX);
+      if (listing.tooLarge) return { nestedRepos, cloudSynced, problem: tooLargeError(listing, this.hiddenRun(git)).text ?? null };
+      // The expensive part (hashing every file into objects) while the person reads the dialog.
+      this.warmUp(git);
+      return { nestedRepos, cloudSynced, problem: null };
+    } catch (err) {
+      if (err instanceof SmurgError && err.text !== undefined && err.detail?.['reason'] !== 'stopping') return { nestedRepos: [], cloudSynced, problem: err.text };
+      if (err instanceof SmurgError && err.detail?.['reason'] === 'stopping') return nothing;
+      this.ctx.log.warn("smurg's own history could not be prepared for the Start dialog", { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' });
+      return { nestedRepos: [], cloudSynced, problem: msg('worktree.unavailable.checkFailed') };
+    }
+  }
+
+  /** The Start dialog's warm-up: the bound and `git add -A` without a commit, on the `main` queue (a Start waits for it there). */
+  private warmUp(git: GitRunner): void {
+    if (this.warmingUp !== null || this.stopped) return;
+    const run = this.serial
+      .run('main', async () => {
+        if (this.stopped) return;
+        await this.ensureHidden(git);
+        const outcome = await snapshotFolder(this.hiddenRun(git), { sharedDirs: this.sharedDirs(), message: '', identity: SMURG_IDENTITY, commit: false });
+        this.lastListing = { bytes: outcome.listing.bytes, nested: outcome.listing.nested };
+      })
+      .catch((err: unknown) => {
+        this.ctx.log.warn("the warm-up of smurg's own history did not finish; Start takes the whole snapshot", { module: 'worktree', reason: err instanceof SmurgError ? String(err.detail?.['reason'] ?? err.code) : err instanceof Error ? err.name : 'unknown' });
+      })
+      .finally(() => {
+        if (this.warmingUp === run) this.warmingUp = null;
+      });
+    this.warmingUp = run;
+  }
+
+  async historyState(history: 'folder' | 'smurg' | 'direct'): Promise<HistoryState> {
+    if (this.stopped || this.doc === null) return 'unknown';
+    await this.refreshGitState();
+    // A pin of these histories was made where git ran (or, for `direct`, by the host who saw it does not): looking is
+    // what Start did too.
+    await this.lookForGit();
+    if (this.gitBinary === null) return 'unknown';
+    const unusable = binaryUnavailable(this.gitBinary) !== null;
+    if (history === 'direct') return unusable ? 'usable' : 'changed';
+    if (unusable) return 'changed';
+    const share = this.ctx.roots.main.realPath;
+    if (history === 'smurg') {
+      if (this.runner === null) return 'unknown';
+      const record = this.hiddenRecord();
+      if (record === undefined) return 'changed';
+      const problem = await hiddenProblem(share, record, true).catch(() => null);
+      return problem === null && (await hiddenOnDisk(share)) === 'present' ? 'usable' : 'changed';
+    }
+    const observed = this.observed;
+    if (observed === null) return 'unknown';
+    if (!observed.exists || !(observed.kind === 'dir' && observed.plain)) return 'changed';
+    return this.available.ok && this.available.repo.kind === 'folder' ? 'usable' : 'unknown';
   }
 
   async diffMainPaths(input: { readonly paths: readonly string[]; readonly against: 'head' | Readonly<Record<string, string | null>>; readonly maxBytes: number }): Promise<{ readonly path: string; readonly diff: string; readonly truncated: boolean }[]> {
     await this.refreshGitState();
-    if (!this.available.ok) return [];
     if (this.stopped) throw new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' });
+    // smurg's own history is read as it is (never made here): without one there is nothing to compare with.
+    const repo = await this.historyRepo(undefined).catch(() => null);
+    if (repo === null) return [];
     return diffMainPaths({
-      repo: this.available.repo,
+      repo,
       workTree: this.ctx.roots.main.realPath,
       stagingRoot: this.stagingDir,
       paths: input.paths,
@@ -1706,6 +2112,146 @@ export class WorktreeManagerImpl implements WorktreeManager {
       maxBytes: input.maxBytes,
       timeoutMs: this.limits.gitTimeoutMs,
     });
+  }
+
+  // =================================================================================================================
+  // smurg's own history of a folder without `.git` (DESIGN 0.6.0 D14)
+  // =================================================================================================================
+
+  private hiddenRecord(): StoredHiddenRepo | undefined {
+    return this.doc?.get().hidden;
+  }
+
+  /** Worktrees or open merge requests made from smurg's own history remain. */
+  private openHiddenRecords(): boolean {
+    const doc = this.doc?.get();
+    return doc !== undefined && (doc.worktrees.some((record) => record.repo === 'smurg') || doc.merges.some((merge) => merge.repo === 'smurg' && isOpenMerge(merge)));
+  }
+
+  /** Worktrees or open merge requests of the folder's OWN repository remain (a `.git` that went strands them: gitDirGone). */
+  private folderRecordsWait(): boolean {
+    const doc = this.doc?.get();
+    return doc !== undefined && (doc.worktrees.some((record) => record.repo === undefined) || doc.merges.some((merge) => merge.repo === undefined && isOpenMerge(merge)));
+  }
+
+  private hiddenRepo(git: GitRunner): MainRepo {
+    return { git, gitDir: hiddenGitDir(this.ctx.roots.main.realPath), kind: 'smurg' };
+  }
+
+  private hiddenRun(git: GitRunner): HiddenRun {
+    return {
+      git,
+      gitDir: hiddenGitDir(this.ctx.roots.main.realPath),
+      shareReal: this.ctx.roots.main.realPath,
+      timeoutMs: this.limits.hiddenSnapshotTimeoutMs,
+      log: this.ctx.log,
+      maxFiles: this.limits.hiddenMaxFiles,
+      maxBytes: this.limits.hiddenMaxBytes,
+      looseObjectsMax: this.limits.hiddenLooseObjectsMax,
+    };
+  }
+
+  private sharedDirs(): readonly string[] {
+    return this.ctx.settings.get().sharedDirs;
+  }
+
+  private home(): string | null {
+    return this.ctx.config.sessions.hostHome ?? homedir();
+  }
+
+  /** What stops the use of smurg's own history as it is found now (no git, nothing made). */
+  private hiddenProblemNow(): Promise<SmurgError | null> {
+    return hiddenProblem(this.ctx.roots.main.realPath, this.hiddenRecord(), this.openHiddenRecords());
+  }
+
+  /**
+   * smurg's own history, made when it is not there and checked; a stale `index.lock` goes. Runs on the `main` queue
+   * (only smurg runs git there, one command at a time).
+   */
+  private async ensureHidden(git: GitRunner): Promise<void> {
+    const share = this.ctx.roots.main.realPath;
+    await ensureHiddenRepo({
+      git,
+      shareReal: share,
+      template: this.templateDir,
+      record: this.hiddenRecord(),
+      openRecords: this.openHiddenRecords(),
+      save: async (record) => {
+        this.requireDoc().update((draft) => {
+          if (record === undefined) delete draft.hidden;
+          else draft.hidden = { createdAt: record.createdAt, configHash: record.configHash, headHash: record.headHash };
+        });
+        // The record is on disk before the history gets its name (a crash in between starts anew).
+        await this.requireDoc().flush();
+      },
+      now: () => this.ctx.clock.now(),
+      excludeLines: hiddenExcludeLines({ sharedDirs: this.sharedDirs() }),
+      log: this.ctx.log,
+    });
+    const record = this.hiddenRecord();
+    if (record === undefined) throw hiddenGone();
+    await verifyHiddenRepo(hiddenGitDir(share), record);
+    await removeStaleLock(hiddenGitDir(share), this.ctx.log);
+  }
+
+  /** An existing history for what works on a record of it: checked, never made (gone: `worktree.hidden.gone`). */
+  private async verifyHidden(): Promise<void> {
+    const share = this.ctx.roots.main.realPath;
+    const problem = await hiddenProblem(share, this.hiddenRecord(), true);
+    if (problem !== null) throw problem;
+    if ((await hiddenOnDisk(share)) === 'absent') throw hiddenGone();
+  }
+
+  /** A snapshot of the folder into smurg's own history (the caller holds the `main` queue and ran ensureHidden). */
+  private async snapshotHidden(git: GitRunner, input: { readonly message: string; readonly identity: GitIdentity }): Promise<{ readonly head: string; readonly created: boolean }> {
+    const outcome = await snapshotFolder(this.hiddenRun(git), { sharedDirs: this.sharedDirs(), message: input.message, identity: input.identity, commit: true });
+    this.lastListing = { bytes: outcome.listing.bytes, nested: outcome.listing.nested };
+    if (outcome.head === null) throw new SmurgError('internal', msg('git.stepFailed', { step: 'commit' }), { reason: 'git-failed', step: 'commit' });
+    return { head: outcome.head, created: outcome.created };
+  }
+
+  /**
+   * Before a clone of smurg's own history: the free disk space with the upload rule (files/disk.ts: statfs, the host's
+   * reserve) against the size of the last snapshot. Refused with `worktree.hidden.noSpace`.
+   */
+  private async diskCheck(): Promise<void> {
+    const bytes = this.lastListing?.bytes ?? 0;
+    const statfs = this.options.statfs ?? nodeStatfs;
+    const snapshot = await statfs(this.ctx.roots.worktreesDir).catch(() => null);
+    if (snapshot === null) {
+      this.ctx.log.warn('the free disk space could not be read before a clone of smurg\'s own history', { module: 'worktree' });
+      return;
+    }
+    const report = diskReport(snapshot, this.ctx.settings.get(), 0, bytes);
+    if (report.ok) return;
+    throw new SmurgError('conflict', msg('worktree.hidden.noSpace', { needed: sizeText(bytes), free: sizeText(Math.max(0, report.availableBytes - report.reserveBytes)) }), {
+      reason: 'hidden-no-space',
+      neededBytes: bytes,
+      availableBytes: report.availableBytes,
+      reserveBytes: report.reserveBytes,
+    });
+  }
+
+  /**
+   * The repository a record belongs to, usable now (DESIGN 0.6.0 D14 "Records say which repository"): smurg's own
+   * history (checked; git looked for when no look did yet: the record says it ran) whatever the folder has now, or
+   * the folder's own `.git` (refused with what is wrong with it, gitDirGone when it went).
+   */
+  private async repoOf(record: { readonly repo?: 'smurg' | undefined }): Promise<{ readonly git: GitRunner; readonly repo: MainRepo }> {
+    if (this.stopped) throw new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' });
+    if (record.repo === 'smurg') {
+      await this.lookForGit();
+      const binary = this.gitBinary === null ? uncheckedState() : binaryUnavailable(this.gitBinary);
+      if (binary !== null) throw binary.error;
+      if (this.runner === null) throw uncheckedState().error;
+      await this.verifyHidden();
+      return { git: this.runner, repo: this.hiddenRepo(this.runner) };
+    }
+    await this.refreshGitState();
+    const available = this.available;
+    if (available.ok && available.repo.kind === 'folder') return { git: available.git, repo: available.repo };
+    if (available.ok) throw new SmurgError('conflict', msg('worktree.unavailable.gitDirGone'), { reason: 'git-dir-gone' });
+    throw this.refusal(available);
   }
 
   // =================================================================================================================
@@ -1723,6 +2269,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     } catch (err) {
       this.ctx.log.error('worktrees.json write failed', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' });
     }
+    // (records of the folder's own repository that wait for its `.git` decide `workState()`)
+    this.announceWork();
   }
 
   private requireDoc(): PersistentDocument<WorktreesDocument> {
@@ -1800,8 +2348,19 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   private requireAvailable(): { git: GitRunner; repo: MainRepo } {
     if (this.stopped) throw new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' });
-    if (!this.available.ok) throw this.refusal(this.available);
-    return { git: this.available.git, repo: this.available.repo };
+    const available = this.forNewWork();
+    if (!available.ok) throw this.refusal(available);
+    return { git: available.git, repo: available.repo };
+  }
+
+  /**
+   * Worktree mode for NEW work (a worktree, a Start's checkpoint): smurg's own history is not used while records of
+   * the folder's own repository wait for its `.git` (they would be stranded: 0.5.2's gitDirGone, "put it back").
+   */
+  private forNewWork(): Available {
+    const available = this.available;
+    if (available.ok && available.repo.kind === 'smurg' && this.folderRecordsWait()) return notAvailable('git-dir-gone', msg('worktree.unavailable.gitDirGone'));
+    return available;
   }
 
   /**
@@ -1839,9 +2398,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
    * worktree removed, a request rejected).
    */
   private refusal(state: Extract<Available, { ok: false }>): SmurgError {
-    if (state.error.detail?.['reason'] !== 'not-a-git-repo') return state.error;
-    const doc = this.doc?.get();
-    if (doc === undefined || (doc.worktrees.length === 0 && !doc.merges.some(isOpenMerge))) return state.error;
+    const reason = state.error.detail?.['reason'];
+    if (reason !== 'not-a-git-repo' && reason !== 'unchecked') return state.error;
+    // (0.6.0: only records of the folder's OWN repository count; smurg's own history keeps its records itself.)
+    if (!this.folderRecordsWait()) return state.error;
     return new SmurgError('conflict', msg('worktree.unavailable.gitDirGone'), { reason: 'git-dir-gone' });
   }
 

@@ -22,9 +22,14 @@ const OID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/;
 /** Files in <gitDir> whose presence means another git operation is in progress in the main workspace. */
 export const BUSY_MARKERS = ['MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'rebase-merge', 'rebase-apply', 'index.lock'] as const;
 
-/** The first busy marker present in the main repository, or null. */
+/**
+ * The first busy marker present in the main repository, or null. In smurg's own history (DESIGN 0.6.0 D14) an
+ * `index.lock` is not one: only smurg runs git there, one command at a time on the `main` queue, so a lock found at the
+ * start of a command is a crash's (removed there: hidden-repo.ts removeStaleLock).
+ */
 export async function busyMarker(repo: MainRepo): Promise<string | null> {
   for (const marker of BUSY_MARKERS) {
+    if (repo.kind === 'smurg' && marker === 'index.lock') continue;
     if ((await lstat(join(repo.gitDir, marker)).catch(() => null)) !== null) return marker;
   }
   return null;

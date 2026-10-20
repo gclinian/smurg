@@ -40,8 +40,8 @@ import {
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, TurnMessage, WorktreeManager } from '../core/interfaces.ts';
-import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
+import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, StartFolderFacts, TurnMessage, WorktreeManager } from '../core/interfaces.ts';
+import { SYSTEM_PRINCIPAL, isHostPrincipal } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
 import { requireModelOffered } from '../sessions/model-offered.ts';
@@ -375,24 +375,38 @@ export class PlanServiceImpl implements PlanService {
     }
   }
 
-  /** What stops a Start right now, each as a sentence for people. */
-  private blockersOf(topic: StoredTopic, targets: readonly StoredItem[], main: MainState | null): MessageRef[] {
+  /**
+   * What stops a Start right now, each as a sentence for people. `folderProblem`: what the Start dialog found about
+   * smurg's own history (too large, unknown, changed, gone).
+   */
+  private blockersOf(topic: StoredTopic, targets: readonly StoredItem[], main: MainState | null, folderProblem: MessageRef | null = null): MessageRef[] {
     const blockers: MessageRef[] = [];
     if (!topic.spec.exists) blockers.push(msg('topic.noSpec'));
     if (!topic.plan.exists || !topic.plan.valid || !topic.plan.parsed) blockers.push(msg('plan.start.invalid'));
-    // Execution needs git: items run in worktrees, their changes are reviewed and merged. One message per reason (the
-    // first that holds), saying what the host can do and whether sharing has to be restarted.
+    // Execution needs a history: items run in worktrees of the folder's own repository or of smurg's own history,
+    // their changes are reviewed and merged. One message per reason (the first that holds), saying what the host can do
+    // and whether sharing has to be restarted. Without the git program items run directly in the folder (DESIGN 0.6.0
+    // D15): that is no blocker (the dialog says what it means and the host confirms it).
     if (main === null) blockers.push(msg('worktree.unavailable.checkFailed'));
-    else if (main.unavailable !== null || !main.isRepo || !main.hasCommit || !main.gitOk) blockers.push(main.unavailable ?? msg('worktree.unavailable.checkFailed'));
+    else if (main.history === 'direct') {
+      // nothing in the way as far as git goes
+    } else if (main.history === 'smurg') {
+      if (main.unavailable !== null || folderProblem !== null) blockers.push(main.unavailable ?? (folderProblem as MessageRef));
+      else if (main.busy) blockers.push(msg('plan.start.commit.busy'));
+      else this.worktreeLimit(blockers, topic, targets, main);
+    } else if (main.unavailable !== null || !main.isRepo || !main.hasCommit || !main.gitOk) blockers.push(main.unavailable ?? msg('worktree.unavailable.checkFailed'));
     else if (main.busy) blockers.push(msg('plan.start.commit.busy'));
-    else {
-      const startsNow = targets.filter((item) => this.core.unmergedDependencies(topic, item).length === 0 && item.worktreeId === undefined).length;
-      const worktrees = this.ctx.services.worktrees;
-      if (startsNow > main.free) blockers.push(msg('plan.start.worktreeLimit', { max: main.free + (isStubService(worktrees) ? 0 : worktrees.list().length) }));
-    }
+    else this.worktreeLimit(blockers, topic, targets, main);
     if (topic.plan.paused) blockers.push(msg('plan.paused'));
     if (targets.length === 0) blockers.push(msg('plan.start.nothing'));
     return blockers.slice(0, PREFLIGHT_BLOCKERS_MAX);
+  }
+
+  /** The items that start now need a worktree each (an item that has one already does not). */
+  private worktreeLimit(blockers: MessageRef[], topic: StoredTopic, targets: readonly StoredItem[], main: MainState): void {
+    const startsNow = targets.filter((item) => this.core.unmergedDependencies(topic, item).length === 0 && item.worktreeId === undefined).length;
+    const worktrees = this.ctx.services.worktrees;
+    if (startsNow > main.free) blockers.push(msg('plan.start.worktreeLimit', { max: main.free + (isStubService(worktrees) ? 0 : worktrees.list().length) }));
   }
 
   /** Files of the topic's folder other than the two that are committed (the dialog says they are NOT committed). */
@@ -429,10 +443,13 @@ export class PlanServiceImpl implements PlanService {
     const main = await this.mainState();
     const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
     const worktrees = this.ctx.services.worktrees;
+    // smurg's own history (DESIGN 0.6.0 D14): made when it is not there, the folder listed (the bound, nested
+    // repositories) and, after this answer, warmed up.
+    const folder = main?.history === 'smurg' && !isStubService(worktrees) ? await worktrees.prepareStart().catch(() => null) : null;
     // What Start would commit: only when worktree mode is available and the repository has a commit (a folder that is
     // no repository yet, a gitfile share or one without a commit has no branch to name; its blocker says why).
     let commit: StartPreflight['commit'] = null;
-    if (main !== null && main.unavailable === null && main.isRepo && main.hasCommit && main.gitOk) {
+    if (main !== null && main.history === 'folder' && main.unavailable === null && main.isRepo && main.hasCommit && main.gitOk) {
       const differs = await worktrees.diffMainPaths({ paths: [specPath, planPath], against: 'head', maxBytes: 1 }).catch(() => []);
       commit = { needed: differs.length > 0, branch: main.branch ?? '', as: caller, files: [specPath, planPath], alsoInFolder: await this.alsoInFolder(topic.slug) };
     }
@@ -485,32 +502,32 @@ export class PlanServiceImpl implements PlanService {
       projectSettings: isStubService(trust) ? 'none' : trust.state(MAIN_ROOT),
       rules: topic.rules.map((rule) => ({ ...rule })),
       sharedDirs: [...this.ctx.settings.get().sharedDirs],
-      blockers: this.blockersOf(topic, targets, main).map((ref): WireText => wireText(ref)),
-      ...this.startFacts(topic, principal),
+      blockers: this.blockersOf(topic, targets, main, folder?.problem ?? null).map((ref): WireText => wireText(ref)),
+      ...this.startFacts(topic, principal, main, folder),
     };
   }
 
   /**
-   * What protocol 5 adds to the Start dialog (DESIGN 0.6.0 D5, D3): how the items started now run, and the topic's
-   * agent settings with the mode its items would run with. (0.6.0 S1: without a usable git program the history is
-   * `direct`, and today's blocker still refuses the Start; otherwise the folder's own git, and a folder without one is
-   * still refused by its blocker. smurg's own history, nested repositories and cloud-synced folders come with S5.)
+   * What protocol 5 adds to the Start dialog (DESIGN 0.6.0 D5, D3, D14, D15): how the items started now run (the folder's
+   * own git, smurg's own history with its nested repositories and whether a cloud service syncs the folder, or directly
+   * in the folder with why, and `hostOnly` for anyone but the host), and the topic's agent settings with the mode its
+   * items would run with.
    */
-  private startFacts(topic: StoredTopic, principal: Principal): Pick<StartPreflight, 'history' | 'direct' | 'agent' | 'nestedRepos' | 'cloudSynced'> {
-    const worktrees = this.ctx.services.worktrees;
-    const work = isStubService(worktrees) ? { history: 'unchecked' as const } : worktrees.workState();
-    const direct = work.history === 'direct' && work.reason !== undefined ? work.reason : null;
+  private startFacts(topic: StoredTopic, principal: Principal, main: MainState | null, folder: StartFolderFacts | null): Pick<StartPreflight, 'history' | 'direct' | 'agent' | 'nestedRepos' | 'cloudSynced'> {
+    const history = main?.history ?? 'folder';
+    // Why git cannot be used: the `worktree.unavailable.git*` sentence (MainState names it with history `direct`).
+    const reason = history === 'direct' ? wireText(main?.unavailable ?? msg('worktree.unavailable.gitCannotRun')) : null;
     const choice = topic.agent?.permissionMode ?? null;
     return {
-      history: direct === null ? 'folder' : 'direct',
-      direct: direct === null ? null : { reason: direct, hostOnly: principal.role !== null && principal.role !== 'host' },
+      history,
+      direct: reason === null ? null : { reason, hostOnly: !isHostPrincipal(principal) },
       agent: {
         model: topic.agent?.model ?? null,
         permissionMode: choice,
         effective: effectivePermissionMode({ purpose: 'item', session: null, topic: choice, workspace: this.ctx.settings.get().permissionMode }),
       },
-      nestedRepos: [],
-      cloudSynced: false,
+      nestedRepos: history === 'smurg' ? [...(folder?.nestedRepos ?? [])] : [],
+      cloudSynced: history === 'smurg' && folder?.cloudSynced === true,
     };
   }
 
@@ -533,22 +550,33 @@ export class PlanServiceImpl implements PlanService {
       if (!topic.plan.parsed || input.planRevision !== topic.plan.revision || input.specHash !== topic.spec.hash || input.planHash !== topic.plan.hash) throw changed();
       const targets = this.targetsOf(topic, input.itemIds);
       const main = await this.mainState();
+      // Without the git program the items change the shared folder directly (DESIGN 0.6.0 D15): only the host starts
+      // them, and only after confirming it in the dialog; a dialog that showed another history is stale.
+      const direct = main?.history === 'direct';
+      if (direct && !isHostPrincipal(principal)) throw new SmurgError('forbidden', msg('plan.start.directHostOnly'), { reason: 'direct-host-only' });
+      if (direct && input.direct !== true) throw new SmurgError('conflict', msg('plan.start.directUnconfirmed'), { reason: 'direct-unconfirmed' });
+      if (!direct && input.direct === true) throw new SmurgError('conflict', msg('plan.start.historyChanged'), { reason: 'history-changed' });
       const blocker = this.blockersOf(topic, targets, main)[0];
       if (blocker !== undefined) throw new SmurgError('conflict', blocker, { reason: 'blocked' });
 
-      const checkpoint = await checkpointCommit(this.ctx, topic, principal);
-      // What is at HEAD now must be exactly what was confirmed: the files as they are, hashing as the dialog showed.
+      // No checkpoint in direct mode: the items run in the folder itself, and the pin is of its two files only.
       const specPath = topicSpecPath(topic.slug);
       const planPath = topicPlanPath(topic.slug);
+      const checkpoint = direct ? null : await checkpointCommit(this.ctx, topic, principal);
+      // What is at HEAD now must be exactly what was confirmed: the files as they are, hashing as the dialog showed.
       const [spec, plan, differs] = await Promise.all([
         this.core.readFile(MAIN_ROOT, specPath),
         this.core.readFile(MAIN_ROOT, planPath),
-        this.ctx.services.worktrees.diffMainPaths({ paths: [specPath, planPath], against: { [specPath]: checkpoint.specBlob, [planPath]: checkpoint.planBlob }, maxBytes: 1 }).catch(() => []),
+        checkpoint === null ? [] : this.ctx.services.worktrees.diffMainPaths({ paths: [specPath, planPath], against: { [specPath]: checkpoint.specBlob, [planPath]: checkpoint.planBlob }, maxBytes: 1 }).catch(() => []),
       ]);
       if ((spec?.hash ?? EMPTY_HASH) !== input.specHash || (plan?.hash ?? EMPTY_HASH) !== input.planHash || differs.length > 0) throw changed();
 
       const now = this.ctx.clock.now();
-      const pin: Pin = { by: caller, at: now, planRevision: input.planRevision, specHash: input.specHash, planHash: input.planHash, commit: checkpoint.commit, specBlob: checkpoint.specBlob, planBlob: checkpoint.planBlob };
+      const pinned = { by: caller, at: now, planRevision: input.planRevision, specHash: input.specHash, planHash: input.planHash };
+      const pin: Pin =
+        checkpoint === null
+          ? { ...pinned, commit: null, specBlob: null, planBlob: null, history: 'direct' }
+          : { ...pinned, commit: checkpoint.commit, specBlob: checkpoint.specBlob, planBlob: checkpoint.planBlob, ...(checkpoint.history === 'smurg' ? { history: 'smurg' as const } : {}) };
       const armed = new Set(targets.map((item) => item.id));
       modeBefore = topic.agent?.permissionMode ?? null;
       // The topic's agent settings the dialog showed change in the SAME update that arms the items, after the
@@ -583,8 +611,9 @@ export class PlanServiceImpl implements PlanService {
           planRevision: input.planRevision,
           specHash: input.specHash,
           planHash: input.planHash,
-          commit: checkpoint.commit,
-          committed: checkpoint.created,
+          commit: checkpoint?.commit ?? null,
+          committed: checkpoint?.created ?? false,
+          history: pin.history ?? 'folder',
           ...(input.agent === undefined ? {} : { agent: input.agent }),
         },
       });
@@ -653,6 +682,8 @@ export class PlanServiceImpl implements PlanService {
     const by = userRefOf(principal);
     const topic = this.core.needOpen(input.topicId);
     const item = this.core.needItem(topic, input.itemId);
+    // An item that runs directly in the folder is started again by the host alone (DESIGN 0.6.0 D15).
+    if (item.pin?.history === 'direct' && !isHostPrincipal(principal)) throw new SmurgError('forbidden', msg('plan.start.directHostOnly'), { reason: 'direct-host-only' });
     const sessionId = this.liveSession(item);
     if (item.state === 'failed' && sessionId !== null) {
       // The same session and conversation resume. While the runtime still calls the session failed, it starts the

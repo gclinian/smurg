@@ -1,6 +1,8 @@
 // The checkpoint commit of a Start (ARCHITECTURE §5.10, §7.8; design §4.7). An item's worktree is a clone checked out
 // at the main workspace's HEAD, so SPEC.md and PLAN.md must be committed before an item starts. It happens ONLY
-// inside a `plan.start` request, never later by itself:
+// inside a `plan.start` request, never later by itself. (0.6.0, DESIGN D14: with smurg's own history of a folder
+// without `.git` it is a snapshot of the WHOLE folder into that history, as the dialog says; D15: without the git
+// program there is none, and the items run in the folder itself.) In the folder's own repository:
 //
 //   git add -- specs/<slug>/SPEC.md specs/<slug>/PLAN.md
 //   git commit -m "smurg: spec and plan of <slug>" -m "Edited-by: <safe name>" … -- <the two paths>
@@ -21,6 +23,8 @@ export interface Checkpoint {
   readonly branch: string;
   readonly specBlob: string | null;
   readonly planBlob: string | null;
+  /** The history it is in: the folder's own repository, or smurg's own history (the whole folder, DESIGN 0.6.0 D14). */
+  readonly history: 'folder' | 'smurg';
 }
 
 /** The commit message of a checkpoint. The slug is pattern-checked; nothing people wrote is in it. */
@@ -69,8 +73,15 @@ export async function checkpointCommit(ctx: DaemonContext, topic: StoredTopic, a
     const step = err instanceof SmurgError && typeof err.detail?.['step'] === 'string' ? err.detail['step'] : 'commit';
     throw new SmurgError('conflict', msg('plan.start.commit.failed', { step }), { reason: 'commit-failed' }, { cause: err });
   }
+  const history = result.history ?? 'folder';
   if (result.created) {
-    ctx.audit.record({ actor: as.actor, action: 'spec.commit', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, slug: topic.slug, commit: result.commit, branch: result.branch, files: [specPath, planPath], editedBy: trailers.map((trailer) => trailer.slice('Edited-by: '.length)) } });
+    ctx.audit.record({
+      actor: as.actor,
+      action: 'spec.commit',
+      outcome: 'ok',
+      target: topic.id,
+      detail: { topicId: topic.id, slug: topic.slug, commit: result.commit, branch: result.branch, files: [specPath, planPath], editedBy: trailers.map((trailer) => trailer.slice('Edited-by: '.length)), ...(history === 'smurg' ? { history } : {}) },
+    });
   }
-  return { commit: result.commit, created: result.created, branch: result.branch, specBlob: result.blobs[specPath] ?? null, planBlob: result.blobs[planPath] ?? null };
+  return { commit: result.commit, created: result.created, branch: result.branch, specBlob: result.blobs[specPath] ?? null, planBlob: result.blobs[planPath] ?? null, history };
 }

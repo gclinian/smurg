@@ -38,6 +38,7 @@ import { createTempDir, createTestDaemon, isolatedGitEnv, removeTempDir, waitFor
 import { createTopicsModule } from '../../src/topics/module.ts';
 import { findGit } from '../../src/worktree/git.ts';
 import { createWorktreeModule } from '../../src/worktree/module.ts';
+import { initialWorktreesDocument, worktreesDocumentSchema } from '../../src/worktree/store.ts';
 import type { WorktreeManagerImpl } from '../../src/worktree/worktree-manager.ts';
 import { settleError, startWorktreeStack, type WorktreeStack } from './support.ts';
 
@@ -174,11 +175,12 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     const counting = await countingGit();
     stack = await startWorktreeStack({ git: false, files: FILES, module: { gitPath: counting.path } });
     const s = stack;
-    // A folder that is no repository: no git at the start; the executable is looked for once, when first asked.
+    // A folder that is no repository: no git at the start; the executable is looked for once, when first asked
+    // (0.6.0, DESIGN D14: then the folder has smurg's own history, and nothing stops a Start).
     expect(await counting.calls()).toEqual([]);
     const [first, second] = await Promise.all([s.manager.mainState(), s.manager.mainState()]);
     expect(first).toEqual(second);
-    expect(first).toMatchObject({ isRepo: false, gitOk: true, unavailable: { id: 'worktree.unavailable.notAGitRepo' } });
+    expect(first).toMatchObject({ isRepo: false, gitOk: true, unavailable: null, history: 'smurg' });
     expect(await counting.calls()).toEqual(['version']);
     await s.manager.mainState();
     for (let i = 0; i < 3; i++) await s.manager.refreshGitState({ timer: true });
@@ -217,7 +219,8 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     await s.manager.stop();
     expect(looked).toBe(true);
     await look;
-    expect(reasonOf(s)).toBe('not-a-git-repo');
+    // What the start saw: no `.git`, and git not looked for yet (0.6.0: `unchecked`, DESIGN D14).
+    expect(reasonOf(s)).toBe('unchecked');
     // A stopped module looks no more.
     await s.manager.refreshGitState();
     expect(await counting.versions()).toBe(1);
@@ -322,12 +325,14 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     await counting.slow(false);
     try {
       const manager = t.ctx.services.worktrees as WorktreeManagerImpl;
-      expect(manager.unavailableReason()?.detail?.['reason']).toBe('not-a-git-repo');
+      // Nothing at `.git`, and git known to run (the start's look ran it): smurg's own history (0.6.0, DESIGN D14).
+      expect(manager.unavailableReason()).toBeNull();
       for (let i = 0; i < 3; i++) await manager.refreshGitState({ timer: true });
       await manager.refreshGitState();
-      expect(manager.unavailableReason()?.detail?.['reason']).toBe('not-a-git-repo');
+      expect(manager.unavailableReason()).toBeNull();
+      expect(manager.workState()).toEqual({ history: 'smurg' });
       expect(t.ctx.workspace.info.isGitRepo).toBe(false);
-      expect(await manager.mainState()).toMatchObject({ isRepo: false, unavailable: { id: 'worktree.unavailable.notAGitRepo' } });
+      expect(await manager.mainState()).toMatchObject({ isRepo: false, unavailable: null, history: 'smurg' });
       expect(await counting.versions()).toBe(1);
       // .git back: available, without a restart.
       await rename(join(root, '.git-away'), join(root, '.git'));
@@ -436,7 +441,9 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     };
     const notRepo = { reason: 'not-a-git-repo', isGitRepo: false, isRepo: false, unavailable: 'worktree.unavailable.notAGitRepo' };
     const notOrdinary = { reason: 'git-dir-not-directory', isGitRepo: true, isRepo: true, unavailable: 'worktree.unavailable.gitDirNotDirectory' };
-    expect(await state()).toEqual(notRepo);
+    // Nothing at `.git` at all: smurg's own history (0.6.0, DESIGN D14), nothing in the way.
+    const noGit = { reason: null, isGitRepo: false, isRepo: false, unavailable: undefined };
+    expect(await state()).toEqual(noGit);
     // A directory git does not take for a repository (it has no HEAD): `git init` makes it one.
     await mkdir(gitPath);
     expect(await state()).toEqual(notRepo);
@@ -464,10 +471,10 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     await writeFile(gitPath, 'gitdir: /elsewhere/.git/worktrees/x\n');
     expect(await state()).toEqual(notOrdinary);
     await rm(gitPath);
-    expect(await state()).toEqual(notRepo);
+    expect(await state()).toEqual(noGit);
   });
 
-  it('"the .git is gone" follows the records: with the last worktree removed and no merge request, the folder is simply not a repository', async () => {
+  it('"the .git is gone" follows the records: with the last worktree removed and no merge request, the folder is simply not a repository (0.6.0: it has smurg\'s own history)', async () => {
     stack = await startWorktreeStack({ files: FILES });
     const s = stack;
     await s.connect('dev:mei', 'agent');
@@ -479,9 +486,12 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     expect((await s.manager.mainState()).unavailable).toEqual({ id: 'worktree.unavailable.gitDirGone' });
     await s.manager.remove(session.worktree.id, s.principal(s.host.userId));
     expect(s.manager.list()).toEqual([]);
-    expect(reasonOf(s)).toBe('not-a-git-repo');
-    expect((await s.manager.mainState()).unavailable).toEqual({ id: 'worktree.unavailable.notAGitRepo' });
-    expect(await settleError(s.manager.acquireForSession({ owner: s.principal('dev:mei'), sessionId: 'ses_new' }))).toMatchObject({ reason: 'not-a-git-repo', text: { id: 'worktree.unavailable.notAGitRepo' } });
+    // Nothing of the folder's own repository waits for it any more: a folder without `.git` (0.6.0, DESIGN D14), so
+    // new work uses smurg's own history (git is known to run here).
+    expect(reasonOf(s)).toBeNull();
+    expect(await s.manager.mainState()).toMatchObject({ unavailable: null, history: 'smurg' });
+    const fresh = await s.manager.acquireForSession({ owner: s.principal('dev:mei'), sessionId: 'ses_new' });
+    expect((await s.t.ctx.state.document('worktrees', worktreesDocumentSchema, initialWorktreesDocument)).get().worktrees.find((record) => record.id === fresh.worktree.id)?.repo).toBe('smurg');
   });
 
   // 0.5.2 (the closing fixes): decided requests are history. Before, ANY request on record made a folder whose `.git`
@@ -514,15 +524,15 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     expect(await askForWorktree()).toMatchObject({ reason: 'git-dir-gone', text: { id: 'worktree.unavailable.gitDirGone' } });
 
     // The host rejects it (that needs no repository). Every request is decided now and no worktree is left: a new
-    // repository would strand nothing, so the folder is simply not a repository, from that moment on.
+    // repository would strand nothing, so the folder is simply not a repository, from that moment on (0.6.0, DESIGN
+    // D14: a folder without `.git` has smurg's own history, and a session gets its worktree from it).
     expect((await s.host.conn.request('worktree.merge.reject', { requestId: waiting.request.id })).request.status).toBe('rejected');
     expect(statuses()).toEqual(['merged', 'rejected']);
-    expect(reasonOf(s)).toBe('not-a-git-repo');
-    expect(s.manager.unavailableReason()?.message).toBe('The shared folder is not a git repository, so worktrees cannot be used. The host can run `git init` in it and commit once, without sharing again.');
-    expect(await s.manager.mainState()).toMatchObject({ isRepo: false, unavailable: { id: 'worktree.unavailable.notAGitRepo' } });
-    expect(await askForWorktree()).toMatchObject({ reason: 'not-a-git-repo', text: { id: 'worktree.unavailable.notAGitRepo' } });
+    expect(reasonOf(s)).toBeNull();
+    expect(await s.manager.mainState()).toMatchObject({ isRepo: false, unavailable: null, history: 'smurg' });
+    expect(await askForWorktree()).toBeNull();
 
-    // What that sentence offers is the cure: `git init` and a commit, and a session gets its worktree.
+    // `git init` and a commit: new work uses the folder's own repository again, and a session gets its worktree.
     await s.git(['init', '-q', '-b', 'main']);
     await s.git(['add', 'README.md']);
     await s.git(['commit', '-q', '-m', 'again']);
@@ -623,12 +633,14 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     await s.connect('dev:mei', 'agent');
     const ask = (): ReturnType<typeof settleError> => settleError(s.manager.acquireForSession({ owner: s.principal('dev:mei'), sessionId: 'ses_a' }));
     // Nobody asked Start yet (the topics module does when it starts; it is not composed here): git was not looked
-    // for, and a teammate's request never runs git in a folder that is no repository.
-    expect(await ask()).toMatchObject({ reason: 'not-a-git-repo', text: { id: 'worktree.unavailable.notAGitRepo' } });
+    // for, and a teammate's request never runs git in a folder that is no repository (0.6.0: `unchecked`, DESIGN D14).
+    expect(await ask()).toMatchObject({ reason: 'unchecked', text: { id: 'worktree.unavailable.unchecked' } });
     const tooOld = { id: 'worktree.unavailable.gitTooOld', params: { version: '2.39.5', minVersion: '2.42.0' } };
-    expect(await s.manager.mainState()).toMatchObject({ isRepo: false, gitOk: false, unavailable: tooOld });
+    // Start looks: git is too old, so items would run directly in the folder (DESIGN D15).
+    expect(await s.manager.mainState()).toMatchObject({ isRepo: false, gitOk: false, unavailable: tooOld, history: 'direct' });
+    expect(s.manager.workState()).toMatchObject({ history: 'direct', reason: { text: tooOld } });
     expect(await ask()).toMatchObject({ code: 'conflict', reason: 'git-too-old', text: tooOld });
-    // What does not ask for a worktree keeps the folder's own reason.
-    expect(await settleError(s.manager.commitMainPaths({ paths: ['README.md'], message: 'x', trailers: [], as: s.principal(s.host.userId) }))).toMatchObject({ reason: 'not-a-git-repo' });
+    // What needs git without asking for a worktree says the same (0.6.0: smurg's own history needs git too).
+    expect(await settleError(s.manager.commitMainPaths({ paths: ['README.md'], message: 'x', trailers: [], as: s.principal(s.host.userId) }))).toMatchObject({ reason: 'git-too-old' });
   });
 });

@@ -5,6 +5,7 @@ import { SMURG_QUOTE_MAX_BYTES, SMURG_TEXT_MAX_BYTES } from '@smurg/protocol';
 import { PLAN_MARKER_END, PLAN_MARKER_START } from '../../src/topics/plan-format.ts';
 import {
   continueItemMessage,
+  directExecutionRolePrompt,
   discussionRolePrompt,
   executionRolePrompt,
   fixFileMessage,
@@ -56,6 +57,27 @@ describe('role prompts', () => {
       "Editing files in your checkout needs no permission. A command may need a person's permission, or a safety check may refuse it: run few, purposeful commands, never one that only prints what you already know, and when one is refused, say in your answer why you need it instead of looking for another way around.",
     );
     expect(flat).not.toContain('Most commands need a person');
+  });
+
+  it('DESIGN 0.6.0 D16: a work item that runs directly in the shared folder is told so: no history, no undo, one at a time, no git, every file named in the report', () => {
+    const prompt = directExecutionRolePrompt({ slug: 'checkout', itemId: 'cart-api', smurgTag: 'a1b2' });
+    const flat = prompt.replace(/\n\s*/g, ' ');
+    expect(ASCII.test(prompt)).toBe(true);
+    expect(flat).toContain(
+      'Your working directory is the shared folder itself: people and other agents work in it too, and smurg keeps no history of it. What you change is changed for everyone at once, and smurg cannot undo it. Work items run one at a time here. Do your item and nothing else.',
+    );
+    expect(flat).toContain('Do not use git in this folder.');
+    expect(flat).toContain('Nobody can see a diff of your work: under "What was done" in the report, name every file you created, changed or deleted.');
+    expect(flat).toContain("A command may need a person's permission, or a safety check may refuse it");
+    // The checkout's lines are not there: no fresh checkout, no branch, nothing smurg records.
+    expect(flat).not.toContain('This checkout is fresh');
+    expect(flat).not.toContain('checkout of your own');
+    expect(flat).not.toContain('smurg records your changes');
+    // The report and its marker, as for every item.
+    expect(prompt).toContain('specs/checkout/reports/cart-api.md');
+    expect(prompt).toContain('<!-- smurg:report v1 item=cart-api -->');
+    expect(prompt).toContain('"[smurg a1b2]"');
+    expect(() => directExecutionRolePrompt({ slug: 'checkout', itemId: 'Cart API', smurgTag: 'k7f2' })).toThrow(TypeError);
   });
 
   it('the format an agent is told is the format the daemon reads: the examples of both prompts parse', () => {
