@@ -1,6 +1,15 @@
 // The in-memory fakes of core/fakes (ARCHITECTURE §7.2): what every v0.5.0 package builds and tests against while
 // the others are being written. This suite is their contract: each fake fits its service slot, keeps the state the
 // real service keeps, emits the bus events of ARCHITECTURE §7.3, and produces only entities that pass the wire schemas.
+// It is also the contract of the stand-in `claude` (src/testing/fake-claude.mjs) for what 0.6.0 added to it (DESIGN
+// 0.6.0 D17): models, `set_model`, auto mode with its fast path and classifier, bypass, the error codes of 2.1.288.
+// (test/hooks/mock-anthropic.test.ts holds the same answers up against the real 2.1.288, when one is at hand.)
+import { spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
+import { mkdir, readdir, realpath, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createInterface } from 'node:readline';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   EVENTS_CATCH_UP_MAX,
@@ -58,7 +67,8 @@ import {
   type FakeEnv,
   type Fakes,
 } from '../src/core/fakes/index.ts';
-import { createTestDaemon, waitFor, type TestDaemon } from '../src/testing/index.ts';
+import { STREAM_ARGS } from '../src/sessions/agent/profiles.ts';
+import { CLAUDE_MODELS_2_1_288, createTempDir, createTestDaemon, installFakeClaude, removeTempDir, waitFor, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep, type TestDaemon } from '../src/testing/index.ts';
 import { createProbe } from './fixtures/probe-module.ts';
 
 let t: TestDaemon | null = null;
@@ -976,5 +986,452 @@ describe('in a test daemon', () => {
     // The faked areas are answered by the fakes.
     expect(await rita.conn.request('topic.list', {})).toEqual({ topics: [], hasMore: false });
     expect(await rita.conn.request('suggest.list', {})).toEqual({ suggestions: [], hasMore: false });
+  });
+});
+
+// ---- the stand-in `claude`: models and permission modes (DESIGN 0.6.0 D17) ----------------------------------------------
+
+type Json = Record<string, unknown>;
+
+/** One stand-in process, driven over its pipes the way the agent runner drives Claude Code. */
+interface StandIn {
+  /** Every stdout line, parsed. */
+  readonly lines: Json[];
+  /** The `can_use_tool` requests it made (each answered by `decide`, by default a refusal). */
+  readonly asked: Json[];
+  /** A control request; resolves with the whole `response` of its control_response (subtype, error, error_code, response). */
+  control(request: Json): Promise<Json>;
+  /** A user message; resolves with the turn's `result` line. */
+  turn(text: string): Promise<Json>;
+  /** Ends stdin and waits for the exit. */
+  end(): Promise<{ readonly code: number | null; readonly stderr: string }>;
+}
+
+interface StandInSetup {
+  readonly claude: FakeClaude;
+  readonly dir: string;
+  /** The working folder (a realpath, as the process sees it). */
+  readonly cwd: string;
+  /** The process's HOME (the host's own settings file is `<home>/.claude/settings.json`). */
+  readonly home: string;
+  /** Writes a `--settings` file and returns the two arguments that name it. */
+  settingsArgs(settings: Json): Promise<string[]>;
+}
+
+let standInScratch: string | null = null;
+let standInCount = 0;
+const running = new Set<ReturnType<typeof spawn>>();
+
+async function standInSetup(scenario: FakeClaudeScenario = {}): Promise<StandInSetup> {
+  standInScratch ??= await createTempDir('standin');
+  const dir = join(standInScratch, `p${++standInCount}`);
+  await mkdir(join(dir, 'project'), { recursive: true });
+  await mkdir(join(dir, 'home', '.claude'), { recursive: true });
+  const claude = await installFakeClaude(dir, scenario);
+  return {
+    claude,
+    dir,
+    cwd: await realpath(join(dir, 'project')),
+    home: join(dir, 'home'),
+    settingsArgs: async (settings) => {
+      const file = join(dir, `settings-${randomUUID()}.json`);
+      await writeFile(file, JSON.stringify(settings));
+      return ['--settings', file];
+    },
+  };
+}
+
+function launch(setup: StandInSetup, args: readonly string[], options: { readonly env?: Readonly<Record<string, string>>; readonly decide?: (request: Json) => Json } = {}): StandIn {
+  const child = spawn(setup.claude.path, [...STREAM_ARGS, '--session-id', randomUUID(), ...args], { cwd: setup.cwd, env: { PATH: '/usr/bin:/bin', HOME: setup.home, ...setup.claude.env, ...options.env }, stdio: ['pipe', 'pipe', 'pipe'] });
+  running.add(child);
+  const lines: Json[] = [];
+  const asked: Json[] = [];
+  const answers = new Map<string, (response: Json) => void>();
+  const results: ((line: Json) => void)[] = [];
+  let stderr = '';
+  let seq = 0;
+  child.stderr.on('data', (chunk: Buffer) => (stderr += chunk.toString('utf8')));
+  const exited = new Promise<{ code: number | null; stderr: string }>((resolve) =>
+    child.on('close', (code) => {
+      running.delete(child);
+      resolve({ code, stderr });
+    }),
+  );
+  const write = (message: Json): void => void child.stdin.write(`${JSON.stringify(message)}\n`);
+  child.stdin.on('error', () => {});
+  createInterface({ input: child.stdout }).on('line', (text) => {
+    const line = JSON.parse(text) as Json;
+    lines.push(line);
+    const response = line['response'] as Json | undefined;
+    if (line['type'] === 'control_response' && typeof response?.['request_id'] === 'string') answers.get(response['request_id'])?.(response);
+    const request = line['request'] as Json | undefined;
+    if (line['type'] === 'control_request' && request?.['subtype'] === 'can_use_tool') {
+      asked.push(request);
+      write({ type: 'control_response', response: { subtype: 'success', request_id: line['request_id'], response: options.decide?.(request) ?? { behavior: 'deny', message: 'the test refuses' } } });
+    }
+    if (line['type'] === 'result') results.shift()?.(line);
+  });
+  function within<T>(promise: Promise<T>, what: string): Promise<T> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(`the stand-in did not answer: ${what} (stderr: ${stderr})`)), 15_000);
+    });
+    return Promise.race([promise, late]).finally(() => clearTimeout(timer));
+  }
+  return {
+    lines,
+    asked,
+    control: (request) => {
+      const id = `c${++seq}`;
+      const answered = new Promise<Json>((resolve) => answers.set(id, resolve));
+      write({ type: 'control_request', request_id: id, request });
+      return within(answered, String(request['subtype']));
+    },
+    turn: (text) => {
+      const done = new Promise<Json>((resolve) => results.push(resolve));
+      write({ type: 'user', message: { role: 'user', content: text }, client_composed: true });
+      return within(done, `a turn for "${text}"`);
+    },
+    end: () => {
+      child.stdin.end();
+      return within(exited, 'its exit');
+    },
+  };
+}
+
+const ofType = (lines: readonly Json[], type: string, subtype?: string): Json[] => lines.filter((line) => line['type'] === type && (subtype === undefined || line['subtype'] === subtype));
+const inits = (lines: readonly Json[]): Json[] => ofType(lines, 'system', 'init');
+/** Every tool_result the stand-in printed, each with the line that held it (`line`). */
+const toolResults = (lines: readonly Json[]): Json[] =>
+  ofType(lines, 'user').flatMap((line) => {
+    const content = (line['message'] as Json)['content'];
+    return Array.isArray(content) ? (content as Json[]).filter((part) => part['type'] === 'tool_result').map((part) => ({ ...part, line })) : [];
+  });
+type ToolStep = Extract<FakeClaudeStep, { readonly tool: string }>;
+const bash = (command: string, more: Omit<ToolStep, 'tool' | 'input'> = {}): ToolStep => ({ tool: 'Bash', input: { command }, ...more });
+
+describe('the stand-in claude: models and permission modes, as Claude Code 2.1.288 (DESIGN 0.6.0 D17)', { timeout: 60_000 }, () => {
+  afterEach(async () => {
+    for (const child of running) child.kill('SIGKILL'); // only processes this file spawned
+    running.clear();
+    if (standInScratch !== null) await removeTempDir(standInScratch);
+    standInScratch = null;
+  });
+
+  it('without `--model`: `init.model` is "claude-fake" and `initialize.models` the five entries of 2.1.288 (the copy in fake-claude.ts is the same list); no classifier is asked outside auto', async () => {
+    const setup = await standInSetup({ turns: [{ steps: [bash('python3 -c 1'), { text: 'ok' }] }] });
+    const p = launch(setup, ['--permission-mode', 'default']);
+    const init = await p.control({ subtype: 'initialize' });
+    expect((init['response'] as Json)['models']).toEqual(CLAUDE_MODELS_2_1_288);
+    expect((init['response'] as Json)['current_permission_mode']).toBe('default');
+    expect(((await p.control({ subtype: 'get_settings' }))['response'] as Json)['applied']).toEqual({ model: 'claude-fake' });
+    await p.turn('go');
+    await p.turn('again');
+    // An `init` line at the start of EVERY turn; the assistant lines say the model too.
+    expect(inits(p.lines).map((line) => [line['model'], line['permissionMode']])).toEqual([['claude-fake', 'default'], ['claude-fake', 'default']]);
+    expect(ofType(p.lines, 'assistant').map((line) => (line['message'] as Json)['model'])).toContain('claude-fake');
+    // The default mode asks before a command, as before 0.6.0; nothing went to a classifier.
+    expect(p.asked.map((request) => request['tool_name'])).toEqual(['Bash', 'Bash']);
+    expect(await p.end()).toEqual({ code: 0, stderr: '' });
+    expect(await setup.claude.classified()).toEqual([]);
+  });
+
+  it('`--model`: a name of the list (any case) or its id resolves to the id; "[1m]" is kept; anything else is used as it is, with Claude Code\'s stderr line; a scenario\'s own list and default', async () => {
+    const setup = await standInSetup();
+    const initModel = async (args: readonly string[]): Promise<{ model: unknown; stderr: string }> => {
+      const p = launch(setup, args);
+      await p.turn('go');
+      const { stderr } = await p.end();
+      return { model: inits(p.lines)[0]?.['model'], stderr };
+    };
+    expect(await initModel(['--model', 'Sonnet'])).toEqual({ model: 'claude-sonnet-5-5', stderr: '' });
+    expect(await initModel(['--model', 'opus'])).toEqual({ model: 'claude-opus-5-5', stderr: '' });
+    expect(await initModel(['--model', 'claude-haiku-4-5-20251001'])).toEqual({ model: 'claude-haiku-4-5-20251001', stderr: '' });
+    expect(await initModel(['--model', 'sonnet[1m]'])).toEqual({ model: 'claude-sonnet-5-5[1m]', stderr: '' });
+    expect(await initModel(['--model', 'gpt-5'])).toEqual({ model: 'gpt-5', stderr: '[claude-code:unrecognized_model] {"model":"gpt-5","query_source":"sdk"}\n' });
+    await setup.claude.setScenario({ models: [{ value: 'house', resolvedModel: 'house-model-7', displayName: 'House' }], defaultModel: 'house-model-7' });
+    const p = launch(setup, ['--model', 'house']);
+    expect(((await p.control({ subtype: 'initialize' }))['response'] as Json)['models']).toEqual([{ value: 'house', resolvedModel: 'house-model-7', displayName: 'House' }]);
+    await p.turn('go');
+    await p.end();
+    expect(inits(p.lines)[0]?.['model']).toBe('house-model-7');
+    expect(await initModel([])).toEqual({ model: 'house-model-7', stderr: '' });
+  });
+
+  it('`set_model`: a success with no `response` and no line, the next turn\'s `init` names the model, `{}` goes back to the default; `get_settings` follows', async () => {
+    const setup = await standInSetup();
+    const p = launch(setup, ['--model', 'sonnet']);
+    await p.turn('one');
+    const before = p.lines.length;
+    expect(await p.control({ subtype: 'set_model', model: 'haiku' })).toEqual({ subtype: 'success', request_id: expect.any(String) });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(p.lines.slice(before).filter((line) => line['type'] !== 'control_response' && line['type'] !== 'command_lifecycle')).toEqual([]);
+    expect(((await p.control({ subtype: 'get_settings' }))['response'] as Json)).toEqual({ effective: {}, sources: [], applied: { model: 'claude-haiku-4-5-20251001' } });
+    await p.turn('two');
+    await p.control({ subtype: 'set_model' });
+    await p.turn('three');
+    await p.end();
+    expect(inits(p.lines).map((line) => line['model'])).toEqual(['claude-sonnet-5-5', 'claude-haiku-4-5-20251001', 'claude-fake']);
+  });
+
+  it('`refuseSwitch`: `set_model` to a restricted model answers `restricted_by_org` and changes nothing; started on one, the default runs and an informational line says so (U4 N)', async () => {
+    const setup = await standInSetup({ refuseSwitch: ['fable'], defaultModel: 'claude-opus-5-5' });
+    const p = launch(setup, ['--model', 'sonnet']);
+    expect(await p.control({ subtype: 'set_model', model: 'fable' })).toEqual({ subtype: 'error', request_id: expect.any(String), error: 'Model "fable" is restricted by your organization\'s settings. Using claude-sonnet-5-5 instead.', error_code: 'restricted_by_org' });
+    await p.turn('go');
+    await p.end();
+    expect(inits(p.lines)[0]?.['model']).toBe('claude-sonnet-5-5');
+    const q = launch(setup, ['--model', 'fable']);
+    await q.turn('go');
+    await q.turn('again');
+    await q.end();
+    expect(inits(q.lines).map((line) => line['model'])).toEqual(['claude-opus-5-5', 'claude-opus-5-5']);
+    expect(ofType(q.lines, 'system', 'informational')).toMatchObject([{ content: 'Model "fable" is restricted by your organization\'s settings. Using claude-opus-5-5 instead.', level: 'warning' }]);
+    // The list is the scenario's: a restriction does not take the model off it.
+    const r = launch(setup, []);
+    expect(((await r.control({ subtype: 'initialize' }))['response'] as Json)['models']).toEqual(CLAUDE_MODELS_2_1_288);
+    await r.end();
+  });
+
+  it('`refuseModels`: a turn on a refused model is Claude Code\'s synthetic `model_not_found` and an error result; the process stays, `set_model` rescues it; stdin\'s end right after such a turn exits 1 (U1 E4, E5)', async () => {
+    const setup = await standInSetup({ refuseModels: ['claude-fable-5-1'], turns: [{ steps: [{ text: 'fine' }] }] });
+    const text = "There's an issue with the selected model (claude-fable-5-1). It may not exist or you may not have access to it. Run --model to pick a different model.";
+    const p = launch(setup, ['--model', 'fable']);
+    expect(await p.turn('go')).toMatchObject({ subtype: 'success', is_error: true, terminal_reason: 'api_error', result: text });
+    expect(ofType(p.lines, 'assistant')).toMatchObject([{ error: 'model_not_found', message: { model: '<synthetic>', content: [{ type: 'text', text }] } }]);
+    expect(ofType(p.lines, 'stream_event')).toEqual([]);
+    expect(await p.end()).toMatchObject({ code: 1 });
+    const q = launch(setup, ['--model', 'fable']);
+    await q.turn('go');
+    await q.control({ subtype: 'set_model', model: 'sonnet' });
+    expect(await q.turn('again')).toMatchObject({ is_error: false, terminal_reason: 'completed' });
+    expect(await q.end()).toMatchObject({ code: 0 });
+    expect(inits(q.lines).map((line) => line['model'])).toEqual(['claude-fable-5-1', 'claude-sonnet-5-5']);
+  });
+
+  it('auto: the fast path runs edits and simple file commands inside the folder and read-only commands with no request and no classifier; every other call goes to the classifier, which allows by default', async () => {
+    const setup = await standInSetup();
+    const outside = join(setup.dir, 'outside.txt');
+    const steps = [
+      { tool: 'Write', input: { file_path: 'notes.md', content: 'a\n' } },
+      bash('echo hi > made.txt', { run: true }),
+      bash('echo more >> notes.md', { run: true }),
+      bash('rm -f made.txt', { run: true }),
+      bash('mkdir -p sub && touch sub/x'),
+      bash('mv notes.md "renamed notes.md"', { run: true }),
+      bash('ls -la'),
+      bash('git status'),
+      bash('cat notes.md'),
+      bash('python3 -c "print(1)"'),
+      bash(`touch ${outside}`),
+      bash('echo x > .vscode/tasks.json'),
+      bash('/bin/sh -c \'echo 1 > f\''),
+      bash('rm $F'),
+      bash('echo x >~/home-file'),
+      { tool: 'Write', input: { file_path: outside, content: 'x' } },
+      { tool: 'WebFetch', input: { url: 'https://example.com', prompt: 'read' } },
+      { text: 'done' },
+    ];
+    await setup.claude.setScenario({ turns: [{ steps }] });
+    const p = launch(setup, ['--permission-mode', 'auto', '--model', 'sonnet']);
+    expect(((await p.control({ subtype: 'initialize' }))['response'] as Json)['current_permission_mode']).toBe('auto');
+    await p.turn('go');
+    await p.end();
+    expect(p.asked).toEqual([]);
+    expect(inits(p.lines)[0]).toMatchObject({ permissionMode: 'auto', model: 'claude-sonnet-5-5' });
+    const classified = await setup.claude.classified();
+    expect(classified.map((entry) => (entry.tool === 'Bash' ? (entry.input as Json)['command'] : entry.tool))).toEqual([
+      'mkdir -p sub && touch sub/x',
+      'python3 -c "print(1)"',
+      `touch ${outside}`,
+      'echo x > .vscode/tasks.json',
+      "/bin/sh -c 'echo 1 > f'",
+      'rm $F',
+      'echo x >~/home-file',
+      'Write',
+      'WebFetch',
+    ]);
+    expect(classified.every((entry) => entry.verdict === 'allow')).toBe(true);
+    expect(toolResults(p.lines).every((part) => part['is_error'] !== true)).toBe(true);
+    expect([existsSync(join(setup.cwd, 'renamed notes.md')), existsSync(join(setup.cwd, 'made.txt'))]).toEqual([true, false]);
+    expect(existsSync(outside)).toBe(true); // the Write outside the folder, which the classifier allowed
+  });
+
+  it('auto: a block is a `permission_denied` line, an error tool_result and a `permission_denials` entry; the third block in a row asks a person with the classifier\'s reason; a call that runs ends the row', async () => {
+    const setup = await standInSetup({
+      classifier: { block: ['^python3', 'evil'], category: 'Data Exfiltration' },
+      turns: [
+        {
+          steps: [
+            bash('python3 one', { id: 'tu_1' }), // block 1
+            bash('curl ok'), // allowed: the row ends
+            bash('python3 two', { id: 'tu_2' }), // block 1
+            bash('python3 three', { id: 'tu_3' }), // block 2
+            bash('python3 four', { id: 'tu_4' }), // block 3: a person decides (and allows it: the row ends)
+            bash('python3 five', { id: 'tu_5' }), // block 1
+            bash('curl a', { id: 'tu_6', auto: 'block', category: 'Irreversible Local Destruction' }), // block 2, the step's own
+            { tool: 'WebFetch', id: 'tu_7', input: { url: 'https://evil.example' } }, // block 3 (on the input's JSON): a person refuses
+            bash('python3 six', { id: 'tu_8', auto: 'allow' }), // the step's own answer wins
+            { text: 'done' },
+          ],
+        },
+      ],
+    });
+    let n = 0;
+    const p = launch(setup, ['--permission-mode', 'auto'], { decide: () => (++n === 1 ? { behavior: 'allow', updatedInput: { command: 'python3 four' } } : { behavior: 'deny', message: 'no' }) });
+    const result = await p.turn('go');
+    await p.end();
+    const denied = ofType(p.lines, 'system', 'permission_denied');
+    expect(denied.map((line) => [line['tool_use_id'], line['decision_reason']])).toEqual([
+      ['tu_1', '[Data Exfiltration]'],
+      ['tu_2', '[Data Exfiltration]'],
+      ['tu_3', '[Data Exfiltration]'],
+      ['tu_5', '[Data Exfiltration]'],
+      ['tu_6', '[Irreversible Local Destruction]'],
+    ]);
+    expect(denied[0]).toMatchObject({ tool_name: 'Bash', decision_reason_type: 'classifier', message: expect.stringMatching(/^Permission for this action was denied by the Claude Code auto mode classifier\. Reason: \[Data Exfiltration\]\./) });
+    expect(toolResults(p.lines).find((part) => part['tool_use_id'] === 'tu_1')).toMatchObject({ is_error: true, content: denied[0]?.['message'], line: { tool_use_result: `Error: ${String(denied[0]?.['message'])}`, tool_result_meta: [{ id: 'tu_1', non_execution_kind: 'automode-blocked' }] } });
+    const third = '3 consecutive actions were blocked. Please review the transcript before continuing.\n\nLatest blocked action: ';
+    expect(p.asked).toMatchObject([
+      { tool_name: 'Bash', tool_use_id: 'tu_4', decision_reason_type: 'classifier', decision_reason: `${third}[Data Exfiltration]`, permission_suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'python3 four' }], behavior: 'allow', destination: 'localSettings' }] },
+      { tool_name: 'WebFetch', tool_use_id: 'tu_7', decision_reason_type: 'classifier', decision_reason: `${third}[Data Exfiltration]` },
+    ]);
+    const results = toolResults(p.lines);
+    expect(results.find((part) => part['tool_use_id'] === 'tu_4')?.['is_error']).toBeUndefined();
+    expect(results.find((part) => part['tool_use_id'] === 'tu_7')).toMatchObject({ is_error: true, content: 'no', line: { tool_use_result: 'Error: no', tool_result_meta: [{ id: 'tu_7', non_execution_kind: 'permission-rule' }] } });
+    expect(results.find((part) => part['tool_use_id'] === 'tu_8')?.['is_error']).toBeUndefined();
+    // The blocks and the call the person refused (2.1.288 lists both).
+    expect((result['permission_denials'] as Json[]).map((entry) => entry['tool_use_id'])).toEqual(['tu_1', 'tu_2', 'tu_3', 'tu_5', 'tu_6', 'tu_7']);
+    expect((await setup.claude.classified()).map((entry) => entry.verdict)).toEqual(['block', 'allow', 'block', 'block', 'block', 'block', 'block', 'block', 'allow']);
+  });
+
+  it('auto runs as `default`, silently, for a model without auto mode or when a settings file disables it; a model the list does not hold keeps auto; 2.1.288 stays in auto after `set_model` to haiku', async () => {
+    const setup = await standInSetup();
+    const modeOf = async (args: readonly string[]): Promise<unknown> => {
+      const p = launch(setup, args);
+      const mode = ((await p.control({ subtype: 'initialize' }))['response'] as Json)['current_permission_mode'];
+      expect(await p.end()).toEqual({ code: 0, stderr: '' });
+      return mode;
+    };
+    expect(await modeOf(['--permission-mode', 'auto', '--model', 'haiku'])).toBe('default');
+    expect(await modeOf(['--permission-mode', 'auto', ...(await setup.settingsArgs({ permissions: { disableAutoMode: 'disable' } }))])).toBe('default');
+    await writeFile(join(setup.home, '.claude', 'settings.json'), JSON.stringify({ permissions: { disableAutoMode: 'disable' } }));
+    expect(await modeOf(['--permission-mode', 'auto'])).toBe('default');
+    await writeFile(join(setup.home, '.claude', 'settings.json'), '{}');
+    expect(await modeOf(['--permission-mode', 'auto'])).toBe('auto'); // claude-fake
+    const madeUp = launch(setup, ['--permission-mode', 'auto', '--model', 'claude-made-up-9']);
+    expect(((await madeUp.control({ subtype: 'initialize' }))['response'] as Json)['current_permission_mode']).toBe('auto');
+    expect(await madeUp.end()).toMatchObject({ code: 0, stderr: expect.stringContaining('unrecognized_model') });
+    const p = launch(setup, ['--permission-mode', 'auto', '--model', 'sonnet']);
+    await p.control({ subtype: 'set_model', model: 'haiku' });
+    await p.turn('go');
+    await p.end();
+    expect(inits(p.lines)[0]).toMatchObject({ model: 'claude-haiku-4-5-20251001', permissionMode: 'auto' });
+  });
+
+  it('a hook\'s "ask", an ask rule and AskUserQuestion make a request in auto without the classifier; in bypass only those ask and everything else runs', async () => {
+    const setup = await standInSetup();
+    const hook = join(setup.dir, 'ask-hook.sh');
+    await writeFile(hook, `#!/bin/sh\necho '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"the gate asks"}}'\n`, { mode: 0o755 });
+    const settings = { permissions: { ask: ['Bash(git push *)'] } };
+    await setup.claude.setScenario({ turns: [{ steps: [bash('git push origin main'), { tool: 'AskUserQuestion', input: { questions: [{ question: 'Which?', header: 'Q', options: [{ label: 'a', description: '' }, { label: 'b', description: '' }], multiSelect: false }] } }, bash('python3 -c 1'), bash('rm -rf /tmp/nothing-here-standin'), { tool: 'Write', input: { file_path: '/tmp/standin-outside-never-written/x', content: 'x' }, error: 'scripted' }, { text: 'done' }] }] });
+    const auto = launch(setup, ['--permission-mode', 'auto', ...(await setup.settingsArgs({ permissions: settings.permissions }))]);
+    await auto.turn('go');
+    await auto.end();
+    expect(auto.asked.map((request) => request['tool_name'])).toEqual(['Bash', 'AskUserQuestion']);
+    expect((await setup.claude.classified()).map((entry) => entry.tool)).toEqual(['Bash', 'Bash', 'Write']);
+    const bypass = launch(setup, ['--permission-mode', 'bypassPermissions', ...(await setup.settingsArgs({ permissions: settings.permissions }))]);
+    expect(((await bypass.control({ subtype: 'initialize' }))['response'] as Json)['current_permission_mode']).toBe('bypassPermissions');
+    await bypass.turn('go');
+    await bypass.end();
+    expect(bypass.asked.map((request) => request['tool_name'])).toEqual(['Bash', 'AskUserQuestion']);
+    expect((await setup.claude.classified()).length).toBe(3); // none more
+    // A PreToolUse hook's "ask" asks in bypass and in auto, with the hook's reason.
+    await setup.claude.setScenario({ turns: [{ steps: [bash('python3 -c 1'), { text: 'done' }] }] });
+    const hooked = { hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: hook }] }] } };
+    for (const mode of ['bypassPermissions', 'auto']) {
+      const p = launch(setup, ['--permission-mode', mode, ...(await setup.settingsArgs(hooked))]);
+      await p.turn('go');
+      await p.end();
+      expect(p.asked).toMatchObject([{ tool_name: 'Bash', decision_reason: 'the gate asks', decision_reason_type: 'hook' }]);
+    }
+    expect((await setup.claude.classified()).length).toBe(3);
+  });
+
+  it('bypass: a settings file that disables it runs the `--settings` file\'s `defaultMode`, else auto (then auto\'s own rule), silently; as root it refuses to start', async () => {
+    const setup = await standInSetup();
+    const modeOf = async (args: readonly string[], env?: Readonly<Record<string, string>>): Promise<unknown> => {
+      const p = launch(setup, args, env === undefined ? {} : { env });
+      const mode = ((await p.control({ subtype: 'initialize' }))['response'] as Json)['current_permission_mode'];
+      expect(await p.end()).toEqual({ code: 0, stderr: '' });
+      return mode;
+    };
+    const disabled = { permissions: { disableBypassPermissionsMode: 'disable' } };
+    expect(await modeOf(['--permission-mode', 'bypassPermissions'])).toBe('bypassPermissions');
+    expect(await modeOf(['--dangerously-skip-permissions'])).toBe('bypassPermissions');
+    expect(await modeOf(['--permission-mode', 'bypassPermissions', ...(await setup.settingsArgs(disabled))])).toBe('auto');
+    expect(await modeOf(['--permission-mode', 'bypassPermissions', ...(await setup.settingsArgs({ permissions: { ...disabled.permissions, defaultMode: 'acceptEdits' } }))])).toBe('acceptEdits');
+    expect(await modeOf(['--permission-mode', 'bypassPermissions', '--model', 'haiku', ...(await setup.settingsArgs(disabled))])).toBe('default');
+    await writeFile(join(setup.home, '.claude', 'settings.json'), JSON.stringify(disabled));
+    expect(await modeOf(['--permission-mode', 'bypassPermissions'])).toBe('auto');
+    await writeFile(join(setup.home, '.claude', 'settings.json'), '{}');
+    // As root (FAKE_CLAUDE_AS_ROOT=1): Claude Code's refusal, before anything is answered.
+    const root = launch(setup, ['--permission-mode', 'bypassPermissions'], { env: { FAKE_CLAUDE_AS_ROOT: '1' } });
+    expect(await root.end()).toEqual({ code: 1, stderr: '--dangerously-skip-permissions cannot be used with root/sudo privileges for security reasons\n' });
+    expect(root.lines).toEqual([]);
+    expect(await modeOf(['--permission-mode', 'auto'], { FAKE_CLAUDE_AS_ROOT: '1' })).toBe('auto');
+  });
+
+  it('`set_permission_mode`: success `{ mode }` and a status line; the refusals carry 2.1.288\'s error codes; every other error has no `error_code`; `controlErrors` scripts one with or without a code', async () => {
+    const setup = await standInSetup();
+    const codeOf = (answer: Json): unknown => (answer['subtype'] === 'success' ? (answer['response'] as Json | undefined) ?? 'success' : answer['error_code'] ?? 'no code');
+    const p = launch(setup, ['--permission-mode', 'auto', '--model', 'sonnet']);
+    expect(await p.control({ subtype: 'set_permission_mode', mode: 'acceptEdits' })).toEqual({ subtype: 'success', request_id: expect.any(String), response: { mode: 'acceptEdits' } });
+    await waitFor(() => ofType(p.lines, 'system', 'status').length === 1, { what: 'the status line' });
+    expect(ofType(p.lines, 'system', 'status')).toMatchObject([{ status: null, permissionMode: 'acceptEdits' }]);
+    expect(codeOf(await p.control({ subtype: 'set_permission_mode', mode: 'manual' }))).toEqual({ mode: 'default' });
+    expect(await p.control({ subtype: 'set_permission_mode', mode: 'bypassPermissions' })).toMatchObject({ subtype: 'error', error: 'Cannot set permission mode to bypassPermissions because the session was not launched with --dangerously-skip-permissions', error_code: 'bypass_not_launched' });
+    expect(await p.control({ subtype: 'set_permission_mode', mode: 'whatever' })).toMatchObject({ subtype: 'error', error_code: 'invalid_mode' });
+    await p.control({ subtype: 'set_model', model: 'haiku' });
+    expect(await p.control({ subtype: 'set_permission_mode', mode: 'auto' })).toMatchObject({ subtype: 'error', error: 'Cannot set permission mode to auto: auto mode unavailable for this model', error_code: 'auto_mode_model' });
+    expect(await p.control({ subtype: 'no_such_request' })).toEqual({ subtype: 'error', request_id: expect.any(String), error: 'Unsupported control request subtype: no_such_request' });
+    await p.end();
+    // smurg's settings file disables bypass in every session that is not launched in it: that refusal comes first.
+    const q = launch(setup, ['--permission-mode', 'auto', ...(await setup.settingsArgs({ permissions: { disableBypassPermissionsMode: 'disable', disableAutoMode: 'disable' } }))]);
+    expect(await q.control({ subtype: 'set_permission_mode', mode: 'bypassPermissions' })).toMatchObject({ error: 'Cannot set permission mode to bypassPermissions because it is disabled by settings or configuration', error_code: 'bypass_disabled' });
+    expect(await q.control({ subtype: 'set_permission_mode', mode: 'auto' })).toMatchObject({ error: 'Cannot set permission mode to auto: auto mode disabled by settings', error_code: 'auto_mode_settings' });
+    await q.end();
+    // Launched in bypass (or allowed to switch to it), a session may go back to it.
+    for (const args of [['--permission-mode', 'bypassPermissions'], ['--permission-mode', 'default', '--allow-dangerously-skip-permissions']]) {
+      const r = launch(setup, args);
+      expect(codeOf(await r.control({ subtype: 'set_permission_mode', mode: 'default' }))).toEqual({ mode: 'default' });
+      expect(codeOf(await r.control({ subtype: 'set_permission_mode', mode: 'bypassPermissions' }))).toEqual({ mode: 'bypassPermissions' });
+      await r.end();
+    }
+    await setup.claude.setScenario({ controlErrors: { set_model: { error: 'the provider does not offer it', code: 'not_offered' }, set_permission_mode: { error: 'no reason given' } } });
+    const s = launch(setup, []);
+    expect(await s.control({ subtype: 'set_model', model: 'sonnet' })).toEqual({ subtype: 'error', request_id: expect.any(String), error: 'the provider does not offer it', error_code: 'not_offered' });
+    expect(await s.control({ subtype: 'set_permission_mode', mode: 'default' })).toEqual({ subtype: 'error', request_id: expect.any(String), error: 'no reason given' });
+    await s.end();
+  });
+
+  it('an initialize-only process (the probe) exits 0 without a turn and leaves no conversation; `disableAllHooks` of the settings file that wins switches every hook off, the host\'s own included', async () => {
+    const setup = await standInSetup();
+    const marker = (name: string): string => join(setup.dir, `${name}.ran`);
+    const hookOf = (name: string): Json => ({ SessionStart: [{ hooks: [{ type: 'command', command: `touch '${marker(name)}'` }] }] });
+    await writeFile(join(setup.home, '.claude', 'settings.json'), JSON.stringify({ hooks: hookOf('user') }));
+    const probe = launch(setup, ['--permission-mode', 'default', '--tools', 'Read', '--setting-sources', 'user', ...(await setup.settingsArgs({ disableAllHooks: true, hooks: hookOf('flag'), permissions: { deny: ['Bash', 'Edit', 'Write', 'WebFetch'], disableBypassPermissionsMode: 'disable', defaultMode: 'default' } }))]);
+    expect(((await probe.control({ subtype: 'initialize' }))['response'] as Json)['models']).toEqual(CLAUDE_MODELS_2_1_288);
+    expect(((await probe.control({ subtype: 'get_settings' }))['response'] as Json)['applied']).toEqual({ model: 'claude-fake' });
+    expect(await probe.end()).toEqual({ code: 0, stderr: '' });
+    expect(probe.lines.map((line) => line['type'])).toEqual(['control_response', 'control_response']);
+    expect(existsSync(marker('user')) || existsSync(marker('flag'))).toBe(false);
+    expect(await readdir(join(setup.home, '.claude', 'fake-claude'))).toEqual([]);
+    // smurg's own sessions say `disableAllHooks: false`: that wins over a user file that says true.
+    await writeFile(join(setup.home, '.claude', 'settings.json'), JSON.stringify({ disableAllHooks: true, hooks: hookOf('user') }));
+    const session = launch(setup, ['--permission-mode', 'default', ...(await setup.settingsArgs({ disableAllHooks: false, hooks: hookOf('flag') }))]);
+    await session.control({ subtype: 'initialize' });
+    await session.end();
+    expect([existsSync(marker('flag')), existsSync(marker('user'))]).toEqual([true, true]);
   });
 });

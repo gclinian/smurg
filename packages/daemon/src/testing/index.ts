@@ -19,7 +19,7 @@ export { registerTestDir, registerTestProcess } from './run-registry.ts';
 export { declaredDocuments } from '../daemon.ts';
 export { readWorkspaceFolder, writeWorkspaceFolder, type FolderReading, type FolderReadOptions, type UpgradedDocument } from '../core/workspace-folder.ts';
 export { STAMP_FILE, WORKSPACE_SHAPES, keptCopyPath, listKeptCopies, type DocumentDeclaration, type LoadedDocument, type WorkspaceStamp } from '../core/state-store.ts';
-export { CLAUDE_ACCOUNTS, FAKE_CLAUDE_SCRIPT, installFakeClaude, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep } from './fake-claude.ts';
+export { CLAUDE_ACCOUNTS, CLAUDE_MODELS_2_1_288, FAKE_CLAUDE_SCRIPT, installFakeClaude, type ClaudeModelEntry, type FakeClaude, type FakeClaudeScenario, type FakeClaudeStep, type FakeClassifierEntry } from './fake-claude.ts';
 
 /** Lets queued microtasks and immediate callbacks run (in-memory relay and channels deliver through them). */
 export async function settle(turns = 5): Promise<void> {
