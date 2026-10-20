@@ -89,7 +89,7 @@
       </div>
 
       <div class="win-wrap">
-        <div class="win" role="img" data-nosnippet aria-label="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one asks for permission to run a command, and Ben allows it once. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
+        <div class="win" role="img" data-nosnippet aria-label="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
           <svg class="visually-hidden" aria-hidden="true" focusable="false">
             <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
             <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
@@ -99,7 +99,7 @@
             <div class="m-chrome"><span class="m-lights"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai</span></div>
             <div class="m-top">
               <span class="m-word">smurg</span><span class="m-ws">my-app</span><span class="m-topic m-said">Checkout</span><span class="m-pill">Connected</span>
-              <span class="m-chips"><span class="m-chip"><b>1</b><i></i><i class="c-run"></i><i class="c-done"></i><i class="c-ok"></i></span><span class="m-chip"><b>2</b><i></i><i class="c-run"></i><i class="c-ask"></i></span><span class="m-chip"><b>3</b><i></i><i class="c-run"></i></span></span>
+              <span class="m-chips"><span class="m-chip"><b>1</b><i></i><i class="c-run"></i><i class="c-done"></i><i class="c-ok"></i></span><span class="m-chip"><b>2</b><i></i><i class="c-run"></i></span><span class="m-chip"><b>3</b><i></i><i class="c-run"></i></span></span>
               <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span>
             </div>
             <div class="m-stage">
@@ -150,15 +150,11 @@
                   <div class="m-status m-x a-out t39"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</div>
                 </div>
                 <div class="m-card">
-                  <div class="m-h"><b class="m-said">2 · Payments</b><i class="av av-ben">BE</i><span class="m-swap"><span class="m-bdg m-run a-out t03">Running</span><span class="a-in t03"><span class="m-bdg m-ask a-out t27">Waiting for permission</span></span><span class="m-bdg m-run a-in t27">Running</span></span></div>
+                  <div class="m-h"><b class="m-said">2 · Payments</b><i class="av av-ben">BE</i><span class="m-bdg m-run">Running</span></div>
                   <span class="m-where m-x">Worktree: <span class="m-said">checkout-2</span></span>
                   <div class="m-tool m-x a-rise t02"><span>Read</span><code class="m-said">src/pay/form.tsx</code></div>
-                  <div class="m-perm a-rise t03">
-                    <p>Claude asks for permission to run a command</p>
-                    <pre class="m-term">pnpm add stripe</pre>
-                    <div class="m-act m-swap"><span class="m-btns a-out t27"><span class="m-act"><span class="m-btn m-pri a-press t24">Allow once</span><svg class="m-cur a-cur t19" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-btn">Deny</span></span><span class="m-done a-in t27">Allowed once by <span class="m-said">Ben</span></span></div>
-                  </div>
-                  <div class="m-status m-x m-swap"><span class="a-out t03"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</span><span class="a-in t03"><span class="a-out t27">Claude is waiting for permission</span></span><span class="a-in t27"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</span></div>
+                  <div class="m-tool a-rise t03"><span>Ran</span><code class="m-said">pnpm test</code></div>
+                  <div class="m-status m-x"><i class="m-dots"><i></i><i></i><i></i></i>Claude is working</div>
                 </div>
                 <div class="m-card">
                   <div class="m-h"><b class="m-said">3 · Checkout page</b><i class="av av-ian">IA</i><span class="m-bdg m-run">Running</span></div>
@@ -212,7 +208,7 @@
       </li>
       <li class="in2">
         <h2>One agent per work item</h2>
-        <p>Every work item gets its own Claude Code session and git worktree; its agent asks before commands.</p>
+        <p>Every work item gets its own Claude Code session and git worktree; Claude Code's auto mode decides which of its commands run.</p>
       </li>
       <li class="in3">
         <h2>Review, then merge</h2>

@@ -116,7 +116,8 @@ What it does, in order:
    and the web dev server (Vite) at `http://localhost:5173` (`/auth /api /ws /xfer` go to the relay). When you change
    a port, the relay's `RELAY_ISSUER` and `ALLOWED_ORIGINS` and Vite's proxy target follow. The output of the relay
    and of Vite is written to `<dir>/logs/`.
-2. Creates a sample project in `<dir>/project` (a git repository when git is installed), logs in as `dev:host` with
+2. Creates a sample project in `<dir>/project` (a git repository when git is installed; without git its work items
+   run directly in the folder, host guide §10.2), logs in as `dev:host` with
    the development login, `smurg login --relay http://localhost:8787 --dev-user host`, and runs
    `smurg host <dir>/project --relay http://localhost:8787 --web-origin http://localhost:5173 --role editor --no-keep-awake`
    (a development setup does not keep the computer awake; `--role` comes from dev-stack's `--role`).

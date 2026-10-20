@@ -139,7 +139,7 @@ describe('the built site', () => {
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 176 KB and the two drawn icons', () => {
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 210 KB and the two drawn icons', () => {
     // The preview pictures are not loaded by any page: they have their own bound (the next test).
     const total = publicFiles()
       .filter((path) => !SOCIAL_CARDS.includes(path))
@@ -165,10 +165,13 @@ describe('the built site', () => {
       // with the stylesheet (37 KB since the home page's picture moves), the script and the SVG icon it stays under
       // the bound below (150 KB until 0.5.1, 164 KB until 0.5.2). The bound rose once more by exactly what the two
       // drawn icons weigh, when the pages began to name them: the page, its title, description and structured data
-      // included, has the 176 KB it had.
-      expect(size(path), `${path} itself`).toBeLessThan(140 * 1024);
+      // included, had 176 KB. 0.6.0: about 162 KB, since §5.2 says what each of the four permission modes runs, what
+      // auto mode does not check, where smurg still asks and what holds in every mode, §8 has the rows of smurg's own
+      // history and of the models, and §10.2 says how work items run with a repository, without `.git` and without
+      // git (DESIGN 0.6.0 D20): the page's bound is 168 KB, and 210 KB with what it loads.
+      expect(size(path), `${path} itself`).toBeLessThan(168 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
-      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(176 * 1024);
+      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(210 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);
@@ -765,7 +768,8 @@ describe('the two home pages', () => {
       for (const card of cards) {
         const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
         expect(words(title), title).toBeLessThanOrEqual(6);
-        expect(words(sentence), sentence).toBeLessThanOrEqual(18);
+        // (22 since 0.6.0: the third card names whose auto mode decides which commands run, DESIGN 0.6.0 D20)
+        expect(words(sentence), sentence).toBeLessThanOrEqual(22);
         // one sentence: one full stop, at its end
         expect(sentence.replace(/\b(?:SPEC|PLAN)\.md\b/g, '').match(/\./g), sentence).toHaveLength(1);
       }
@@ -776,7 +780,8 @@ describe('the two home pages', () => {
       for (const card of cards) {
         const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
         expect([...title].length, title).toBeLessThanOrEqual(16);
-        expect([...sentence].length, sentence).toBeLessThanOrEqual(70);
+        // (80 since 0.6.0, as the English bound: DESIGN 0.6.0 D20)
+        expect([...sentence].length, sentence).toBeLessThanOrEqual(80);
         expect(sentence.match(/。/g), sentence).toHaveLength(1);
       }
     }
@@ -871,14 +876,16 @@ describe('the two home pages', () => {
     expect(text).not.toMatch(/can’t run (?:your|their) own|only relay for now|無法自己架設|沒有其他 relay/);
   });
 
-  it.each(Object.entries(HOME_PAGES))('%s: the third card says that every work item has its own git worktree and that its agent asks before commands', (lang, path) => {
-    // What the page still says about what an agent may do, in the card of the scene that shows it (the permission
-    // request). Whose Claude account does the work and what the flow was tested with left the page with its three
-    // facts: the guides say both (the test of the guides, below).
+  it.each(Object.entries(HOME_PAGES))('%s: the third card says that every work item has its own git worktree and that Claude Code\'s auto mode decides which of its commands run', (lang, path) => {
+    // What the page still says about what an agent may do, in the card of the scene that shows it (an agent runs the
+    // project's tests in its own worktree). Since 0.6.0 agents run in auto mode by default: the card no longer says
+    // that the agent asks (DESIGN 0.6.0 D20). Whose Claude account does the work and what the flow was tested with
+    // left the page with its three facts: the guides say both (the test of the guides, below).
     const p = page(path);
     const card = inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li')[2]?.text() ?? '';
     expect(card).toContain('git worktree');
-    expect(card).toContain(lang === 'en' ? 'its agent asks before commands' : 'agent 執行指令前會先問');
+    expect(card).toContain(lang === 'en' ? "Claude Code's auto mode decides which of its commands run" : 'Claude Code 的自動模式決定它的哪些指令可以執行');
+    expect(card).not.toMatch(/asks before commands|執行指令前會先問/);
   });
 
   it.each(Object.entries(HOME_PAGES))('%s: claims no sandbox anywhere: the word is not on the page, in its title, labels or descriptions, and nothing describes one', (lang, path) => {
@@ -940,12 +947,15 @@ describe('the two home pages', () => {
     if (l === 'en') for (const label of labels) expect(label, label).not.toMatch(cjk);
     else expect(labels.filter((label) => cjk.test(label)).length).toBeGreaterThan(40);
     // The app's own words (the catalogs; tests/lint/docs-quotes.test.ts holds every label to them): the question
-    // card, the plan, a permission request, the result report and the merge.
+    // card, the plan, an agent that runs the project's tests (in auto mode, without a request: DESIGN 0.6.0 D20), the
+    // result report and the merge.
     const expected =
       l === 'en'
-        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Waiting for permission', 'Claude asks for permission to run a command', 'Allow once', 'Deny', 'Report to review', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Reviewed', 'Reviewed · merged']
-        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '等待許可', 'Claude 請求許可執行指令', '允許一次', '拒絕', '報告待看', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已看過', '已看過 · 已合併'];
+        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Ran', 'Report to review', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Reviewed', 'Reviewed · merged']
+        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '執行', '報告待看', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已看過', '已看過 · 已合併'];
     for (const label of expected) expect(labels, label).toContain(label);
+    // Nobody is asked in the picture: a scene that showed a request would have to show a session whose mode asks.
+    for (const label of l === 'en' ? ['Waiting for permission', 'Claude asks for permission to run a command', 'Allow once'] : ['等待許可', 'Claude 請求許可執行指令', '允許一次']) expect(labels, label).not.toContain(label);
     expect(app?.text()).toContain(l === 'en' ? 'Merged into the main workspace.' : '已合併到主工作區。');
     // In a conversation the agent is `Claude` in both languages (docs/GLOSSARY.md), never with full-width parentheses.
     expect(app?.text()).not.toMatch(/Claude（/);
@@ -1256,8 +1266,9 @@ describe('the generated pages', () => {
             'Every member can see and download the files (.env too), reads every conversation and watches every terminal: Viewers too, and members who join later.',
             'No agent is sandboxed. The agents are Claude Code today, on your Claude account.',
             "A personal subscription is for your own use, not a group's.",
-            // (asking first has an exception, and the page says it: what the host's own allow rules allow runs unasked)
-            'smurg asks before almost every command (§5.2), except where your own allow rules apply (§5.3)',
+            // (since 0.6.0 agents run in auto mode unless the host chooses to be asked, and the page says what decides:
+            // DESIGN 0.6.0 D20; the host's own allow rules still apply)
+            "Agents run in Claude Code's auto mode unless you choose to be asked: Claude Code decides which commands run (simple file commands in the agent's own folder at once, the others after its check), and smurg itself still asks before a few (§5.2); your own allow rules apply (§5.3)",
             "what is allowed runs as you, and a teammate's file can hide instructions for the agent",
             'A teammate with this role can run any command on your computer, read your home folder and use your Claude account; smurg cannot limit this. Give the role only to people you fully trust',
             'with a scripted stand-in for the model, not a real Claude account',
@@ -1270,7 +1281,7 @@ describe('the generated pages', () => {
             '每個成員都看得到檔案，也能下載（.env也一樣），讀得到每一段對話，也看得到每個終端機的畫面：「旁觀」的成員和之後才加入的成員也一樣。',
             'agent都不在沙盒裡：現在的agent是ClaudeCode，用的是你的Claude帳號。',
             '個人訂閱只供你自己使用，不供多人使用。',
-            '幾乎每個指令執行之前smurg都會先問（§5.2），你自己的允許規則已經允許的除外（§5.3）',
+            '除非你選擇要被問，agent都以ClaudeCode的自動模式執行：由ClaudeCode決定哪些指令可以執行（agent自己資料夾裡的簡單檔案指令直接執行，其他的先經過它的檢查），smurg自己仍會在少數幾種指令前先問（§5.2）；你自己的允許規則也適用（§5.3）',
             '被允許的事是以你的身分執行的，而且組員的檔案裡可能藏著要agent照做的指示',
             '有這個角色的組員可以在你的電腦上執行任何指令、讀你的家目錄、用你的Claude帳號，這些smurg都沒有辦法限制。這個角色只給你完全信任的人',
             '是用照劇本回應的模型替身驗證的，沒有用真正的Claude帳號',
@@ -1298,9 +1309,12 @@ describe('the generated pages', () => {
         expect(headings.map((h) => h.tag), where).toEqual(['h1', ...sections[lang].map(() => 'h2')]);
         expect(headings.slice(1).map((h) => h.text()), where).toEqual(sections[lang]);
         // No heading names an agent, and neither does the page's name in the navigation: Claude Code is the agent
-        // smurg runs today, said once, in a sentence, where a reader needs the fact.
+        // smurg runs today, said once, in a sentence, where a reader needs the fact. What a page says of Claude Code's
+        // own auto mode and of what decides there (since 0.6.0: "Claude Code's auto mode", "Claude Code decides",
+        // "Claude Code's check") is a fact of that agent, not a second name for it.
         for (const words of [...headings.map((h) => h.text()), doc[lang].label, doc[lang].title]) expect(words, where).not.toMatch(/Claude|Anthropic/i);
-        expect(all.match(/Claude ?Code/g), where).toHaveLength(1);
+        const ownParts = lang === 'en' ? /Claude Code(?:'s (?:auto mode|check)| decides)/g : /由?ClaudeCode(?:的(?:自動模式|檢查)|決定)/g;
+        expect(all.replace(ownParts, '').match(/Claude ?Code/g), where).toHaveLength(1);
         // The answer first: a reader who stops before the first section has the answer to the page's question (on
         // the security model with what encryption does not protect), and one who stops before the second has read
         // the first section too.
@@ -1343,9 +1357,10 @@ describe('the generated pages', () => {
         // bound is that number with what "about" allows. (On a laptop that is about two screens of text: five headed
         // sections take room of their own.) Counted as the quick start is: every word of the page's text, headings
         // and link texts included, and in Chinese every character, a Latin letter too (so a file name or a command
-        // weighs more there than a word does in English).
-        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(460);
-        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1150);
+        // weighs more there than a word does in English). 0.6.0 raised the bound by the one sentence each page had to
+        // grow by (DESIGN 0.6.0 D20): what decides which commands run, now that agents run in auto mode by default.
+        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(500);
+        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1250);
         const lists = inMain.filter((el) => el.tag === 'ol' || el.tag === 'ul');
         shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$|^table$/.test(el.tag)).map((el) => el.tag), lists.map((list) => list.children().filter((li) => li.tag === 'li').length), links.length, inMain.filter((el) => el.tag === 'strong').length];
       }

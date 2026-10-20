@@ -280,7 +280,11 @@ const QUOTES: readonly Quote[] = [
   webQuote('conversation.q.settled.show', ['JOINING']),
   webQuote('conversation.status.idle', ['JOINING']),
   webQuote('sidebar.restart.continue', ['HOSTING', 'JOINING']),
+  // The four permission modes (0.6.0, DESIGN D3, D20): both guides name them by their labels.
+  { what: 'wire permissionMode.auto', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'permissionMode.auto') },
   { what: 'wire permissionMode.askCommands', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'permissionMode.askCommands') },
+  { what: 'wire permissionMode.askAll', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'permissionMode.askAll') },
+  { what: 'wire permissionMode.askNothing', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'permissionMode.askNothing') },
   { what: 'wire attention.itemStalled', guides: ['HOSTING', 'JOINING'], render: (locale) => wire(locale, 'attention.itemStalled') },
   // ---- what a host must be told (HOSTING §4, §5, §7, §8): whose Claude account, the host's own rules, project settings
   // Owner decision Q6: the host guide says plainly that a personal subscription is for the host's own use, in the
@@ -401,6 +405,64 @@ const QUOTES: readonly Quote[] = [
   cliQuote('host.agentsPaused', { count: 3 }, ['HOSTING']),
   cliQuote('status.claude.notChecked', undefined, ['HOSTING']),
   cliQuote('attach.agents.heading', undefined, ['JOINING']),
+  // ---- 0.6.0 (DESIGN D20): the permission modes, the models, smurg's own history and work items without git
+  // Where the mode is chosen, what auto mode costs, the warning before "Asks for nothing" and what every member then sees.
+  webQuote('console.settings.permissionMode', ['HOSTING']),
+  webQuote('agents.cost.auto', ['HOSTING']),
+  webQuote('console.settings.askNothing.confirm.title', ['HOSTING']),
+  webQuote('console.settings.askNothing.confirm.body', ['HOSTING']),
+  webQuote('console.settings.askNothing.confirm.go', ['HOSTING']),
+  webQuote('workbench.workspace.asksNothing.badge', ['HOSTING']),
+  cliQuote('host.asksNothing', undefined, ['HOSTING']),
+  // The update to 0.6.0: the line of smurg host and the inbox row.
+  cliQuote('host.agentsAuto', undefined, ['HOSTING']),
+  { what: 'wire attention.agentsAuto', guides: ['HOSTING'], render: (locale) => wire(locale, 'attention.agentsAuto') },
+  // What smurg's own gate says when it asks in auto mode (G11, G12), and the audit entry of a command the check stopped.
+  webQuote('conversation.perm.gate.writes-host-only', ['HOSTING']),
+  webQuote('conversation.perm.gate.writes-outside', ['HOSTING']),
+  webQuote('console.audit.action.agent.command.blocked', ['HOSTING']),
+  { what: 'wire conversation.autoMode.blocked', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.autoMode.blocked', { reason: '[Rule]' }), part: { en: "Claude Code's check stopped a command", 'zh-TW': 'Claude Code 的檢查擋下了一個指令' } },
+  // A model that cannot be used, a mode that cannot run, a model choice that goes with its member.
+  { what: 'wire notice.modelRefused', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.modelRefused', { model: 'Fable' }), part: { en: "on the host's account: it may not exist, or the account may not have access to it. Choose another model for this session.", 'zh-TW': '它可能不存在，或這個帳號不能使用它。請為這個 session 選擇其他模型。' } },
+  webQuote('conversation.notice.action.choose-model', ['HOSTING']),
+  { what: 'wire notice.autoUnavailable.model', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.autoUnavailable.model', { model: 'Haiku' }), part: { en: 'This session asks before commands until it runs on another model.', 'zh-TW': '在換成其他模型之前，這個 session 執行指令前會先問。' } },
+  { what: 'wire notice.autoUnavailable.settings', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.autoUnavailable.settings') },
+  { what: 'wire notice.asksNothingRefused', guides: ['HOSTING'], render: (locale) => wire(locale, 'notice.asksNothingRefused') },
+  { what: 'wire conversation.model.reset', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.model.reset', { name: 'Amy' }), part: { en: "The model is back to the host's default", 'zh-TW': '模型已恢復為主人的預設' } },
+  // The strip's two dialogs (the guide for teammates) and the line under a model that may bill usage credits.
+  webQuote('conversation.mode.dialog', ['JOINING']),
+  webQuote('conversation.model.dialog', ['JOINING']),
+  webQuote('conversation.model.change.note', ['JOINING']),
+  webQuote('agents.model.credits', ['JOINING']),
+  // How work items run (HOSTING §10.2, §8): smurg's own history, without git, an item whose history changed.
+  webQuote('topics.start.smurgHistory', ['HOSTING']),
+  webQuote('topics.start.direct.title', ['HOSTING']),
+  webQuote('topics.start.direct.confirm', ['HOSTING']),
+  webQuote('topics.start.direct.hostOnly', ['HOSTING']),
+  webQuote('topics.plan.direct.foot', ['HOSTING']),
+  { what: 'wire conversation.direct.waits', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.direct.waits') },
+  { what: 'wire plan.start.historyChanged', guides: ['HOSTING'], render: (locale) => wire(locale, 'plan.start.historyChanged') },
+  {
+    what: 'wire worktree.hidden.tooLarge',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.hidden.tooLarge', { size: '2 GB', files: '80,000', maxSize: '1 GB', maxFiles: '50,000', largest: 'node_modules (1.2 GB)' }),
+    part: { en: 'more than smurg copies into a checkout for each work item (1 GB and 50,000 files at most)', 'zh-TW': '超過 smurg 會為每個工作項目複製一份的上限（最多 1 GB、50,000 個檔案）' },
+  },
+  {
+    what: 'wire worktree.hidden.changed',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.hidden.changed'),
+    part: { en: "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used.", 'zh-TW': 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）被 smurg 以外的程式改動了，所以無法使用 worktree。' },
+  },
+  { what: 'wire worktree.hidden.unknown', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.hidden.unknown'), part: { en: 'The shared folder holds a .smurg/git that this workspace has no record of', 'zh-TW': '分享的資料夾裡有一個這個工作區沒有紀錄的 .smurg/git' } },
+  {
+    what: 'wire worktree.hidden.gone',
+    guides: ['HOSTING'],
+    render: (locale) => wire(locale, 'worktree.hidden.gone'),
+    part: { en: "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on: reject them.", 'zh-TW': 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）不見了，所以從它建立的工作項目和合併請求無法繼續：請拒絕它們。' },
+  },
+  { what: 'wire worktree.hidden.noSpace', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.hidden.noSpace', { needed: '700 MB', free: '200 MB' }), part: { en: "There is not enough free disk space for another work item's worktree", 'zh-TW': '磁碟空間不夠再建立一個工作項目的 worktree' } },
+  { what: 'wire worktree.unavailable.unchecked', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.unavailable.unchecked'), part: { en: "smurg has not checked git on the host's computer yet.", 'zh-TW': 'smurg 還沒在主人的電腦上檢查 git。' } },
   // ---- the quick start (docs/QUICKSTART.md): every button and label its twelve steps name, in the order of the steps.
   // The ones the guides quote too carry 'QUICKSTART' in their own lines above (the sample of smurg host, "Next" and
   // "Allow", the two roles, the login and join buttons, the question card, the spec, the plan, the permission card,
@@ -433,7 +495,7 @@ const QUOTES: readonly Quote[] = [
 
 /**
  * The labels of the product page's picture of the app (the four scenes of its window: a question card, the plan, the
- * agents at work with a permission request, a result report and its merge), as the catalogs render them.
+ * agents at work, one running the project's tests, a result report and its merge), as the catalogs render them.
  */
 const PICTURE_QUOTES: readonly {
   what: string;
@@ -461,25 +523,15 @@ const PICTURE_QUOTES: readonly {
   { what: 'web topics.foot.start', render: (locale, web) => web.text(locale, 'topics.foot.start') },
   { what: 'web topics.foot.startAll', render: (locale, web) => web.text(locale, 'topics.foot.startAll', { count: 3 }) },
   { what: 'web topics.start.done', render: (locale, web) => web.text(locale, 'topics.start.done', { count: 3 }) },
-  // ---- 3: one agent per work item, and a permission request
+  // ---- 3: one agent per work item, one of which runs the project's tests
   { what: 'wire session.title.item', render: (locale) => wire(locale, 'session.title.item', { number: 2, title: locale === 'en' ? 'Payments' : '付款' }) },
   { what: 'web agents.where.worktree', render: (locale, web) => web.text(locale, 'agents.where.worktree', { branch: 'checkout-2' }) },
   { what: 'web conversation.tool.edit', render: (locale, web) => web.text(locale, 'conversation.tool.edit') },
   { what: 'web conversation.tool.read', render: (locale, web) => web.text(locale, 'conversation.tool.read') },
-  // (a file the agent creates in its worktree needs no request; a command would: the picture runs none unasked)
   { what: 'web conversation.tool.create', render: (locale, web) => web.text(locale, 'conversation.tool.create') },
+  // (0.6.0, DESIGN D20: what auto mode runs without a request in a work item's own worktree; nobody is asked in the picture)
+  { what: 'web conversation.tool.run', render: (locale, web) => web.text(locale, 'conversation.tool.run') },
   { what: 'web conversation.status.working', render: (locale, web) => web.text(locale, 'conversation.status.working') },
-  { what: 'web conversation.status.permission', render: (locale, web) => web.text(locale, 'conversation.status.permission') },
-  { what: 'web topics.badge.permission', render: (locale, web) => web.text(locale, 'topics.badge.permission') },
-  { what: 'web conversation.perm.title.command', render: (locale, web) => web.text(locale, 'conversation.perm.title.command') },
-  { what: 'web conversation.perm.allow', render: (locale, web) => web.text(locale, 'conversation.perm.allow') },
-  { what: 'web conversation.perm.deny', render: (locale, web) => web.text(locale, 'conversation.perm.deny') },
-  {
-    // The app goes on with the time of the answer: the picture has no clock, and leaves it out.
-    what: 'web conversation.perm.settled.allowed',
-    render: (locale, web) => web.text(locale, 'conversation.perm.settled.allowed', { name: 'Ben', time: '14:02' }),
-    part: { en: 'Allowed once by Ben', 'zh-TW': 'Ben 允許了一次' },
-  },
   { what: 'web topics.badge.report', render: (locale, web) => web.text(locale, 'topics.badge.report') },
   // ---- 4: the result report, the review and the merge
   { what: 'web stores.column.reportOf', render: (locale, web) => web.text(locale, 'stores.column.reportOf', { item: wire(locale, 'session.title.item', { number: 1, title: locale === 'en' ? 'Cart API' : '購物車 API' }) }) },
@@ -581,7 +633,7 @@ function forwardRenderings(locale: Locale): Promise<string> {
 
 /** Sample values the guides put where a catalog has a placeholder: a quote is compared piece by piece around them. */
 const SAMPLE_VALUES =
-  /Claude \((?:Amy|Ian)\)|<your name>|<你的名字>|Amy, Ben|Amy、Ben|\bAmy\b|\bBen\b|\bIan\b|src\/app\.ts|tests\/login\.test\.ts|package\.json|data\/fixtures\.json|my-app|0\.5\.[01]|WDJB-MJHT|https:\/\/\S+|ws_…#k=…&s=…|…|\.\.\./g;
+  /Claude \((?:Amy|Ian)\)|<your name>|<你的名字>|Amy, Ben|Amy、Ben|\bAmy\b|\bBen\b|\bIan\b|src\/app\.ts|tests\/login\.test\.ts|package\.json|data\/fixtures\.json|my-app|0\.5\.[0-2]|WDJB-MJHT|https:\/\/\S+|ws_…#k=…&s=…|…|\.\.\./g;
 
 function pieces(quote: string, minLength: number): string[] {
   return quote

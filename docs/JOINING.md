@@ -102,12 +102,14 @@ The host chooses your role with the invite link and can change it later in the h
 | Start a topic, ask for the plan, start work items, open agent sessions and terminals (**they run as the host**) | ❌ | ❌ | ✅ |
 | Send messages to any agent, stop it, answer an agent's question in your own words | ❌ | ❌ | ✅ |
 | Allow or deny what an agent asks to run; accept or reject suggestions | ❌ | ❌ | ✅ |
+| Choose the model of an agent session or a topic, and what its agents may do without asking | ❌ | ❌ | ✅ |
 | Type into **any** terminal session | ❌ | ❌ | ✅ |
 | Ask the host to merge a worktree | ❌ | ❌ | ✅ |
 
 Only the host can: invite members, change roles, remove members, read the audit log, force a file lock open, merge
-a worktree, allow a request that reaches beyond the project, confirm the folder's Claude Code settings, and delete a
-topic.
+a worktree, allow a request that reaches beyond the project, confirm the folder's Claude Code settings, delete a
+topic, choose the workspace's permission mode (only the host can let agents ask for nothing), and start work items
+when the host's computer has no usable git (they then run directly in the shared folder).
 
 **What Agent access means**: the agents you start and the terminals you open run on the host's computer **as the
 host**, with no sandbox: an agent uses the host's Claude Code login (the usage and the cost are the host's), and
@@ -253,8 +255,10 @@ did ("Read", "Edited", "Created", "Ran", "Searched"), which you can open to see 
 that wait for people are cards in the conversation: questions, permission requests, suggestions.
 
 Above the conversation a strip shows who is responsible for the session ("Responsible: Ian", or
-"Responsible: nobody"), where the agent works (the main workspace or a worktree) and what it may do without asking
-(for example "Asks before commands"; a topic's discussion shows "Reads code, writes only the spec and the plan").
+"Responsible: nobody"), where the agent works (the main workspace or a worktree), what it may do without asking
+(for example "Auto: runs what a check allows"; a topic's discussion shows "Reads code, writes only the spec and the plan")
+and the model it runs on (rest the pointer on it for the model's full name). When Claude Code runs the session in
+another mode than the one chosen, the strip says so ("Claude Code runs it as: …"), with the reason.
 The line above the message box says what the agent is doing or what it waits for (for example "Claude is idle.").
 
 **Links in what an agent or a member wrote.** A link opens in a new tab, and it shows where it leads when you rest
@@ -303,6 +307,13 @@ has time, the ones on screen first.
   subagents in this version.
 - A text you have not sent yet stays in the box. It is kept in this browser, per session, until you send it, leave
   the workspace, log out or are removed.
+- **The model and the mode** (host and Agent access): the model on the strip opens "Model of this session": any model
+  the host's Claude Code offers, or the host's default; "A change applies from the agent's next turn." The mode on the
+  strip opens "What this session may do without asking": "Workspace default (…)" or one of the modes
+  ("Auto: runs what a check allows", "Asks before commands", "Asks before edits and commands"), never
+  "Asks for nothing" (only the host lets a whole workspace ask for nothing; the top bar then says so for everyone). A new
+  session and a new topic get both in their dialog. On some plans a model is billed to usage credits:
+  "On some plans this model is billed to usage credits, and Claude Code does not ask first here."
 - **Remember**: an agent works on the host's computer with the host's account and spends the host's Claude usage.
   Ask it only for what the host agreed to, and never paste a password or an API key into a conversation: every
   member reads it.
@@ -362,7 +373,9 @@ Agents are told to bring decisions to the team as multiple-choice questions. A q
 
 ### 5.4 Permission requests
 
-Outside its own worktree, and for almost every command, an agent must ask first. The card
+Agents run in auto mode unless someone chose a mode that asks: Claude Code decides which commands run (simple file
+commands in the agent's own folder at once, the others after its check). An agent asks first when its mode says so,
+when smurg's own check asks (below), and after its check refused three commands in a row. The card
 ("Claude asks for permission to run a command") shows the whole command and where it would run.
 
 - The host and members with agent access answer: "Allow once", "Always allow this kind" or "Deny" (with a line that
@@ -375,6 +388,10 @@ Outside its own worktree, and for almost every command, an agent must ask first.
   "in every session of this topic"; it also covers the same command after the agent changed the files it runs. It
   is not offered for a command made of several (`pnpm test && git push`): a kind names one command.
 - Some requests say "Only the host can allow this: it reaches beyond the shared project."
+- In auto mode smurg itself asks before a few shell commands of a session a teammate opened or started, and only the
+  host can allow them: one that changes a file only the host may change in the main workspace, one that writes
+  outside the session's own folder, and one whose target smurg cannot read. A command that writes a file someone is
+  typing in is refused until that person stops (the agent is told so, in English).
 - In a folder whose Claude Code settings run scripts, smurg itself asks before an agent's shell command that could
   change one of those scripts, also inside the agent's own worktree and whatever is always allowed. The card gives
   smurg's reason, in your language, where it otherwise gives Claude Code's; when the command writes where such a
@@ -418,12 +435,14 @@ step is a row of the topic in the session list.
    are still allowed by members with agent access.
 6. **Start** (host and Agent access): before anything runs, a dialog lists what Start will do: which items start
    now and which wait for others, who is responsible, who edited the spec and the plan by hand since the last
-   Start, and that smurg commits the two files to the host's repository. Starting needs the shared folder to be a
-   git repository with at least one commit, and git 2.42 or later on the host's computer; the dialog says what is
-   missing and what the host can do. The folder can become a repository while it is shared: once the host has run
-   `git init` and committed, Start works the next time it is pressed.
+   Start, the model of the items and what their agents may do without asking (the topic's settings), and how the
+   items run. In a folder that is a git repository, smurg commits the two files to the host's repository and each
+   item gets a worktree of it. In a folder without `.git`, smurg records the folder in its own history (in
+   `.smurg`, never a `.git` in the folder) and each item gets a worktree of that. Without git on the host's computer,
+   the items run one at a time directly in the shared folder, with no diff and no undo, and only the host can start
+   them. A repository without a commit stops Start with what the host can do.
 7. **Execution**: every started work item is an agent session of its own, in its own worktree (§7), and shows up
-   as a row of the topic. Its agent edits files in its worktree without asking and asks before commands (§5.4). The
+   as a row of the topic. Its agent edits files and runs the commands its check allows without asking (§5.4). The
    plan column stays the overview: what runs, what waits for a person, what waits for a merge. An item that waits
    for others starts by itself when those are merged, and only while the spec and the plan are still the ones that
    were confirmed at Start; if they changed, it waits for someone to look at the change and choose "Start again".
@@ -474,6 +493,9 @@ restriction: what runs in it runs as the host all the same.
   left in it. While the worktree still holds changes that no merge carried (a follow-up after the merge, edits
   made after the last report), the item keeps its session and its worktree. A single agent session without a
   topic can work in a worktree too, or in the main workspace.
+- **In a folder without `.git`** the worktrees come from smurg's own history of the folder (in `.smurg`) and work
+  the same way. Without git on the host's computer there are none: work items run directly in the shared folder, one
+  at a time (§6), and a session cannot ask for a worktree.
 - "Viewing" above the file tree in code mode switches between the main workspace and any worktree. Everyone who may
   edit can edit code in a worktree too (with file locks, as usual); the result report then says which files were
   also edited by hand, and by whom (renaming, moving or deleting a folder counts for every changed file below
@@ -563,7 +585,8 @@ after by the host, so a plan does not stop because you left. Questions you would
 next person in line or by the host.
 
 **What is removed with you**: your votes on questions that are still open, your messages that an agent has not read
-yet, the kinds of commands you always allowed, and a permission mode you loosened. Work items you started that have
+yet, the kinds of commands you always allowed, a permission mode you chose that is looser than what the session would
+follow, and a model you chose that may be billed to usage credits. Work items you started that have
 not begun yet do not start until someone starts them again.
 
 **What is not deleted**:

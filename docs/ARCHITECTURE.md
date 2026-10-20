@@ -16,6 +16,12 @@ is kept beside the brief (`DESIGN.md`, `UX.md`, the mock); where it differs from
 default for the host's own Claude Code rules, which the owner decided the other way), this document says what was
 built.
 
+**0.6.0** (protocol 5, workspace shapes 2) follows the owner's decisions of 2026-10-20: the model of an agent session is chosen (§5.5, §7.6 "Models"); agents run in Claude
+Code's auto mode by default, the host alone may let a workspace ask for nothing, and the two asking modes of 0.5.x
+stay (§5.5, §7.6 "Permission modes", §7.7 G11, G12); a folder without `.git` gets smurg's own history in
+`.smurg/git`, and without the git program work items run directly in the shared folder (§7.8 "Without .git"). §11
+D-25 to D-28 record why; §0 rule 8 names the one upgrade step that sets a value on the open side.
+
 ---
 
 ## 0. Rules for everyone who writes or runs code in this repo
@@ -63,6 +69,11 @@ the process table).
    version wrote. A step is never removed. Nothing is reset, repaired or given a default, and nothing a smurg cannot
    read is ever written over. Whoever changes a persisted shape adds the step, raises `WORKSPACE_SHAPES` and lets
    the tests of `packages/daemon/test/upgrade/` say so (§7.1 "What a published smurg wrote", `CONTRIBUTING.md`).
+   A new security-relevant value gets its closed side in a step, with one exception: one step sets a value on the
+   open side, by the owner's decision of 2026-10-20 (0.6.0): workspaces and agent sessions of 0.5.x follow the new
+   default, auto mode, at the update (`stateStepFromV050`, `agentSessionsStepFromV050`); the host is told by
+   `smurg host` and in the console (DECISIONS 2; §11 D-25). Every other step gives a new security-relevant value its
+   closed side.
 
 ---
 
@@ -202,7 +213,7 @@ message from a reference. `packages/protocol/test/entry-boundaries.test.ts` chec
 | Relay | availability, asserting *who logged in* (signed identity token) | confidentiality, integrity of content, the daemon's identity |
 | Client (web/cli) | nothing | every request is validated + authorised by the daemon |
 | Sessions (agent / terminal), whoever opened them | what the host's own OS account may do: they run as the host, unsandboxed (§11 D-15) | everything that arrives on the hook / MCP socket and on an agent's pipes is a claim, not a fact (§7.6, §7.7); a member who may open or drive sessions (`agent` role, "Agent access") is trusted by the host like the host's own account (§12) |
-| The model in an agent session | nothing | it reads what several people wrote and whatever is in the files: every tool call passes smurg's tool gate, what it asks to run becomes a card a person answers, what it prints is masked and clipped before anyone sees it (§5.9, §7.7) |
+| The model in an agent session | nothing | it reads what several people wrote and whatever is in the files: every tool call passes smurg's tool gate; in the modes that ask, what it asks to run becomes a card a person answers; in auto mode (the default since 0.6.0) Claude Code's own check, a model's judgement, decides most commands, and smurg's gate asks or refuses only where it can read the command (G10 to G12) and refuses by deny rules what names its protected places (§7.6 "Deny rules beyond the session's folder"); what it prints is masked and clipped before anyone sees it (§5.9, §7.7) |
 | Editors and Viewers | what their capabilities give them through smurg (§3) | steering an agent: rule 6 |
 
 Rules that follow (and that reviewers check):
@@ -216,8 +227,11 @@ Rules that follow (and that reviewers check):
 5. **Who may do what to an agent session** (§3; the Router checks the capability, the handler the rest):
    - start one (a topic with its discussion, work items, a free session): `session.create` (Host, Agent access);
    - message an agent, stop its turn, allow or deny what it asks to run, accept or reject a suggestion, answer a
-     question in one's own words or add a note for the agent: `session.drive` (Host, Agent access); a request that
-     reaches beyond the project is host-only: the host;
+     question in one's own words or add a note for the agent, choose a session's or a topic's model and permission
+     mode (never `ask-nothing`): `session.drive` (Host, Agent access); a request that reaches beyond the project, and
+     in auto mode the cards of G11a and G12 for a teammate's session, are host-only: the host;
+   - the workspace's permission mode, `ask-nothing` included: the host (`admin`); work items that run directly in the
+     shared folder (no usable git program, §7.8): started and retried by the host only;
    - vote, comment, be the responsible person, submit one of the agent's own options as the decider, review a result
      report: `discuss` (Host, Agent access, Editor);
    - an Editor's message is a suggestion; a Viewer watches.
@@ -235,7 +249,11 @@ Rules that follow (and that reviewers check):
    of smurg hold only fixed sentences and values the daemon checked by pattern (§7.8).
 8. **The tool gate** (§0 rule 7, §7.7) decides every tool call of every agent session by the kind of session, before
    Claude Code's permission flow and whatever allow rules the host or the project have. When the daemon does not
-   answer, it refuses every tool.
+   answer, it refuses every tool. In auto mode (0.6.0) what the gate does not refuse or ask about is decided by
+   Claude Code's check (file edits and simple file commands in the session's own folder: no check at all); the gate
+   asks only where it can read where a shell command writes (G11, G12; a command it cannot read asks the host for a
+   teammate's session), and deny rules written for the places beyond the session's folder refuse the edit tools and
+   commands that NAME them, in every mode (§7.6). They are not a sandbox.
 9. **The trust gate.** Structured mode never shows Claude Code's own trust dialog, so smurg has one: an agent session
    loads a folder's project-level Claude Code settings (`.claude/settings.json`, `.claude/settings.local.json`,
    `.mcp.json`, and everything else Claude Code loads from `.claude/`: agents, skills, commands, rules) only after
@@ -268,7 +286,8 @@ type Capability =
                              // create a topic, restart its discussion, start work items, archive a topic
   | 'session.drive'          // type into ANY terminal; send a message to ANY agent, stop its turn, answer its
                              // permission requests, accept / reject suggestions, change who is responsible, the
-                             // permission mode, the always-allowed kinds, ask for the plan
+                             // permission mode (never ask-nothing) and the model of a session or a topic, the
+                             // always-allowed kinds, ask for the plan
   | 'suggest.create'
   | 'discuss'                // vote, comment, mention, be responsible, review a result report
   | 'worktree.merge.request'
@@ -341,6 +360,9 @@ nothing else, so a card, a refusal and an inbox can never disagree.
 | Whose inbox holds a permission request or a suggestion (`permissionRecipients`) | host-only: the host. Else the responsible person, when they hold `session.drive` and it has not escalated; else the host and every member with agent access |
 | Reviewing a result report (`reviewersOf`, `mayReview`) | the responsible person, while a member holding `discuss`; else every member holding `discuss` (one review counts for all); once escalated, also every member with `session.drive` |
 | "Always allow this kind" | members with `session.drive`; only the two checked forms of `rules.ts`; never for a host-only request |
+| The workspace's permission mode (`admin.settings.set { permissionMode }`) | the host; `ask-nothing` only through the console's warning, and never while the daemon runs as root |
+| A session's or a topic's mode and model (`session.mode.set`, `session.model.set`, `topic.agent.set`, `plan.start.agent`, the model of `session.create` / `topic.create`) | members with `session.drive`; a mode among `auto`, `ask-commands`, `ask-all` or null (follow), never for a discussion; a model of the host's list (`model-offered`) or null (the host's default) |
+| Starting or retrying work items that run directly in the shared folder (`plan.start { direct: true }`, `plan.item.retry` of an item pinned `direct`) | the host only (`direct-host-only`): the rule is about the folder's state, not a role |
 
 A question or a permission request **escalates** after the host setting `escalateAfterMs` (default 5 minutes; a
 report after six times that), or at once when the person it waits for has been offline for a minute: it then also
@@ -354,9 +376,12 @@ state from any path (the admin handlers, the control socket). The core does it i
 driven by `member.kicked`, `member.left` and `member.role-changed`, in this order, each step with a time budget so a
 kick answers within R2's 3 s:
 
-1. `ConversationService.memberRemoved`: their votes, the always-allowed kinds they added to sessions, a permission
-   mode they loosened, their queued messages (a kicked member's undelivered message stops its turn).
-2. `TopicService.memberRemoved`: the kinds they allowed for whole topics, items they armed that have not started.
+1. `ConversationService.memberRemoved`: their votes, the always-allowed kinds they added to sessions, a mode choice
+   of theirs that is LOOSER than what the session would follow without it (`isLooserMode`; a stricter one stays), a
+   model they chose whose list entry may bill usage credits (`billing`; another model stays), their queued messages
+   (a kicked member's undelivered message stops its turn).
+2. `TopicService.memberRemoved`: the kinds they allowed for whole topics, items they armed that have not started, a
+   topic mode or a credits-billed topic model of theirs, by the same rule.
 3. `SessionManager.teardownUser`: per session, end it (terminals, free sessions) or hand it to the host (a topic's
    sessions, with a work item's worktree; stopped first after a kick; `pathRights` is never raised), and clear them
    as responsible person and as fallback decider (kicked, left, or now a Viewer). After a KICK and after a role
@@ -606,7 +631,14 @@ compatibility code for protocol 3: a page or a command of 0.4.0 is refused at th
 `version`, in both directions. 0.5.1 keeps the wire of 0.5.0 exactly: `PROTOCOL_VERSION` stays 4 and no message
 schema, wire text id, audit action, activity kind or audit detail key was added, because the schemas are strict on
 both sides (one added key in what the relay's page sends, and every host still on 0.5.0 is cut off). What 0.5.1
-does around a `version` refusal uses no wire (§7.1 "What 0.5.1 could not repair").
+does around a `version` refusal uses no wire (§7.1 "What 0.5.1 could not repair"). `PROTOCOL_VERSION` is 5 since
+0.6.0 (permission modes, models, the host's agent and history state): smurg's own four permission modes
+(`PERMISSION_MODES`: `auto`, `ask-commands`, `ask-all`, `ask-nothing`; a session or a topic chooses among the first
+three, `SESSION_MODE_CHOICES`, or null to follow), a session's `model` (an opaque id of the agent's own list,
+`modelIdSchema`; null: the host's default) and `modelInUse`, `HostState.agent` and `HostState.work`, the Start
+dialog's history, and the update's notice. Exact equality stays: a 0.5.x page or command meets 0.5.1's cut-off words
+(`version`), in both directions, and a local `smurg attach` across versions ends at once with the other-version words
+(its attach answer embeds the strict Welcome, whose `publicSettings` gained `permissionMode`).
 
 Error codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `locked`, `path_denied`,
 `insufficient_disk`, `too_large`, `host_only`, `rate_limited`, `internal`. Finer distinctions travel in
@@ -691,8 +723,11 @@ type FileRef = { root: RootRef; path: string };   // POSIX, relative, normalised
 
 ```ts
 type Member = { userId; displayName; avatarUrl?; role: Role; color: string; online: boolean; joinedAt: number };
-type WorkspaceInfo = { id; name; hostUserId; hostName; platform: 'darwin'|'linux'; isGitRepo: boolean };
-type PublicSettings = { humanLockIdleMs; agentLockTimeoutMs; uploadChunkSize; sharedDirs: string[] };
+type WorkspaceInfo = { id; name; hostUserId; hostName; platform: 'darwin'|'linux';
+  isGitRepo: boolean };   // the shared folder has a git repository of its own (since 0.6.0 no client decides Start or
+                          // a worktree from it: HostState.work does, §5.5)
+type PublicSettings = { humanLockIdleMs; agentLockTimeoutMs; uploadChunkSize; sharedDirs: string[];
+  permissionMode: PermissionMode };   // protocol 5: the workspace's mode, what every session follows by default
 // (Protocol 1's guestSubscriptionLogin / guestMainWorkspace are gone with the guest sandbox, §11 D-15.)
 ```
 
@@ -939,7 +974,13 @@ type AgentSession = SessionBase & {
   status: 'starting' | 'running' | 'waiting-answer' | 'waiting-permission' | 'idle' | 'stalled' | 'done' | 'failed' | 'ended';
   waitingSince?: number; doing?: 'compacting'; retryHostOnly?: true;
   runningSince?: number;                     // when the turn that runs now started; absent between turns
-  permissionMode: 'ask-all' | 'ask-commands'; modeFixed: boolean;   // a discussion's mode is fixed
+  permissionMode: PermissionMode;            // 'auto' | 'ask-commands' | 'ask-all' | 'ask-nothing': the effective mode
+  modeChoice: SessionModeChoice | null;      // the session's own choice ('auto' | 'ask-commands' | 'ask-all'); null: it follows
+  modeInUse?: PermissionMode;                // what the agent reported for its running process (§7.6 "What really runs")
+  modeFallback?: 'model-no-auto' | 'auto-off' | 'ask-nothing-off';   // with modeInUse ≠ permissionMode: why
+  modeFixed: boolean;                        // a discussion's mode is fixed (ask-all, modeChoice null)
+  model: ModelId | null;                     // the chosen model (an id of the agent's own list); null: the host's default
+  modelInUse?: ModelId;                      // the id the agent reported for its latest turn
   ruleCount: number;                         // always-allowed kinds in force (session + topic)
   login: 'unknown' | 'logged-out' | 'logged-in';   // the host's Claude login, as this session sees it
   claudeVersion?: string;
@@ -950,23 +991,35 @@ type AgentSession = SessionBase & {
 
 `isSessionOver(session)`: an exited terminal or an ended agent session. An agent session has no PTY: it is not
 attached to, it is watched (§5.9). With `topicName` and `item` a client (the CLI's list among them) names a topic's
-session without loading the topic or its plan. `defaultPermissionMode(purpose, root)` is the mode a session starts
-with: `ask-commands`, except a free session in the main workspace (`ask-all`).
+session without loading the topic or its plan. `effectivePermissionMode({ purpose, session, topic, workspace })`
+(`tools.ts`, protocol 5; it replaced 0.5.x's `defaultPermissionMode`) is the mode a session runs with: a discussion
+`ask-all` (fixed); else the session's own choice, else (a work item) its topic's, else the workspace's
+(`HostSettings.permissionMode`, `auto` for a new workspace and, by the owner's decision, for every 0.5.x workspace at
+the update, §0 rule 8). `isLooserMode` orders them `ask-all` < `ask-commands` < `auto` < `ask-nothing`.
 
 ```ts
 type HostState = {                           // `session.host.get`, `session.host`
   account: { state: 'ok' | 'logged-out' | 'usage-limit'; resetsAt?: number; sessions: number };
   mainProjectSettings: 'used' | 'ignored' | 'none';
+  agent: {                                   // protocol 5: what the host's agent offers and lets run
+    models: AgentModel[];                    // ≤ 32: { value, name, description, resolved?, auto, billing?: 'usage-credits' }
+    modelsKnown: boolean;                    // false: not asked yet, or could not be (models empty)
+    hostDefault: ModelId | null;             // the model the host's own settings choose when a session names none
+    autoMode: 'ok' | 'off';                  // off: the agent refused auto mode for a model that supports it
+    asksNothing: 'ok' | 'off' | 'root';      // off: the agent refused to run without asking; root: the daemon runs as root
+  };
+  work: { history: 'folder' | 'smurg' | 'direct' | 'unchecked'; reason?: WireText };   // how work items run here (§7.8)
 };
 ```
 
 | Type | Dir | Payload | Notes |
 |---|---|---|---|
-| `session.create` [session.create] | c→d | `{ kind: 'terminal', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, cols: number, rows: number, title?: string } \| { kind: 'agent', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, title?: string, firstMessage?: string }` → `{ session: SessionInfo }` | the session runs like the host's own, whoever opens it (§11 D-15); the caller is `openedBy`. `kind: 'agent'` makes a FREE agent session (no topic): nobody is responsible, `firstMessage` is the caller's first message. A topic's sessions are made by `topic.create` and `plan.start` |
+| `session.create` [session.create] | c→d | `{ kind: 'terminal', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, cols: number, rows: number, title?: string } \| { kind: 'agent', workspace: { mode: 'main' } \| { mode: 'worktree', worktreeId?: string }, title?: string, firstMessage?: string, model?: ModelId, permissionMode?: SessionModeChoice }` → `{ session: SessionInfo }` | the session runs like the host's own, whoever opens it (§11 D-15); the caller is `openedBy`. `kind: 'agent'` makes a FREE agent session (no topic): nobody is responsible, `firstMessage` is the caller's first message; `model` (checked by `model-offered`; absent: the host's default) and `permissionMode` (absent: it follows the workspace) are the caller's choice. A topic's sessions are made by `topic.create` and `plan.start` |
 | `session.list` [session.view] | c→d | `{ topicId?: string, after?: string }` → `{ sessions: SessionInfo[], hasMore: boolean }` | without `topicId`: terminals; agent sessions of topics that are not archived (ended ones included); free sessions. With `topicId`: every agent session of that topic, archived or not (earlier attempts, earlier discussions). Oldest first; `after` is the last session's id. Size rule: list |
 | `session.state` | d→c | `{ session: SessionInfo }` | to everyone, on every change of a `SessionInfo`. When a topic's always-allowed kinds change, every session of that topic is sent: `ruleCount` of each of them counts the topic's rules |
-| `session.host.get` [session.view] | c→d | `{}` → `{ account: { state: 'ok' \| 'logged-out' \| 'usage-limit', resetsAt?: number, sessions: number }, mainProjectSettings: 'used' \| 'ignored' \| 'none' }` | what every member may know of the host's side before a session exists: `account` (ONE state per workspace: `ok`, `logged-out`, `usage-limit` with `resetsAt` when Claude Code reported it; `sessions`: how many it stops) and whether the MAIN folder's Claude Code project settings are used (the New topic dialog of a member who is not the host) |
-| `session.host` | d→c | `{ account: { state: 'ok' \| 'logged-out' \| 'usage-limit', resetsAt?: number, sessions: number }, mainProjectSettings: 'used' \| 'ignored' \| 'none' }` | to everyone, whenever the account state or the main folder's trust state changes |
+| `session.host.get` [session.view] | c→d | `{}` → `HostState` | what every member may know of the host's side before a session exists: `account` (ONE state per workspace: `ok`, `logged-out`, `usage-limit` with `resetsAt` when Claude Code reported it; `sessions`: how many it stops), whether the MAIN folder's Claude Code project settings are used (the New topic dialog of a member who is not the host), the host's agent (`agent`: the model list, read once by the probe, §7.6 "Models", which this request starts while the list is not known) and how work items run (`work`, §7.8) |
+| `session.host` | d→c | `HostState` | to everyone, whenever the account state, the main folder's trust state, the model list or the host's default, what the agent lets run, or `work.history` changes |
+| `session.model.set` [session.drive] | c→d | `{ sessionId: string, model: ModelId \| null }` → `{ session: AgentSession }` | protocol 5. Checks `agent-session`, `session-open`, `model-offered` (a non-null model must be the `value` of an entry of the host's list: `session.model.notKnown` while the list is not known, `session.model.notOffered` otherwise). A running process gets `set_model` (a refusal: `session.model.refused`); a parked one gets `--model` at its next start. Also for a discussion. Line `conversation.model.changed` / `.default`, audit `session.model` |
 | `session.end` (who may end it) | c→d | `{ sessionId: string, keepWorktree?: boolean }` → `{}` | a terminal: the member who opened it. An agent session: the host, or a member with agent access who opened it or is responsible for it. Never a topic's discussion (`forbidden`, `session.end.discussion`: archive the topic or restart the discussion). `keepWorktree` answers R9 for a terminal and a FREE agent session; a work item's worktree is never released by its session's end (§5.10) |
 | `session.rename` [session.drive] | c→d | `{ sessionId: string, title: string }` → `{ session: SessionInfo }` | agent sessions and terminals; the title a person typed (an untitled session is named by each client: `sessionTitleRef`, §1 Languages) |
 | `session.attach` [session.view] | c→d | `{ sessionId: string, haveOffset?: number, cols?: number, rows?: number }` → `{ session: TerminalSession, mode: 'snapshot' \| 'delta', data: bytes, cols: number, rows: number, nextOffset: number }` | terminals only (an agent session: `bad_request`, reason `not-a-terminal`). `haveOffset`: the client holds the output up to there; `cols` / `rows`: the opener's viewport drives the PTY size |
@@ -1081,6 +1134,12 @@ Objects are shared read-only through alternates, so a session in the worktree wr
 repository through git. Merging: the daemon (as the host) runs
 `git fetch <dir> <branch>:refs/smurg/merge/<id>` in the main repository, produces the diff for review, and on approval
 merges that ref; on conflict it aborts the merge and reports `conflictFiles`. Rejecting leaves the worktree untouched.
+In a folder without `.git` (0.6.0) the same is done against smurg's own history: the clone is of `<share>/.smurg/git`
+(`git clone --shared --no-checkout -- <G> <dir>`) at a snapshot of the folder, and the merge lands in the folder
+through that history, against the base the review recorded (§7.8 "Without .git"); the record says which repository
+(`repo: 'smurg'`). A teammate's worktree request before git was looked for is refused
+(`worktree.unavailable.unchecked`), and without a usable git program worktrees are refused with the reason
+(`HostState.work.history: 'direct'`).
 Shared directories (D12) are linked into the worktree as symlinks that PathGuard treats as read-only (a session,
 running as the host, is not held to that, §11 D-15).
 All git commands run with `execFile` (argument arrays, never a shell string), asynchronously.
@@ -1097,7 +1156,8 @@ All git commands run with `execFile` (argument arrays, never a shell string), as
 | `admin.session.terminate` | `{ sessionId }` → `{}` |
 | `admin.audit.query` | `{ limit? /* ≤ 500 */, before? /* epoch ms, exclusive: `at` is strictly increasing */ }` → `{ entries: AuditEntry[] }` — newest first, across the rotated files |
 | `admin.audit.entry` (d→c, host only) | `{ entry }` |
-| `admin.settings.get` / `admin.settings.set` | `{}` → `{ settings: HostSettings }` / `Partial<HostSettings>` → `{ settings }` |
+| `admin.settings.get` / `admin.settings.set` | `{}` → `{ settings: HostSettings }` / `Partial<HostSettings>` → `{ settings }`. `permissionMode: 'ask-nothing'` is refused while the daemon runs as root (`settings.asksNothing.root`); a change of the mode reaches every live session that follows the workspace (tighter at once, looser into `ask-nothing` at a fresh start, §7.6) and settles the `agents-auto` notice |
+| `admin.notice.seen` (protocol 5) | `{ notice: 'agents-auto' }` → `{}`: the host has read the update's notice (§7.1 `hostNotices`); its inbox item and the console's banner go |
 
 ```ts
 type InviteInfo = { id; role; createdAt; expiresAt?: number; maxUses?: number; uses: number; revoked: boolean };
@@ -1172,6 +1232,13 @@ Protocol 4 added: `session.message`, `smurg.message`, `session.interrupt`, `sess
 `plan.item.resolve`, `scheduler.start`, `scheduler.disarm`, `report.register`, `report.review`, `spec.commit`,
 `claude-config.decide`, `transcript.redact`.
 
+Protocol 5 added: `session.model` (a session's model chosen or set back, with the model or null), `topic.agent` (a
+topic's model or mode, also the system's reset when its member goes), `agent.command.blocked` (auto mode's check
+stopped a command: tool, reason, the whole command). `agent.command` (a command that ran without a request) is also
+written for one that ran and failed (`outcome: 'error'`), with `detail.mode`; `session.create`, `topic.create`,
+`plan.start` and `scheduler.start` name the model they chose; `spec.commit`, `worktree.*` and the merge entries of
+smurg's own history carry `detail.history: 'smurg'`, those of a direct Start `history: 'direct'`.
+
 - `auth.connect` / `auth.disconnect` (R11 logins and logouts) are written by the core for every connection (relay or local):
   target = deviceId, detail `{ mode, purpose, resumed }` / `{ mode, purpose, reason, durationMs }`.
 - `detail` is sanitised by key (bytes → sizes; `content`, `data`, `token`, `url`, `hash`, `apiKey`, `diff`, … replaced)
@@ -1224,7 +1291,7 @@ type ConversationEvent = { seq: number; at: number } & (
   | { kind: 'card'; card: 'question' | 'permission' | 'suggestion'; id }                      // a card appeared here
   | { kind: 'pointer'; target: 'spec' | 'plan' | 'report'; topicId; itemId?; version? }      // "the spec changed here"
   | { kind: 'line'; text: WireRef; fallback: string }                                         // a system line
-  | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: WireRef; fallback: string; action?: 'restart-agent' | 'retry' }
+  | { kind: 'notice'; level: 'info' | 'warning' | 'error'; text: WireRef; fallback: string; action?: 'restart-agent' | 'retry' | 'choose-model' }
 );
 type SmurgPurpose = 'write-spec' | 'generate-plan' | 'update-plan' | 'start-item' | 'continue-item' | 'retry-item'
                   | 'fix-plan' | 'fix-report' | 'nudge-report' | 'resolve-conflict' | 'conversation-lost' | 'restart-discussion';
@@ -1257,7 +1324,7 @@ log holds a `card` event where one appeared; the entity travels in `session.watc
 | `session.retry` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | starts a `failed` session again; after three failed starts in a row the host only (`retryHostOnly`). For the session of a work item that the plan holds as failed it does what `plan.item.retry` does, whatever the session's own status (after a restart of the host's smurg it is idle): the same session resumes and smurg tells the agent to go on (started again alone, the agent would sit idle with its item shown as running) |
 | `session.restart` [session.drive] | c→d | `{ sessionId: string }` → `{ session: AgentSession }` | "Restart this session's agent now" (the action `restart-agent` of a notice): the session gives up its process now when idle, else at its next idle moment; the next message starts it again with fresh launch files. The session is not ended and its topic not archived. Audited `session.restart`. Refused with `conflict` (text `claudeConfig.confirmNeeded`, `detail.reason: 'confirm-needed'`) while the session runs without its folder's project settings and the host has not confirmed them: the agent would only start again as it was, so the member is told what has to happen first |
 | `session.responsible.set` [session.drive] | c→d | `{ sessionId: string, userId: string \| null }` → `{ session: AgentSession }` | the person must hold `discuss` (`responsible.notEligible`); null: nobody is assigned |
-| `session.mode.set` [session.drive] | c→d | `{ sessionId: string, mode: 'ask-all' \| 'ask-commands' }` → `{ session: AgentSession }` | refused for a discussion session (`session.mode.fixed`) |
+| `session.mode.set` [session.drive] | c→d | `{ sessionId: string, mode: SessionModeChoice \| null }` → `{ session: AgentSession }` | protocol 5: `auto`, `ask-commands`, `ask-all`, or null to follow the topic or the workspace again (never `ask-nothing`, which is the workspace's, §5.8). Refused for a discussion session (`session.mode.fixed`). Line `conversation.mode.changed` / `conversation.mode.followed`, audit `session.mode` |
 | `session.rules.get` [session.view] | c→d | `{ sessionId: string }` → `{ rules: RememberedRule[], host: { state: 'none' \| 'applied', rules?: string[] } }` | the session's and its topic's always-allowed kinds; `host.state` says whether the host's own Claude Code allow rules were found (they APPLY: every session runs as the host), `host.rules` (masked) only for the host and members with `session.drive` |
 | `session.rule.remove` [session.drive] | c→d | `{ sessionId: string, ruleId: string }` → `{ session: AgentSession }` |  |
 | `session.loginStatus` [session.drive] | c→d | `{ sessionId: string }` → `{ login: LoginState }` | agent sessions: runs `claude auth status --json` in the session's environment |
@@ -1282,7 +1349,8 @@ type PermissionRequest = {
   command?; file?: FileRef; change?: { text }; url?; input?;                           // what it wants to do, WHOLE: never shortened, never masked, nothing removed (a request too large to show is denied)
   outside?: true; path?: string;                                                       // `path`: the host's copy only
   root: RootRef; reason?: string;                                                      // Claude Code's own English reason; with `gate`, the gate's English sentence
-  gate?: 'writes-settings-script' | 'may-reach-settings-script';                       // smurg's own tool gate asked for this card (§7.7 G10), and why; `reason` then holds the gate's English sentence
+  gate?: 'writes-settings-script' | 'may-reach-settings-script'                        // smurg's own tool gate asked for this card (§7.7 G10, G11, G12), and why; `reason` then holds the gate's English sentence
+    | 'writes-host-only' | 'writes-outside';                                           // protocol 5: in auto mode (G11a, G12); both host-only
   hostOnly: boolean;
   alwaysRule?: { tool: 'Bash' | 'WebFetch'; pattern };                                 // what "always allow" would add
   noAlways?: 'interpreter' | 'fetches-code' | 'one-word' | 'host-only' | 'no-suggestion';
@@ -1408,7 +1476,10 @@ A **topic** is one piece of work the team discusses and then has agents carry ou
 type Topic = {
   id; name; slug;                      // the folder is specs/<slug>; [a-z0-9][a-z0-9-]{0,47}
   phase: 'discussing' | 'spec' | 'plan' | 'executing' | 'complete';
-  archived: boolean; versioned: boolean; createdBy: UserRef; createdAt;
+  archived: boolean; createdBy: UserRef; createdAt;
+  versioned: boolean;                  // the shared folder has a git repository of its own; since 0.6.0 it decides nothing
+  agent: { model: ModelId | null; permissionMode: SessionModeChoice | null };   // protocol 5: the model of the topic's
+                                       // new sessions and the mode its work items follow (null: the host's default, the workspace's)
   discussionSessionId?; discussion: 'live' | 'lost';
   spec: { exists: boolean; changedAt?; changedBy?: Actor; lastAgentChange?: { sessionId; seq; at; askedBy?: UserRef } };
   handEdits: { spec: HandEdit[]; plan: HandEdit[] };          // HandEdit = { by: UserRef | 'outside'; at }
@@ -1452,7 +1523,7 @@ type ReportInfo = ReportSummary & {
   topicId; itemId; file: FileRef;
   sections: { done; why; verified: { text; passed: boolean; note? }[]; watchOut; followUps? };
   changes?: { requestId; files; additions; deletions; byHand: { path; by: UserRef[] }[] };
-  noChanges?: 'host-only-paths' | 'spec-files' | 'conflict-markers';
+  noChanges?: 'host-only-paths' | 'spec-files' | 'conflict-markers' | 'no-history';   // no-history: a direct item (§7.8)
   questions: { id; from: UserRef; at; text; truncated?: true; answer?: { text; truncated?: true; at } }[];
 };
 type WireText = { text: WireRef; fallback: string };          // FileError = WireText & { line?: number }
@@ -1460,7 +1531,8 @@ type WireText = { text: WireRef; fallback: string };          // FileError = Wir
 
 | Type | Dir | Payload | Notes |
 |---|---|---|---|
-| `topic.create` [session.create] | c→d | `{ name: string, slug?: string, firstMessage?: string }` → `{ topic: Topic, session: AgentSession }` | the slug defaults from the name (`slugFromName`); refused when a topic uses it or `specs/<slug>` exists. Creates the folder and the discussion session |
+| `topic.create` [session.create] | c→d | `{ name: string, slug?: string, firstMessage?: string, model?: ModelId }` → `{ topic: Topic, session: AgentSession }` | the slug defaults from the name (`slugFromName`); refused when a topic uses it or `specs/<slug>` exists. Creates the folder and the discussion session; `model` (`model-offered`) is the discussion's and the topic's |
+| `topic.agent.set` [session.drive] | c→d | `{ topicId: string, model?: ModelId \| null, permissionMode?: SessionModeChoice \| null }` → `{ topic: Topic }` | protocol 5; at least one key. The topic's model reaches its NEW sessions; its mode reaches the live item sessions that follow it (line `conversation.mode.topic`). Checks `topic-open`, `model-offered`; audit `topic.agent` |
 | `topic.list` [session.view] | c→d | `{ archived?: boolean, after?: string }` → `{ topics: Topic[], hasMore: boolean }` | `archived` (default false): the archived topics instead of the others. Size rule: list |
 | `topic.updated` | d→c | `{ topic: Topic }` | to everyone |
 | `topic.removed` | d→c | `{ topicId: string }` | to everyone: the topic was deleted |
@@ -1482,10 +1554,10 @@ type WireText = { text: WireRef; fallback: string };          // FileError = Wir
 | `plan.assign` [session.drive] | c→d | `{ topicId: string, itemId: string, userId: string \| null }` → `{ plan: PlanInfo }` | before the item has a session the plan holds who is responsible; afterwards this writes through the session |
 | `plan.suggest` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Suggest again": smurg's even split, for items that are not started and not `chosen` |
 | `plan.preflight` [session.create] | c→d | `{ topicId: string, itemIds?: string[] }` → `{ preflight: StartPreflight }` | what the Start dialog shows; its three pins go back in `plan.start` |
-| `plan.start` [session.create] | c→d | `{ topicId: string, itemIds?: string[], planRevision: number, specHash: string, planHash: string }` → `{ plan: PlanInfo }` | without ids: every item of that revision that is not started. Refused with `conflict`, reason `plan-changed`, when a pin differs from the files now |
+| `plan.start` [session.create] | c→d | `{ topicId: string, itemIds?: string[], planRevision: number, specHash: string, planHash: string, agent?: { model?: ModelId \| null, permissionMode?: SessionModeChoice \| null }, direct?: true }` → `{ plan: PlanInfo }` | without ids: every item of that revision that is not started. Refused with `conflict`, reason `plan-changed`, when a pin differs from the files now. `agent` (protocol 5) is applied to the topic in the same update that arms the items, after the checkpoint (a refused Start changes neither). `direct: true` is required when the preflight says `history: 'direct'` (`plan.start.directUnconfirmed`) and accepted from the host only (`plan.start.directHostOnly`, reason `direct-host-only`); sent while the history is not direct: `plan.start.historyChanged` |
 | `plan.changes` [session.view] | c→d | `{ topicId: string }` → `{ files: { target: 'spec' \| 'plan', diff: string, truncated: boolean }[] }` | "Show the changes": unified diffs of SPEC.md and PLAN.md as they are now against what the last Start pinned (against the last commit before the first Start), each cut at `PLAN_CHANGES_DIFF_MAX_BYTES` (`truncated`), through `mask()`; one entry per file that differs |
 | `plan.resume` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Continue all" after a restart of the host's smurg |
-| `plan.item.retry` [session.create] | c→d | `{ topicId: string, itemId: string }` → `{ plan: PlanInfo }` | a failed item resumes its session (also one whose process had failed before smurg was restarted); a stopped item gets a new session in the same worktree |
+| `plan.item.retry` [session.create] | c→d | `{ topicId: string, itemId: string }` → `{ plan: PlanInfo }` | a failed item resumes its session (also one whose process had failed before smurg was restarted); a stopped item gets a new session in the same worktree, with the model of its previous session. An item pinned `history: 'direct'`: the host only |
 | `plan.item.continue` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | tells a stalled execution session to go on |
 | `plan.item.resolve` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | after a merge conflict: smurg merges the main workspace into the item's worktree and asks the agent to resolve |
 | `report.get` [session.view] | c→d | `{ topicId: string, itemId: string }` → `{ report: ReportInfo }` |  |
@@ -1503,7 +1575,11 @@ of the host setting `maxLiveAgents` (`max`); the agent runtime knows only its ow
 waits for which items, who is responsible for each item and whether they are online, the commit of the two files that
 Start would make (`commit`), hand edits since the agent last wrote, invisible characters in the files, whether the
 plan is stale against the spec, open questions, who is editing right now, the trust state of the project settings,
-the topic's rules, the shared directories, and `blockers` (why Start is refused).
+the topic's rules, the shared directories, and `blockers` (why Start is refused). Protocol 5 adds how the items run
+(`history`: `folder`, `smurg` or `direct`; `commit` only with `folder`), `direct: { reason, hostOnly } | null` (with
+`direct`: why git cannot be used, and whether the caller is not the host), `agent` (the topic's model and mode and
+the mode its items will run with), `nestedRepos` (≤ 20 folders that are repositories of their own, with `smurg`) and
+`cloudSynced` (the folder lies in a folder a cloud service syncs, with `smurg`).
 
 **Who edited by hand.** `Topic.handEdits` (and with it the Start dialog and the checkpoint's `Edited-by:`) names a
 member under BOTH files when they renamed or deleted a folder that holds them (`specs/<slug>`, `specs`); what a
@@ -1523,7 +1599,8 @@ type InboxItem = {
   key: string;                         // `<kind>:<id>`; `attention:<subject>:<id>`
   kind: 'question' | 'vote' | 'permission' | 'attention' | 'suggestion' | 'report' | 'merge' | 'mention' | 'result';
   subject?: 'item-stalled' | 'item-failed' | 'item-stopped' | 'item-not-started' | 'plan-paused' | 'discussion-lost'
-          | 'account' | 'project-settings' | 'host-rules' | 'storage';                 // of an `attention` item
+          | 'account' | 'project-settings' | 'host-rules' | 'storage'                  // of an `attention` item
+          | 'agents-auto';                     // protocol 5: the update to 0.6.0 switched the workspace to auto mode (host only; does not wait)
   at; unread: boolean; waiting: boolean;                                               // `waiting`: work stands still for it
   topicId?; sessionId?; itemId?;
   item?: { number: number; title: string };                                            // wherever itemId is: "1 · Cart API"
@@ -1744,14 +1821,19 @@ As built (relay report; details in `apps/relay/README.md`):
 │                                    tool gate, the other hooks, the rules), mcp.json, role.md (§7.6 "Launch").
 │                                    Derived data: written at every process start, removed when the process ends, and
 │                                    all of them at a daemon start (wsKey: 24 hex of the workspace id;
-│                                    hex(sessionId): case-fold safe)
+│                                    hex(sessionId): case-fold safe). The model probe (0.6.0, §7.6 "Models") uses
+│                                    `sessions/<wsKey>/<hex("probe")>/` the same way: settings.json, mcp.json and
+│                                    an empty `cwd/` (0700), removed after each probe
 └── workspaces/<workspaceId>/
     ├── identity.key                 daemon static key
     ├── written-by.json              the stamp: which smurg last shared this folder, and its `shapes` number (below)
     ├── state.json                   members, devices, invites (PSK-derived keys), settings, roots
     ├── <name>.json.before-upgrade-from-<version>   the file as it was before a step brought it to today's shape
     │                                (below); made once, 0600, never read by the daemon
-    ├── worktrees.json               worktrees and merge requests, drafts included (worktree module)
+    ├── worktrees.json               worktrees and merge requests, drafts included (worktree module); since 0.6.0
+    │                                also `hidden` (the record of smurg's own history of a folder without `.git`,
+    │                                with the hashes of its config and HEAD), a record's `repo: 'smurg'` and a smurg
+    │                                merge's recorded `base` (§7.8 "Without .git")
     ├── audit.jsonl                  append-only; rotated at 32 MiB to audit.1.jsonl, audit.2.jsonl (§5.8)
     ├── audit-overflow.jsonl         a member's accepted entries of one action beyond 120 a minute, whole (the log
     │                                counts them in one summary entry); rotated like the log; exists once one was
@@ -1830,7 +1912,13 @@ a schema, no strip, no passthrough.
   frozen with the step, `maxLiveAgents` is this machine's default, everything else is carried as it is; `version`
   stays 1, whose two published shapes are told apart by shape, this once) and `suggestions.json` from 0.4.0
   (`suggestionsStepFromV040`: `origin` is `selection` when the entry has a `source`, else `composer`). The other
-  files of 0.4.0 pass today's schemas. A file that matched an earlier shape and whose upgraded value fails today's
+  files of 0.4.0 pass today's schemas. 0.6.0 adds two steps from 0.5.0 (for folders of 0.5.0, 0.5.1 and 0.5.2, which
+  wrote the same shapes, `src/frozen/v0.5.0.ts`), with `sinceShapes: 2`: `stateStepFromV050` (`version` 2, the
+  workspace's `permissionMode` set to `auto` and `hostNotices: ['agents-auto']`: the one step that sets a value on the
+  open side, by the owner's decision, §0 rule 8) and `agentSessionsStepFromV050` (the record's `mode` becomes
+  `modeChoice`: a person's `ask-all` for a work item or a worktree session stays with who chose it, every other
+  session follows (null); every `model` is null, the host's default). A folder of 0.4.0 runs both chains of
+  `state.json` (each step's output is checked against the next step's frozen shape). A file that matched an earlier shape and whose upgraded value fails today's
   schema is refused naming the entry and the rule, and no entry is dropped (the one known case: a path or a name
   with more than 30 combining marks in a row, which 0.4.0 accepted). The same refusal (`carried-value-refused`) is
   given in EVERY document, with or without a step, when a file fails today's schema ONLY because of rules that got
@@ -1862,7 +1950,7 @@ a schema, no strip, no passthrough.
 - **The stamp `written-by.json`**: `{ "smurg": "X.Y.Z", "shapes": 1, "at": <ms> }`, and `"pending": [{ document,
   from, copy }]` while an upgrade is under way. Not a document (older versions ignore the file). Written first in
   phase 2 of every start with the store's atomic write, and never lowered (neither `shapes` nor `smurg`).
-  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1) is ONE integer for everything persisted under the workspace, documents
+  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1, 2 since 0.6.0) is ONE integer for everything persisted under the workspace, documents
   or not; a version raises it whenever any persisted shape changes. A stamp whose `shapes` is above this smurg's
   refuses the WHOLE folder as `newer` before any document is read, and that number decides ALONE: it is taken from
   any stamp that is a regular file (no link, within the size cap) holding a JSON object with a number there,
@@ -2360,7 +2448,8 @@ fixed stream flags, the conversation flag, and the profile flags:
 claude -p --output-format stream-json --input-format stream-json --verbose --include-partial-messages
        --replay-user-messages --permission-prompt-tool stdio                      (STREAM_ARGS, a constant)
        ( --session-id <claudeSessionId> | --resume <claudeSessionId> )            ("Runner" below)
-       --permission-mode <default | acceptEdits>
+       --permission-mode <default | acceptEdits | auto | bypassPermissions>       ("Permission modes" below)
+       [ --model <the record's model> ]        (only when a model was chosen; "Models" below)
        --settings <launch dir>/settings.json  --mcp-config <launch dir>/mcp.json
        --tools <the profile's list>
        --append-system-prompt-file <launch dir>/role.md
@@ -2368,15 +2457,22 @@ claude -p --output-format stream-json --input-format stream-json --verbose --inc
        [ --setting-sources user ]              (the root's project settings are not trusted; "Trust gate")
 ```
 
-`cwd` is the session's root. Never `--model` (which model a session uses is between the host's CLI and account),
-never a bypass flag, never `--dangerously-skip-permissions`, never `--allowedTools` / `--disallowedTools` (every rule
-is one string in the settings file, so no rule text is ever parsed as a list of rules), and
-`CLAUDE_CODE_ENTRYPOINT` is never set. The launch dir is `~/.smurg/sessions/<wsKey>/<hex(id)>/` (§7.1); the hooks
+`cwd` is the session's root. `--model` only with the model the session's record names (null: no flag, the host's
+own default applies, as for every 0.5.x session); never `--fallback-model` (a person chose the model, and a silent
+switch would hide what runs). `bypassPermissions` only for `ask-nothing`, behind the four checks of "Permission
+modes"; never `--dangerously-skip-permissions` or `--allow-dangerously-skip-permissions` (so a session can only
+become bypass at a fresh start), never `--allowedTools` / `--disallowedTools` (every rule is one string in the
+settings file, so no rule text is ever parsed as a list of rules), and `CLAUDE_CODE_ENTRYPOINT` is never set. The launch dir is `~/.smurg/sessions/<wsKey>/<hex(id)>/` (§7.1); the hooks
 module is the ONE writer of its three files (`HookServer.writeSessionFiles(sessionId, LaunchProfile)`, contract in
 `core/interfaces.ts`). The sessions module checks the returned profile flags against an allow-list before the spawn
-and fails closed (`checkLaunchArgs`): `--settings`, `--mcp-config`, `--tools` and `--permission-mode` (`default` or
-`acceptEdits`) must be present; besides them only `--append-system-prompt-file`, `--setting-sources user` and
-`--strict-mcp-config` may appear; a launch file path must be absolute.
+and fails closed (`checkLaunchArgs(args, { bypass })`): `--settings`, `--mcp-config`, `--tools` and
+`--permission-mode` (`default`, `acceptEdits` or `auto`; `bypassPermissions` only with `bypass: true`) must be
+present; besides them only `--append-system-prompt-file`, `--setting-sources user`, `--strict-mcp-config` and one
+`--model` whose value passes `modelIdSchema` and does not start with `-` may appear; a launch file path must be
+absolute. Then `checkSessionSettings(settings, { bypass, reach })` checks the object `writeSessionFiles` wrote:
+`disableBypassPermissionsMode: 'disable'` unless `bypass`; with `bypass` the key is absent and `defaultMode` is `auto`;
+`defaultMode` is never `bypassPermissions`; and every rule of "Deny rules beyond the session's folder" for this
+session is in `permissions.deny`. A failed check refuses the start (`session.hooks.settingsInvalid`) and logs which.
 
 The first line on stdin is the control request `initialize` (30 s, else the session is `failed` with
 `session.claude.initTimeout`); then `list_permission_rules` ("The host's own Claude Code"). A control request a
@@ -2404,9 +2500,9 @@ Session settings (daemon-owned file; the profile fills the parts in angle bracke
     "allow": ["mcp__smurg", /* <the profile's allow rules; the session's and its topic's remembered rules> */],
     "ask":   [],                                   // nothing: the host's own allow rules apply and are not mirrored
     "deny":  ["ListAgents", /* <read rules for the host-private names, edit rules for Claude Code's configuration,
-                               the profile's deny rules> */],
-    "disableBypassPermissionsMode": "disable",
-    "defaultMode": "<the same mode as the flag>"
+                               the profile's deny rules, and (0.6.0) the rules beyond the session's folder> */],
+    "disableBypassPermissionsMode": "disable",     // absent ONLY for a bypassPermissions launch ("Permission modes")
+    "defaultMode": "<the same mode as the flag; auto for a bypassPermissions launch, so a refused bypass lands in auto>"
   },
   "hooks": {
     "PreToolUse": [ { "matcher": "*", "hooks": [ /* THE TOOL GATE: { "type": "command", "command": "<smurg>", "args": ["hook"], "timeout": 10 } */ ] },
@@ -2445,11 +2541,11 @@ becomes a card or an answer of the daemon's own (§5.9).
 | Session | `permissionMode` on the wire | Claude Code's mode | `--tools` | Rules besides the common ones | A request that reaches the daemon |
 |---|---|---|---|---|---|
 | Discussion (fixed: `modeFixed`) | reads `ask-all` | `default` | `Read, Glob, Grep, Edit, Write, AskUserQuestion` | allow `Edit` of its topic's `SPEC.md` and `PLAN.md` | `AskUserQuestion` → a question card; anything else → denied by the daemon at once with a fixed English sentence, no card (the gate has refused it before: this is the second layer) |
-| Work item (always in its own worktree) | `ask-commands` | `acceptEdits` | `EXECUTION_TOOLS` | deny `Edit` of its topic's `SPEC.md` and `PLAN.md`; allow the remembered rules of the session and of its topic | a question card, or a permission card |
-| Any session but a discussion, stricter | `ask-all` | `default` | `EXECUTION_TOOLS` | as its row | cards |
-| Free session in a worktree | `ask-commands` (its default) | `acceptEdits` | `EXECUTION_TOOLS` | the session's remembered rules | cards |
-| Free session in the main workspace | `ask-all` (its default) | `default` | `EXECUTION_TOOLS` | the session's remembered rules | cards |
-| Free session in the main workspace, set to `ask-commands` | `ask-commands` | **`default`** | `EXECUTION_TOOLS` | the session's remembered rules | a request of an edit tool is allowed by the daemon itself, after the host-only check and the lock (§7.5); everything else → cards |
+| Work item, or free session, in `auto` (the default since 0.6.0) | `auto` | `auto` | `EXECUTION_TOOLS` | a work item: deny `Edit` of its topic's `SPEC.md` and `PLAN.md`; the remembered rules of the session and of its topic; the rules beyond its folder | what Claude Code's check sends to a person (three refusals in a row), a hook's "ask" (G10, G11a, G12): cards |
+| Work item or free session in a worktree, `ask-commands` | `ask-commands` | `acceptEdits` | `EXECUTION_TOOLS` | as the row above | a question card, or a permission card |
+| Any session but a discussion, `ask-all` | `ask-all` | `default` | `EXECUTION_TOOLS` | as its row | cards |
+| Free session (or a direct work item, §7.8) in the main workspace, `ask-commands` | `ask-commands` | **`default`** | `EXECUTION_TOOLS` | the session's remembered rules; the rules beyond its folder | a request of an edit tool is allowed by the daemon itself, after the host-only check and the lock (§7.5); everything else → cards |
+| Any session but a discussion, `ask-nothing` (the workspace's, the host's choice) | `ask-nothing` | `bypassPermissions` (behind the four checks) | `EXECUTION_TOOLS` | as its row; the rules beyond its folder | AskUserQuestion, a hook's "ask" (none of smurg's ask rows runs in this mode): cards |
 
 - `EXECUTION_TOOLS` is one constant for the verified Claude Code version: `Read, Glob, Grep, Edit, Write,
   NotebookEdit, Bash, TaskStop, WebFetch, WebSearch, AskUserQuestion` (2.1.288 has no `MultiEdit`, `BashOutput`,
@@ -2466,7 +2562,9 @@ becomes a card or an answer of the daemon's own (§5.9).
 - **A session rooted in the main workspace never runs in `acceptEdits`.** In that mode the shell writes inside the
   working directory unasked (`rm`, `mv`, a redirect), and such writes pass neither smurg's lock nor its host-only
   check; in a worktree the merge review catches them, in the main workspace nothing would. There `ask-commands`
-  means: the edit tools are allowed by the daemon without a card, every shell write asks.
+  means: the edit tools are allowed by the daemon without a card, every shell write asks. In `auto` (0.6.0) Claude
+  Code's fast path does the same shell writes unasked in the main workspace; the gate's row G11 (§7.7) holds back the
+  two that matter there, and the guides say what it does not see.
 - Common deny rules of every profile, generated from `schema/paths.ts` so the lists cannot drift
   (`AGENT_READ_DENY_PATTERNS`, `AGENT_EDIT_DENY_PATTERNS`): `Read` of the host-private names (`.envrc`, `.git/**`,
   `.claude/settings.local.json`, `CLAUDE.local.md`, at the root and at any depth) and `Edit` of Claude Code's own
@@ -2478,8 +2576,16 @@ becomes a card or an answer of the daemon's own (§5.9).
   simple file commands inside it (`ls`, `cat`, `mkdir`, `touch`, `mv`, `cp`, a redirect into the worktree).
   Everything else asks: other commands, network tools, any write outside the worktree, any write to `.claude/**` or
   `.git/**`.
-- `session.mode.set` (not for a discussion): the control request `set_permission_mode` for the running process, the
-  record for the next start. There is no "asks for nothing" mode.
+- What `auto` means in practice (verified with 2.1.288 against the fake API): edit tools and simple file commands
+  inside the session's folder (`echo >`, `>> CLAUDE.md`, `rm`, `rm -rf <dir>`, `mv`, `mkdir`, `cp`, and a command
+  whose target is a variable, `F=x; rm "$F"`) run on Claude Code's fast path with NO check; every other command goes
+  to its classifier (a model's judgement on the messages and the command, not its output: two stages, side requests
+  on the host's account), which runs it or refuses it (`system/permission_denied`, "Auto mode's refusals" below);
+  three refusals in a row become a `can_use_tool` that a person answers. Claude Code's protected paths (`.git`,
+  `.claude`, `.vscode`, `.husky`, `.gitconfig`, `.mcp.json`, the shell's startup files) never take the fast path.
+  A PreToolUse hook's "ask" makes a `can_use_tool` in auto too (no classifier call), and a hook's deny binds in every
+  mode: that is how G10 to G12 act.
+- `session.mode.set` (not for a discussion), a topic's mode and the workspace's: "Permission modes" below.
 - **Always allow this kind** (§5.9 "Remembered rules"). Session scope: the rule is stored in the session's record,
   given to the running process with the decision (`updatedPermissions`, destination `session`), and written into
   `permissions.allow` at every later start. Topic scope: stored on the topic; sessions of the topic started later
@@ -2492,10 +2598,117 @@ becomes a card or an answer of the daemon's own (§5.9).
   would write `.claude/settings.local.json` into the shared project: the daemon never echoes it. Removing a rule
   restarts the affected processes without it at their next idle moment and says so in a line.
 
+**Permission modes** (0.6.0, §11 D-25; `profiles.ts` `claudeModeFor`, `agent-sessions.ts`, `agent-runner.ts`). smurg's
+four modes are its own words (`PERMISSION_MODES`, §5.5); the Claude profile maps them, and only it names Claude
+Code's modes: a discussion `default` (fixed); `ask-all` → `default`; `ask-commands` → `acceptEdits` in a worktree,
+`default` in the main workspace (the daemon allows its edit tools, `daemonAllowsEdits`); `auto` → `auto`;
+`ask-nothing` → `bypassPermissions`. The mode a session runs with is `effectivePermissionMode` (§5.5): its own choice,
+else its topic's (a work item), else the workspace's.
+- `bypassPermissions` is launched only when ALL four checks pass in `prepareLaunch`: the session's effective mode is
+  `ask-nothing`; the workspace setting, read again there, is `ask-nothing` (it lives in `state.json`, which has no
+  MAC: the rules beyond the folder refuse agents' commands that name `~/.smurg`, and `smurg host` prints the mode at
+  every start, §8); the daemon's uid is not 0 (Claude Code refuses bypass as root; the setting is refused then too,
+  and a session of a workspace that says `ask-nothing` is refused to start); the runner's fallback for this start is
+  `none`. And `checkSessionSettings` (above). Its settings file has no `disableBypassPermissionsMode` and says
+  `defaultMode: 'auto'`, so a bypass that Claude Code refuses (the host's own `disableBypassPermissionsMode`) lands in
+  auto.
+- **Live changes** (`session.mode.set`, `topic.agent.set`, `admin.settings.set { permissionMode }`): every live session
+  whose effective mode changes is re-evaluated. Tighter: the control request `set_permission_mode` at once (a refusal
+  by `error_code`: `auto_mode_model` / `auto_mode_settings` → the fallback below; anything else → the next start).
+  Looser into `ask-nothing`: never by `set_permission_mode` (smurg launches no process with
+  `--allow-dangerously-skip-permissions`, and 2.1.288 refuses it with `bypass_disabled` / `bypass_not_launched`): the
+  process restarts at its next idle moment (`restartPending`, line `conversation.agent.restarting`). Each such session
+  gets its line (`conversation.mode.changed` / `.followed` / `.topic` / `.workspace`); the audit names the change
+  (`session.mode`, `topic.agent`, `settings.change`).
+- Every 0.5.x workspace runs in `auto` after the update (the owner's decision, §0 rule 8, §7.1): `smurg host` prints
+  `host.agentsAuto` once, the host's inbox holds the attention item `agents-auto` and the console's settings its banner
+  until the host has seen it (`admin.notice.seen`) or set the mode. A person's stricter choice (`ask-all` for a
+  worktree session or a work item) stays.
+
+**Deny rules beyond the session's folder** (0.6.0, `profiles.ts` `REACH_DENY`, `absoluteRule`; every non-discussion
+session, in every mode, `ask-nothing` included). smurg's deny rules were written relative to the session's own root,
+so a work item in `<share>/.smurg/worktrees/<id>` reached the main folder's `.git` and `.claude` and the host's
+`~/.claude` with no rule; in 0.5.x such a write was a card, in auto and in bypass it runs (measured with 2.1.288).
+`buildProfile` therefore adds, with absolute rules (`absoluteRule(tool, realpath, pattern?)`, the escaping of
+`fileRule`):
+
+| place | rules | why |
+|---|---|---|
+| the main root, for a session rooted in a worktree | `AGENT_READ_DENY_PATTERNS` as Read rules, `AGENT_EDIT_DENY_PATTERNS` as Edit rules, for the MAIN root's realpath | the shared folder's own configuration and secrets, out of an item's reach as they are out of a main session's |
+| the main root, every session | Read and Edit of `.smurg/git/**`; Edit of `.smurg/.gitignore` (a main-rooted session, a discussion included, has `Edit(//<main>/.smurg/**)`) | smurg's own history (§7.8) and what keeps `.smurg` out of a later `git add -A` |
+| the host's home (`config.sessions.hostHome`) | Edit of `.claude/**`, `.claude.json`, `.ssh/**`; with `CLAUDE_CONFIG_DIR` in the host's environment: Edit of `<that dir>/**` | Claude Code's user settings, hooks, allow rules and memory; ssh keys and config |
+| smurg's state folder (`config.stateDir`) | Read and Edit of `**` | the workspace state (the mode, the identity keys, the relay logins), every session's launch files |
+| smurg's own executable (`config.sessions.selfCommand.file` and its realpath) | Edit | every hook of the gate runs it |
+
+A session folder that lies inside one of these places is refused (`ReachRuleError`); sharing a folder inside the
+host's `~/.claude`, `~/.ssh` or `CLAUDE_CONFIG_DIR` is refused (`ShareError('inside-agent-config')`, CLI
+`host.folder.insideConfig`), as sharing the home folder or the state folder already was. What these rules do: they
+refuse the edit tools on those places, and a shell command that NAMES one of them, in every mode (verified with
+2.1.288 in auto and in bypass, the absolute and the `~` spelling: `test/sessions/modes-claude-real.test.ts` R2, R5).
+What they do not do: a command that reaches a place without naming it (a script, a program, a variable, a `cd` first)
+is decided by Claude Code's check in auto, asks in the ask modes and runs in `ask-nothing`. Not covered on purpose:
+another item's checkout (`.smurg/worktrees/<other>`) cannot get a rule without refusing the session's own folder
+beside it (a deny rule beats an allow rule): G12 asks for a teammate's write there, and the host's own item's write
+shows in that item's diff. The shell's startup files and `~/.gitconfig` are Claude Code's protected paths (never on
+its fast path), and G12 asks for a teammate's write to them. 2.1.288 reads a session's `--settings` file once: an
+agent that overwrites its launch file keeps the rules it started with (R8; the state-folder rule also refuses a
+command that names the file).
+
+**What really runs** (D9; `agent-runner.ts` `checkMode`). Claude Code can run another mode than the one asked for,
+silently: `auto` with a model without auto mode (2.1.288: Haiku 4.5) or with `disableAutoMode` in any settings starts
+in `default`; `bypassPermissions` with `disableBypassPermissionsMode` starts in the file's `defaultMode` (`auto`); as
+root it refuses to start; after `set_model` to a model without auto mode, 2.1.288 STAYS in auto. smurg does not rely
+on those fallbacks: per process it keeps a `fallback` (`none` | `ask-commands` | `auto`).
+1. Before a start, an `auto` session whose model's list entry has `auto: false` starts as `ask-commands`
+   (`modeFallback: 'model-no-auto'`); after `set_model` and at every `init` the same test runs live.
+2. At every mode Claude Code reports (`init` of each turn, `status`, `initialize.current_permission_mode`), against
+   the expected Claude mode: equal → `modeInUse`; expected `auto`, reported `default` → `fallback = 'ask-commands'`
+   (in a worktree `set_permission_mode acceptEdits`), `modeFallback` `model-no-auto` or `auto-off` (and
+   `HostState.agent.autoMode = 'off'`), notice `notice.autoUnavailable.model` / `.settings` once; expected
+   `bypassPermissions`, reported `auto` (or `default`) → `fallback = 'auto'`, `modeFallback: 'ask-nothing-off'`,
+   `HostState.agent.asksNothing = 'off'`, notice `notice.asksNothingRefused`; reported looser (`plan`, `dontAsk` and
+   anything unknown count as looser) → set back; reported stricter → accepted.
+3. `modeInUse` and `modeFallback` are on the wire while the session has a process; the hook registration learns the
+   Claude mode in use (`HookServer.updateSession(sessionId, { claudeMode })`), which G10 to G12 read (§7.7).
+
+**Models** (0.6.0, §11 D-28; `sessions/agent/models.ts` `AgentModels`). The list is Claude Code's own: the
+`initialize` answer's `models` (`default` left out: smurg's null is "the host's default"; `name`, `description` cut at
+512, `resolved`, `auto` from `supportsAutoMode`, `billing: 'usage-credits'` for every entry whose value, resolved id
+or name says Fable; at most 32). It is read by a **probe** when a member's page asks for host state and the list is
+not known (one at a time, not again for 60 s after a failure): the binary sessions use, with the runner's
+`STREAM_ARGS`, `--session-id <fresh>`, `--permission-mode default`, a settings file that turns every hook off
+(`disableAllHooks: true`; verified with 2.1.288 that the host's own user hooks do not run: R7) and denies Bash, Edit,
+Write and WebFetch, an empty MCP config, `--tools Read`, `--strict-mcp-config`, `--setting-sources user`, cwd a private
+empty folder (`sessions/<wsKey>/<hex("probe")>/cwd`, 0700). It sends `initialize` and `get_settings`
+(`applied.model` is the host's default), closes stdin, waits 5 s, kills only its own recorded process group and
+removes its folder; it never sends a model request and leaves no transcript (R7). The daemon's stop awaits it. Every
+agent process's own `initialize` refreshes the list (the newest wins; a change broadcasts `session.host`).
+- A session's model is set when it starts (`session.create.model`; a topic's discussion and later sessions: the
+  topic's; a work item: the topic's when its session starts; a retry: its item's previous session's) and passed as
+  `--model` at every start and resume while it is not null. Live (`session.model.set`): the control request
+  `set_model` (null: back to the default) with 10 s for the answer; an error (`restricted_by_org`, an id the provider
+  does not offer) refuses the request with `session.model.refused` and changes nothing; a parked session only stores
+  it. Each turn's `init.model` is `modelInUse`.
+- A refused model (the API's 404 comes back as a synthetic assistant line with `error: 'model_not_found'`): not shown
+  as the agent's words; notice `notice.modelRefused` with the action `choose-model` once per turn, the process stays.
+  A substituted one (an organization's restriction replaces it): `notice.modelSubstituted` once per process.
+- `ControlError.code` carries Claude Code's `error_code` (a short ASCII token; an unknown or absent code takes the
+  generic branch). A member who goes takes back a model they chose only when its entry may bill usage credits (§3).
+- What the probe does not do, and the host's control: the host restricts models only through their own Claude Code
+  settings (`availableModels`), which the list reflects.
+
+**Auto mode's refusals** (D11; `normalise.ts`, `agent-runner.ts`). `system/permission_denied` (`decision_reason_type:
+'classifier'`) → the call is marked refused, the line `conversation.autoMode.blocked` {reason ≤ 200 characters,
+masked}, the audit `agent.command.blocked` (`denied`; tool, reason, the whole command). `system/informational` is
+logged, not shown. A command that ran without a request is audited `agent.command` (`why: 'unasked'`) also when it
+failed (`outcome: 'error'`), with `detail.mode` (the mode in use); never for a call that auto mode, the gate (by
+`toolUseId`), a hook or a person refused. A command that one of Claude Code's own deny rules refused reaches smurg
+only as a failed result: it is audited as one that ran and failed (§12).
+
 **The record** (`sessions/agent/store.ts`, `agent-sessions.json`; never on the wire) keeps what a later process start
 needs: purpose, topic and item, `openedBy`, the daemon-internal owner (whose identity the agent's file locks use;
 passes to the host at a handover), `pathRights` (fixed at creation, §3), the responsible person and the fallback
-decider, root and worktree, the mode and who loosened it, the remembered rules, `claudeSessionId` (Claude Code's own
+decider, root and worktree, the mode choice and who chose it, the model and who chose it (0.6.0), the remembered rules, `claudeSessionId` (Claude Code's own
 conversation id, NOT smurg's session id), `hasConversation`, the turn counter, the tag of smurg's own header (§5.9),
 consecutive start failures, `lastTurnOpen` (a turn started and no end was recorded), `pending` (the messages no turn
 has taken yet, oldest first, each as it is written to the process; at most `PENDING_MESSAGES_MAX`, 200, per
@@ -2773,7 +2986,8 @@ list (identity-checked, "Ending a session"), and a record with `lastTurnOpen` ge
 ("the agent may have gone on for a moment after smurg stopped; check its changes"); a work item's session is then
 `stalled` (`restart`).
 
-**Claude Code version (§11 D-23).** Every session runs the host's own `claude`, and smurg never passes `--model`.
+**Claude Code version (§11 D-23).** Every session runs the host's own `claude`; smurg passes `--model` only for a
+model a person chose from the host's own list ("Models").
 What smurg relies on is the structured mode, its hook setup and the behaviour of permission rules, and that is
 verified end to end on ONE version: `claudeMinVersion` is **2.1.288** and `claudeVerifiedVersions` is `[2.1.288]`
 (`core/config.ts`). Before an agent session starts, the daemon runs `--version` of the `claude` it will launch
@@ -2917,8 +3131,19 @@ and the audit around it are the hook server's (`hook-events.ts`), and so is row 
 | G7 | work item's session: an edit tool on its topic's `SPEC.md` or `PLAN.md` | deny |
 | G8 | any other edit-tool call (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`) | the **lock decision**: the path must lie in the session's own root and pass PathGuard as the agent's principal; then the agent lock is granted (no output), or the call is denied with who holds the file (§7.5) |
 | G9 | everything else (`Bash`, `WebFetch`, `AskUserQuestion`, `mcp__smurg__*`, …) | **no decision**: the hook prints nothing, and Claude Code's own rules and permission requests go on (§7.6 "Profiles") |
-| G10 | `Bash`, in a root whose project settings in use name scripts (`protectedPaths` is not empty): a command that writes where one of those scripts is, or that the gate cannot follow (below) | **ask**: the hook answers `permissionDecision: 'ask'` with smurg's reason, and Claude Code sends a permission request whatever its mode and its allow rules would have done. A person answers on a card; every other `Bash` call is row G9 |
+| G10 | `Bash`, in a root whose project settings in use name scripts (`protectedPaths` is not empty): a command that writes where one of those scripts is, or that the gate cannot follow (below). Not while the Claude mode in use is `bypassPermissions` (`ask-nothing`: the host chose no question) | **ask**: the hook answers `permissionDecision: 'ask'` with smurg's reason, and Claude Code sends a permission request whatever its mode and its allow rules would have done. A person answers on a card; every other `Bash` call is row G9 |
+| G11 | 0.6.0: `Bash` of a session rooted in the MAIN workspace while its Claude mode in use is `auto`: the command's write places (`bashPlaces` with `onDisk`, as G10) that lie in the root. (a) In a session with `pathRights: 'member'`, a place PathGuard refuses to its principal as a write (a host-only path, a script the trust gate recorded, `.smurg`, or a folder that holds one; a tree too big to look through counts as holding one); (b) in every session, a file a person is typing in, or a folder that holds one | (a) **ask**, host-only, card `gate: 'writes-host-only'` (`BASH_ASK_REASONS.writesHostOnly`); (b) **deny**, "Refused by smurg: <names> is typing in <path>. …" (`bashWhileTypingReason`), bus `agent.tool.gate` row `G11` |
+| G12 | 0.6.0: `Bash` of a session with `pathRights: 'member'` (a session a teammate opened, or a work item a teammate started) while its Claude mode in use is `auto`, whatever its root: a write place outside the session's own root (from a worktree: also the main folder and other checkouts), and outside the system's temporary folders (`os.tmpdir()`'s realpath, `/tmp`, `/private/tmp`, never when one of them holds the shared folder, the host's home or the state folder) and `/dev/null`-like devices | **ask**, host-only, card `gate: 'writes-outside'` (`BASH_ASK_REASONS.writesOutside`) |
 
+- **G11 and G12 read only what smurg can read in a command** (the places `bashPlaces` finds). A reading that is
+  `unsure` (a variable, a substitution, `sh -c`, `xargs`, a script: places the gate cannot follow) asks the host, for
+  a `member` session only, while `GATE_ASKS_WHEN_UNSURE = true` (`BASH_ASK_REASONS.unsureAuto`, host-only, no gate
+  label). The constant is `true` because 2.1.288 runs a command whose target is a variable on its fast path, with no
+  check at all (`F=gone.md; rm "$F"` removed the file; `$(…)`, `sh -c` and `xargs` went to its classifier:
+  `test/sessions/modes-claude-real.test.ts` R4). A command of the host's own sessions that smurg cannot read is
+  Claude Code's check's to decide. Neither row runs outside auto mode (in the ask modes Claude Code itself asks
+  before the writes they would ask about; in `ask-nothing` the host chose no question), and G11 does not run in a
+  worktree, where the merge review covers the fast path.
 - G1 and G9 together are the liveness check: a command of an orphaned agent, or of an agent whose daemon hangs, does
   not run, even when a remembered rule, a host rule or `acceptEdits` would have let it.
 - The gate never says "allow" (`wire.ts` has no builder for it): allowing stays with Claude Code's rules and with
@@ -3207,8 +3432,92 @@ dialog lists them (`StartPreflight`, §5.10) and the request must repeat what th
 3. **The pin.** For every item it arms the daemon stores `{ by, at, planRevision, specHash, planHash, commit,
    specBlob, planBlob }`; `Topic.handEdits` is cleared. Arming is per item id.
 
-Execution needs git: a repository with at least one commit and git 2.42 or newer (§5.7). Without it topics,
-discussion, spec and plan work (`Topic.versioned: false`) and the preflight's blocker says why Start is refused.
+Which history the items run in (0.6.0, §11 D-26, D-27): `MainState.history`, on the wire `HostState.work.history` and
+the preflight's `history`. `folder`: something is at `<share>/.git` (a repository with a commit, or one of 0.5.2's
+refusals: `notAGitRepo` for a `.git` git does not take, an empty one included, `noCommit`, `gitDirNotDirectory`,
+`gitDirGone` while records of it wait). `smurg`: nothing at all is at `.git` and the git executable is usable (found,
+runs, 2.42.0 or newer): smurg's own history (below). `direct`: the executable cannot be used (`binaryUnavailable`:
+not found, too old, does not run), whatever the folder is: items run in the shared folder itself (below).
+`unchecked`: no `.git`, and git was not looked for yet. The look stays lazy (on a Mac without the Command Line Tools,
+running `/usr/bin/git` puts a system prompt on the host's screen): a Start dialog, the host's own worktree request, a
+merge view, an operation on a record of smurg's history, the scheduler for a pin of a Start; a teammate's worktree
+request before any look is refused (`worktree.unavailable.unchecked`) and runs no git. `isGitRepo` and
+`Topic.versioned` stay on the wire and decide nothing any more.
+
+**Without `.git`: smurg's own history** (`worktree/hidden-repo.ts`, `integrity.ts`). A git directory at
+`<share>/.smurg/git` whose work tree is the shared folder (`core.worktree` unset; the runner passes `--work-tree`),
+never a `.git` in the folder (a plain `git rev-parse` there still says "not a git repository"). Topics then run as
+with a repository: each snapshot records the folder as it is, a worktree is a shared clone (`git clone --shared
+--no-checkout -- <G>`) at the snapshot before it, an item's commit is fetched back, a merge lands in the folder.
+- **Created lazily and crash-safely** (`ensureHiddenRepo`, on the worktree module's `main` queue, at the first thing
+  that needs it: the Start dialog's warm-up, a Start, a new worktree): leftovers `.smurg/git.new-*` removed;
+  `.smurg/git.new-<16 hex>` (0700) initialised and its exclude written; the record `worktrees.json.hidden = {
+  createdAt, configHash, headHash }` saved; then renamed into place. A `.smurg/git` with NO record (a set-aside
+  `worktrees.json`, another workspace of the folder, a hand-made copy) is never adopted: its config could make the
+  DAEMON run code (`worktree.hidden.unknown`; the host moves it away). A record without `.smurg/git` starts anew
+  when no worktree or open merge of it remains, else `worktree.hidden.gone`.
+- **Checked before every command** (`verifyHiddenRepo`): a real directory at exactly that path, `config` and `HEAD`
+  with the recorded hashes, none of `commondir`, `gitdir`, `config.worktree`, `info/attributes`, `info/grafts`,
+  `shallow`, `objects/info/(http-)alternates`, no entry below `refs/replace/` (nor in `packed-refs`); otherwise
+  `worktree.hidden.changed`. Its hooks never run (`core.hooksPath=/dev/null`). The deny rules of every session refuse
+  `.smurg/git/**` to edits and to commands that name it (§7.6), PathGuard keeps `.smurg` from people.
+- **What it holds** (`hiddenExcludeLines`, written before every snapshot, the clones' exclude the same lines without
+  `/.smurg/`, rewritten before every commit of a clone): `/.smurg/`, `node_modules/`, `.venv/`, `__pycache__/`,
+  `.DS_Store`, the host-private names GENERATED from the protocol's lists (a name with a slash in the unanchored
+  `**/` form), every listed path `isHostPrivatePath` calls host-private under another spelling, `/<dir>/` per shared
+  directory, `/<path>/` per nested repository (a folder with a `.git` of its own: never a gitlink, named in the Start
+  dialog as `nestedRepos`). The folder's own `.gitignore` files apply; nothing below `.smurg` ever enters the index.
+- **Bounded**: a listing (`ls-files --cached --others --exclude-standard`, 64 MiB) and the daemon's own `lstat`
+  before `git add -A`; more than 50,000 files or 1 GiB is refused before anything is written
+  (`worktree.hidden.tooLarge` with the three largest top-level entries). The commands of a snapshot get 240 s; the
+  page waits 5 minutes for `plan.start`, a `session.create` with a new worktree and `worktree.merge.approve`; the
+  Start dialog's preflight warms the history up (`git add -A` with no commit) while the dialog is read; a stale
+  `G/index.lock` at the start of a command on the queue is removed (only smurg runs git in G). Free disk space is
+  checked before each clone against the last listing's bytes and the host's reserve (`worktree.hidden.noSpace`);
+  more than 10,000 loose objects after a snapshot: `git repack -A -d -q` (never `prune` or `gc`). A share below
+  `~/Library/Mobile Documents`, `~/Library/CloudStorage` or `~/Dropbox` is `cloudSynced` in the preflight.
+- **Snapshots** (`snapshotFolder`): at Start (the checkpoint records the WHOLE folder, as the member who pressed
+  Start, `smurg: spec and plan of <slug>` with its trailers), before a new worktree (`smurg: the shared folder for a
+  new worktree`), before the host approves a merge (`smurg: the shared folder before merging <branch>`: then a
+  person's edit since the item's base is a change on the main side, so a conflict is named and the folder is
+  untouched) and before `updateFromMain` (`… before updating <branch>`).
+- **The merge base is recorded.** A smurg merge stores `base` at each version of the request; every diff view and
+  the approval compute `merge-base` again and refuse with `worktree.hidden.changed` when it differs, and the trial
+  merge passes `--merge-base <base>` (`merge-tree --write-tree`, git 2.40).
+- **Records say which repository**: a worktree's and a merge's `repo: 'smurg'` (absent: the folder's own `.git`, which
+  is what every 0.5.x record means), a pin's `history: 'smurg'`; every operation uses its record's repository. When
+  a `.git` appears later, new work uses it (and needs its first commit); records of smurg's history keep working with
+  it until they are released, and `.smurg/git` stays (the host may remove it once nothing of it waits).
+- The history keeps every version of what it recorded, secrets included, also after a file is deleted from the
+  folder; agents in worktrees read it through their clone (shared objects). HOSTING §10.2 says so.
+
+**Without the git program: work items run directly in the shared folder** (`topics/direct-folder.ts`,
+`scheduler.ts`, `report-service.ts`). Start is not refused: the preflight says `history: 'direct'` with the reason
+(`worktree.unavailable.git*`) and `direct.hostOnly` for a caller who is not the host; `plan.start` needs
+`direct: true` (`plan.start.directUnconfirmed`) and the host (`plan.start.directHostOnly`, reason
+`direct-host-only`), and so does `plan.item.retry` of an item pinned `direct`. No checkpoint; the pin is `{ …hashes,
+history: 'direct', commit: null, specBlob: null, planBlob: null }` and its check compares the working tree's two
+files only.
+- **An item runs directly only because its own confirmed Start said so**: the direct branch runs only when
+  `item.pin.history === 'direct'`; an item pinned `folder` or `smurg` starts only in a worktree of that repository,
+  and when that history cannot be used now it is disarmed `start-failed` with `plan.start.historyChanged`, on a
+  first start, on Retry and on "Continue all" alike (this check runs for EVERY armed item, retried ones included,
+  apart from the hash part of the pin check, which still skips them).
+- **One agent holds the folder** (`DirectFolder`): at most one direct item session runs a turn at a time. The
+  scheduler starts a direct item only when the folder is free and nobody waits for it (`maxLiveAgents` is not
+  consulted); that session holds it until the end of the turn after which its report is registered, or until it is
+  stopped, fails or ends. Every later turn of a direct item's session (a message, a report's follow-up, Continue, the
+  message of a Retry) asks `RunnerHost.mayRunTurn` before it writes to the process: while that is false the message
+  stays queued (delivery `queued`) and the conversation says so once (`conversation.direct.waits`); a released
+  folder goes to the oldest waiter first, before a queued item starts. Free sessions of people are not held.
+- **The session**: no worktree, root MAIN, the stored item `direct: true`, the role prompt
+  `directExecutionRolePrompt` (no history, changes land at once for everyone, one item at a time, no git, name every
+  changed file in the report), the line `conversation.started.itemDirect`. The gate treats it as a main-workspace
+  session (G7, G8, G11 in auto); G11a and G12 do not ask, since only the host starts it (`pathRights: 'host'`).
+- **The report** is written in the shared folder, counts only with the agent's own `check_report` for exactly that
+  content (§7.8 "The result report"), is registered without a snapshot (`noChanges: 'no-history'`), and the item
+  counts as merged at registration: what depends on it starts once the folder is free. When the report is reviewed
+  the item is complete and its session ends with `reason: 'reviewed'` (`conversation.ended.reviewed`).
 
 **Execution** (`scheduler.ts`). The scheduler runs on every relevant event (a Start, a merge decided, a session's
 status, the plan parsed again, a change of the two files, `plan.resume`, a member removed, an agent process started
@@ -3220,9 +3529,11 @@ PIN CHECK   SPEC.md and PLAN.md hash as pinned, in the working tree AND at the m
               attention item `item-not-started` ("Show the changes", "Start again")
 waiting → queued     when everything it depends on is MERGED          (the only step a paused plan still takes)
 queued  → running    when a slot is free (`maxLiveAgents` counts item sessions that hold a process):
-                       1. WorktreeManager.acquireForItem: the item's own worktree at the main workspace's HEAD, on
-                          the branch smurg/<slug>/<item id> (a report file that is already there is removed)
-                       2. AgentSessions.start { purpose: 'item', mode: 'ask-commands', the role prompt, `start-item` }
+                       1. WorktreeManager.acquireForItem { history: the pin's }: the item's own worktree at that
+                          repository's HEAD, on the branch smurg/<slug>/<item id> (a report file that is already
+                          there is removed); a pin `direct`: no worktree, the folder's hold instead (above)
+                       2. AgentSessions.start { purpose: 'item', modeChoice: null (it follows the topic's mode),
+                          model: the topic's, or a retry's previous session's, the role prompt, `start-item` }
                        3. audit `scheduler.start`
 a failure on the way: the item is disarmed (`start-failed`) with what went wrong; attention `item-not-started`
 ```
@@ -3434,7 +3745,7 @@ outputs below are the English ones; the zh-TW catalog has the same messages.
 
 | Command | Behaviour |
 |---|---|
-| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay) or that contains a home directory, all before any login; login if needed (a stored login with less than 24 h left counts as missing); start daemon in the foreground, keep machine awake. `--role` is `agent` (Agent access, §11 D-15), `editor` (default) or `viewer`; anything else (`host`, the removed `runner`) is a usage error. **The start prints only the two links**: `smurg is sharing "<name>"`, the host link, the invite link (on `--web-origin`, e.g. the Vite dev server) under a line that names its expiry, and its use limit and role only when the host chose them, and `Press Ctrl-C to stop sharing.` Nothing else is printed at the start unless the host must act on it: keep-awake refused at the start (not when `--no-keep-awake` switched it off; a later loss is printed too). The explanations (SPEC §11's warnings, what "Agent access" means, the switch, the fingerprint, keep-awake, the log file, the relay) are in `docs/HOSTING.md` (named in `--help`) and the state of this machine in `smurg status`. `--no-bash-attribution` sets `config.activity.attributeBashEdits` to false (§11 D-13; default true). Starting the daemon no longer forgets sessions: the agent sessions of the previous run come back idle and every plan is paused (§7.6 "Restart"); there is no new option (the agent limit is a host setting in the console). A stop (Ctrl-C, `smurg stop`) ends terminals and the agents' processes, the agent sessions stay: after `Stopped sharing.` it prints `3 agent sessions are paused. They continue when you share this folder again.` (`host.agentsPaused`; `1 agent session is paused. It continues when …`) when there were any. (Removed with the guest sandbox, §11 D-15: `--no-guest-subscription-login`, `--allow-main-workspace-guests`, `--no-main-workspace-guests`: unknown options now; and the daemon no longer runs from `~/.smurg/cwd`.) |
+| `smurg host <folder> [--relay URL] [--role R] [--expires D] [--max-uses N] [--name N] [--web-origin URL] [--no-keep-awake] [--no-browser] [--no-bash-attribution]` | refuse a folder that is already shared, that overlaps a folder a running host of this state dir shares (inside or around it, whatever the relay) or that contains a home directory, all before any login; login if needed (a stored login with less than 24 h left counts as missing); start daemon in the foreground, keep machine awake. `--role` is `agent` (Agent access, §11 D-15), `editor` (default) or `viewer`; anything else (`host`, the removed `runner`) is a usage error. **The start prints only the two links**: `smurg is sharing "<name>"`, the host link, the invite link (on `--web-origin`, e.g. the Vite dev server) under a line that names its expiry, and its use limit and role only when the host chose them, and `Press Ctrl-C to stop sharing.` Nothing else is printed at the start unless the host must act on it: keep-awake refused at the start (not when `--no-keep-awake` switched it off; a later loss is printed too); above the links, what the start found in the workspace's folder (an upgrade, naming the smurg that last wrote it; a put-back file; an earlier state folder beside it) and, since 0.6.0, `host.agentsAuto` once after the state step from 0.5.0 or older (agents now run in auto mode, how to be asked again) and `host.asksNothing` at EVERY start while the workspace's mode is `ask-nothing` (§7.6 "Permission modes"); a folder in the host's `~/.claude`, `~/.ssh` or `CLAUDE_CONFIG_DIR` is refused before anything else (`host.folder.insideConfig`). The explanations (SPEC §11's warnings, what "Agent access" means, the switch, the fingerprint, keep-awake, the log file, the relay) are in `docs/HOSTING.md` (named in `--help`) and the state of this machine in `smurg status`. `--no-bash-attribution` sets `config.activity.attributeBashEdits` to false (§11 D-13; default true). Starting the daemon no longer forgets sessions: the agent sessions of the previous run come back idle and every plan is paused (§7.6 "Restart"); there is no new option (the agent limit is a host setting in the console). A stop (Ctrl-C, `smurg stop`) ends terminals and the agents' processes, the agent sessions stay: after `Stopped sharing.` it prints `3 agent sessions are paused. They continue when you share this folder again.` (`host.agentsPaused`; `1 agent session is paused. It continues when …`) when there were any. (Removed with the guest sandbox, §11 D-15: `--no-guest-subscription-login`, `--allow-main-workspace-guests`, `--no-main-workspace-guests`: unknown options now; and the daemon no longer runs from `~/.smurg/cwd`.) |
 | `smurg attach [session] [--workspace W] [--invite -\|URL] [--relay URL] [--no-browser] [--accept-new-key]` | **Terminal sessions only** (§11 D-16: an agent session is a conversation and has no terminal; no terminal client for conversations is built). Local daemon running → attach through the control socket as host; otherwise join through the relay with the CLI device key. Without a session it lists every session: the terminals, numbered as before (`attach.list.header`; none: `This workspace has no terminal sessions.`), then `Agent sessions (conversations):` with the columns Session ID / Status / Topic / Title (a topic's sessions together, free sessions last under `No topic`; titles through `sessionTitleRef`; never numbered: a NUMBER only ever picks a terminal), then `Attach with smurg attach <number or session ID>.` (only when there is a terminal) and `Agent conversations open in the browser: <web origin>/w/<workspace id>` (without an address: `Agent conversations open in the browser, in this workspace's web app.`). `smurg attach <an agent session>` (its id or a unique prefix) prints `smurg: Session "<title>" is an agent conversation, not a terminal` with that sentence as the hint and exits 2. Columns are padded by display width (`cli/columns.ts`), so the zh-TW list lines up. The workspace's address: for a local attach the control socket's `status` answer carries `webOrigin` (absent for a daemon without a relay); for a relay attach the invite link's origin, else the `web` origin remembered for that join in `workspaces.json` (stored only when it differs from the relay), else the relay's origin. A member whose role cannot type gets `Read-only: Amy opened this terminal session, and your role cannot type into terminal sessions. Press Ctrl-] to leave.` The invite (its `#` part is the secret) comes from a no-echo prompt (`--invite -`) or `SMURG_INVITE`; a link in argv still works, with a warning (it is visible in `ps` and lands in shell history). An invite whose `k` differs from the key pinned for the workspace (the host started over with new workspace keys, `docs/HOSTING.md` §5.1 / §8, or someone poses as the host) is never used silently: the CLI prints the same explanation as the web (the host's computer key differs from before) with the pinned and the invite's fingerprints (`formatFingerprintForDisplay`, the form `smurg status` shows) and continues only on an explicit `y` at a terminal (`CliIo.readLine`; never from a pipe) or with `--accept-new-key`; then it connects with `preferInvite` (the invite verifies the new key, which replaces the pin). Otherwise nothing is sent and the pin stays |
 | `smurg stop [--workspace W]` | ask the daemon (control socket) to stop: closes all channels, ends every terminal session and every agent's process; the agent sessions stay (their conversations are kept, and they continue when the folder is shared again: §7.6 "Restart"); returns when the daemon is fully stopped. After `Stopped sharing.` it prints the same `N agent sessions are paused. …` line as `smurg host` when there were any |
 | `smurg status [--workspace W]` | every running daemon of this state dir: folder, relay (marked when it is the built-in one) and link states, connections, the daemon key fingerprint, keep-awake (the same wording as `host`'s notices), the switch of §11 D-13 as the daemon runs with it, then since 0.5.0 `Claude Code:` (the version; `verified with this smurg`, `not verified with this smurg yet; agent sessions run with a warning` or `too old for agent sessions; update Claude Code`; and the login, all from the daemon's last check; `not checked yet (smurg checks it when the first agent session starts)` before one), `Agent sessions:` (`N running, N waiting for a person, N stopped without a report or failed, N idle`, or `none`), `Topics:` (`N (N paused)` / `none`), `Claude Code project settings:` (`confirmed (agents use them)` / `not confirmed (agents run without them; confirm them in the web app)` / `none in this folder`; §7.6 "Trust gate") and `Your own Claude Code allow rules:` (`N apply to agent sessions (agents run what they allow without asking)` / `none apply to agent sessions`; §7.6 "The host's own Claude Code"), each of the last four only when the daemon reports it; then the log file. Fields a daemon does not send are left out |
@@ -3686,7 +3997,7 @@ the conversation loads history until it has it, focuses the CARD (never one of i
 
 | Column | Built from | Notes |
 |---|---|---|
-| Session (agent) | `features/conversation` | below. Header strip: the responsible person (`session.responsible.set`), the worktree chip (opens code mode on that root), the permission menu (`session.mode.set`; the always-allowed kinds from `session.rules.get`, each removable; the sentence about the host's own rules), Stop (`session.interrupt`). "End session" is in "More actions", absent for a discussion |
+| Session (agent) | `features/conversation` | below. Header strip: the responsible person (`session.responsible.set`), the worktree chip (opens code mode on that root), the permission menu (`session.mode.set`, "Workspace default (…)" first, never "Asks for nothing"; the always-allowed kinds from `session.rules.get`, each removable; the sentence about the host's own rules), since 0.6.0 the mode Claude Code really runs (`modeInUse ?? permissionMode`, with a warning chip and its reason when it differs) and the model chip (`modelInUse`'s list name, else the chosen value, else "The host's default"; its dialog sends `session.model.set` for `session.drive` holders), Stop (`session.interrupt`). "End session" is in "More actions", absent for a discussion |
 | Session (terminal) | `features/agents` | the terminal of 0.4.0 with its fit rules ("Terminals" below) |
 | Spec | `features/topics` + `DocumentPane` | Read: the Markdown renderer on the document's text, with who last changed it (`spec.lastAgentChange`, "Show in the discussion"). Edit: `DocumentPane` on `specs/<slug>/SPEC.md` (cursors, the lock banner, the deleted-file state). The revise box → `topic.revise`; "Generate plan" → `plan.generate`; "Restart discussion" when the discussion is lost |
 | Plan | `features/topics` | Items from `PlanInfo` (state badges, sizes, dependencies, who is responsible and the split's source, "Allowed in this topic", who is waited for, the slots, warnings, the error state, the paused banner). Start opens the Start dialog (`plan.preflight` → `plan.start`). File: `DocumentPane` on `PLAN.md` |
@@ -3975,7 +4286,7 @@ without it, the card says "The host's computer no longer keeps this card." (`car
 | What a text costs | `test/text-cost.test.ts` in `packages/protocol`, `packages/daemon` and `packages/cli`; `apps/web/test/text-cost.test.tsx` | every function that is handed text a member or an agent wrote (a message, a suggestion, a name, a path, `SPEC.md`, `PLAN.md`, a report, a shell command, the output of a tool; in the web app everything that looks at such a text while a page renders) is walked with one list of hostile texts, runs of one character and of two in turn (blanks, punctuation, combining marks), at one size and at sixteen times that size, measured in processor time: sixteen times the text may cost about sixteen times as much, never the square of it. The walk is `packages/protocol/src/testing/text-cost.ts` (`@smurg/protocol/testing`). Each file also pins, per source file, how many regular expressions, sorts and normalisations its package holds (the web's: every regular expression and every call of `normalize`, of a collator and of `new URL`), so a new one changes a number there and is looked at first. `packages/protocol/src/normalize.ts` is the only place of the three packages that calls `normalize` (§5.9 "Text for agents") |
 | Integration | `packages/daemon/test` | daemon + in-memory transport + headless client. The core's own suites (`test/*.test.ts`: authorization over every request × every role, the control socket, composition, wire texts, audit, rates, hub fan-out, the member teardown, PathGuard's rules, the fakes) and one folder per module, each composing its REAL module with in-memory fakes of the others (`core/fakes`, §7.2) |
 | Agent runtime with the stand-in | `packages/daemon/test/sessions`, `test/hooks`, `test/conversation`, `test/topics`, `test/inbox`, `test/mcp`, `test/worktree` | the real modules against the **stand-in `claude`** (below): a session that asks, edits, waits, stops, parks, fails and resumes on cue; questions, votes and permission decisions by role; the plan format, the split, the scheduler with its pins, reports, real git; the inbox per kind × role × who is responsible; the tool gate's table; `agent-replay.test.ts` (the lines recorded from Claude Code 2.1.288 through the normaliser and the real runner, every resulting event validated against the registry) |
-| Real Claude Code, fake API | `packages/daemon/test/sessions/agent-claude-real.test.ts`, `test/sessions/trust-claude-real.test.ts`, `test/hooks/claude-e2e.test.ts`, `claude-bash.test.ts`, `claude-failmodes.test.ts` | the **real-Claude suite** (below): the real `claude` binary of the verified version against the mock Anthropic API. Skipped, loudly, on a machine without it |
+| Real Claude Code, fake API | `packages/daemon/test/sessions/agent-claude-real.test.ts`, `test/sessions/trust-claude-real.test.ts`, `test/hooks/claude-e2e.test.ts`, `claude-bash.test.ts`, `claude-failmodes.test.ts`; since 0.6.0 `test/sessions/models-claude-real.test.ts`, `test/sessions/modes-claude-real.test.ts` and the real cases of `test/hooks/mock-anthropic.test.ts` | the **real-Claude suite** (below): the real `claude` binary of the verified version against the mock Anthropic API. Skipped, loudly, on a machine without it |
 | Module integration | `packages/daemon/test/integration` | the REAL modules together (`createTestDaemon` without `modules` = DEFAULT_FEATURE_MODULES): docs + locks + hooks through the real `smurg hook` entry; people and the agent on the spec in turns (`spec-coedit`); suggestions into a conversation (`suggest-conversation`); work items in worktrees (`worktree-items`); files + locks + docs; the real CLI's status / attach / stop on the control socket. And the release composition with nothing faked but the model (the stand-in `claude` through the real runner, the real `smurg hook` and `smurg mcp`, real git), four people as SDK clients: `release-composition` (a free agent session end to end, also after a restart) and `release-flow.session` / `.topic` / `.restart` / `.members` (a free session; one topic from the discussion to the archive; a restart of the daemon and a killed agent process; a member removed, a lost discussion, a free session in a worktree) |
 | Acceptance (E2E) | `tests/e2e` | real relay (local workerd) + daemon + headless clients: `r1.*` … `r11.*`, `workspace.test.ts`, `device-login.test.ts`, with `r2.agent-role.test.ts` for the `agent` role |
 | Browser | `apps/web/e2e` (playwright-core + system Chrome) | join flow, "Host offline", key-mismatch warning (Vite dev server) |
@@ -4013,7 +4324,15 @@ an answer and in a denial is text, and no file reaches the model without a tool 
 host's own settings rewrote is the one the card shows, allows and records; no subagent starts; a shared folder with
 parentheses and brackets in its name; in a worktree, with allow rules of the host's own, every route onto a script
 of confirmed project settings asks a person and ordinary commands beside it run unasked; and `claude auth status`
-counts a project's `apiKeyHelper` as a login only when it is asked inside that folder. Running these suites on a new Claude
+counts a project's `apiKeyHelper` as a login only when it is asked inside that folder. Since 0.6.0 also (R1 to R8):
+`--model` at the start and the resume, `set_model` from the next turn, a model the API refuses said in the session;
+the model probe runs none of the host's own hooks, sends no model request and leaves nothing; auto mode's fast path
+and its check (the fake API answers the check's two stages), three refusals that ask a person; the deny rules beyond
+the session's folder refused in auto and in bypass; G11 and G12 on the real binary; what 2.1.288 takes onto its
+fast path (a variable's target: `GATE_ASKS_WHEN_UNSURE`); bypass with and without the host's disable key; Haiku's
+missing auto mode; the rules a process keeps after its `--settings` file was overwritten. The stand-in learned the
+same (models, `set_model`, `get_settings`, auto mode with a scripted classifier, bypass, the error codes of
+`set_permission_mode`), and `fakes.test.ts` holds it to what 2.1.288 was measured to do. Running these suites on a new Claude
 Code version is what adding it to `claudeVerifiedVersions` means (§7.6), and it is a step of a release
 (`docs/RELEASING.md`).
 
@@ -4089,7 +4408,8 @@ Each of these keeps the intent of the requirement and is backed by a verified fi
 **Status: D-1 to D-11 were reviewed and approved by the maintainers on 2026-09-28.** A departure added after that
 is marked in its row until it is confirmed. D-15 (2026-10-01) removed the guest sandbox and with it D-12 and D-14
 (both withdrawn) and the guests' half of D-4 and D-9. D-24 (2026-10-08) records 0.5.1: it departs from no
-requirement of SPEC.md but from the rule 0.5.0 was built under. D-16 to D-23 (2026-10-05) record 0.5.0: the owner's brief
+requirement of SPEC.md but from the rule 0.5.0 was built under. D-25 to D-28 (2026-10-20) record 0.6.0: the owner's
+decisions on permission modes, git and models. D-16 to D-23 (2026-10-05) record 0.5.0: the owner's brief
 (`docs/design/v0.5.0/OWNER-BRIEF.md`, `OWNER-DECISIONS.md`) supersedes SPEC.md's wording of R4 (agent sessions) and R6
 (suggestions), and SPEC.md itself is not edited. Rows written before 0.5.0 keep their wording where it still holds;
 where 0.5.0 changed what a row says, the row says so ("0.5.0:").
@@ -4120,6 +4440,10 @@ where 0.5.0 changed what a row says, the row says so ("0.5.0:").
 | D-22 **(0.5.0, the brief's decisions 5 and 10)** | (the brief) the spec and the plan are files in the project that people edit together; executing the plan opens one agent session per work item | **A Start pins the spec and the plan.** `plan.start` must repeat the plan revision and the hashes of both files that the Start dialog showed; inside the request the daemon commits exactly those two files and stores the pin; the scheduler starts an armed item only while both files, in the working tree and at HEAD, still hash as pinned, never commits, and disarms the item otherwise; an item that appears in the plan later is never armed by an earlier Start (§7.8 "Start", "Execution"). Any change after a Start costs a "Start again", whose dialog shows the change | An Editor can edit those files, and an item may start hours after the click, when what it depends on is merged: without the pin an Editor's later sentence would reach an agent that no member with agent access had seen (§2 rule 6; the security review's SEC-02). Tests: daemon `topics/scheduler.test.ts` › T4.1 a changed spec or plan starts nothing, › S3 an Editor's edit of an armed item's summary or dependency starts nothing and reaches no agent, › S3 the checkpoint commits two files |
 | D-23 **(0.5.0)** | R4: the host's own Claude Code runs the agents (no version is named; until 0.4.0 any version started, with a warning below the oldest verified one) | **Claude Code 2.1.288 is the floor** for agent sessions, and the one verified version: an older Claude Code is refused before the spawn with its own sentence (`session.claude.tooOld`); a newer one, or one whose version cannot be read, runs, and the host is told once (§7.6 "Claude Code version"). Terminals are not affected | The release is verified on one version. One security property holds only from there (a read deny rule hides a file from Grep on 2.1.288 and not on 2.1.220), and the structured protocol is defined by what the binary does, not by a documented contract. A newer version must not lock anyone out, because Claude Code updates itself: the explicit tool list (a new tool does nothing until a smurg release lists it), the tolerant normaliser and the replay test bound what an update can change. Tests: daemon `sessions/agent-sessions.test.ts` (refusals; an unverified version), `workspace.test.ts` (the policy) |
 | D-24 **(0.5.1)** | (no requirement of SPEC.md) the rule 0.5.0 was built under: "nobody has installed any version, no compatibility code"; `smurg host` of 0.5.0 refused every workspace 0.4.0 had shared and advised moving its folder away | **What a published smurg wrote is read by every later one (§0 rule 8).** A start reads the whole workspace folder before it writes anything; a document a published version wrote is brought to today's strict shape by a named step from that version's frozen shape; a kept copy and a stamp are written first; a refusal has a kind, changes nothing while the start only reads, and never advises a new workspace except as the last resort for an unreadable file that cannot be set aside alone, with its cost said first. The wire and every shape 0.5.0 writes are unchanged, so 0.5.0 and 0.5.1 connect to each other and open each other's folders. Mechanism, kinds and what could not be repaired without the wire: §7.1 "What a published smurg wrote"; the command and the page: §8 "Another version of smurg", §9 "A page across an update" | The rule was false the day 0.5.0 was published: the owner updated their own computer from 0.4.0, `smurg host` refused to start, and following the printed advice throws away the members, the invite links and the daemon key. A real 0.4.0 state was made with the published executable and tried against 0.5.0: it is refused at exactly two files (`state.json`: three new required settings; `suggestions.json`: `origin`) and read everywhere else; resetting or "repairing" the state instead was shown to admit a kicked member, a revoked device and strangers through used-up links (admission run over the carried and the repaired documents). The fixtures of both published versions and the tests that open them are `packages/daemon/test/fixtures/published/` and `packages/daemon/test/upgrade/` |
+| D-25 **(0.6.0, the owner's decisions 1 and 2 of 2026-10-20)** | R4 / D-21: agents ask before commands (0.5.x: every command asked but read-only and simple file commands inside a worktree, and what the host's own allow rules allow); an upgrade step gives a new security-relevant value its closed side (§0 rule 8) | **Agents run in Claude Code's auto mode by default, and existing workspaces switch to it at the update.** smurg's four permission modes (`auto`, `ask-commands`, `ask-all`, `ask-nothing`, §5.5, §7.6 "Permission modes"); `auto` is the default of every new workspace and, by the owner's decision, of every 0.5.x workspace at the update (`stateStepFromV050`: the one step that sets a value on the open side, §0 rule 8; a person's stricter session choice stays). The host is told three ways: `smurg host`'s line, the inbox item `agents-auto`, the console's banner. `ask-nothing` (Claude Code's `bypassPermissions`) is the host's alone, workspace-wide, behind a warning, launched only after four checks, and refused as root; while it is on every member sees a badge and `smurg host` says so at every start. What smurg adds in auto: deny rules beyond the session's folder in every mode (§7.6), G11 in the main workspace and G12 for a teammate's writes outside its folder (§7.7), and the merge review in worktrees. The guides say what auto mode does not check, in both languages. | The owner (2026-10-20): "nobody wants to keep pressing confirm", and the host may open permissions to the maximum. Measured with 2.1.288 against the fake API (U2, R-SEC, `test/sessions/modes-claude-real.test.ts` R2–R6, R8): the fast path, the classifier's two stages, the three refusals that ask a person, bypass with and without the disable key, the deny rules that hold in auto and in bypass, the settings file read once. |
+| D-26 **(0.6.0, the owner's decision 3)** | R9 / D-22: work items need a git repository with a commit | **smurg's own history when the folder has no `.git`**: `<share>/.smurg/git`, never a `.git` in the user's folder; worktrees, the report's diff, merge and reject as with a repository (§7.8 "Without .git"). Created crash-safely, never adopted without its record, checked before every command, merged against the base the review recorded, bounded (1 GiB, 50,000 files), excluding host-private files at any depth (generated) and nested repositories (named in the Start dialog). | Not everyone uses git (the users' report, 2026-10-20). Measured with git 2.49 (U3, R-SEC): a git dir outside the folder works, a plain `git rev-parse` there still fails, a person's uncommitted edit survives the merge, a conflict is named and the folder untouched, an exclude line with a slash is anchored (so the lines are generated unanchored), `info/grafts` and `shallow` change history (so they are refused). |
+| D-27 **(0.6.0, the owner's decision 3)** | R9: every agent works in a worktree or a session of its own and a person merges | **Without the git program, work items run directly in the shared folder**: only the host starts or retries them, after the Start dialog's tick; one agent holds the folder at a time, later turns included; the report has no diff (`no-history`), nothing waits for a merge, nothing can be undone; an item runs directly only because its own confirmed Start said so (§7.8). | The owner: it must run where git does not. Never silent: the dialog names it before anything runs, the plan and the report say it, the guides say it; and the host's alone, since members with agent access could otherwise change the folder with no review. |
+| D-28 **(0.6.0, the owner's decision 4)** | R4: the host's own Claude Code runs the agents with its own default model (0.5.x never passed `--model`) | **The model is chosen per session and per topic** by the host and every member with Agent access, from the list the host's own Claude Code offers (a probe of its `initialize`, hooks off), at start and live (`set_model`); null is the host's default (every 0.5.x session). A model that may bill usage credits says so where it is chosen, and the console lists the sessions on one; a member who goes takes such a choice back with them. A refused or substituted model is said in the conversation; the strip shows the model that runs. | Users could not choose a model. Measured with 2.1.288 (U1, `test/sessions/models-claude-real.test.ts` R1, R7): only `--model` on every start is deterministic, `set_model` applies from the next turn, a 404 leaves the process usable, the probe runs no hook of the host's and sends no model request. |
 
 ## 12. Known limits of the prototype
 
@@ -4205,8 +4529,25 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   rules and the merge review are for.
 - **Injection through the spec, the plan and the repository.** An Editor's sentence in `SPEC.md`, or text in any file
   or web page an agent reads, can ask the agent to do things. What stands in the way is the gate, a person reading
-  each command, the pin (D-22) and the reviewed merge. The discussion agent reads its topic's files on every turn,
-  whoever edited them (§2 rule 6).
+  each command in the modes that ask (in auto mode: Claude Code's check, a model's judgement that reads the
+  conversation and the command, not its output), the pin (D-22) and the reviewed merge. The discussion agent reads its
+  topic's files on every turn, whoever edited them (§2 rule 6).
+- **Auto mode (0.6.0, D-25).** File edits and simple file commands inside the agent's folder run with no check at
+  all; in the main workspace they change the shared folder at once, except G11's two cases. Claude Code's check is a
+  model's judgement, never run against the real API by the tests (only the fake API's scripted answers): what it
+  allows runs as the host. G11 and G12 see only commands smurg can read; a command of the host's own sessions that
+  smurg cannot read, or that writes outside the shared folder, runs when the check allows it (a teammate's asks the
+  host). The deny rules beyond the session's folder refuse only edit tools and commands that NAME a protected place;
+  another item's checkout has no rule (G12 asks for a teammate's item). smurg relies on Claude Code 2.1.288 for three
+  things, re-checked with every newer version (D-23): the `--settings` file is read once, at the start (R8); absolute
+  deny rules refuse a Bash command naming the path in auto and in bypass; the fast path covers only the agent's own
+  folder. A command that one of Claude Code's own deny rules refused is audited as one that ran and failed (its
+  result names the refusal). The stand-in sends every command with a `$` to its classifier, where 2.1.288 fast-paths
+  a variable's target: a test against the stand-in is stricter there than the real binary.
+- **Models (0.6.0, D-28).** The list is what the host's Claude Code answered last (the probe, or a session's own
+  `initialize`); a model removed from the account since is refused at the next turn (`notice.modelRefused`). The list,
+  with prices in its descriptions, is visible to every member. Whether a model is billed to usage credits is read
+  from its names (`/fable/i`): a false "may bill" only adds a line, a missed one would hide a cost.
 - **What an agent reads, everyone may see.** The read rules keep the host-private names from the agent's tools and
   `mask()` catches well-known key shapes; anything else an agent reads it can repeat in its text, in the spec or in a
   report, to every member, including one who joins next month and reads every earlier conversation. Masking is best
@@ -4299,9 +4640,13 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   warning and dependencies reduce them; the daemon-side merge with the agent resolving the markers (§7.8 "A
   conflict") is proven with plain git, not with a real model's resolving. A terminal's or a free session's worktree
   still has no operation that brings the main workspace's changes into it.
-- **Execution needs git**: a repository with at least one commit and git 2.42 or newer; without it a topic has its
-  discussion, spec and plan, and Start is refused. The checkpoint commit of a Start lands on whatever branch the
-  host has checked out (the dialog names it), and is refused in the middle of a merge or when git ignores `specs/`.
+- **Execution without a repository (0.6.0, D-26, D-27).** In a folder with a repository, the checkpoint commit of a
+  Start lands on whatever branch the host has checked out (the dialog names it), and is refused in the middle of a
+  merge or when git ignores `specs/`. Without `.git`, smurg's own history only grows (it is packed, never pruned) and
+  keeps every version of what it recorded, deleted files and secrets included; agents in worktrees can read it; a
+  folder over 1 GiB or 50,000 files is refused; each worktree is a full copy of the folder on disk. Without the git
+  program, items run one at a time in the shared folder itself, with no diff, no review before a change lands and no
+  undo; a direct item's shell change is attributed to it only while it is the one session with a command running.
 - **Memory and slots.** Measured on 2.1.288: about 263 MB per fresh live agent including its `smurg mcp` process,
   420–600 MB for the `claude` process after 300 turns, 243–288 MB after park and resume. Eight live items are about
   2.1 GB fresh and can reach 5 GB; the default limit follows the computer's memory and an idle process above 400 MiB

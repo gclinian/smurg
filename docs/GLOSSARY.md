@@ -63,7 +63,7 @@ the source; this table is what the documents and the site use, and what a new me
 | A topic's always-allowed kinds | Allowed in this topic | 這個主題一律允許 | |
 | A request only the host may allow | "Only the host can allow this" | 只有主人可以允許 | |
 | What a session may do without asking | permission mode | 權限模式 | |
-| The two permission modes | Asks before commands / Asks before edits and commands | 執行指令前先問 / 編輯和執行指令前都先問 | `ask-commands` / `ask-all` |
+| The permission modes | Auto: runs what a check allows / Asks before commands / Asks before edits and commands / Asks for nothing | 自動：檢查通過就執行 / 執行指令前先問 / 編輯和執行指令前都先問 / 什麼都不問 | `auto` / `ask-commands` / `ask-all` / `ask-nothing` |
 | The topic's shared session | Discussion | 討論 | |
 | A new discussion session for a topic | Restart discussion | 重新開始討論 | |
 | An agent session without a topic | free session (documents only); the group "No topic" | 未分主題 | |
@@ -99,9 +99,29 @@ the source; this table is what the documents and the site use, and what a new me
 | Put a finished topic away | Archive topic | 封存主題 | |
 
 Not part of 0.5.0, so no word for them: who has a session on screen ("Watching now"), comments on a section of the
-spec, a permission mode that asks for nothing, a button that makes oneself responsible (the responsible person is
-changed in the session's menu), and a choice between asking anyway and keeping the host's own rules (the host's own
-Claude Code allow rules always apply to agent sessions).
+spec, a button that makes oneself responsible (the responsible person is changed in the session's menu), and a choice
+between asking anyway and keeping the host's own rules (the host's own Claude Code allow rules always apply to agent
+sessions).
+
+## Terms of 0.6.0
+
+Models, the permission modes, and work items in a folder without git.
+
+| Concept | English (UI label / prose) | zh-TW | Wire id |
+|---|---|---|---|
+| The model an agent session runs on | model | 模型 | `model` |
+| A session or topic nobody chose a model for | The host's default (a model; "The host's default (Opus)" in a picker) | 主人的預設 | `null` |
+| A session or topic that follows the workspace's mode | Workspace default (a mode; "Workspace default (Auto: runs what a check allows)") | 工作區預設 | `null` |
+| A work item's session that follows its topic's mode | This topic's setting | 主題的設定 | `null` |
+| The mode in prose | auto mode | 自動模式 | `auto` |
+| What decides in auto mode | Claude Code's check (its classifier, a model's judgement; never "checks each command") | Claude Code 的檢查 | |
+| smurg's history of a folder without `.git` | smurg's own history (in `.smurg`) | smurg 自己的版本紀錄（在 .smurg 裡） | `smurg` |
+| Work items without the git program | directly in the shared folder | 直接在分享的資料夾裡 | `direct` |
+
+**Auto: runs what a check allows** is the label of `auto`, and what it covers is fixed here: Claude Code decides.
+File edits and simple file commands inside the agent's folder run at once; every other command goes to Claude Code's
+check, a model's judgement, and runs when it allows it. No text says that every command is checked, in either
+language. smurg's own gate still asks or refuses before a few commands in this mode (the host guide, §5.2).
 
 Where a zh-TW word of the design differs from the catalog that was built, the catalog is the source and this table
 follows it (`tests/lint/docs-quotes.test.ts` holds the guides to the catalogs).

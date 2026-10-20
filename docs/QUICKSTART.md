@@ -4,8 +4,8 @@ The shortest way from nothing to a first topic (a feature or a task): you share 
 computer, a teammate joins in a browser, and an agent does a piece of work that you review and merge. This guide in
 [繁體中文](zh-TW/QUICKSTART.md).
 
-- **You (the host)** need macOS or Linux, Claude Code installed and logged in, and a project folder that is a git
-  repository with at least one commit (which versions: [host guide](HOSTING.md#1-install), §1).
+- **You (the host)** need macOS or Linux, Claude Code installed and logged in, and a project folder (with git
+  installed, work items get worktrees and diffs; which versions: [host guide](HOSTING.md#1-install), §1).
 - **Everyone** needs a Google account and Chrome on a computer. Teammates install nothing.
 
 ## Share your folder with your team
@@ -64,8 +64,10 @@ computer, a teammate joins in a browser, and an agent does a piece of work that 
    it is idle) and says so in the discussion; "Open spec" shows it.
 9. **Get the plan.** Press "Generate plan". The agent writes `PLAN.md`: a list of work items.
 10. **Start the work.** Press "Start 3 items" (the number comes from your plan), read the dialog, then press
-    "Start". Before almost every command, an agent asks with a card in your inbox (top left),
-    "Claude asks for permission to run a command". Read the command, then press "Allow once" or "Deny".
+    "Start". Agents run in auto mode: Claude Code's check decides which commands run; file edits and simple file
+    commands in an agent's own folder run without it. When an agent asks (a card
+    "Claude asks for permission to run a command" in your inbox, top left), read the command, then press
+    "Allow once" or "Deny".
 11. **Review.** When a work item is done, its result report comes to your inbox. Read it, then press
     "I've reviewed this".
 12. **Merge.** The change comes to your inbox as "Reviewed, ready to merge". Open it, press "Merge…", read the

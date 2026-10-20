@@ -314,8 +314,9 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   (`tests/lint/docs-quotes.test.ts`).
 - The two short pages (`docs/HOW-IT-WORKS.md`: how several people work with coding agents in one workspace;
   `docs/SECURITY-MODEL.md`: what the relay sees, what teammates can do, what encryption does not protect) stay short:
-  a title and five named sections, written to at most about 450 words in English and 1,100 characters in Chinese.
-  `test/site.test.ts` names their sections and bounds their length at 460 words and 1,150 characters, counted as the
+  a title and five named sections, written to at most about 450 words in English and 1,100 characters in Chinese
+  (0.6.0 added one sentence to each: what decides which commands run in auto mode). `test/site.test.ts` names their
+  sections and bounds their length at 500 words and 1,250 characters, counted as the
   quick start's (every word of the page; in Chinese every character, a Latin letter too). On a laptop that is about
   two screens of text, not one and a half: each of the five headed sections takes room of its own. Each answers one
   question, and its answer stands before the first section, so a reader who stops there has it (on the security model
@@ -323,10 +324,11 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
   `docs/ARCHITECTURE.md` already say and state nothing else: where a guide explains something, a short page links its
   section instead of repeating it. The test holds their honest lines as whole phrases (a prototype; verified with a
   scripted stand-in for the model, not with a real Claude account; agents run as the host with no sandbox, on the
-  host's Claude account; and, on the security model, that a personal subscription is for the host's own use, that what
-  the host's own allow rules allow runs without a request, and that nobody outside the project has audited smurg: take
-  that last line out only when it stops being true). No heading names an agent, and each page names Claude Code once,
-  where it says what the agents are today. `SECURITY.md` at the repository's root stays what it is, how to report a
+  host's Claude account; and, on the security model, that a personal subscription is for the host's own use, that the
+  agents run in Claude Code's auto mode unless the host chooses to be asked, and that nobody outside the project has
+  audited smurg: take that last line out only when it stops being true). No heading names an agent, and each page
+  names Claude Code as the agent once, where it says what the agents are today; what it says of Claude Code's own
+  auto mode and check is a fact of that agent, not a second name for it. `SECURITY.md` at the repository's root stays what it is, how to report a
   vulnerability: the security model links it and does not copy it.
 - The docs pages: edit `docs/QUICKSTART.md`, `docs/HOW-IT-WORKS.md`, `docs/HOSTING.md`, `docs/JOINING.md`,
   `docs/SECURITY-MODEL.md` or `CHANGELOG.md` and their counterparts in `docs/zh-TW/` together:
@@ -347,9 +349,10 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 - A new file in `public/` is served without running the Worker; `test/site.test.ts` lists the expected files (update
   it on purpose). The pages hold no picture but SVG; the files that are pictures are the two preview pictures (PNG,
   above) and the two icons drawn from the SVG (`favicon.ico`, `apple-touch-icon.png`: "Being found"). `public/`
-  without the preview pictures stays under 160 KB, and every page with what it loads under 176 KB, the two drawn
-  icons aside (150 KB until 0.5.1, 164 KB until 0.5.2: the host guide, the longest page, grew by its parts on
-  updating and on git; the two icons have bounds of their own, 3 KB and 4 KB). Every docs page loads the one
+  without the preview pictures stays under 160 KB, and every page with what it loads under 210 KB, the two drawn
+  icons aside (150 KB until 0.5.1, 164 KB until 0.5.2, 176 KB until 0.6.0: the host guide, the longest page, grew by
+  its parts on updating and on git, and in 0.6.0 by the permission modes and the work items without git; the two icons
+  have bounds of their own, 3 KB and 4 KB). Every docs page loads the one
   stylesheet (about 37 KB since the picture moves), so a rule added for the home page counts against the host
   guide's bound too, and so does every line added to a page's `<head>`.
 - The install line and its Copy button. On a narrow screen the command breaks in one place, after `-fsSL` (the rest
@@ -376,7 +379,7 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 
 Under the install line stands one browser window drawn in HTML (`.win`), in which a topic plays as four scenes:
 **Decide** (a question card, three votes, the answer is submitted), **Plan** (the spec and the plan as two files,
-three work items, Start), **Build** (one agent per work item side by side, one asks for permission to run a command)
+three work items, Start), **Build** (one agent per work item side by side, one runs the project's tests)
 and **Review** (the result report is marked as reviewed, the host merges). Over it a strip names the four parts and
 holds the Pause button (`.tabs`); under it four cards say each part in one sentence. It is an illustration, not a
 screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in words, and the caption under it says so.
@@ -387,11 +390,9 @@ screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in wo
   element with the class `m-said`, a number in an `i.m-count`, a command in a `pre.m-term`. The quote lint
   (`tests/lint/docs-quotes.test.ts`) holds it both ways: every other text in `.m-app` must be catalog text, and the
   labels listed in its `PICTURE_QUOTES` must be on both pages as the catalogs render them. When the app renames a
-  label, rename it here; when a scene gets a new label, add it to that list. One label is the catalog's without its
-  end: the app writes "Allowed once by Ben" with the time of the answer after it; the picture has no clock and
-  leaves the time out (the list holds the part that is shown). What the agents are seen doing needs no request by
-  the host guide (they read, edit and create files in their own worktree); the one command in the picture is asked
-  for first. Keep it so: a command that runs unasked would be a claim the guides do not back.
+  label, rename it here; when a scene gets a new label, add it to that list. What the agents are seen doing is what
+  auto mode runs without a request in a work item's own worktree (host guide §5.2): reading, editing and creating
+  files, and running the project's tests. A scene that shows a request must show a session whose mode asks.
 - **The timeline** is the stylesheet's ("the motion" in `style.css`) and the classes in the markup; the script
   knows only how long a scene is. A scene lasts `--scene` (5 s) and the four are the loop, `--loop` (20 s). A scene's place in the loop
   is the class `in1`, `in2` or `in3` (none for the first) on the scene, on its part of the strip and on its card. A
@@ -401,8 +402,8 @@ screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in wo
   out 0.5 s before the press, and what the press leaves behind comes 0.3 s after it). What takes another's place
   shares a cell with it (`.m-swap`); what comes and later goes is an `a-in` around an `a-out`. A pointer
   (`.m-cur`) stands at the right end of the nearest `.m-act` around it. In Decide and Plan that is the action cell
-  at the end of the row, whose right edge is the button's. Where a second button follows (the permission card) or
-  the cell is aligned to the left (the report), a `.m-act` wraps the button and its pointer alone, so the pointer
+  at the end of the row, whose right edge is the button's. Where a second button follows or the cell is aligned to
+  the left (the report), a `.m-act` wraps the button and its pointer alone, so the pointer
   meets its button in both languages, whatever their widths. Keep every moment before 4.6 s: the scene fades at
   4.8 s, and what a scene ends on should stand for about a second before that. The three chips in the window's top bar (the work items, from the plan to
   the merge) live through several scenes, so their keyframes (`chips`, `chip-run`, `chip-ask`, `chip-done`,

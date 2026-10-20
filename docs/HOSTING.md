@@ -42,9 +42,9 @@ no `sudo`, no system packages.
   in** to your Claude account: every agent session uses this computer's login, whoever in the workspace it works for
   (§4, §5.1). An older Claude Code is refused for agent sessions; with a newer one than this smurg was verified
   with, agent sessions run and you get one notification that says so. `smurg status` shows which it is (§7).
-- To let agents carry out work items, the folder you share must be a **git repository** with at least one commit,
-  and this computer needs git 2.42 or later (§10.2). Without git, a topic's discussion, spec and plan still work.
-  The folder can become a repository while you share it (§10.2).
+- Work items run in worktrees, with a diff you review and merge, when this computer has git 2.42 or later. A folder
+  without `.git` works too: smurg keeps its own history of it in `.smurg` (§10.2). Without git, work items run one at
+  a time directly in the folder, with no diff and no undo (§10.2).
 - **Language**: smurg's interface comes in English and Traditional Chinese, and everyone sees their own language. The
   `smurg` command follows this computer's locale (`LC_ALL`, `LC_MESSAGES`, `LANG`; on macOS, when none of the three
   is set, the system language) and uses English for anything that is not Traditional Chinese; to choose yourself, set
@@ -186,7 +186,9 @@ details while sharing, use `smurg status` (§7): the daemon key fingerprint, Cla
 keep-awake, and where the log is. The terminal speaks up only when you need to act: **the computer cannot be kept
 awake** (§6), the connection to the relay is lost, the relay refuses your login, or the state file cannot be written
 (§7); when a new version exists, one more line appears under the links (§9.1). The first time you share after an
-update, one line above the links says that the workspace was carried over (§9.2).
+update, one line above the links says that the workspace was carried over (§9.2), and after the update to 0.6.0 one
+more says that agents now run in auto mode (§5.2). While you let agents ask for nothing, a line above the links says
+so at every start (§5.2).
 
 **Daemon key fingerprint**: the first time a teammate joins, they can check this fingerprint with you over another
 channel (in person, on the phone) to make sure nobody, the relay included, is posing as you. `smurg status` shows it
@@ -233,11 +235,14 @@ conversations; nothing runs by itself until someone continues it (§7, §10.5).
   time you share; when no window of yours is open at that moment, it arrives when you next open the workspace.
   Until you press "Got it" or close the page, it also stands in the host console, above the list of sessions:
   "Agents here use your personal Claude subscription. Anthropic's terms do not allow making a personal account available to other people; for a group, use an API key, a Team or Enterprise plan, or a cloud provider."
-- **No agent session is sandboxed.** smurg limits what an agent does by itself and asks before commands (§5.2),
-  but whatever is allowed runs under your operating-system account. Agents read files that teammates wrote or
-  changed, and the spec and the plan, which every Editor can edit: a file can hide instructions meant for the agent
-  (prompt injection). Read a command before you allow it, think before you always allow a kind of command, and
-  watch files that teammates changed recently. Teammates with agent access can also answer those requests.
+- **No agent session is sandboxed.** By default agents run in Claude Code's auto mode: Claude Code's check decides
+  which commands run, file edits and simple file commands in the agent's own folder run without it, and smurg itself
+  asks or refuses before a few commands (§5.2). Whatever runs, runs under your operating-system account. Agents read
+  files that teammates wrote or changed, and the spec and the plan, which every Editor can edit: a file can hide
+  instructions meant for the agent (prompt injection), and Claude Code's check is a model's judgement, not a wall.
+  Choose a mode that asks (§5.2) for a folder or a team you are not sure of. When you are asked, read a command
+  before you allow it, think before you always allow a kind of command, and watch files that teammates changed
+  recently. Teammates with agent access can also answer those requests.
 - **Give Agent access only to people you fully trust** (§5.1): this role lets someone make an agent run any command
   on your computer, read your home folder and use your Claude account. Other teammates can take part as Editors:
   they edit with you, vote, comment, review and send suggestions to agents.
@@ -264,6 +269,8 @@ Agent access (`agent`) is the highest role you can give a teammate. A teammate w
   workspace or in a worktree;
 - **send messages to any agent**, stop it, and **allow what agents ask to run** (§5.2), once or always for a kind
   of command;
+- **choose the model and the permission mode** of any agent session and of a topic's work items (§5.2): any model
+  your Claude Code offers, and any mode but "Asks for nothing";
 - type into **any** terminal session, including the ones you opened and the ones other teammates opened;
 - accept or reject the suggestions any agent session receives, answer an agent's question in their own words, and
   ask you to merge any worktree (only you decide a merge).
@@ -283,7 +290,10 @@ These sessions **run on your computer as you**, exactly like the ones you start 
   files outside the shared folder, connect anywhere on the network;
 - **read your home folder**: the keys in `~/.ssh`, other projects, the credentials of other programs and cloud
   services, and the `.git` and `.envrc` in the shared folder that teammates otherwise cannot see;
-- **use your Claude account**: spend your subscription's quota, or run up cost on your API key.
+- **use your Claude account**: spend your subscription's quota, or run up cost on your API key. They also choose
+  the model of the sessions they open or drive: on some plans a model is billed to usage credits, and Claude Code
+  does not ask before it bills one in an agent session (the host console's settings list the sessions that run on
+  such a model).
 
 smurg cannot limit any of this: a teammate with agent access can open a terminal, and can allow whatever an agent
 asks for. Everyone in the workspace sees every session live, and the audit log records who opened each session,
@@ -291,6 +301,9 @@ every message to an agent and every answer to a permission request, but that onl
 happened. **Give this role only to people you fully trust**, for example someone you would hand your logged-in
 computer to. Make everyone else an Editor: they can edit files with you, vote on agents' questions and send
 suggestions to agents, and you or someone with agent access decides whether to accept them.
+
+In auto mode, the default (§5.2), a command of any agent session, a teammate's included, that reaches outside the
+shared folder runs when Claude Code's check allows it; §5.2 says where smurg still asks first.
 
 - **Giving it**: share with `smurg host <folder> --role agent`, and the teammates' link it prints is an Agent access
   link; or, while sharing, create an invite link with this role or change a member's role to Agent access in the host
@@ -302,7 +315,8 @@ suggestions to agents, and you or someone with agent access decides whether to a
   only changed the role, and are stopped first when you removed the member. The worktrees they had kept, with the
   changes in them, pass to you as well: they can no longer remove them, and you decide what becomes of the changes.
   What they put in place goes with them: the kinds of commands they always allowed, work items they started that have not begun yet, a permission
-  mode they loosened, their messages that an agent has not read yet (§10.6). **This only takes back what they may
+  mode they chose that is looser than what the session would follow, a model they chose that may be billed to usage
+  credits, their messages that an agent has not read yet (§10.6). **This only takes back what they may
   do in smurg.** What they already did as you does not go away: see the "After taking it back" list below.
 - Before you start, make sure `claude` is logged in on this computer (run `claude` in your own terminal and log
   in). An agent session has no way to log in: when Claude Code is logged out, agent sessions say so and wait until
@@ -365,23 +379,107 @@ did, do all of this:
 
 ### 5.2 What agents do by themselves, and what they ask first
 
-Before every single tool call of an agent, smurg's own check runs. It runs before Claude Code's own permission
-system and holds whatever your Claude Code settings allow. What it lets through depends on the kind of session:
+Before every single tool call of an agent, smurg's own gate runs. It runs before Claude Code's own permission system
+and holds whatever your Claude Code settings allow. What then runs without a person depends on the session's
+**permission mode** and on where it works:
 
 - **A topic's discussion agent** reads files inside the project (never the files of §4 that teammates cannot see),
   writes only the topic's `SPEC.md` and `PLAN.md`, and has no shell and no network tool. Its permissions are fixed
   (the session shows "Reads code, writes only the spec and the plan"). It asks the team its questions as cards.
-- **A work item's agent** works in the item's own worktree. It edits files in that worktree without asking, and it
-  runs read-only commands and simple file commands inside it (`ls`, `cat`, `mkdir`, `mv`, `cp`) without asking.
-  Everything else asks first: any other command, anything on the network, anything outside its worktree. One kind
-  of file command asks even here: one that could change a script your confirmed project settings run (§5.3). It
-  cannot change the topic's spec or plan. This mode is called "Asks before commands"; you and members with agent
-  access can make a session stricter ("Asks before edits and commands"). There is no mode that asks for nothing.
-- **An agent session without a topic** in a worktree behaves like a work item's agent. In the main workspace it
-  starts with "Asks before edits and commands"; with "Asks before commands" there, its file edits are allowed
-  (file locks still apply, see the guide for teammates) and every shell command that writes still asks.
-- **No agent** changes Claude Code's own settings (`.claude/`, `.mcp.json`) or anything in `.git`, and an agent of a
-  session a teammate opened cannot change the files only you may change (`CLAUDE.md`, `.vscode/`, `.idea/`).
+- **The permission modes** of every other agent session (a work item's, and a session without a topic):
+  - "Auto: runs what a check allows", the default. Claude Code decides: file edits and simple file commands inside
+    the agent's own folder (`echo … >`, `>>`, `mkdir`, `cp`, `mv`, `rm`, `rm -rf <folder>`) run at once, with no check
+    at all; every other command goes to Claude Code's check, a model's judgement on the conversation and the command,
+    and runs when the check allows it. What the check stops does not run, and the conversation says so
+    ("Claude Code's check stopped a command: …"); after three such refusals in a row, Claude Code asks a person with a
+    card. smurg's own gate still asks or refuses before a few commands (below).
+  - "Asks before commands": file edits run; in a worktree, so do read-only commands and simple file commands inside
+    it (`ls`, `cat`, `mkdir`, `mv`, `cp`). Everything else asks first: any other command, anything on the network,
+    anything outside its folder. In the main workspace its file edits are allowed (file locks still apply, see the
+    guide for teammates) and every shell command that writes asks.
+  - "Asks before edits and commands": edits ask too.
+  - "Asks for nothing": yours alone, for the whole workspace (below).
+- **Who chooses which**: the workspace's mode is yours, in the host console's settings
+  ("What agents may do without asking"). You and members with agent access can choose another of the first three for a
+  topic's work items (in the plan, and in the Start dialog) or for one session (when they open it, and later in its
+  strip). A session nobody chose a mode for follows "Workspace default (…)"; a work item follows "This topic's setting".
+  Auto mode's checks cost something:
+  "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage."
+- **What auto mode does not check**:
+  - the fast path: file edits and simple file commands inside the folder an agent works in run with no check at all.
+    In the main workspace they change the shared folder at once, for everyone, except smurg's two cases below;
+  - commands outside the shared folder: a command of any session, a teammate's included, that writes outside the
+    shared folder (your home folder, other projects) runs when Claude Code's check allows it. smurg asks first only for
+    a teammate's session and only when it can read where the command writes (below), and refuses only the places listed
+    below for every mode, and only commands that name them;
+  - commands smurg cannot read (a script, an interpreter, `sh -c`, a variable): smurg cannot see where they write. In a
+    session a teammate opened or started, smurg asks you first, and only you can allow it. In your own sessions such a
+    command runs when Claude Code's check allows it, and Claude Code 2.1.288 runs one whose target is a variable
+    (`F=notes.md; rm "$F"`) with no check at all: a command of that kind can change a file only you may change without
+    anyone being asked;
+  - reads: an agent reads every file of the folder, and in auto mode whatever Claude Code's check lets it read
+    elsewhere, except the files teammates cannot see (§4) and smurg's state folder, which smurg refuses to commands that
+    name them;
+  - a command's output (the check does not see it);
+  - anything a check allowed: it is a model's judgement, not a sandbox.
+- **In a worktree** (a work item, or a session you open in one): what the fast path lets through stays in the
+  worktree, and the result report's diff shows it before you merge (§10.3). What a command changes outside the
+  worktree is not in that diff (the next points).
+- **In the main workspace** (a session without a topic that works there, and work items without git, §10.2): what
+  runs there changes the shared folder at once. In auto mode smurg holds back two kinds of shell writes. A command of
+  a session a teammate opened that changes a file only you may change (`CLAUDE.md`, `.claude/`, `.vscode/`, a script
+  your confirmed project settings run, smurg's `.smurg`, or a folder that holds one) asks first, and only you can
+  allow it; the card says
+  "smurg asks because this command changes a file only the host may change, and in auto mode nothing else would ask before it runs."
+  A command that writes a file someone is typing in is refused until they stop (the agent is told so, in English). An
+  agent's edit tools keep their rules in every mode: they wait for a person's file lock, and the agent of a teammate's
+  session cannot change a file only you may change.
+- **A teammate's session outside its own folder**: in auto mode, a shell command of a session a teammate opened or
+  started (a work item a teammate pressed Start for included) that writes outside that session's own folder asks
+  first, and only you can allow it. From a worktree that also means the main folder and the other work items'
+  checkouts; the system's temporary folders (`/tmp` and the like) are left alone. The card says
+  "smurg asks because this command of a teammate's session writes outside its own folder, and in auto mode nothing else would ask before it runs."
+  smurg sees only what it can read in the command. Your own sessions are not asked: how far they reach is yours to set,
+  by the mode you choose.
+- **In every mode, "Asks for nothing" included**, smurg refuses an agent's edits of these places, and the shell
+  commands that name them: the shared folder's `.git`, `.claude/` and `.mcp.json` and smurg's own history
+  (`.smurg/git`), also from a work item's worktree; your `~/.claude`, `~/.claude.json` (and the folder that
+  `CLAUDE_CONFIG_DIR` names, when you set it) and your `~/.ssh`; smurg's state folder `~/.smurg` (reading it too); and
+  smurg's own executable, which every check of smurg's gate runs. These rules refuse an edit tool and a command that
+  names one of those places. A command that reaches them another way (a script, a program, a variable, a `cd` first)
+  is not refused by them: in auto mode Claude Code's check decides it, in the modes that ask it asks, and in "Asks for
+  nothing" it runs. They are not a sandbox. Another work item's checkout has no such rule (it lies beside the
+  session's own folder): a teammate's item that writes there asks you (above), and what your own item writes there
+  shows in that other item's diff before any merge.
+- **"Asks for nothing"**: only you can choose it, for the whole workspace, in the host console's settings. smurg
+  first shows "Let agents ask for nothing?" with this warning, and saves the choice only when you press
+  "Ask for nothing":
+  "Every agent session of this workspace will run every command as you, on your computer, with no sandbox and no check by Claude Code or smurg, whoever's message or file led to it: a teammate's message, a file someone changed, a web page the agent read. What still holds: a discussion agent writes only its spec and plan, and smurg refuses an agent's edits of Claude Code's settings (yours and the project's), of .git, of your .ssh folder and of smurg's own files, and commands that name those places. A command that reaches them another way runs as you. Choose this only for a folder and a team you trust completely."
+  What still holds besides: smurg's other refusals (file locks, the files only you may change for a teammate's edit
+  tools), no subagents and no `@path` (below). It cannot be chosen while smurg runs as the root user (Claude Code
+  refuses it then). While it is on, every member sees "Agents ask for nothing" in the workspace's top bar, members
+  with agent access can still choose a stricter mode for a topic or a session, and `smurg host` prints this line above
+  the links at every start:
+
+```text
+Agents here ask for nothing: every command runs as you, with no check by Claude Code and no question from smurg (only smurg's fixed limits stay). To change it, choose another mode in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first
+```
+
+- **A change of mode**: a stricter mode applies to a running agent at once. A session moves into "Asks for nothing"
+  only when its agent starts anew: smurg restarts an idle agent for it. Each session says in its conversation who
+  changed its mode, or that you changed the workspace's.
+- **When the mode that runs differs**: Claude Code can run another mode than the one smurg asked for: a model without
+  auto mode (Haiku, in Claude Code 2.1.288), auto mode turned off in your Claude Code settings or your organization's
+  (`disableAutoMode`), or running without asking turned off there (`disableBypassPermissionsMode`). smurg reads the
+  mode Claude Code reports at every turn and falls back to the stricter side by itself: a session that cannot run in
+  auto mode asks before commands ("Auto mode is not available for …"), and a session that Claude Code does not let
+  ask for nothing runs in auto mode. The session's strip then says "Claude Code runs it as: …" with the reason, the
+  conversation says so once, and the host console's settings say when your Claude Code turned a mode off.
+- **What smurg refuses that Claude Code would let through**: smurg refuses an agent's edits of Claude Code's settings
+  (yours and the project's), of `.git` and of smurg's own files, and commands that name them; a command that reaches
+  them another way is decided by Claude Code's check in auto mode, and runs in "Asks for nothing". The agent of a
+  session a teammate opened cannot change the files only you may change (`CLAUDE.md`, `.vscode/`, `.idea/`) with its
+  edit tools, and in auto mode its shell commands that change them ask you (above).
 - **No agent starts subagents in this version.** Claude Code's tool for that is not offered to an agent session,
   and smurg refuses it if it is called; the agent definitions in `.claude/agents` are not used. The reason: a
   subagent works with the permission mode its own definition names, not with the one smurg set for the session, so
@@ -393,14 +491,14 @@ system and holds whatever your Claude Code settings allow. What it lets through 
 - When smurg itself is not reachable on your computer (it crashed, or was killed), every tool call of an agent is
   refused, so nothing runs unattended (§7).
 
-**Permission requests.** When an agent needs something it may not do by itself, a card appears in its conversation
-and in an inbox, and the agent waits. The card shows the whole command (or the whole diff of an edit, or everything
-the tool was given), where it would run and Claude Code's reason (smurg's own reason when it is smurg that asks,
-§5.3). A request that is too large to show whole is denied, never shortened. Nothing is left out of what is shown:
-a character nobody can see (an invisible or zero-width character, one that changes the direction of the text, a
-control character) is written out as a mark you can see, in a command for example as `<U+202E>`. A long command or
-diff stands in a box that scrolls; the card says how many lines it has, and the two buttons that allow stay
-disabled until every such box was scrolled to its end:
+**Permission requests.** When an agent asks (its mode asks, smurg's check asks, or Claude Code's check refused three
+commands in a row), a card appears in its conversation and in an inbox, and the agent waits. The card shows the
+whole command (or the whole diff of an edit, or everything the tool was given), where it would run and Claude Code's
+reason (smurg's own reason when it is smurg that asks, above and §5.3). A request that is too large to show whole is
+denied, never shortened. Nothing is left out of what is shown: a character nobody can see (an invisible or
+zero-width character, one that changes the direction of the text, a control character) is written out as a mark you
+can see, in a command for example as `<U+202E>`. A long command or diff stands in a box that scrolls; the card says
+how many lines it has, and the two buttons that allow stay disabled until every such box was scrolled to its end:
 "Allow is available once you have scrolled to the end of what is asked."
 
 - **Who can answer**: you and every member with agent access; Editors and Viewers see the request and cannot answer
@@ -422,15 +520,20 @@ disabled until every such box was scrolled to its end:
   same command after the agent changed the files it runs: an agent that may always run the tests can edit a test
   file and run what it wrote. A session's permission menu lists what is always allowed there, and each entry can be
   removed. An entry also goes away by itself when the member who added it is removed or loses agent access.
-- **Requests only you can allow**: a request that smurg recognizes as reaching beyond the project (a file outside
-  it, for example) says "Only the host can allow this: it reaches beyond the shared project." So does a command of
-  several parts that names `.claude`, `.git` or `.mcp.json`, and a command that writes where a script of your
-  confirmed project settings is (§5.3). It is a label for what smurg can recognize, not a wall: a command that is
-  allowed can still reach anywhere your account can.
-- Every answer is in the audit log with the whole command, and so is every command that ran without a request (the
-  entry "Agent ran a command"). That entry does not say which rule let the command through (a kind someone always
-  allowed, one of your own rules, a read-only command in a worktree); a command that a topic's always-allowed kind
-  answered has an entry of its own that names the kind.
+- **Requests only you can allow**: this is about what still asks: the cards of the modes that ask, and the cards
+  smurg's gate makes in auto mode (above). A request that smurg recognizes as reaching beyond the project (a file
+  outside it, for example) says "Only the host can allow this: it reaches beyond the shared project." So does a
+  command of several parts that names `.claude`, `.git` or `.mcp.json`, a command that writes where a script of your
+  confirmed project settings is (§5.3), and in auto mode the cards of a teammate's session above. It is a label for
+  what smurg can recognize, not a wall: a command that is allowed (by you, or by Claude Code's check in auto mode) can
+  still reach anywhere your account can.
+- Every answer is in the audit log with the whole command, and so is every command that ran without a request, also
+  one that failed (the entry "Agent ran a command" names the mode). A command Claude Code's check stopped has an entry
+  of its own, "Claude Code's check stopped an agent's command". The entry of a command that ran does not say which
+  rule let it through (Claude Code's check, a kind someone always allowed, one of your own rules, a read-only command
+  in a worktree); a command that a topic's always-allowed kind answered has an entry of its own that names the kind.
+  A command that one of Claude Code's own deny rules refused is recorded as one that ran and failed (its result names
+  the refusal).
 
 ### 5.3 Your own Claude Code: allow rules, MCP servers, project settings, `CLAUDE.md`
 
@@ -445,8 +548,15 @@ the first agent session has started, the list is empty and `smurg status` says "
 a new rule appears later, you are told again. The list names where each rule comes from: your user settings, the
 project's settings (once you confirmed them, below) or managed settings. To keep a rule from applying here,
 remove it from your own Claude Code settings. The limits of §5.2 hold regardless of your rules: a discussion agent
-stays without a shell, no agent changes Claude Code's settings, and a command that could change a script of the
-project settings still asks (below).
+stays without a shell, smurg refuses an agent's edits of Claude Code's settings and commands that name them, and a
+command that could change a script of the project settings still asks (below).
+
+**Your settings of auto mode apply too.** The `autoMode` rules in your `~/.claude/settings.json` (what Claude Code's
+check allows and refuses) apply to the agents here as in your own terminal. `disableAutoMode` turns auto mode off,
+and `disableBypassPermissionsMode` turns "Asks for nothing" off, for every agent here: the sessions fall back as
+§5.2 says, and the host console's settings say which one your Claude Code turned off. smurg passes no `CLAUDE_CODE_*`
+environment variable to agents but the ones that choose your provider, so one that changes auto mode in your own
+shell (`CLAUDE_CODE_AUTO_MODE_MODEL`, for example) does not reach them.
 
 **Your MCP servers, connectors and plugins are off for agents** unless you switch them on in the host console's
 settings ("Agents may use my own and this project's MCP servers"; never for a discussion agent). Think before you do: an agent that any member with agent access can
@@ -501,8 +611,8 @@ agent session in smurg never shows that question, so smurg asks you instead:
   review marks such a path "named, not there yet". A hook that runs a build output therefore asks you again after
   each build that creates it.
 - **Agents' shell commands near those scripts.** While the settings in use name scripts, smurg reads every shell
-  command of an agent in that folder before it runs, also in a work item's worktree, where simple file commands
-  otherwise run without asking. A command line handed to another shell (`sh -c '…'`) is read like the line
+  command of an agent in that folder before it runs, in every mode but "Asks for nothing", also in a work item's
+  worktree and in auto mode, where simple file commands otherwise run without asking. A command line handed to another shell (`sh -c '…'`) is read like the line
   itself. A person is asked in the two cases below, and the card gives smurg's reason, in the reader's language,
   where it otherwise gives Claude Code's. No kind that someone always allowed covers such a command, and neither do
   your own allow rules: it asks each time. The check leaves alone a command that only reads a script (`cat`,
@@ -706,16 +816,29 @@ they open in the browser, not in a terminal.
 | A work item says "Stopped on an error, no report", and its conversation says "smurg could not read this item's changes, so its report is not registered yet. It tries again when the agent's next turn ends." | The agent wrote its report, but smurg could not record the item's changes with it: someone kept typing in the worktree, there is a git repository inside it, or git took too long. No report appears until it can. "Continue" lets the agent go on; the report is registered when its next turn ends. A later version of a report that cannot be recorded leaves the earlier version in place and shows the same sentence. |
 | An agent session cannot be started: "The path of this session's folder has a backslash or a control character in it. Claude Code's permission rules cannot name such a folder, so no agent session can be started there. The host should rename the folder." | Rename the shared folder, or the folder above it that has the character, and share again. Files and terminals work in such a folder; only agent sessions are refused. Spaces, parentheses, brackets and other signs in a path are fine. |
 | A work item says "Failed" (your inbox: "the agent's process failed"), or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
-| A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. Items waiting to start say the same when the folder stopped being a git repository for a while (§10.2). |
-| Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | Run `git init` in the shared folder and commit once (next row, §10.2); no need to stop sharing. But if `.git` was there a moment ago, put it back; if a folder above is a repository, share that one. |
+| A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. |
+| A work item did not start: "How smurg keeps this folder's history changed since Start. Look at the plan and start the item again." | The history its Start chose cannot be used now: git went missing or stopped working, the folder's `.git` went away or appeared, or smurg's own history was refused (the rows below). An item runs only in the history its own Start said; it never moves to another one, and never runs directly in the folder by itself. Put right what changed and press "Start again" (§10.2). |
+| Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | The folder has a `.git` that git does not take as a repository (an empty `.git` folder, for example), and smurg keeps no history of its own beside a `.git`. Look at that `.git`: if it was a repository a moment ago, put that one back; if it is empty, remove it, and the next Start uses smurg's own history (§10.2); or run `git init` in the shared folder and commit once (next row). No need to stop sharing. If a folder above is a repository, share that one. |
 | Start is refused: "The shared folder's git repository has no commit yet, so no worktree can be created." | Commit the project's files as in §10.2: a worktree holds only what is committed. If git asks who you are, run `git config --global user.name 'Your Name'` and `git config --global user.email you@example.com`, then commit again. No need to stop sharing. |
 | Start is refused: "The shared folder's .git is gone, so worktrees cannot be used." | The folder's `.git` was moved or deleted while there are worktrees or merge requests that still wait; Merge, the diff and a session that asks for a worktree are refused with the same sentence. Put that `.git` back: everything works again, without sharing again (§10.2). Do not run `git init` instead: a new repository cannot merge those requests. If that `.git` is lost for good, `git init` and a commit make Start work again, without those requests. |
-| Start is refused: "git was not found on the host's computer, so worktrees cannot be used." | smurg uses the first `git` on the `PATH` of the terminal that ran `smurg host`. Install git 2.42 or later (macOS: `xcode-select --install`, or Homebrew), check in a new terminal that `git version` answers, stop sharing and run `smurg host` from that terminal. |
-| Start is refused: "The host's git is version 2.39.5, and worktrees need 2.42.0 or later." | That is the first `git` on the `PATH` of the terminal that ran `smurg host`. Update git (macOS: the Command Line Tools in Software Update, or `brew install git`), check in a new terminal that `which git` and `git version` show the new one, stop sharing and run `smurg host` from that terminal. |
-| Start is refused: "git does not run on the host's computer, so worktrees cannot be used." | On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them, also when `smurg host` starts. Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
+| The Start dialog says "Without git: work items change the folder directly" and "git was not found on the host's computer, so worktrees cannot be used." | Start still works, but its work items run one at a time directly in the shared folder, with no diff and no undo, and only you can start them, after ticking the dialog's box (§10.2). To get worktrees: smurg uses the first `git` on the `PATH` of the terminal that ran `smurg host`. Install git 2.42 or later (macOS: `xcode-select --install`, or Homebrew), check in a new terminal that `git version` answers, stop sharing and run `smurg host` from that terminal. |
+| The Start dialog says "Without git: work items change the folder directly" and "The host's git is version 2.39.5, and worktrees need 2.42.0 or later." | As in the row above, the items would run directly in the folder. That is the first `git` on the `PATH` of the terminal that ran `smurg host`. Update git (macOS: the Command Line Tools in Software Update, or `brew install git`), check in a new terminal that `which git` and `git version` show the new one, stop sharing and run `smurg host` from that terminal. |
+| The Start dialog says "Without git: work items change the folder directly" and "git does not run on the host's computer, so worktrees cannot be used." | As in the row above, the items would run directly in the folder. On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them, also when `smurg host` starts. Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
+| A teammate's Start dialog says "Without git, only the host can start work items: they run directly in the shared folder." | Without git, only you start or retry work items (§10.2). Start them yourself, or install git as in the rows above. |
 | Start is refused: "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used." | Worktrees are made only from a repository's main folder, where `.git` is a folder. Share that folder instead: it is another workspace, so send your teammates new invite links. Up to the plan, everything works in this one. |
 | Start is refused: ".smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used." | Something replaced the folder where smurg keeps worktrees. Move it out of the shared folder (look at it first), stop sharing and share again: smurg makes the folder anew. |
 | Start is refused: "smurg could not look at the shared folder's git repository just now. Try again in a moment." | git failed or took too long this once. Press Start again; if it keeps happening, look at the daemon's log (§7). |
+| Start is refused in a folder without `.git`: "The shared folder holds … in … files, more than smurg copies into a checkout for each work item (1 GB and 50,000 files at most)." | smurg's own history would copy the whole folder into every work item's worktree (§10.2). The sentence names the three largest folders. Name large folders in a `.gitignore`, or as folders shared into worktrees in the host console's settings, or make the folder a git repository yourself (§10.2). |
+| Start, a worktree or Merge is refused: "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used." | Something other than smurg changed `.smurg/git` (its settings, its branch, or what it reads from elsewhere), or the merge base differs from the one the review showed. smurg does not use it then: move `.smurg/git` out of the shared folder (look at it first). The next Start makes a new history; the merge requests made from the old one cannot be merged any more: reject them. |
+| Start or a worktree is refused: "The shared folder holds a .smurg/git that this workspace has no record of …" | You set `worktrees.json` aside (§9.3), or another workspace of this folder made that `.smurg/git`. smurg never takes over a history it has no record of. Move `.smurg/git` out of the shared folder: the next Start makes a new one. |
+| A work item, a merge request or Merge says "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on: reject them." | `.smurg/git` was moved or deleted while work of it waits. Put it back if you still have it; otherwise reject those merge requests and remove those worktrees: then the next Start makes a new history. |
+| A worktree is refused: "There is not enough free disk space for another work item's worktree …" | Each worktree of smurg's own history is a whole copy of the folder (§10.2). Free some space, or name large folders in a `.gitignore`. |
+| A teammate cannot create a worktree: "smurg has not checked git on the host's computer yet. …" | In a folder without `.git`, smurg runs no git for a teammate's request until it has checked git itself. Open a topic's Start dialog once, or create a worktree yourself. |
+| A session says "Claude Code could not use the model … on the host's account: it may not exist, or the account may not have access to it. Choose another model for this session." | Your Claude account cannot use the model someone chose for the session (the API refused it). "Choose a model" in the session picks another, or the host's default. |
+| A session says "Auto mode is not available for … This session asks before commands until it runs on another model." | That model has no auto mode in your Claude Code (§5.2). Choose another model for the session, or leave it asking. |
+| A session says "Claude Code did not start this session in auto mode: the host's Claude Code settings turn it off. This session asks before commands." | Your Claude Code settings or your organization's set `disableAutoMode` (§5.3). Agents ask before commands until that changes; the host console's settings say so too. |
+| A session says "Claude Code did not let this session run without asking: the host's Claude Code settings do not allow it. The session runs in auto mode." | You chose "Asks for nothing", and your Claude Code settings or your organization's set `disableBypassPermissionsMode` (§5.3). The session runs in auto mode instead. |
+| In auto mode a session's commands are all stopped: "Claude Code's check stopped a command: …", with a reason that says the check could not evaluate the command | Claude Code's check itself did not answer (your account, or the model of the check). Set the session to "Asks before commands" (its strip), and a person answers its commands instead (§5.2). |
 | Under the two links: "smurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit." | A commit, a `git add -A` while sharing with smurg 0.5.1 or earlier for example, took smurg's share lock (`.smurg/daemon-lock.json`), which holds the path of your state folder. Do what the line says (§10.2): the files stay on disk, and `.smurg/.gitignore` keeps them out from then on. Until then git shows the lock as changed: `git rebase` refuses, and discarding changes (`git checkout -- .`, `git stash`, `git reset --hard`) puts back an old lock that lets a second smurg share the folder. Printed once per run. |
 | Start is refused: "The spec and the plan could not be committed: git is in the middle of another operation in the main workspace." | Finish or abort the merge or rebase in the shared folder, then press Start again. |
 | A work item waits although nothing seems to run (the plan says "Waiting for a free agent") | The limit of work items that run at once is reached (§10.4), often because several of them wait for a person: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings ("Work items running at the same time"). |
@@ -844,9 +967,29 @@ An unused link made under 0.4.0 gives whoever opens it today's meaning of its ro
 invite links in the host console once after the update, and change a role or revoke a link you would not give today
 (§5.1 says what Agent access means).
 
+**The update to 0.6.0: agents run in auto mode.** This update changes one setting the other way from every update
+before it, on purpose: the workspace's mode becomes "Auto: runs what a check allows" (§5.2), from 0.4.0 and from 0.5.x
+alike. Under 0.5.x agents asked before almost every command; now Claude Code's check decides which commands run
+without asking anyone. `smurg host` says so once, under the line above:
+
+```text
+Agents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first
+```
+
+Your inbox has "Agents now run in auto mode", and the host console's settings say the same until you press
+"Got it". To be asked again, choose "Asks before commands" (or "Asks before edits and commands") under
+"What agents may do without asking" there. Also after this update:
+
+- a session that someone had made stricter ("Asks before edits and commands" for a work item or a session in a
+  worktree) keeps that choice; every other session follows the workspace's mode;
+- every session runs on the host's default model, as before: nobody has chosen a model yet (§5.1);
+- the line above names the smurg that last shared the workspace (for example "This workspace was last shared with
+  smurg 0.5.2").
+
 **The copies smurg keeps.** Before it writes a file in a new form, smurg keeps the file as it was beside it, named
-after the version it came from: `state.json.before-upgrade-from-0.4.0`,
-`suggestions.json.before-upgrade-from-0.4.0`. A copy is never written again, only you can read it (mode 600; a start
+after the step that rewrote it: `state.json.before-upgrade-from-0.4.0`,
+`suggestions.json.before-upgrade-from-0.4.0` for a workspace of 0.4.0, `state.json.before-upgrade-from-0.5.0` and
+`agent-sessions.json.before-upgrade-from-0.5.0` for one of 0.5.0, 0.5.1 or 0.5.2 (the three wrote the same form). A copy is never written again, only you can read it (mode 600; a start
 checks that as it does for the state file), and smurg never reads it. If a file of the older form that is not the copy is ever upgraded again (you went back to the
 older smurg, worked there and updated once more), smurg keeps that file too, under the same name with `-2` at its
 end (then `-3`, and so on). It is there so that you can look up what the workspace held. It holds the keys
@@ -908,7 +1051,7 @@ For a file that is damaged or in an unknown form, the terminal lists, after "Not
 | `inbox.json` | what each member has read or dismissed in their inbox, and the mentions kept for them | everything in every inbox is unread again; the kept mentions |
 | `suggestions.json` | the suggestions members made to agent sessions | all of them; one that still waited is made again |
 | `conflicts.json` | the list of kept conflicts between a person's and an agent's edit of the same file | that list: the agent's version can no longer be applied from smurg. Your files are not touched |
-| `worktrees.json` | smurg's record of the worktrees it made and of every merge request | smurg no longer knows any worktree (the folders stay in `.smurg/worktrees/` with the work in them: merge it by hand), and a request that waited is gone |
+| `worktrees.json` | smurg's record of the worktrees it made and of every merge request, and of smurg's own history of a folder without `.git` | smurg no longer knows any worktree (the folders stay in `.smurg/worktrees/` with the work in them: merge it by hand), and a request that waited is gone. In a folder without `.git`, also move `.smurg/git` out of the shared folder before the next Start: smurg never uses a history it has no record of, and the next Start makes a new one (§10.2) |
 | `sessions.json` | which terminal sessions were running | nothing after a normal stop; after a crash, processes those terminals left running are not ended for you |
 | `host-rules.json` | your own Claude Code allow rules as smurg last saw them | nothing that lasts: smurg tells you about the rules again |
 | `claude-trust.json` | your decisions about projects' Claude Code settings | all of them: agent sessions start without a project's settings until you confirm them again |
@@ -1025,14 +1168,18 @@ is what a topic asks of you as the host.
 
 ### 10.1 What only you can do
 
-- **Merge.** Every work item's changes reach the main workspace only when you merge them (§10.3).
+- **Merge.** Every work item's changes reach the main workspace only when you merge them (§10.3), except without
+  git, where work items change the folder directly (§10.2).
 - **Confirm the folder's Claude Code project settings** (§5.3), edit `CLAUDE.md` and the scripts those settings
   run, and rename or delete a folder that holds a file only you may change (§4).
-- **Allow the requests that reach beyond the project**, and a command that writes where one of those scripts is
-  (§5.2, §5.3).
-- **Change the host settings** in the host console: how many agents may work at once (§10.4), how long a question
-  or a request waits before the others are asked too (§10.6), whether agents may use your own MCP servers (§5.3),
-  the folders shared into worktrees.
+- **Allow the requests that reach beyond the project**, a command that writes where one of those scripts is, and
+  in auto mode what smurg asks of a teammate's session (§5.2, §5.3).
+- **Change the host settings** in the host console: what agents may do without asking (the workspace's permission
+  mode, "Asks for nothing" included, §5.2), how many agents may work at once (§10.4), how long a question or a
+  request waits before the others are asked too (§10.6), whether agents may use your own MCP servers (§5.3), the
+  folders shared into worktrees.
+- **Start and retry work items without git**: when this computer's git cannot be used, work items run directly in
+  the shared folder, and only you start them (§10.2).
 - **Try again after three failed starts** of a session, terminate any session, delete an archived topic, remove one
   entry of a conversation (§5.4).
 
@@ -1043,10 +1190,42 @@ the host you can always submit an answer too.
 
 ### 10.2 Start: git, and the commit smurg makes
 
-- **Work items need git.** Each work item runs in its own git worktree, so the shared folder must be a git
-  repository with at least one commit, and git must be 2.42 or later. Without that, everything up to the plan
-  works, and Start says what is missing and what to do (§8); a session that asks for a worktree of its own is
-  refused with the same words.
+How work items run depends on the folder and on this computer's git (2.42 or later). The Start dialog says which of
+the three it is before anything runs:
+
+- **A folder that is a git repository** (with at least one commit): each work item runs in its own git worktree of
+  that repository, as described below. A repository without a commit, or a `.git` that git does not take, stops
+  Start with what to do (§8); a session that asks for a worktree of its own is refused with the same words.
+- **A folder without `.git`**: smurg keeps its own history of the folder in `.smurg/git`, never a `.git` in your
+  folder ("The folder has no git repository of its own. smurg records the folder as it is now in its own history (in .smurg, not a .git of yours), and each item starts from that."), and topics run as with a repository: a worktree per
+  work item, the result report's diff, your merge.
+  - Start records the WHOLE folder in that history, under the name of the member who pressed Start, and every worktree
+    is a copy of it. What it leaves out: `.smurg` itself, `node_modules/`, `.venv/`, `__pycache__/`, `.DS_Store`, the
+    files teammates cannot see (§4) at any depth, the folders shared into worktrees, and what the folder's own
+    `.gitignore` files ignore. A folder of more than 1 GB or 50,000 files is refused before anything is written (§8):
+    name large folders in a `.gitignore` or as shared folders.
+  - A folder inside it that is a git repository of its own (`frontend/.git`) is left out: work items do not see it,
+    and the Start dialog names it ("These folders are git repositories of their own, and work items do not see them: …").
+    To work in one, share that folder.
+  - In a folder that a cloud service syncs (iCloud Drive, a folder under `~/Library/CloudStorage`, Dropbox), the
+    history and every worktree are synced too, and a file kept only online can make Start fail; the dialog says so.
+  - **The history keeps every version of every file it recorded, secrets included, also after you delete a file
+    from the folder**, and agents in worktrees can read that history through their own checkout. It only grows: smurg
+    packs it, never prunes it. smurg's checks keep others away from it (no person can write `.smurg`, no agent's edit
+    or command that names it runs, and smurg refuses a history that something else changed, §8).
+  - `.smurg/git` stays when the folder becomes a repository later. You can remove it once no work item and no merge
+    request of it waits: the next Start in a folder without `.git` makes a new one.
+- **Without git** (not found, older than 2.42, or it does not run): work items run one at a time **directly in the
+  shared folder**, where people work too. There is no diff to review before a change lands, nothing waits for a
+  merge, and smurg cannot undo a change. Only you can start or retry such items, after ticking the dialog's box
+  ("I understand that these changes land in the shared folder directly"); a teammate's dialog says
+  "Without git, only the host can start work items: they run directly in the shared folder." One agent works in the
+  folder at a time, its later turns included: a message to an item while another one works waits ("This message waits: another work item is working in the shared folder. It is sent when that one is done"). Each item writes its report in the folder,
+  without a diff, and its session ends once someone has reviewed the report. To get worktrees, install git 2.42 or
+  later and share again (§8).
+- An item runs only in the history its own Start chose. When that history cannot be used any more (git went missing,
+  `.git` went away or appeared, smurg's own history was refused), the item does not start, also on "Try again", and
+  says why (§8); it never moves to another history or into the folder by itself.
 - **The folder can become a repository while you share it.** In your own terminal, in the shared folder:
 
 ```sh
@@ -1055,12 +1234,12 @@ git add -A                      # write a .gitignore for node_modules and the li
 git commit -m "First commit"
 ```
 
-- smurg looks again whenever Start is pressed, and every few seconds: the next Start sees the repository, without
-  sharing again, and open pages see it within seconds (in a workspace without a topic, a page sees it after a
-  reload, or when it asks for a session in a worktree; the plan column knows only whether the folder is a
-  repository: a missing first commit or a problem with git, Start says). A change of git itself (installed,
+- smurg looks again whenever Start is pressed, and every few seconds: the next Start uses the repository, without
+  sharing again, and open pages see it within seconds. Work items and merge requests that smurg's own history made
+  keep working with it until they are done; new ones use the repository. A change of git itself (installed,
   updated, repaired) needs sharing again: smurg looks for git, on the `PATH` of the terminal that ran `smurg host`,
-  only when sharing starts or the folder becomes a repository (§8).
+  only when sharing starts or the folder becomes a repository (§8). smurg runs no git for a teammate's request in a
+  folder without `.git` before it has checked git itself (§8).
 - **git leaves smurg's own `.smurg` folder out.** Each start of sharing writes `.smurg/.gitignore` (`*`) unless there
   is one, so git leaves the folder out whatever the order of `git init`, `git add -A` and `git commit`. If the
   repository already tracks it (committed while sharing with smurg 0.5.1 or earlier), `smurg host` says so once;
@@ -1080,8 +1259,9 @@ git commit -m "Stop tracking smurg's own folder"
   deleted the topic's folder, or `specs` itself, is named there for both files. A change of `SPEC.md` or `PLAN.md`
   that a program outside smurg made is listed as such; a whole folder that such a program swapped is not listed,
   though smurg reads the two files again at once and Start confirms what they hold then.
-- **smurg commits the spec and the plan for you.** A worktree contains only what is committed, so when someone
-  presses Start, smurg commits exactly two files, the topic's `SPEC.md` and `PLAN.md`, to the branch you have checked
+- **smurg commits the spec and the plan for you** (in a repository of the folder; with smurg's own history, Start
+  records the whole folder, above). A worktree contains only what is committed, so when someone presses Start, smurg
+  commits exactly two files, the topic's `SPEC.md` and `PLAN.md`, to the branch you have checked
   out in the shared folder (the dialog names it), in the name of the member who pressed Start, with the message
   `smurg: spec and plan of <topic folder>` and one `Edited-by:` line per person who edited them by hand. Nothing
   else in the folder is committed, staged or changed, and none of your repository's git hooks runs. Start is
@@ -1090,8 +1270,8 @@ git commit -m "Stop tracking smurg's own folder"
   items it depends on are merged, and only while the spec and the plan are still exactly the ones that were
   committed at Start. If either file changed since (an Editor fixed a typo, the plan was updated), the item does
   not start: the person who pressed Start and you get an inbox item, look at the change and start it again.
-- **Each work item has its own branch**, `smurg/<topic folder>/<item id>`, in a worktree under
-  `<folder>/.smurg/worktrees/`. The agent does not commit; smurg commits the item's changes when its report is
+- **Each work item has its own branch**, `smurg/<topic folder>/<item id>` (of smurg's own history in a folder without
+  `.git`), in a worktree under `<folder>/.smurg/worktrees/`. The agent does not commit; smurg commits the item's changes when its report is
   written, in the name of the member who started the item, with the message `smurg: work item <number> (<item id>)`.
 - A fresh worktree has no `node_modules` and nothing else that git does not track. Name the folders that should be
   shared into every worktree (read-only for people there) in the host console's settings, or let the agents
@@ -1109,7 +1289,8 @@ git commit -m "Stop tracking smurg's own folder"
   the merge, else the one who started the item).
 - **Work items that depend on others start only after you merged those.** In a plan with dependencies, you are the
   one everybody waits for: the plan says which items wait for a merge, and the inbox puts the merges that unblock
-  something first.
+  something first. Without git nothing waits for a merge (the plan says "Without git, work items run one at a time directly in the shared folder; nothing waits for a merge."):
+  an item counts as merged when its report is in, and what depends on it starts once the folder is free.
 - Changes that smurg will not offer from a report: ones that contain files only you may change (`CLAUDE.md`,
   `.claude/`, `.envrc` and the like, and the scripts your confirmed project settings run, §5.3), that touch the
   topic's own `SPEC.md` or `PLAN.md`, or that contain a link pointing out of the project. The report says why, for
@@ -1177,8 +1358,10 @@ by itself:
   ("Amy was removed. This session was stopped and now runs for the host"), and the worktrees they had kept pass
   to you. A member who is removed and joins again does not get their old sessions back.
 - In all these cases what they put in place goes with them: the kinds of commands they always allowed are removed,
-  a permission mode they loosened returns to its default, and work items they started that have not begun do not
-  start until someone starts them again. A session that passed to you keeps the limits it was created with: its
+  a permission mode they chose that is looser than what the session or the topic would follow goes back (a stricter
+  one stays), a model they chose that may be billed to usage credits goes back to your default (the conversation
+  says "The model is back to the host's default: …"), and work items they started that have not begun do not start
+  until someone starts them again. A session that passed to you keeps the limits it was created with: its
   agent still cannot change the files only you may change.
 
 ### 10.7 Long discussions
@@ -1207,6 +1390,11 @@ So how a real model behaves in this flow is not verified yet: whether it asks it
 told, writes the plan and the report in the format smurg checks, and proposes a sensible split of the work. This
 may need tuning in later versions.
 
+The models and the permission modes of 0.6.0 were verified the same way: against the scripted stand-in, and with
+real Claude Code 2.1.288 against the fake API, which also gave auto mode's check its answers. So how the real check
+judges a command, and the check that may run on Anthropic's side instead, have never been seen with smurg; no real
+account was used here either. Watch what your first agents in auto mode run.
+
 What bounds the damage when an agent does not behave: smurg checks the plan and the report format itself and asks
 the agent to fix them (at most twice in a row), asks once for a missing report, and puts work that stopped into
 someone's inbox instead of letting it stop unseen. Watch your first topic with a real project closely, and if a
@@ -1215,6 +1403,14 @@ step of the flow does not work with your Claude Code, report it at https://githu
 Limits of this version that are known:
 
 - Agents start no subagents, and agent definitions in `.claude/agents` are not used (§5.2).
+- Auto mode's check is a model's judgement. smurg's own rows in auto mode see only what smurg can read in a command,
+  and its deny rules refuse only commands that name a place (§5.2). smurg also relies on Claude Code 2.1.288 for this:
+  a session's settings file is read once, at its start; a deny rule refuses a shell command that names its place, in
+  auto mode and in "Asks for nothing"; the check skips only commands inside the agent's own folder. Each newer Claude
+  Code is checked for these again before smurg is verified with it.
+- smurg's own history of a folder without `.git` only grows and keeps the files you deleted (§10.2).
+- The list of models is what your Claude Code answered last; a model removed from your account since shows as
+  refused in the session (§8).
 - In a folder whose project settings run scripts, smurg reads what an agent's shell command names. A program that
   names none of the scripts (a build, a script that rewrites another) is not seen before it runs (§5.3).
 - Removing an entry of a conversation does not remove the cards, the inbox excerpts and the audit entries that

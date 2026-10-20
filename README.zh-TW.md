@@ -23,7 +23,7 @@
   <a href="https://smurg.ai/zh-TW/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-picture-dark.zh-TW.svg">
-      <img src=".github/assets/readme-picture-light.zh-TW.svg" width="830" alt="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個請求許可執行指令，Ben 允許了一次。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
+      <img src=".github/assets/readme-picture-light.zh-TW.svg" width="830" alt="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個執行了專案的測試。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
     </picture>
   </a>
 </p>
@@ -38,7 +38,7 @@
    curl -fsSL https://smurg.ai/install.sh | sh
    ```
 
-2. 分享一個專案資料夾（至少有一個提交的 git 儲存庫）：
+2. 分享一個專案資料夾：
 
    ```sh
    smurg host ~/projects/my-app
@@ -59,14 +59,14 @@
 
 - **一起決定**：Claude 用選擇題請團隊決定；大家投票，再由一個人送出答案。
 - **spec 和計畫都是檔案**：Claude 把 `SPEC.md` 和 `PLAN.md` 寫進你的專案，大家一起編輯。
-- **每個工作項目一個 agent**：每個工作項目有自己的 Claude Code session 和 git worktree；agent 執行指令前會先問。
+- **每個工作項目一個 agent**：每個工作項目有自己的 Claude Code session 和 git worktree；由 Claude Code 的自動模式決定它的哪些指令可以執行。
 - **先看過，再合併**：完成的項目附有一份結果報告；有人看過之後，由主人合併。
 
 除此之外，每個人有自己的收件夾，畫面最多可以並排四欄，角色有三種（「旁觀」「可編輯」「可使用 agent」），還有手寫 code 模式（共同編輯器和終端機）；介面有英文和繁體中文。這些在[組員指南](docs/zh-TW/JOINING.md)裡都有說明。
 
 ## 怎麼運作
 
-- **你的電腦**執行 `smurg host`。檔案、agent 和它們的 git worktree 都留在這台電腦上。
+- **你的電腦**執行 `smurg host`。檔案、agent 和它們的 worktree 都留在這台電腦上。
 - **relay** 在你和組員之間轉送資料，但讀不到內容：資料是端對端加密的（[relay 看得到什麼](docs/zh-TW/HOSTING.md#21-公用-relay預設)）。可以用公用的 <https://app.smurg.ai>，也可以[自己架設](apps/relay/README.md#self-hosting-on-workersdev)（英文）。
 - **瀏覽器**是組員唯一需要的程式。
 

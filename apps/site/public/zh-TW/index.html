@@ -89,7 +89,7 @@
       </div>
 
       <div class="win-wrap">
-        <div class="win" role="img" data-nosnippet aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個請求許可執行指令，Ben 允許了一次。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
+        <div class="win" role="img" data-nosnippet aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個執行了專案的測試。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
           <svg class="visually-hidden" aria-hidden="true" focusable="false">
             <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
             <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
@@ -99,7 +99,7 @@
             <div class="m-chrome"><span class="m-lights"><i></i><i></i><i></i></span><span class="m-url">app.smurg.ai</span></div>
             <div class="m-top">
               <span class="m-word">smurg</span><span class="m-ws">my-app</span><span class="m-topic m-said">結帳流程</span><span class="m-pill">已連線</span>
-              <span class="m-chips"><span class="m-chip"><b>1</b><i></i><i class="c-run"></i><i class="c-done"></i><i class="c-ok"></i></span><span class="m-chip"><b>2</b><i></i><i class="c-run"></i><i class="c-ask"></i></span><span class="m-chip"><b>3</b><i></i><i class="c-run"></i></span></span>
+              <span class="m-chips"><span class="m-chip"><b>1</b><i></i><i class="c-run"></i><i class="c-done"></i><i class="c-ok"></i></span><span class="m-chip"><b>2</b><i></i><i class="c-run"></i></span><span class="m-chip"><b>3</b><i></i><i class="c-run"></i></span></span>
               <span class="m-avs"><i class="av av-ian">IA</i><i class="av av-amy">AM</i><i class="av av-ben">BE</i></span>
             </div>
             <div class="m-stage">
@@ -150,15 +150,11 @@
                   <div class="m-status m-x a-out t39"><i class="m-dots"><i></i><i></i><i></i></i>Claude 工作中</div>
                 </div>
                 <div class="m-card">
-                  <div class="m-h"><b class="m-said">2 · 付款</b><i class="av av-ben">BE</i><span class="m-swap"><span class="m-bdg m-run a-out t03">執行中</span><span class="a-in t03"><span class="m-bdg m-ask a-out t27">等待許可</span></span><span class="m-bdg m-run a-in t27">執行中</span></span></div>
+                  <div class="m-h"><b class="m-said">2 · 付款</b><i class="av av-ben">BE</i><span class="m-bdg m-run">執行中</span></div>
                   <span class="m-where m-x">worktree：<span class="m-said">checkout-2</span></span>
                   <div class="m-tool m-x a-rise t02"><span>讀取</span><code class="m-said">src/pay/form.tsx</code></div>
-                  <div class="m-perm a-rise t03">
-                    <p>Claude 請求許可執行指令</p>
-                    <pre class="m-term">pnpm add stripe</pre>
-                    <div class="m-act m-swap"><span class="m-btns a-out t27"><span class="m-act"><span class="m-btn m-pri a-press t24">允許一次</span><svg class="m-cur a-cur t19" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-btn">拒絕</span></span><span class="m-done a-in t27"><span class="m-said">Ben</span> 允許了一次</span></div>
-                  </div>
-                  <div class="m-status m-x m-swap"><span class="a-out t03"><i class="m-dots"><i></i><i></i><i></i></i>Claude 工作中</span><span class="a-in t03"><span class="a-out t27">Claude 正在等待許可</span></span><span class="a-in t27"><i class="m-dots"><i></i><i></i><i></i></i>Claude 工作中</span></div>
+                  <div class="m-tool a-rise t03"><span>執行</span><code class="m-said">pnpm test</code></div>
+                  <div class="m-status m-x"><i class="m-dots"><i></i><i></i><i></i></i>Claude 工作中</div>
                 </div>
                 <div class="m-card">
                   <div class="m-h"><b class="m-said">3 · 結帳頁</b><i class="av av-ian">IA</i><span class="m-bdg m-run">執行中</span></div>
@@ -212,7 +208,7 @@
       </li>
       <li class="in2">
         <h2>每個工作項目一個 agent</h2>
-        <p>每個工作項目<wbr>有自己的 Claude&nbsp;Code session <wbr>和 git worktree；<wbr>agent 執行指令前<wbr>會先問。</p>
+        <p>每個工作項目<wbr>有自己的 Claude&nbsp;Code session <wbr>和 git worktree；<wbr>由 Claude&nbsp;Code 的自動模式<wbr>決定它的哪些指令<wbr>可以執行。</p>
       </li>
       <li class="in3">
         <h2>先看過，再合併</h2>

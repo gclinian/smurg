@@ -108,7 +108,10 @@ written:
      again;
   2. a step on the document (`defineStep({ from: '<that version>', shape, upgrade, sinceShapes })`). A step carries
      every record, drops nothing without saying so, and gives a new security-relevant value its closed side as a
-     constant of the step (never today's default, which may change);
+     constant of the step (never today's default, which may change). One step departs from this, by the owner's
+     decision of 2026-10-20 (0.6.0): the state step from 0.5.0 sets a workspace's permission mode to auto, the open
+     side, and the host is told at the update (`docs/ARCHITECTURE.md` §0 rule 8, §11 D-25). A new exception needs the
+     owner's decision too;
   3. `WORKSPACE_SHAPES` raised by one (`packages/daemon/src/core/state-store.ts`), also for a file that is not a
      document. An older smurg then refuses the folder as written by a newer one and tells the host to update; it
      never tries to read it;

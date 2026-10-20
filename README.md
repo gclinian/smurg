@@ -23,7 +23,7 @@
   <a href="https://smurg.ai/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-picture-dark.svg">
-      <img src=".github/assets/readme-picture-light.svg" width="830" alt="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one asks for permission to run a command, and Ben allows it once. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
+      <img src=".github/assets/readme-picture-light.svg" width="830" alt="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
     </picture>
   </a>
 </p>
@@ -38,7 +38,7 @@
    curl -fsSL https://smurg.ai/install.sh | sh
    ```
 
-2. Share a project folder that is a git repository with at least one commit:
+2. Share a project folder:
 
    ```sh
    smurg host ~/projects/my-app
@@ -65,8 +65,8 @@ Every step, up to a first topic that is reviewed and merged: [Quick start](https
 
 - **Decide together.** Claude asks a multiple-choice question; the team votes, and one person submits the answer.
 - **A spec and plan, as files.** Claude writes `SPEC.md` and `PLAN.md` into your project; people edit them together.
-- **One agent per work item.** Every work item gets its own Claude Code session and git worktree; its agent asks
-  before commands.
+- **One agent per work item.** Every work item gets its own Claude Code session and git worktree; Claude Code's auto
+  mode decides which of its commands run.
 - **Review, then merge.** Each finished item comes with a result report; a person reads it, and the host merges.
 
 Also: an inbox for each person, up to four columns side by side, three roles (Viewer, Editor, Agent access), and a
@@ -75,7 +75,7 @@ code mode with a shared editor and terminals. The interface is in English or Tra
 
 ## How it is built
 
-- **Your computer** runs `smurg host`. The files, the agents and their git worktrees stay there.
+- **Your computer** runs `smurg host`. The files, the agents and their worktrees stay there.
 - **The relay** forwards the data between you and your teammates and cannot read it: it is end-to-end encrypted
   ([what the relay can see](docs/HOSTING.md#21-the-shared-relay-default)). Use the shared one, <https://app.smurg.ai>,
   or [run your own](apps/relay/README.md#self-hosting-on-workersdev).

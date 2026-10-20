@@ -38,9 +38,11 @@ or is revoked: send it privately ([Share](HOSTING.md#3-share)).
   terminal: Viewers too, and members who join later. Do not share a folder that holds secrets
   ([host guide §4](HOSTING.md#4-before-you-share)).
 - **No agent is sandboxed.** The agents are Claude Code today, on your Claude account. A personal subscription is
-  for your own use, [not a group's](HOSTING.md#4-before-you-share). smurg asks before almost every command
-  ([§5.2](HOSTING.md#52-what-agents-do-by-themselves-and-what-they-ask-first)), except where your own allow rules
-  apply ([§5.3](HOSTING.md#53-your-own-claude-code-allow-rules-mcp-servers-project-settings-claudemd)); what is
+  for your own use, [not a group's](HOSTING.md#4-before-you-share). Agents run in Claude Code's auto mode unless you
+  choose to be asked: Claude Code decides which commands run (simple file commands in the agent's own folder at once,
+  the others after its check), and smurg itself still asks before a few
+  ([§5.2](HOSTING.md#52-what-agents-do-by-themselves-and-what-they-ask-first)); your own allow rules apply
+  ([§5.3](HOSTING.md#53-your-own-claude-code-allow-rules-mcp-servers-project-settings-claudemd)); what is
   allowed runs as you, and a teammate's file can hide instructions for the agent.
 - **Agent access is your account.** A teammate with this role can run any command on your computer, read your home
   folder and use your Claude account; smurg cannot limit this. Give the role only to people you fully trust

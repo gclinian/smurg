@@ -121,16 +121,9 @@ export interface Words {
   readonly edited: string;
   readonly created: string;
   readonly read: string;
+  /** A command that ran (the tool row's verb). */
+  readonly ran: string;
   readonly working: string;
-  readonly waitingBadge: string;
-  /** The permission request's sentence, on two lines in the wide drawing. */
-  readonly perm: readonly [string, string];
-  /** What joins the two lines where the sentence is on one (a space in English, nothing in Chinese). */
-  readonly permJoin: string;
-  readonly allow: string;
-  readonly deny: string;
-  readonly allowed: string;
-  readonly waiting: string;
   readonly report: string;
   readonly whatDone: string;
   readonly doneText: string;
@@ -173,14 +166,8 @@ const EN: Words = {
   edited: 'Edited',
   created: 'Created',
   read: 'Read',
+  ran: 'Ran',
   working: 'Claude is working',
-  waitingBadge: 'Waiting for permission',
-  perm: ['Claude asks for permission', 'to run a command'],
-  permJoin: ' ',
-  allow: 'Allow once',
-  deny: 'Deny',
-  allowed: 'Allowed once by Ben',
-  waiting: 'Claude is waiting for permission',
   report: 'Result report: ',
   whatDone: 'What was done',
   doneText: 'The cart is stored on the server, one per account.',
@@ -207,7 +194,6 @@ const SAID = {
   cartTest: 'tests/cart.test.ts',
   payForm: 'src/pay/form.tsx',
   page: 'src/checkout/page.tsx',
-  command: 'pnpm add stripe',
   test: 'pnpm test',
   diffs: ['+38 −6', '+52 −0'],
 } as const;
@@ -525,8 +511,8 @@ export function build(options: BuildOptions): string {
     tag('rect', { x, y, width: size, height: size, rx: size * 0.27, fill: C.claude }),
     tag('use', { href: '#i-agent', x: x + size * 0.2, y: y + size * 0.2, width: size * 0.6, height: size * 0.6, class: 'ia' }),
   ];
-  type BadgeKind = 'n' | 'run' | 'ok' | 'ask';
-  const BADGE_FILL: Readonly<Record<BadgeKind, string>> = { n: 'mu', run: 'ac', ok: 'ok', ask: '' };
+  type BadgeKind = 'n' | 'run' | 'ok';
+  const BADGE_FILL: Readonly<Record<BadgeKind, string>> = { n: 'mu', run: 'ac', ok: 'ok' };
   /** A state in a pill, placed by its right end. */
   const badge = (xRight: number, cy: number, label: string, kind: BadgeKind, cls: string, size = 12): string => {
     const width = textWidth(label, size) + size * 1.5;
@@ -572,9 +558,8 @@ export function build(options: BuildOptions): string {
       out.push(rect(x, cy - height / 2, width, height, height / 2, 'ch'));
       out.push(text(x + 9 * unit, cy + 4.2 * unit, String(no), { size: round2(12 * unit), fill: 'mu' }));
       out.push(tag('circle', { cx: dx, cy, r: r - 0.75 * unit, class: 'c0', 'stroke-width': num(1.5 * unit) }));
-      // started (Plan); the second asks and is allowed, the first is done (Build); reviewed, then merged (Review)
+      // started (Plan); the first is done (Build); reviewed, then merged (Review)
       out.push(tag('circle', { cx: dx, cy, r, class: `c1 ${A.in(SCENE + 3.7)}` }));
-      if (no === 2) out.push(rect(dx - r, cy - r, 2 * r, 2 * r, 2 * unit, `c2 ${A.span(2 * SCENE + 0.3, 2 * SCENE + 2.7)}`));
       if (no === 1) {
         out.push(tag('circle', { cx: dx, cy, r, class: `c3 ${A.in(2 * SCENE + REPORTED)}` }));
         out.push(group(A.in(3 * SCENE + 1.9), [tag('circle', { cx: dx, cy, r: r + 1.5 * unit, class: 'c4' }), tick(dx - 4.25 * unit, cy + 0.25 * unit, unit)]));
@@ -760,39 +745,12 @@ export function build(options: BuildOptions): string {
       out.push(...where(ix, y0 + 40, 0), tool(ix, y0 + 86, L.edited, SAID.cartApi, 0.3), tool(ix, y0 + 110, L.created, SAID.cartTest, 1.6));
       out.push(line(ix, y0 + h - 37.5, ir), status(ix, L.working, A.out(t0 + REPORTED)));
     }
-    // 2: the agent asks before a command, and a person allows it once
+    // 2: the agent runs the project's tests in its own worktree (auto mode runs that without a request, host guide §5.2)
     {
-      const [ix, ir, named] = head(1);
-      // The state stands on the name's line, as in the other two columns, wherever it fits there. A long one (the
-      // English "Waiting for permission") does not: it stands on a line of its own while it shows, and what is under
-      // it moves down for that time. (The page keeps one place for the three states, as wide as the widest, so there
-      // "Running" stands under the name too; a column that looks unlike its neighbours for the whole scene reads as a
-      // mistake in a picture nobody can stop.)
-      const drop = named + 8 + textWidth(L.waitingBadge, 12) + 18 > ir ? 26 : 0;
-      const lower = `transform:translateY(${drop}px)`;
-      const room = drop === 0 ? '' : kf('', [[0, 'transform:none'], [t0 + 0.3, `transform:none${EASE}`], [t0 + 0.5, lower], [t0 + 2.7, `${lower}${EASE}`], [t0 + 2.9, 'transform:none'], [LOOP, 'transform:none']]);
-      out.push(badge(ir, y0 + 22, L.running, 'run', A.out(t0 + 0.3)), badge(ir, y0 + 22 + drop, L.waitingBadge, 'ask', A.between(t0 + 0.3, t0 + 2.7)), badge(ir, y0 + 22, L.running, 'run', A.after(t0 + 2.7)));
-      const py = y0 + 100;
-      const allowWidth = Math.round(textWidth(L.allow, 13, 500) + 26);
-      const denyWidth = Math.round(textWidth(L.deny, 13, 500) + 26);
-      out.push(
-        group(room, [
-          ...where(ix, y0 + 40, 1),
-          tool(ix, y0 + 86, L.read, SAID.payForm, 0.2),
-          group(A.rise(t0 + 0.3), [
-            rect(ix + 0.5, py + 0.5, ir - ix - 1, 113, 7, 'pm'),
-            rect(ix + 11, py + 12.5, 8, 8, 2, 'wf'),
-            text(ix + 26, py + 21.5, L.perm[0], { size: 13.5, weight: 600 }),
-            text(ix + 11, py + 39.5, L.perm[1], { size: 13.5, weight: 600 }),
-            ...term(ix + 11, py + 58, SAID.command),
-            group(A.out(t0 + 2.7), [button(ix + 11, py + 76, allowWidth, 26, L.allow, true, A.press(t0 + 2.4)), button(ix + 11 + allowWidth + 6, py + 76, denyWidth, 26, L.deny, false, '')]),
-            done(ix + 11, py + 89, L.allowed, A.after(t0 + 2.7)),
-            // (the pointer presses while everything here is `drop` lower than it is drawn)
-            pointer(ix + 11 + allowWidth - 14, py + 91, t0 + 1.9, [0, -drop, VW, VH - drop]),
-          ]),
-        ]),
-      );
-      out.push(line(ix, y0 + h - 37.5, ir), status(ix, L.working, A.out(t0 + 0.3)), status(ix, L.waiting, A.between(t0 + 0.3, t0 + 2.7), false), status(ix, L.working, A.after(t0 + 2.7)));
+      const [ix, ir] = head(1);
+      out.push(badge(ir, y0 + 22, L.running, 'run', ''));
+      out.push(...where(ix, y0 + 40, 1), tool(ix, y0 + 86, L.read, SAID.payForm, 0.2), tool(ix, y0 + 110, L.ran, SAID.test, 0.3));
+      out.push(line(ix, y0 + h - 37.5, ir), status(ix, L.working, ''));
     }
     // 3: the agent works on
     {
@@ -920,12 +878,11 @@ export function build(options: BuildOptions): string {
     narrow.push(group(A.scene(1), out));
   }
 
-  // 3 Build: the agents under each other; the one that asks has the room its request needs
+  // 3 Build: the agents under each other, one row each
   {
     const t0 = 2 * SCENE;
     const gap = 5;
-    const small = 40;
-    const tall = CH - 2 * small - 2 * gap;
+    const small = (CH - 2 * gap) / 3;
     const out: string[] = [];
     const row = (i: number, y: number, height: number): void => {
       const title = `${i + 1} · ${L.names[i] as string}`;
@@ -940,26 +897,11 @@ export function build(options: BuildOptions): string {
     }
     {
       const y = CY + small + gap;
-      row(1, y, tall);
-      out.push(rect(CX + 0.5, y + 0.5, CW - 1, tall - 1, 7, `pm ${A.span(t0 + 0.3, t0 + 2.7)}`));
-      out.push(badge(NIR, y + 12.5, L.running, 'run', A.out(t0 + 0.3), 10.5), badge(NIR, y + 12.5, L.waitingBadge, 'ask', A.between(t0 + 0.3, t0 + 2.7), 10.5), badge(NIR, y + 12.5, L.running, 'run', A.after(t0 + 2.7), 10.5));
-      out.push(tool(y, L.read, SAID.payForm, A.out(t0 + 0.3)));
-      const allowWidth = Math.round(textWidth(L.allow, 11.5, 500) + 20);
-      const denyWidth = Math.round(textWidth(L.deny, 11.5, 500) + 20);
-      const allowX = NIR - denyWidth - 5 - allowWidth;
-      out.push(
-        group(A.after(t0 + 0.3), [
-          rect(NIX, y + 28.5, 7, 7, 2, 'wf'),
-          text(NIX + 12, y + 36, L.perm.join(L.permJoin), { size: 11.5, weight: 600 }),
-          ...term(NIX, y + 57.5, SAID.command, 11),
-          group(A.out(t0 + 2.7), [button(allowX, y + 47, allowWidth, 21, L.allow, true, A.press(t0 + 2.4), 11.5), button(NIR - denyWidth, y + 47, denyWidth, 21, L.deny, false, '', 11.5)]),
-          done(NIR - doneWidth(L.allowed, 11.5), y + 57.5, L.allowed, A.after(t0 + 2.7), 11.5),
-          pointer(allowX + allowWidth - 12, y + 58.5, t0 + 1.9, NARROW_BOX, 1.1),
-        ]),
-      );
+      row(1, y, small);
+      out.push(badge(NIR, y + 12.5, L.running, 'run', '', 10.5), tool(y, L.read, SAID.payForm, A.out(t0 + 0.3)), tool(y, L.ran, SAID.test, A.after(t0 + 0.3)), ...dots(NIR - 16, y + 28.5, 1.8));
     }
     {
-      const y = CY + small + gap + tall + gap;
+      const y = CY + 2 * (small + gap);
       row(2, y, small);
       out.push(badge(NIR, y + 12.5, L.running, 'run', '', 10.5), tool(y, L.read, SAID.page, A.span(t0 + 0.7, t0 + 2.2)), tool(y, L.edited, SAID.page, A.after(t0 + 2.2)), ...dots(NIR - 16, y + 28.5, 1.8));
     }
@@ -1027,10 +969,7 @@ export function build(options: BuildOptions): string {
     `.b-n{fill:${C.raised}}`,
     `.b-run{${soft(C.accentSoft)}}`,
     `.b-ok{${soft(C.okSoft)}}`,
-    `.b-ask{fill:none;stroke:${C.warn}}`,
     `.okf{fill:${C.ok}}`,
-    `.wf{fill:${C.warn}}`,
-    `.pm{fill:none;stroke:${C.warn}}`,
     `.sl{${soft(C.accentSoft)}}`,
     `.sb{fill:${C.accentSolid}}`,
     `.tk{fill:none;stroke:${C.ok};stroke-linecap:round;stroke-linejoin:round}`,
@@ -1043,7 +982,6 @@ export function build(options: BuildOptions): string {
     `.chm{${soft(C.okSoft)};stroke:${C.ok}}`,
     `.c0{fill:${C.surface};stroke:${C.line}}`,
     `.c1{fill:${C.accentSolid}}`,
-    `.c2{fill:${C.warn}}`,
     `.c3{fill:${C.ok}}`,
     `.c4{fill:${C.surface}}`,
     `.d{fill:${C.accent};opacity:.55}`,

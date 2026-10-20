@@ -33,8 +33,9 @@ A topic is one feature or task ([every step](JOINING.md#6-topics-from-discussion
 
 1. **Discuss.** The team discusses the topic with one agent, which writes a spec.
 2. **Plan.** The agent turns the spec into a plan of work items; Editors can edit both.
-3. **Work.** Each work item gets its own agent, in its own git worktree. It edits files there without asking and
-   asks before almost every command
+3. **Work.** Each work item gets its own agent, in its own git worktree (smurg's own history when the folder has
+   none). In auto mode, the default, it edits files there and runs commands without asking: simple file commands at
+   once, the others when Claude Code's check allows them
    ([what it asks first](HOSTING.md#52-what-agents-do-by-themselves-and-what-they-ask-first)).
 4. **Review.** Each item ends with a result report: what was done, how it was verified, every diff. A person
    reads it and marks it reviewed.

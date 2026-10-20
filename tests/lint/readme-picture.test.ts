@@ -137,12 +137,17 @@ describe('the README picture says what the product page\'s picture says', () => 
     expect(CJK.test(svg)).toBe(entry.lang === 'zh-TW');
   });
 
-  it('the pictures show nothing the page does not: no command runs without having been asked for', () => {
+  it('the pictures show nothing the page does not: an agent runs the project\'s tests in its own worktree, and nobody is asked', () => {
+    // Since 0.6.0 agents run in auto mode (DESIGN 0.6.0 D20): what the Build scene shows an agent run is what auto mode
+    // runs without a request in a work item's own worktree (host guide §5.2). A scene that showed a request would have
+    // to show a session whose mode asks.
     for (const entry of PICTURES) {
       const drawn = texts(picture(entry.file));
-      // The one command an agent runs is the one a person allowed; the report names the tests, it does not run them on screen.
-      expect(drawn.filter((text) => text === 'pnpm add stripe').length, entry.file).toBeGreaterThanOrEqual(2);
-      expect(drawn.some((text) => /^(?:Ran|執行)$/.test(text)), entry.file).toBe(false);
+      // The verb of a command that ran, in the wide drawing and the one for a phone; the tests it ran, there and in the report.
+      expect(drawn.filter((text) => text === (entry.lang === 'en' ? 'Ran' : '執行')).length, entry.file).toBeGreaterThanOrEqual(2);
+      expect(drawn.filter((text) => text === 'pnpm test').length, entry.file).toBeGreaterThanOrEqual(4);
+      expect(drawn.filter((text) => /permission|許可|Allow once|允許一次/.test(text)), entry.file).toEqual([]);
+      expect(drawn, entry.file).not.toContain('pnpm add stripe');
     }
   });
 });
