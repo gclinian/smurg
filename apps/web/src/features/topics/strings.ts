@@ -298,6 +298,9 @@ export const t = defineStrings(
     'start.now.none': 'No item starts now.',
     'start.waits.one': '{item} starts by itself when {items} is merged, if the spec and the plan are still what you see now.',
     'start.waits.many': '{item} starts by itself when {items} are merged, if the spec and the plan are still what you see now.',
+    // Without git nothing waits for a merge (DESIGN 0.6.0 D15): an item waits for the others to finish.
+    'start.waitsDirect.one': '{item} starts by itself when {items} is done, if the spec and the plan are still what you see now.',
+    'start.waitsDirect.many': '{item} starts by itself when {items} are done, if the spec and the plan are still what you see now.',
     'start.waitsMore': { one: '{count} more item waits for others.', other: '{count} more items wait for others.' },
     'start.already': 'Already started, not touched: {items}.',
     'start.responsible': 'Responsible: {who}.',
@@ -330,7 +333,7 @@ export const t = defineStrings(
     'start.smurgHistory': 'The folder has no git repository of its own. smurg records the folder as it is now in its own history (in .smurg, not a .git of yours), and each item starts from that.',
     'start.direct.title': 'Without git: work items change the folder directly',
     'start.direct.body':
-      '{reason} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change. To work in worktrees, install git 2.42 or later and share again.',
+      '{reason} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change.',
     'start.direct.confirm': 'I understand that these changes land in the shared folder directly',
     'start.direct.hostOnly': 'Without git, only the host can start work items: they run directly in the shared folder.',
     'start.nestedRepos': 'These folders are git repositories of their own, and work items do not see them: {paths}. To work in one, share that folder.',

@@ -173,7 +173,7 @@ describe.skipIf(chrome === null || claude === null)(`one pass of the flow with t
     await expect.poll(() => modeDialog.getByRole('radio', { name: 'Workspace default (Auto: runs what a check allows)' }).isChecked(), { timeout: STEP_MS }).toBe(true);
     // (The conversation behind an open dialog is out of reach: the line is read once it is closed.)
     await modeDialog.getByRole('button', { name: 'Done' }).click();
-    await log(host).getByText(/^host set the permission mode back to the default: runs what a check allows/).waitFor({ timeout: STEP_MS });
+    await log(host).getByText(/^host set the permission mode back to the default: auto mode \(runs what a check allows\)/).waitFor({ timeout: STEP_MS });
     await column(host).getByRole('button', { name: 'Permission mode: Auto: runs what a check allows' }).waitFor({ timeout: 120_000 });
     const composer = column(host).getByRole('combobox', { name: /^Message Claude/ });
     await composer.fill(AUTO_ASK);

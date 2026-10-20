@@ -408,7 +408,8 @@ const QUOTES: readonly Quote[] = [
   // ---- 0.6.0 (DESIGN D20): the permission modes, the models, smurg's own history and work items without git
   // Where the mode is chosen, what auto mode costs, the warning before "Asks for nothing" and what every member then sees.
   webQuote('console.settings.permissionMode', ['HOSTING']),
-  webQuote('agents.cost.auto', ['HOSTING']),
+  // The host guide quotes what the host reads ("your usage", 0.6.0's review); members read "the host's usage".
+  webQuote('agents.cost.auto.host', ['HOSTING']),
   webQuote('console.settings.askNothing.confirm.title', ['HOSTING']),
   webQuote('console.settings.askNothing.confirm.body', ['HOSTING']),
   webQuote('console.settings.askNothing.confirm.go', ['HOSTING']),
@@ -459,7 +460,8 @@ const QUOTES: readonly Quote[] = [
     what: 'wire worktree.hidden.gone',
     guides: ['HOSTING'],
     render: (locale) => wire(locale, 'worktree.hidden.gone'),
-    part: { en: "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on: reject them.", 'zh-TW': 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）不見了，所以從它建立的工作項目和合併請求無法繼續：請拒絕它們。' },
+    // 0.6.0's review: "reject them. The next Start makes a new history." was not true while their worktrees remain.
+    part: { en: "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on.", 'zh-TW': 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）不見了，所以從它建立的工作項目和合併請求無法繼續。' },
   },
   { what: 'wire worktree.hidden.noSpace', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.hidden.noSpace', { needed: '700 MB', free: '200 MB' }), part: { en: "There is not enough free disk space for another work item's worktree", 'zh-TW': '磁碟空間不夠再建立一個工作項目的 worktree' } },
   { what: 'wire worktree.unavailable.unchecked', guides: ['HOSTING'], render: (locale) => wire(locale, 'worktree.unavailable.unchecked'), part: { en: "smurg has not checked git on the host's computer yet.", 'zh-TW': 'smurg 還沒在主人的電腦上檢查 git。' } },

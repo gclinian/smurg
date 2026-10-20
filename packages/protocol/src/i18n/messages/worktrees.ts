@@ -189,13 +189,13 @@ export const worktrees = {
     en: (p) =>
       `The shared folder holds ${p.size} in ${p.files} files, more than smurg copies into a checkout for each work item (${p.maxSize} and ${p.maxFiles} files at most). The largest: ${p.largest}. List large folders in a .gitignore or as shared directories in the host console, or make the folder a git repository yourself.`,
     'zh-TW': (p) =>
-      `分享的資料夾有 ${p.files} 個檔案、共 ${p.size}，超過 smurg 會為每個工作項目複製一份的上限（最多 ${p.maxSize}、${p.maxFiles} 個檔案）。最大的是：${p.largest}。請把大的資料夾寫進 .gitignore，或在主人主控台設成共用目錄，或自己把資料夾變成 git 儲存庫。`,
+      `分享的資料夾有 ${p.files} 個檔案、共 ${p.size}，超過 smurg 會為每個工作項目複製一份的上限（最多 ${p.maxSize}、${p.maxFiles} 個檔案）。最大的是：${p.largest}。請把大的資料夾寫進 .gitignore，或在主人控制台設成共用目錄，或自己把資料夾變成 git 儲存庫。`,
   }),
   'worktree.hidden.changed': message({}, {
     en: () =>
-      "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used. The host moves .smurg/git out of the shared folder: smurg starts a new history at the next Start, and the merge requests that wait cannot be merged any more.",
+      "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used. The host moves .smurg/git out of the shared folder; the merge requests that wait cannot be merged any more. Once they are rejected and the topics whose work items used it are archived (or those sessions ended and their worktrees removed), the next Start makes a new history.",
     'zh-TW': () =>
-      'smurg 為這個資料夾保存的版本紀錄（.smurg/git）被 smurg 以外的程式改動了，所以無法使用 worktree。請主人把 .smurg/git 移出分享的資料夾：下次按開始時 smurg 會重新建立版本紀錄，還在等的合併請求就不能再合併了。',
+      'smurg 為這個資料夾保存的版本紀錄（.smurg/git）被 smurg 以外的程式改動了，所以無法使用 worktree。請主人把 .smurg/git 移出分享的資料夾；還在等的合併請求就不能再合併了。拒絕這些合併請求，並封存工作項目用過它的主題（或結束那些 session、移除它們的 worktree）之後，下次按開始時會建立新的版本紀錄。',
   }),
   'worktree.hidden.unknown': message({}, {
     en: () =>
@@ -204,8 +204,9 @@ export const worktrees = {
       '分享的資料夾裡有一個這個工作區沒有紀錄的 .smurg/git（它的紀錄被移到旁邊了，或是這個資料夾的另一個工作區建立的），所以無法使用 worktree。請主人把 .smurg/git 移出分享的資料夾：下次按開始時，smurg 會重新建立版本紀錄。',
   }),
   'worktree.hidden.gone': message({}, {
-    en: () => "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on: reject them. The next Start makes a new history.",
-    'zh-TW': () => 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）不見了，所以從它建立的工作項目和合併請求無法繼續：請拒絕它們。下次按開始時會建立新的版本紀錄。',
+    en: () =>
+      "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on. Reject those merge requests and archive the topics of those work items (or end their sessions and remove their worktrees): then the next Start makes a new history.",
+    'zh-TW': () => 'smurg 為這個資料夾保存的版本紀錄（.smurg/git）不見了，所以從它建立的工作項目和合併請求無法繼續。請拒絕那些合併請求，並封存那些工作項目所屬的主題（或結束它們的 session、移除它們的 worktree）：之後下次按開始時會建立新的版本紀錄。',
   }),
   'worktree.hidden.noSpace': message({ needed: 'string', free: 'string' }, {
     en: (p) => `There is not enough free disk space for another work item's worktree: it needs about ${p.needed}, and ${p.free} is free beyond the disk reserve. Free some space, or list large folders in a .gitignore.`,

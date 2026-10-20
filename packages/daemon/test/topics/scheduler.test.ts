@@ -322,6 +322,12 @@ describe('T4.1 a changed spec or plan starts nothing', () => {
       throw new SmurgError('internal', undefined, { reason: 'git-failed', step: 'commit-tree' });
     };
     expect(await refusal(start())).toMatchObject({ code: 'conflict', text: { id: 'plan.start.commit.failed', params: { step: 'commit-tree' } } });
+    // git ran past its deadline (a big folder snapshotted into smurg's own history): git's own words, not "could not be
+    // committed (commit)" for a step that never failed (0.6.0's review).
+    test.fakes.worktrees.commitMainPaths = async () => {
+      throw new SmurgError('internal', msg('git.timeout'), { reason: 'git-timeout' });
+    };
+    expect(await refusal(start())).toMatchObject({ code: 'conflict', detail: { reason: 'git-timeout' }, text: { id: 'git.timeout' } });
     // Nothing was armed by a Start that did not commit.
     expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'not-started', armed: false });
     expect((await test.audit('spec.commit')).every((entry) => entry.outcome === 'error')).toBe(true);

@@ -1654,7 +1654,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     // The session follows the workspace (auto mode, with what its checks cost); the model is the host's unless chosen.
     const mode = dialog.getByRole('combobox', { name: 'What it may do without asking' });
     expect(await mode.locator('option:checked').textContent()).toBe('Workspace default (Auto: runs what a check allows)');
-    await dialog.getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.").waitFor({ timeout: STEP_MS });
+    // Ian is the host: "your usage" (it said "the host's usage" to him until 0.6.0's review).
+    await dialog.getByText('Auto mode checks commands with extra requests to Claude, which may count toward your usage.').waitFor({ timeout: STEP_MS });
     const model = dialog.getByRole('combobox', { name: 'Model' });
     // The list of the host's Claude Code (the stand-in's: Opus, Fable, Sonnet, Haiku), after the host's default.
     await expect.poll(async () => (await model.locator('option').allTextContents()).map((option) => option.split(' · ')[0]), { timeout: STEP_MS }).toEqual([

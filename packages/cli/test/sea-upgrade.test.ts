@@ -27,8 +27,8 @@
 //      byte for byte, and the stamp names the shapes; when they needed none (0.5.0), nothing of that appears;
 //   5. the new executable stops;
 //   6. the OLD executable shares the folder once more (0.6.0, DESIGN D2): it refuses what the new one wrote, before it
-//      connects anywhere, with its own words (0.5.1 and later: "Run smurg update. Nothing was changed."), and the
-//      workspace's state folder is byte for byte what it was;
+//      connects anywhere, with its own words (0.5.1 and 0.5.2: "Nothing was changed.", "Run smurg update, then smurg
+//      host again."), and the workspace's state folder is byte for byte what it was;
 //   7. a state file that other users can read is refused by the new executable (run in Traditional Chinese): the text
 //      names the file and the one chmod, never "move", and the file is as it was.
 // 0.6.0 (DESIGN D6, D13): every published smurg's state.json needs the step to 0.6.0 (workspaces switch to auto mode,

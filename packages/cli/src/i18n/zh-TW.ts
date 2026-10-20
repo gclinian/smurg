@@ -491,9 +491,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.oldFolder': (p) =>
     `這個工作區之前的狀態資料夾還放在旁邊：${p.path}${p.more > 0 ? `（另外還有 ${p.more} 個）` : ''}。smurg 不會使用它。` + `如果你是在更新後照 smurg 0.5.0 的指示把它移開的，你原本的成員、邀請連結和 daemon 金鑰都還在裡面，說明文件有換回去的方法：${GUIDE_GOING_BACK}`,
   'host.agentsAuto': () =>
-    `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不用先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人主控台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS}`,
+    `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不必先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人控制台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS}`,
   'host.asksNothing': () =>
-    `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人主控台的設定裡選其他模式。說明：${GUIDE_AGENTS}`,
+    `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人控制台的設定裡選其他模式。說明：${GUIDE_AGENTS}`,
   'host.peer.newer': () => '\n⚠ 有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
   'host.peer.older': () => '\n有組員的網頁或 smurg 比這個 smurg 舊，連線被拒絕了。請那位組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。',
   'host.smurgTracked': () => '\nsmurg 自己的 .smurg 資料夾已經被提交到這個儲存庫：請在分享的資料夾裡執行 `git rm -r --cached .smurg` 並提交。',

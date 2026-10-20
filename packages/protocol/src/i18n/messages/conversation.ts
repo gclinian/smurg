@@ -10,11 +10,14 @@ function namesEn(names: readonly string[]): string {
   return names.length < 2 || last === undefined ? joinList('en', names) : `${joinList('en', names.slice(0, -1))} and ${last}`;
 }
 
-/** `PermissionMode` values, worded as they read inside a sentence. */
+/**
+ * `PermissionMode` values, worded as they read inside a sentence. Auto mode is named, as every other place names it (the
+ * strip, the dialogs, the guides): "runs what a check allows" alone did not say which mode it was.
+ */
 const MODE_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-TW': string }>> = {
   auto: {
-    en: 'runs what a check allows',
-    'zh-TW': '檢查通過就執行',
+    en: 'auto mode (runs what a check allows)',
+    'zh-TW': '自動模式（檢查通過就執行）',
   },
   'ask-commands': {
     en: 'asks before commands',

@@ -416,7 +416,7 @@ export const zhTW = {
   'settings.diskReservePercent': '保留磁碟空間（%）',
   'settings.diskHint': '上傳開始前，daemon 確認上傳後仍保留兩者中較大的空間，不足就拒絕上傳。預設 5 GB 或 5%。',
   'settings.agents': 'agent 相關設定',
-  'settings.permissionMode': 'agent 不用問就能做的事',
+  'settings.permissionMode': 'agent 不必先問就能做的事',
   'settings.permissionModeHint': '這個工作區每個 agent session 和工作項目的預設。你和可使用 agent 的成員可以為一個主題或一個 session 選擇其他模式，但不能選「什麼都不問」。主題的討論只會讀程式碼、寫自己的 spec 和計畫。',
   'settings.askNothing.confirm.title': '要讓 agent 什麼都不問嗎？',
   'settings.askNothing.confirm.body':

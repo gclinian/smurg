@@ -137,7 +137,7 @@ function AgentMode({ settings }: { settings: HostSettings }) {
         options={PERMISSION_MODES.map((value) => ({ value, label: modeLabel(value), disabled: value === 'ask-nothing' && root && mode !== 'ask-nothing' }))}
         onChange={choose}
       />
-      {mode === 'auto' ? <p className="console-hint">{autoCostText()}</p> : null}
+      {mode === 'auto' ? <p className="console-hint">{autoCostText(true)}</p> : null}
       {root ? <p className="console-hint">{t('settings.askNothingRoot')}</p> : null}
       {agent?.autoMode === 'off' ? (
         <Banner tone="warning" live="none">

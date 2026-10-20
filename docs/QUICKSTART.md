@@ -64,7 +64,8 @@ computer, a teammate joins in a browser, and an agent does a piece of work that 
    it is idle) and says so in the discussion; "Open spec" shows it.
 9. **Get the plan.** Press "Generate plan". The agent writes `PLAN.md`: a list of work items.
 10. **Start the work.** Press "Start 3 items" (the number comes from your plan), read the dialog, then press
-    "Start". Agents run in auto mode: Claude Code's check decides which commands run; file edits and simple file
+    "Start" (without git on your computer, tick the dialog's box first: the items change your folder directly).
+    Agents run in auto mode: Claude Code's check decides which commands run; file edits and simple file
     commands in an agent's own folder run without it. When an agent asks (a card
     "Claude asks for permission to run a command" in your inbox, top left), read the command, then press
     "Allow once" or "Deny".
@@ -72,7 +73,7 @@ computer, a teammate joins in a browser, and an agent does a piece of work that 
     "I've reviewed this".
 12. **Merge.** The change comes to your inbox as "Reviewed, ready to merge". Open it, press "Merge…", read the
     diff, then press "Merge into the main workspace", then "Confirm merge". The plan shows the item as
-    "Reviewed · merged": its changes are in your folder.
+    "Reviewed · merged": its changes are in your folder. Without git there is nothing to merge: they are in it already.
 
 ## Where to go next
 

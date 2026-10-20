@@ -377,7 +377,8 @@ driven by `member.kicked`, `member.left` and `member.role-changed`, in this orde
 kick answers within R2's 3 s:
 
 1. `ConversationService.memberRemoved`: their votes, the always-allowed kinds they added to sessions, a mode choice
-   of theirs that is LOOSER than what the session would follow without it (`isLooserMode`; a stricter one stays), a
+   of theirs unless it is STRICTER than what the session would follow without it (`isLooserMode`; an equal one goes
+   too, so that it cannot outlast a later tightening of the workspace by the host), a
    model they chose whose list entry may bill usage credits (`billing`; another model stays), their queued messages
    (a kicked member's undelivered message stops its turn).
 2. `TopicService.memberRemoved`: the kinds they allowed for whole topics, items they armed that have not started, a
@@ -3470,7 +3471,9 @@ with a repository: each snapshot records the folder as it is, a worktree is a sh
 - **Bounded**: a listing (`ls-files --cached --others --exclude-standard`, 64 MiB) and the daemon's own `lstat`
   before `git add -A`; more than 50,000 files or 1 GiB is refused before anything is written
   (`worktree.hidden.tooLarge` with the three largest top-level entries). The commands of a snapshot get 240 s; the
-  page waits 5 minutes for `plan.start`, a `session.create` with a new worktree and `worktree.merge.approve`; the
+  page waits 5 minutes for `plan.start`, a `session.create` with a new worktree and `worktree.merge.approve`, and for
+  what waits behind them on the worktree module's queue (`plan.preflight`, `plan.item.resolve`,
+  `worktree.merge.reject`); the
   Start dialog's preflight warms the history up (`git add -A` with no commit) while the dialog is read; a stale
   `G/index.lock` at the start of a command on the queue is removed (only smurg runs git in G). Free disk space is
   checked before each clone against the last listing's bytes and the host's reserve (`worktree.hidden.noSpace`);

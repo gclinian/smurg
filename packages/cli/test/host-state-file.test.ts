@@ -80,7 +80,7 @@ const upgradedLine = (lang: Lang, from: string): string =>
 const autoLine = (lang: Lang): string =>
   lang === 'en'
     ? `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first`
-    : `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不用先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人主控台的設定裡選「執行指令前先問」。說明：https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問`;
+    : `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不必先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人控制台的設定裡選「執行指令前先問」。說明：https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問`;
 /** Both lines of a start that upgraded the folder `from` (0.5.0 or older) wrote. */
 const upgradedLines = (lang: Lang, from: '0.4.0' | '0.5.0'): string => `${upgradedLine(lang, from)}\n${autoLine(lang)}`;
 /** The line about a folder set aside beside the workspace's own (`more`: how many more there are). */

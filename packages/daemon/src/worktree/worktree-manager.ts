@@ -940,8 +940,28 @@ export class WorktreeManagerImpl implements WorktreeManager {
   }
 
   /** What a clone of smurg's own history never commits (its `.git/info/exclude`, with the shared links after it). */
-  private cloneExcludeLines(): string[] {
-    return hiddenExcludeLines({ sharedDirs: this.sharedDirs(), nestedRepos: this.lastListing?.nested ?? [], forClone: true });
+  private cloneExcludeLines(nestedRepos: readonly string[] = this.lastListing?.nested ?? []): string[] {
+    return hiddenExcludeLines({ sharedDirs: this.sharedDirs(), nestedRepos, forClone: true });
+  }
+
+  /**
+   * The folder's nested repositories as the last listing found them. A restart forgets that listing: the folder is
+   * listed again first (on the `main` queue, as a snapshot lists it, G's exclude file left as a snapshot leaves it),
+   * so a clone's commit after a restart still leaves out what an agent wrote where the folder has a repository of its
+   * own (0.6.0's review: such a write reached the diff, and the merge wrote it into the user's nested repository).
+   */
+  private async nestedReposNow(git: GitRunner): Promise<readonly string[]> {
+    if (this.lastListing !== null) return this.lastListing.nested;
+    return this.serial.run('main', async () => {
+      if (this.lastListing !== null) return this.lastListing.nested;
+      await this.verifyHidden();
+      const run = this.hiddenRun(git);
+      await writeHiddenExclude(run.gitDir, hiddenExcludeLines({ sharedDirs: this.sharedDirs() }));
+      const listing = await listFolder(run);
+      await writeHiddenExclude(run.gitDir, hiddenExcludeLines({ sharedDirs: this.sharedDirs(), nestedRepos: listing.nested, hostPrivate: listing.hostPrivate }));
+      this.lastListing = { bytes: listing.bytes, nested: listing.nested };
+      return listing.nested;
+    });
   }
 
   private registerRoot(record: StoredWorktree): Promise<RootInfo> {
@@ -1228,8 +1248,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private async commitWorktree(record: StoredWorktree, options: { readonly git: GitRunner; readonly identity: GitIdentity; readonly message: string; readonly verify: boolean }): Promise<Committed> {
     const dir = this.dirOf(record.id);
     await verifyWorktreeRepo(dir, record);
-    // A clone of smurg's own history: its exclude file is written again before every commit (DESIGN 0.6.0 D14).
-    const beforeStage = record.repo === 'smurg' ? () => writeExclude(join(dir, '.git'), record.sharedDirs.map((path) => ({ path, mainPath: path })), this.cloneExcludeLines()) : undefined;
+    // A clone of smurg's own history: its exclude file is written again before every commit (DESIGN 0.6.0 D14), with
+    // the folder's nested repositories also after a restart.
+    const cloneLines = record.repo === 'smurg' ? this.cloneExcludeLines(await this.nestedReposNow(options.git)) : null;
+    const beforeStage = cloneLines !== null ? () => writeExclude(join(dir, '.git'), record.sharedDirs.map((path) => ({ path, mainPath: path })), cloneLines) : undefined;
     const pending = record.merge;
     if (pending !== undefined) {
       const markers = await filesWithConflictMarkers(dir, pending.conflicted);
@@ -1579,8 +1601,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
       } else pre = await mainHead(repo);
       if (pre === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
       const base = await reviewBase(repo, pre, found.commit);
-      // ...and against the base the review recorded: a history changed since makes the merge differ from what was reviewed.
-      if (hidden && found.base !== undefined && base !== found.base) throw hiddenChanged('merge-base');
+      // ...and against the base the review recorded: a history changed since makes the merge differ from what was
+      // reviewed. Unless the request's commit is in the history already (its base is the commit itself): smurg
+      // stopped after `git merge` and before it recorded the request merged. The merge below is then "Already up to
+      // date" and only records it, as with the folder's own repository (0.6.0's review).
+      if (hidden && found.base !== undefined && base !== found.base && base !== found.commit) throw hiddenChanged('merge-base');
       const files = await reviewFiles(repo, base, found.commit);
       // Policy again: the requester's role may have changed since the request. A draft nobody asked for is held to
       // what a member's request is held to, whoever approves it.
@@ -1757,8 +1782,9 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const against = merge.status === 'merged' && merge.mergeCommit !== undefined ? `${merge.mergeCommit}^1` : await mainHead(repo);
     if (against === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
     const base = await reviewBase(repo, against, merge.commit);
-    // smurg's own history: the base this version's review recorded (DESIGN 0.6.0 D14); another one is a changed history.
-    if (repo.kind === 'smurg' && merge.base !== undefined && base !== merge.base) throw hiddenChanged('merge-base');
+    // smurg's own history: the base this version's review recorded (DESIGN 0.6.0 D14); another one is a changed history,
+    // unless the commit is in the history already (a merge smurg did not get to record: nothing is left to show).
+    if (repo.kind === 'smurg' && merge.base !== undefined && base !== merge.base && base !== merge.commit) throw hiddenChanged('merge-base');
     return { base, files: await reviewFiles(repo, base, merge.commit, DEFAULT_REVIEW_LIMITS) };
   }
 
@@ -2038,9 +2064,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
         await this.ensureHidden(git);
         const run = this.hiddenRun(git);
         await writeHiddenExclude(run.gitDir, hiddenExcludeLines({ sharedDirs: this.sharedDirs() }));
-        return listFolder(run);
+        const listed = await listFolder(run);
+        this.lastListing = { bytes: listed.bytes, nested: listed.nested };
+        return listed;
       });
-      this.lastListing = { bytes: listing.bytes, nested: listing.nested };
       const nestedRepos = listing.nested.slice(0, PREFLIGHT_NESTED_REPOS_MAX);
       if (listing.tooLarge) return { nestedRepos, cloudSynced, problem: tooLargeError(listing, this.hiddenRun(git)).text ?? null };
       // The expensive part (hashing every file into objects) while the person reads the dialog.

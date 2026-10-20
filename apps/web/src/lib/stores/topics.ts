@@ -420,7 +420,9 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
       return putPlan((await context().conn.request('plan.suggest', { topicId })).plan);
     },
     async preflight(topicId, itemIds) {
-      return (await context().conn.request('plan.preflight', itemIds === undefined ? { topicId } : { topicId, itemIds: [...itemIds] })).preflight;
+      // Without `.git` the preflight lists the folder on the worktree module's queue, behind another person's Start
+      // snapshot (minutes for a big folder): it waits as long as that Start does (0.6.0's review).
+      return (await context().conn.request('plan.preflight', itemIds === undefined ? { topicId } : { topicId, itemIds: [...itemIds] }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).preflight;
     },
     async start(input) {
       return putPlan((await context().conn.request('plan.start', input, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).plan);
@@ -438,7 +440,8 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
       await context().conn.request('plan.item.continue', { topicId, itemId });
     },
     async resolveItem(topicId, itemId) {
-      await context().conn.request('plan.item.resolve', { topicId, itemId });
+      // Resolve snapshots the shared folder into smurg's own history (DESIGN 0.6.0 D14): as long as a Start.
+      await context().conn.request('plan.item.resolve', { topicId, itemId }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS });
     },
     loadReport(topicId, itemId) {
       wantedReports.set(reportKey(topicId, itemId), { topicId, itemId });

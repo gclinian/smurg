@@ -195,8 +195,9 @@ export interface SessionLaunchConfig {
   /**
    * The floor: the oldest Claude Code version the agent runtime runs on. An AGENT session on an older `claude` is
    * refused before the spawn (`session.claude.tooOld`; the host is told once, `notify.claudeVersionTooOld`); a
-   * terminal is not affected. A property of smurg's setup, not of any model: which model a session uses is between
-   * the host's CLI and account. See claudeVersionVerdict().
+   * terminal is not affected. A property of smurg's setup, not of any model: the floor is the same whichever model a
+   * session runs on (chosen from the list the host's Claude Code offers, or its default; DESIGN 0.6.0 D7). See
+   * claudeVersionVerdict().
    */
   readonly claudeMinVersion: string;
   /**

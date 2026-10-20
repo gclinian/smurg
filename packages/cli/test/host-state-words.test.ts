@@ -689,7 +689,7 @@ describe('0.6.0 (DESIGN D13): the line about auto mode, the line while agents as
         `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: ${GUIDE_AGENTS.en}`,
       );
       expect(renderText('zh-TW', text as Text)).toBe(
-        `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不用先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人主控台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS['zh-TW']}`,
+        `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不必先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人控制台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS['zh-TW']}`,
       );
     }
     // Nothing upgraded, another document only, or a later release's own state step: nothing.
@@ -706,7 +706,7 @@ describe('0.6.0 (DESIGN D13): the line about auto mode, the line while agents as
       `\nAgents here ask for nothing: every command runs as you, with no check by Claude Code and no question from smurg (only smurg's fixed limits stay). To change it, choose another mode in the host console's settings. Guide: ${GUIDE_AGENTS.en}`,
     );
     expect(renderText('zh-TW', text as Text)).toBe(
-      `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人主控台的設定裡選其他模式。說明：${GUIDE_AGENTS['zh-TW']}`,
+      `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人控制台的設定裡選其他模式。說明：${GUIDE_AGENTS['zh-TW']}`,
     );
     for (const mode of ['auto', 'ask-commands', 'ask-all']) expect(asksNothingNotice(daemon(mode)), mode).toBeNull();
   });

@@ -125,9 +125,14 @@ describe('the Start dialog: how the items run (DESIGN 0.6.0 D14, D15, D18)', () 
     expect(within(dialog).getByText('Without git: work items change the folder directly')).toBeTruthy();
     expect(
       within(dialog).getByText(
-        `${renderEnglish(GIT_TOO_OLD)} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change. To work in worktrees, install git 2.42 or later and share again.`,
+        // The reason carries its own remedy (`worktree.unavailable.*`): the body adds none of its own (it said "install git
+        // 2.42 or later" until the 0.6.0 review, wrong advice when git is there and does not run).
+        `${renderEnglish(GIT_TOO_OLD)} Work items run one at a time in the shared folder itself, where people work too. There is no diff to review before a change lands, nothing waits for a merge, and smurg cannot undo a change.`,
       ),
     ).toBeTruthy();
+    // Nothing waits for a merge: the waiting item starts when the others are done (it said "is merged" before the review).
+    expect(within(dialog).queryByText(/is merged|are merged/)).toBeNull();
+    expect(within(dialog).getByText(/^3 · Checkout page starts by itself when 1 · Cart API and 2 · Payment form are done, if the spec/)).toBeTruthy();
     // No checkout: nothing is shared into one.
     expect(within(dialog).queryByText(/^Each item gets a fresh checkout/)).toBeNull();
     const start = within(dialog).getByRole('button', { name: 'Start' }) as HTMLButtonElement;
@@ -146,6 +151,9 @@ describe('the Start dialog: how the items run (DESIGN 0.6.0 D14, D15, D18)', () 
     expect(within(dialog).getByText('Without git, only the host can start work items: they run directly in the shared folder.')).toBeTruthy();
     expect(within(dialog).queryByRole('checkbox')).toBeNull();
     expect(within(dialog).queryByRole('button', { name: 'Start' })).toBeNull();
+    // The topic's settings are only sent with a Start: without one they cannot be changed here (0.6.0's review).
+    expect((within(dialog).getByRole('combobox', { name: 'Model for these items' }) as HTMLSelectElement).disabled).toBe(true);
+    expect((within(dialog).getByRole('combobox', { name: 'What their agents may do without asking' }) as HTMLSelectElement).disabled).toBe(true);
   });
 
   it('asks again when how work items run changes while it is open', async () => {

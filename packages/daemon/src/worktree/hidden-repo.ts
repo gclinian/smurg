@@ -313,12 +313,15 @@ export interface HiddenRun {
 }
 
 const SLASH = 0x2f;
+const DOT_GIT = Buffer.from('/.git', 'utf8');
 
 /**
  * `git ls-files -z --cached --others --exclude-standard` of the folder in smurg's history, then the daemon's own `lstat`
- * of each path, bounded (it stops measuring at the first file beyond the bound). An untracked folder that is a
- * repository is listed with a trailing `/` (git does not look into it); a listed path that is a folder on disk is a
- * gitlink of an earlier snapshot.
+ * of each path, bounded: every file is measured while the files are within their bound (so a folder refused for its
+ * bytes is told its real size and largest entries), none after the first file beyond it. An untracked folder that is
+ * a repository is listed with a trailing `/` (git does not look into it); a listed path that is a folder on disk is a
+ * gitlink of an earlier snapshot; a listed path below a folder that holds a `.git` of its own (a tracked file of a
+ * folder that became a repository, or that an earlier version of smurg recorded) belongs to that repository too.
  */
 export async function listFolder(run: HiddenRun): Promise<FolderListing> {
   const maxFiles = run.maxFiles ?? HIDDEN_MAX_FILES;
@@ -344,6 +347,22 @@ export async function listFolder(run: HiddenRun): Promise<FolderListing> {
   let measuring = true;
   const share = Buffer.from(`${run.shareReal}/`, 'utf8');
   const seen = new Set<string>();
+  /** Folders of the listing (by their bytes) and whether each holds a `.git` of its own. */
+  const holdsGit = new Map<string, boolean>();
+  /** The highest folder above `raw` that is a repository of its own (null: none). */
+  const repositoryAbove = async (raw: Buffer): Promise<string | null> => {
+    for (let at = raw.indexOf(SLASH); at > 0 && at < raw.length - 1; at = raw.indexOf(SLASH, at + 1)) {
+      const dir = raw.subarray(0, at);
+      const key = dir.toString('latin1');
+      let found = holdsGit.get(key);
+      if (found === undefined) {
+        found = (await lstat(Buffer.concat([share, dir, DOT_GIT])).catch(() => null)) !== null;
+        holdsGit.set(key, found);
+      }
+      if (found) return dir.toString('utf8');
+    }
+    return null;
+  };
   for (const raw of fields) {
     const path = raw.toString('utf8');
     if (path.length === 0 || seen.has(path)) continue;
@@ -357,6 +376,14 @@ export async function listFolder(run: HiddenRun): Promise<FolderListing> {
     }
     if (raw[raw.length - 1] === SLASH) {
       nested.add(segments.join('/'));
+      continue;
+    }
+    // Inside a repository of its own: it leaves the history with that folder, which is named (DESIGN 0.6.0 D14). (Not
+    // looked at once the listing is beyond its bound: that refusal names no nested repository.)
+    const above = measuring && segments.length > 1 ? await repositoryAbove(raw) : null;
+    if (above !== null) {
+      nested.add(above);
+      untrack.add(above);
       continue;
     }
     if (isHostPrivatePath(path)) {
@@ -379,7 +406,9 @@ export async function listFolder(run: HiddenRun): Promise<FolderListing> {
     bytes += size;
     const name = segments[0] as string;
     top.set(name, (top.get(name) ?? 0) + size);
-    if (bytes > maxBytes || files > maxFiles) measuring = false;
+    // Past the files' bound the listing is refused whatever else is measured; within it every file counts, so the
+    // refusal of a folder that is too large in bytes says its whole size and its real largest entries.
+    if (files > maxFiles) measuring = false;
   }
   for (const repo of nested) untrack.add(repo);
   const largest = [...top.entries()]
@@ -464,7 +493,21 @@ export async function snapshotFolder(run: HiddenRun, input: SnapshotInput): Prom
   if (listing.tooLarge) throw tooLargeError(listing, run);
   await writeHiddenExclude(gitDir, hiddenExcludeLines({ sharedDirs: input.sharedDirs, nestedRepos: listing.nested, hostPrivate: listing.hostPrivate }));
   await untrack(run, listing.untrack);
-  requireOk(await git.run({ ...common, args: ['add', '-A'], abortable: false }), 'stage');
+  const added = await git.run({ ...common, args: ['add', '-A'], abortable: false });
+  // What git says about a file it could not add (one the host cannot read, say) names it: the host finds it in the
+  // daemon's log (the refusal itself only says which step failed).
+  if (added.code !== 0 && !added.truncated) run.log.warn("a snapshot of the shared folder into smurg's own history failed", { module: 'worktree', git: added.stderr.split('\n', 1)[0]?.slice(0, 300) ?? '' });
+  requireOk(added, 'stage');
+  // A folder's `.gitignore` can un-ignore a host-private file over the exclude file (`!.envrc`), and `add -A` takes it
+  // again: whatever of it is in the index now goes out again (it would be in every checkout, and kept for ever).
+  const cached = requireOk(await git.run({ ...common, args: ['ls-files', '-z', '--cached'], readOnly: true, maxStdoutBytes: HIDDEN_LISTING_MAX_BYTES }), 'listChanges');
+  const hostPrivate = splitNul(cached.stdout)
+    .map((entry) => entry.toString('utf8'))
+    .filter((entry) => entry.length > 0 && isHostPrivatePath(entry));
+  if (hostPrivate.length > 0) {
+    run.log.warn("a .gitignore of the shared folder lets a host-private file in: it was kept out of smurg's history", { module: 'worktree', count: hostPrivate.length });
+    await untrack(run, hostPrivate);
+  }
   // A folder's `.gitignore` can un-ignore `.smurg` over the exclude file: whatever of it got in goes out again.
   const ours = await git.run({ ...common, args: ['ls-files', '-z', '--cached', '--', '.smurg'], readOnly: true, maxStdoutBytes: 1024 * 1024 });
   if (ours.truncated || (ours.code === 0 && ours.stdout.length > 0)) {

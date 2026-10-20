@@ -41,9 +41,9 @@ export function hostDefaultName(): string {
   return t('model.hostDefault.unknown');
 }
 
-/** "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage." */
-export function autoCostText(): string {
-  return t('cost.auto');
+/** "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage." ("your usage" for the host) */
+export function autoCostText(forHost: boolean): string {
+  return t(forHost ? 'cost.auto.host' : 'cost.auto');
 }
 
 /** "The host's default (Opus)", or "The host's default" while the list does not name it. */

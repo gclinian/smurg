@@ -119,7 +119,8 @@ export function createWorktreesArea(): { store: WorktreesStore; lifecycle: AreaL
       return upsertRequest((await context().conn.request('worktree.merge.approve', { requestId }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).request);
     },
     async reject(requestId, reason) {
-      return upsertRequest((await context().conn.request('worktree.merge.reject', reason === undefined ? { requestId } : { requestId, reason })).request);
+      // A rejection waits on the worktree module's queue too, behind a snapshot of the folder (0.6.0's review).
+      return upsertRequest((await context().conn.request('worktree.merge.reject', reason === undefined ? { requestId } : { requestId, reason }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).request);
     },
   };
 

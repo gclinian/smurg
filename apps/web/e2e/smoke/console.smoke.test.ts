@@ -252,7 +252,8 @@ describe.skipIf(chrome === null)('the host console in a real browser (built app,
     const mode = settings.getByRole('combobox', { name: 'What agents may do without asking' });
     await mode.waitFor({ timeout: STEP_MS });
     expect(await mode.inputValue()).toBe('auto');
-    await settings.getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.").waitFor({ timeout: STEP_MS });
+    // The console is the host's: "your usage" (it said "the host's usage" until 0.6.0's review).
+    await settings.getByText('Auto mode checks commands with extra requests to Claude, which may count toward your usage.').waitFor({ timeout: STEP_MS });
     await mode.selectOption('ask-nothing');
     const warning = host.getByRole('alertdialog', { name: 'Let agents ask for nothing?' });
     await warning.getByText(/^Every agent session of this workspace will run every command as you, on your computer, with no sandbox and no check by Claude Code or smurg/).waitFor({ timeout: STEP_MS });

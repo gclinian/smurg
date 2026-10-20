@@ -138,6 +138,15 @@ describe('the Start dialog’s lines', () => {
     expect(textOf(lines, 'already')).toEqual(['Already started, not touched: 1 · Cart API.']);
   });
 
+  it('without git an item waits for the others to be done, not merged (DESIGN 0.6.0 D15: nothing waits for a merge)', () => {
+    const direct = startLines(preflight({ history: 'direct', commit: null, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: '' }, hostOnly: false } }), plan, null);
+    expect(textOf(direct, 'waits')).toEqual(['3 · Checkout page starts by itself when 1 · Cart API and 2 · Payment form are done, if the spec and the plan are still what you see now.']);
+    const one = startLines(preflight({ history: 'direct', commit: null, waits: [{ itemId: 'checkout-page', for: ['cart-api'] }] }), plan, null);
+    expect(textOf(one, 'waits')).toEqual(['3 · Checkout page starts by itself when 1 · Cart API is done, if the spec and the plan are still what you see now.']);
+    // With smurg's own history it still waits for the merge.
+    expect(textOf(startLines(preflight({ history: 'smurg', commit: null }), plan, null), 'waits')[0]).toMatch(/are merged, if the spec/);
+  });
+
   it('names at most six waiting items and counts the rest', () => {
     const many = buildPlan({ items: Array.from({ length: 9 }, (_, index) => buildWorkItem({ id: `i${index}`, number: index + 1, title: `T${index}`, dependsOn: index === 0 ? [] : ['i0'] })) });
     const lines = startLines(preflight({ startsNow: ['i0'], waits: Array.from({ length: 8 }, (_, index) => ({ itemId: `i${index + 1}`, for: ['i0'] })), responsible: [] }), many, null);

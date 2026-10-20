@@ -105,6 +105,23 @@ describe('when a member goes', { timeout: 60_000 }, () => {
     ]);
   });
 
+  it('DESIGN 0.6.0 D12: a mode choice EQUAL to what the session follows goes back too, so that it cannot outlast a later tightening of the workspace', async () => {
+    const s = await startStack();
+    // The workspace runs in auto mode (0.6.0's default); Mei picks "Auto" itself for a session of the host's.
+    const session = await openSession(s, HOST, { modeChoice: null });
+    await s.mei.conn.request('session.mode.set', { sessionId: session.id, mode: 'auto' });
+    expect(s.fakes.agents.facts(session.id)?.modeChangedBy).toBe(MEI);
+    s.fakes.agents.log.clear();
+    await s.host.conn.request('admin.member.kick', { userId: MEI });
+    await quiet(s);
+    // 0.6.0's review: only a STRICTLY looser choice went back, so this one stayed, and when the host later made the
+    // workspace ask before everything, this session alone went on in auto mode on a removed member's choice.
+    expect(s.fakes.agents.log.of('setMode')).toEqual([[session.id, null, { kind: 'system' }]]);
+    expect(s.fakes.agents.get(session.id)).toMatchObject({ modeChoice: null, permissionMode: 'auto' });
+    expect(s.fakes.agents.facts(session.id)?.modeChangedBy).toBeUndefined();
+    expect(lines(s, session.id)).toEqual(['conversation.mode.changed', 'conversation.mode.reset']);
+  });
+
   it('S17 a rejoined member is not the decider again', async () => {
     const s = await startStack();
     // A free session of the HOST that Mei is responsible for: its questions are hers to decide.

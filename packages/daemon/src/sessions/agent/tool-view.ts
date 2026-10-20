@@ -267,9 +267,11 @@ export function buildToolResult(input: ToolResultInput): ToolResultView {
       const stderr = str(structured['stderr']);
       const combined = stdout !== undefined || stderr !== undefined ? [stdout ?? '', stderr ?? ''].filter((part) => part.length > 0).join('\n') : input.text;
       const output = headTail(stripAnsi(ok && combined.length === 0 ? '' : combined.length === 0 ? input.text : combined), TOOL_OUTPUT_HEAD_BYTES, TOOL_OUTPUT_TAIL_BYTES);
+      // A command that ran says its code ("Exit code N"); one that came back failed WITHOUT a code did not run: a person
+      // or a rule denied it, or auto mode's check refused it. It gets no code, so the page says "failed", never "Ran".
       const match = EXIT_CODE.exec(input.text);
-      const exitCode = match !== null ? Number(match[1]) : ok ? 0 : 1;
-      return { ...duration, exitCode, ...(output.text.length > 0 ? { body: body('output', output.text, EVENT_TEXT_MAX_BYTES, output.truncated) } : {}) };
+      const exitCode = match !== null ? Number(match[1]) : ok ? 0 : undefined;
+      return { ...duration, ...(exitCode !== undefined ? { exitCode } : {}), ...(output.text.length > 0 ? { body: body('output', output.text, EVENT_TEXT_MAX_BYTES, output.truncated) } : {}) };
     }
     case 'search': {
       if (!ok) return { ...duration, body: body('text', input.text, TOOL_FETCH_BODY_BYTES) };

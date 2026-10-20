@@ -278,6 +278,12 @@ describe('new session dialog: the model and what it may do without asking (DESIG
     expect(conn.lastRequest('session.create')?.payload).toEqual({ kind: 'agent', workspace: { mode: 'main' }, permissionMode: 'ask-commands' });
   });
 
+  it('the host reads what auto mode\'s checks cost about their own usage (0.6.0\'s review: it said "the host\'s usage" to the host)', () => {
+    renderDialog('host', { host: makeHostState() });
+    expect(screen.getByText('Auto mode checks commands with extra requests to Claude, which may count toward your usage.')).toBeTruthy();
+    expect(screen.queryByText(/toward the host's usage/)).toBeNull();
+  });
+
   it("the workspace's own mode names the default (the Welcome's settings, then channel.settingsUpdated)", () => {
     const { conn } = renderDialog('agent', { host: makeHostState() });
     act(() => {

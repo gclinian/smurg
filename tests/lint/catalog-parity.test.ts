@@ -207,10 +207,13 @@ describe('the glossary’s terms in every catalog', () => {
     expect(hits).toEqual([]);
   });
 
-  it('a term has one translation: agent access, Host offline', async () => {
+  it('a term has one translation: agent access, Host offline, the host console, what a mode lets run without asking', async () => {
     const TERMS: readonly (readonly [RegExp, RegExp])[] = [
       [/\bagent access\b/i, /使用 agent/],
       [/\bHost offline\b/, /主人已離線/],
+      // 0.6.0's review found 「主人主控台」 in the CLI next to the web app's 「主人控制台」, and three forms of "without asking".
+      [/\bhost console\b/i, /主人控制台/],
+      [/\bmay do without asking\b/, /不必先問就能做的事/],
     ];
     const hits: string[] = [];
     for (const pair of await pairs()) {

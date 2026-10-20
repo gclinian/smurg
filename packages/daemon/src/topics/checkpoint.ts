@@ -70,6 +70,9 @@ export async function checkpointCommit(ctx: DaemonContext, topic: StoredTopic, a
     }
     // A refusal that is not a git failure (the member may not commit, the paths are not committable) keeps its own words.
     if (err instanceof SmurgError && err.code !== 'internal' && reason !== 'git-failed' && err.text !== undefined) throw err;
+    // git ran past its deadline (a snapshot of a big or cloud-synced folder into smurg's own history, DESIGN 0.6.0 D14):
+    // its own words, not "could not be committed (commit)", which named a step that never failed (0.6.0's review).
+    if (reason === 'git-timeout') throw new SmurgError('conflict', msg('git.timeout'), { reason: 'git-timeout' }, { cause: err });
     const step = err instanceof SmurgError && typeof err.detail?.['step'] === 'string' ? err.detail['step'] : 'commit';
     throw new SmurgError('conflict', msg('plan.start.commit.failed', { step }), { reason: 'commit-failed' }, { cause: err });
   }

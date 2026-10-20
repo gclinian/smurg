@@ -114,6 +114,7 @@ Models, the permission modes, and work items in a folder without git.
 | A session or topic that follows the workspace's mode | Workspace default (a mode; "Workspace default (Auto: runs what a check allows)") | 工作區預設 | `null` |
 | A work item's session that follows its topic's mode | This topic's setting | 主題的設定 | `null` |
 | The mode in prose | auto mode | 自動模式 | `auto` |
+| What a mode picker asks (one phrase everywhere) | What … may do without asking | …不必先問就能做的事 | |
 | What decides in auto mode | Claude Code's check (its classifier, a model's judgement; never "checks each command") | Claude Code 的檢查 | |
 | smurg's history of a folder without `.git` | smurg's own history (in `.smurg`) | smurg 自己的版本紀錄（在 .smurg 裡） | `smurg` |
 | Work items without the git program | directly in the shared folder | 直接在分享的資料夾裡 | `direct` |

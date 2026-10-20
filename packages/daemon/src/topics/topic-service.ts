@@ -515,8 +515,8 @@ export class TopicServiceImpl implements TopicService {
           changed = true;
         }
       }
-      // … the topic's agent settings they chose (DESIGN 0.6.0 D12): a mode looser than the workspace's goes back (a
-      // stricter one stays), a model that may bill usage credits goes back to the host's default (any other stays) …
+      // … the topic's agent settings they chose (DESIGN 0.6.0 D12): a mode that is not stricter than the workspace's goes
+      // back (a stricter one stays), a model that may bill usage credits goes back to the host's default (any other stays) …
       if (!keeps('session.drive') && topic.agent !== undefined && this.resetAgentOf(topic, userId)) changed = true;
       // … and the work items they armed that have not started.
       if (!keeps('session.create')) {
@@ -567,7 +567,8 @@ export class TopicServiceImpl implements TopicService {
     if (agent === undefined) return false;
     const workspace = this.ctx.settings.get().permissionMode;
     const chooser = agent.modeChangedBy;
-    const mode = chooser?.userId === userId && agent.permissionMode !== undefined && isLooserMode(agent.permissionMode, workspace);
+    // Unless it is STRICTER than the workspace's: an equal choice kept would outlast the host's later tightening.
+    const mode = chooser?.userId === userId && agent.permissionMode !== undefined && agent.permissionMode !== null && !isLooserMode(workspace, agent.permissionMode);
     const model = agent.modelChangedBy?.userId === userId && agent.model !== undefined && billsUsageCredits(this.ctx, agent.model);
     if (!mode && !model) return false;
     const previous = agent.permissionMode ?? null;

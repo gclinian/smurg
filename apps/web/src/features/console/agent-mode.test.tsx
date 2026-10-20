@@ -16,7 +16,8 @@ describe('host console: what agents may do without asking', () => {
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['Auto: runs what a check allows', 'Asks before commands', 'Asks before edits and commands', 'Asks for nothing']);
     expect(select.value).toBe('auto');
     expect(within(settings).getByText(/^The default of every agent session and work item of this workspace\./)).toBeTruthy();
-    expect(within(settings).getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.")).toBeTruthy();
+    // The console is the host's: "your usage" (it said "the host's usage" until 0.6.0's review).
+    expect(within(settings).getByText('Auto mode checks commands with extra requests to Claude, which may count toward your usage.')).toBeTruthy();
     fireEvent.change(select, { target: { value: 'ask-commands' } });
     expect(view.conn.lastRequest('admin.settings.set')?.payload).toEqual({ permissionMode: 'ask-commands' });
     await act(async () => {

@@ -1,12 +1,13 @@
 // The permission mode picker (DESIGN 0.6.0 D18): "Workspace default (Auto: runs what a check allows)", or "This
 // topic's setting (…)" for a work item's session, then smurg's three choices. Never "Asks for nothing": that is the
 // host's, for the whole workspace, in the console. When the mode that results is auto, one line says that auto mode's
-// checks are extra requests that may count toward the host's usage. A select in the dialogs, radio buttons in a
-// session's own mode dialog.
+// checks are extra requests that may count toward the host's usage ("your usage" when the host reads it). A select in
+// the dialogs, radio buttons in a session's own mode dialog.
 import { useId } from 'react';
 import type { PermissionMode, SessionModeChoice } from '@smurg/protocol';
+import { useCan } from '../../lib/workspace/context.tsx';
 import { Select, cx } from '../../ui/index.ts';
-import { FOLLOW_VALUE, modeOptions, resultingMode, type ModeFollows } from './agent-choice.ts';
+import { FOLLOW_VALUE, autoCostText, modeOptions, resultingMode, type ModeFollows } from './agent-choice.ts';
 import { t } from './strings.ts';
 
 export interface ModePickerProps {
@@ -27,7 +28,8 @@ export function ModePicker({ label: givenLabel, value, onChange, follows, follow
   const name = useId();
   const label = givenLabel ?? t('mode.label');
   const options = modeOptions(follows, followed);
-  const cost = resultingMode(value, followed) === 'auto' ? t('cost.auto') : null;
+  const forHost = useCan('admin');
+  const cost = resultingMode(value, followed) === 'auto' ? autoCostText(forHost) : null;
   const current = value ?? FOLLOW_VALUE;
   const pick = (next: SessionModeChoice | typeof FOLLOW_VALUE): void => onChange(next === FOLLOW_VALUE ? null : next);
   if (variant === 'radio') {

@@ -241,6 +241,11 @@ withGit('a folder without .git: smurg\'s own history (DESIGN 0.6.0 D14)', { time
 withGit('how work items run here is every member\'s to know (HostState.work, DESIGN 0.6.0 D5)', { timeout: 120_000 }, () => {
   it('a folder without .git has smurg\'s own history; `git init` while sharing makes it the folder\'s, and everyone is told', async () => {
     const s = await startStack({ git: false });
+    // Sharing looks for no git program (DESIGN 0.6.0 D14: lazily, never at the start of sharing; until 0.6.0's review the
+    // topics module's start looked, which on a Mac without the Command Line Tools put an install prompt on screen).
+    expect((await s.mei.conn.request('session.host.get', {})).work).toEqual({ history: 'unchecked' });
+    // The Start dialog looks (what it asks the worktree module): smurg's own history.
+    await s.d.ctx.services.worktrees.mainState();
     expect((await s.mei.conn.request('session.host.get', {})).work).toEqual({ history: 'smurg' });
     const told: string[] = [];
     s.mei.conn.on('session.host', (payload) => told.push(payload.work.history));
@@ -252,6 +257,9 @@ withGit('how work items run here is every member\'s to know (HostState.work, DES
 
   it('without a usable git program: `direct`, with the reason', async () => {
     const s = await startStack({ git: false, gitPath: '/nonexistent/smurg-test/git' });
+    // Not at the start of sharing (DESIGN 0.6.0 D14): only once the Start dialog looks.
+    expect((await s.ian.conn.request('session.host.get', {})).work).toEqual({ history: 'unchecked' });
+    await s.d.ctx.services.worktrees.mainState();
     expect((await s.ian.conn.request('session.host.get', {})).work).toMatchObject({ history: 'direct', reason: { text: { id: 'worktree.unavailable.gitCannotRun' } } });
   });
 });

@@ -298,7 +298,8 @@ describe('seed: enumerated values with their own wording (protocol 5)', () => {
     expect(permissionModeRef('constructor')).toBeUndefined();
     expect(render('en', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-all' }))).toBe('Mei changed the permission mode: asks before edits and commands');
     expect(render('zh-TW', msg('conversation.mode.changed', { by: 'Mei', mode: 'ask-commands' }))).toBe('Mei 變更了權限模式：執行指令前先問');
-    expect(render('en', msg('conversation.mode.followed', { by: 'Mei', mode: 'auto' }))).toBe('Mei set the permission mode back to the default: runs what a check allows');
+    // Auto mode is named in the line (0.6.0's review: "…to the default: runs what a check allows" named no mode).
+    expect(render('en', msg('conversation.mode.followed', { by: 'Mei', mode: 'auto' }))).toBe('Mei set the permission mode back to the default: auto mode (runs what a check allows)');
     expect(render('zh-TW', msg('conversation.mode.workspace', { mode: 'ask-nothing' }))).toBe('主人變更了工作區的權限模式：什麼都不問');
     expect(render('en', msg('conversation.mode.topic', { by: 'Amy', mode: 'ask-commands' }))).toBe("Amy changed the permission mode of this topic's work items: asks before commands");
   });

@@ -142,6 +142,8 @@ export const t = defineStrings(
     'model.unavailable': "The host's Claude Code could not be asked which models it offers. Sessions use the host's default.",
     'model.credits': 'On some plans this model is billed to usage credits, and Claude Code does not ask first here.',
     'cost.auto': "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.",
+    // The host reads it about their own usage (as `new.runsAs.host`), in the console and their own dialogs.
+    'cost.auto.host': 'Auto mode checks commands with extra requests to Claude, which may count toward your usage.',
     'mode.label': 'Permission mode',
     // What someone who may not change them reads (a topic's settings for an editor or a viewer).
     'model.readOnly': 'Model: {name}',

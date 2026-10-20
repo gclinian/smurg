@@ -8,7 +8,6 @@ import { rootRefKey, MAIN_ROOT } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import type { DaemonEvents } from '../core/interfaces.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
-import { isStubService } from '../core/stubs.ts';
 import { TopicsCore, type TopicsOptions } from './core.ts';
 import { registerTopicHandlers } from './handlers.ts';
 import { PlanServiceImpl } from './plan-service.ts';
@@ -143,9 +142,12 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       if (!parts) return;
       const { core, reports, scheduler } = parts;
       await core.open();
-      const worktrees = ctx.services.worktrees;
-      // (Set, not announced: every topic is announced below, once the restart is looked at.)
-      if (!isStubService(worktrees)) core.versioned = await worktrees.mainState().then((main) => main.isRepo, () => false);
+      // (Set, not announced: every topic is announced below, once the restart is looked at.) What the share found at
+      // `.git`, with no git process: asking the worktree module (`mainState`) would look for the git program when the
+      // folder has no `.git`, and DESIGN 0.6.0 D14 looks for it lazily, never at the start of sharing (on a Mac
+      // without the Command Line Tools, /usr/bin/git puts an install prompt on the host's screen). `workspace.git`
+      // keeps it current afterwards.
+      core.versioned = ctx.workspace.info.isGitRepo;
       // What a crash between two records left out of step (a merge the item never heard of, a session no item names).
       await scheduler.reconcile();
       // After a restart of the host's smurg nothing runs by itself: interrupted items are stalled, plans are paused.

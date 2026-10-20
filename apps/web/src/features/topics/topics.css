@@ -703,9 +703,10 @@
 .topics-agent > h3 {
   margin: 0;
 }
+/* Side by side only where both have room for their chosen text; one per row in a narrow column or the dialog. */
 .topics-agent__pickers {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr));
   gap: var(--space-3) var(--space-4);
 }
 .start-direct__confirm {

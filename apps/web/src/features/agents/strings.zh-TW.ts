@@ -126,13 +126,14 @@ export const zhTW = {
   'model.unavailable': '無法詢問主人的 Claude Code 提供哪些模型。session 會使用主人的預設。',
   'model.credits': '在某些方案上，這個模型會從用量額度扣款，而且 Claude Code 在這裡不會先問。',
   'cost.auto': '自動模式會多送請求給 Claude 來檢查指令，可能算進主人的用量。',
+  'cost.auto.host': '自動模式會多送請求給 Claude 來檢查指令，可能算進你的用量。',
   'mode.label': '權限模式',
   'model.readOnly': '模型：{name}',
   'mode.readOnly': '權限模式：{mode}',
   'mode.follow.workspace': '工作區預設（{mode}）',
   'mode.follow.topic': '主題的設定（{mode}）',
   'new.model': '模型',
-  'new.mode': '不用問就能做的事',
+  'new.mode': '不必先問就能做的事',
 
   'info.term': '{label}：',
 } as const;

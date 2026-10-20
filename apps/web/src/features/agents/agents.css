@@ -405,8 +405,10 @@
   cursor: default;
   opacity: 0.6;
 }
+/* One picker per row: side by side in the dialog's width, a select cut its chosen text ("Workspace default (Auto: runs
+   what a"), and the mode a session will run in could not be read without opening it. */
 .agents-form__agent {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-4);
 }

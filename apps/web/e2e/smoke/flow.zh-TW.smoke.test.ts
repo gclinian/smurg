@@ -232,7 +232,7 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await expect.poll(() => start.locator('.start-line[data-line="starts"]').textContent(), { timeout: STEP_MS }).toContain('1 個項目現在開始：1 · 購物車金額。');
     expect(await start.locator('.start-line[data-line="commit"]').textContent()).toContain('smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。');
     // The topic's settings, in Chinese: the items follow the workspace, auto mode.
-    expect(await start.getByRole('combobox', { name: '它們的 agent 不用問就能做的事' }).locator('option:checked').textContent()).toBe('工作區預設（自動：檢查通過就執行）');
+    expect(await start.getByRole('combobox', { name: '它們的 agent 不必先問就能做的事' }).locator('option:checked').textContent()).toBe('工作區預設（自動：檢查通過就執行）');
     await start.getByText('其他的都要經過 Claude Code 的檢查。').waitFor({ timeout: STEP_MS });
     await stop('start-dialog');
     await start.getByRole('button', { name: '開始', exact: true }).click();

@@ -75,8 +75,11 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
 
   if (preflight.startsNow.length > 0) push('starts', t('start.now', { count: preflight.startsNow.length, items: itemNames(plan, preflight.startsNow) }));
   else push('starts', t('start.now.none'));
+  // Without git an item waits for the others to be done, not merged (DESIGN 0.6.0 D15: nothing waits for a merge).
+  const direct = preflight.history === 'direct';
   for (const wait of preflight.waits.slice(0, START_WAITS_SHOWN)) {
-    push('waits', t(`start.waits.${oneOrMany(wait.for.length)}`, { item: itemNames(plan, [wait.itemId]), items: itemNames(plan, wait.for) }));
+    const count = oneOrMany(wait.for.length);
+    push('waits', t(direct ? `start.waitsDirect.${count}` : `start.waits.${count}`, { item: itemNames(plan, [wait.itemId]), items: itemNames(plan, wait.for) }));
   }
   if (preflight.waits.length > START_WAITS_SHOWN) push('waits', t('start.waitsMore', { count: preflight.waits.length - START_WAITS_SHOWN }));
   if (preflight.alreadyStarted.length > 0) push('already', t('start.already', { items: itemNames(plan, preflight.alreadyStarted) }));

@@ -315,7 +315,7 @@ shared folder runs when Claude Code's check allows it; §5.2 says where smurg st
   only changed the role, and are stopped first when you removed the member. The worktrees they had kept, with the
   changes in them, pass to you as well: they can no longer remove them, and you decide what becomes of the changes.
   What they put in place goes with them: the kinds of commands they always allowed, work items they started that have not begun yet, a permission
-  mode they chose that is looser than what the session would follow, a model they chose that may be billed to usage
+  mode they chose that is not stricter than what the session would follow, a model they chose that may be billed to usage
   credits, their messages that an agent has not read yet (§10.6). **This only takes back what they may
   do in smurg.** What they already did as you does not go away: see the "After taking it back" list below.
 - Before you start, make sure `claude` is logged in on this computer (run `claude` in your own terminal and log
@@ -404,7 +404,8 @@ and holds whatever your Claude Code settings allow. What then runs without a per
   topic's work items (in the plan, and in the Start dialog) or for one session (when they open it, and later in its
   strip). A session nobody chose a mode for follows "Workspace default (…)"; a work item follows "This topic's setting".
   Auto mode's checks cost something:
-  "Auto mode checks commands with extra requests to Claude, which may count toward the host's usage."
+  "Auto mode checks commands with extra requests to Claude, which may count toward your usage." (your members read
+  "the host's usage").
 - **What auto mode does not check**:
   - the fast path: file edits and simple file commands inside the folder an agent works in run with no check at all.
     In the main workspace they change the shared folder at once, for everyone, except smurg's two cases below;
@@ -823,15 +824,15 @@ they open in the browser, not in a terminal.
 | Start is refused: "The shared folder's .git is gone, so worktrees cannot be used." | The folder's `.git` was moved or deleted while there are worktrees or merge requests that still wait; Merge, the diff and a session that asks for a worktree are refused with the same sentence. Put that `.git` back: everything works again, without sharing again (§10.2). Do not run `git init` instead: a new repository cannot merge those requests. If that `.git` is lost for good, `git init` and a commit make Start work again, without those requests. |
 | The Start dialog says "Without git: work items change the folder directly" and "git was not found on the host's computer, so worktrees cannot be used." | Start still works, but its work items run one at a time directly in the shared folder, with no diff and no undo, and only you can start them, after ticking the dialog's box (§10.2). To get worktrees: smurg uses the first `git` on the `PATH` of the terminal that ran `smurg host`. Install git 2.42 or later (macOS: `xcode-select --install`, or Homebrew), check in a new terminal that `git version` answers, stop sharing and run `smurg host` from that terminal. |
 | The Start dialog says "Without git: work items change the folder directly" and "The host's git is version 2.39.5, and worktrees need 2.42.0 or later." | As in the row above, the items would run directly in the folder. That is the first `git` on the `PATH` of the terminal that ran `smurg host`. Update git (macOS: the Command Line Tools in Software Update, or `brew install git`), check in a new terminal that `which git` and `git version` show the new one, stop sharing and run `smurg host` from that terminal. |
-| The Start dialog says "Without git: work items change the folder directly" and "git does not run on the host's computer, so worktrees cannot be used." | As in the row above, the items would run directly in the folder. On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them, also when `smurg host` starts. Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
+| The Start dialog says "Without git: work items change the folder directly" and "git does not run on the host's computer, so worktrees cannot be used." | As in the row above, the items would run directly in the folder. On macOS, `/usr/bin/git` needs Apple's Command Line Tools; without them it brings up macOS's offer to install them when smurg first looks for git (the first Start dialog of a folder without `.git`, for example; never when `smurg host` starts). Run `xcode-select --install` (on Linux, reinstall git). When `git version` answers in a terminal, stop sharing and run `smurg host` from that terminal. |
 | A teammate's Start dialog says "Without git, only the host can start work items: they run directly in the shared folder." | Without git, only you start or retry work items (§10.2). Start them yourself, or install git as in the rows above. |
 | Start is refused: "The shared folder's .git is not an ordinary folder (the folder is a git worktree or a submodule, for example), so worktrees cannot be used." | Worktrees are made only from a repository's main folder, where `.git` is a folder. Share that folder instead: it is another workspace, so send your teammates new invite links. Up to the plan, everything works in this one. |
 | Start is refused: ".smurg/worktrees in the shared folder is not an ordinary folder, so worktrees cannot be used." | Something replaced the folder where smurg keeps worktrees. Move it out of the shared folder (look at it first), stop sharing and share again: smurg makes the folder anew. |
 | Start is refused: "smurg could not look at the shared folder's git repository just now. Try again in a moment." | git failed or took too long this once. Press Start again; if it keeps happening, look at the daemon's log (§7). |
 | Start is refused in a folder without `.git`: "The shared folder holds … in … files, more than smurg copies into a checkout for each work item (1 GB and 50,000 files at most)." | smurg's own history would copy the whole folder into every work item's worktree (§10.2). The sentence names the three largest folders. Name large folders in a `.gitignore`, or as folders shared into worktrees in the host console's settings, or make the folder a git repository yourself (§10.2). |
-| Start, a worktree or Merge is refused: "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used." | Something other than smurg changed `.smurg/git` (its settings, its branch, or what it reads from elsewhere), or the merge base differs from the one the review showed. smurg does not use it then: move `.smurg/git` out of the shared folder (look at it first). The next Start makes a new history; the merge requests made from the old one cannot be merged any more: reject them. |
+| Start, a worktree or Merge is refused: "smurg's own history of this folder (.smurg/git) was changed by something other than smurg, so worktrees cannot be used." | Something other than smurg changed `.smurg/git` (its settings, its branch, or what it reads from elsewhere), or the merge base differs from the one the review showed. smurg does not use it then: move `.smurg/git` out of the shared folder (look at it first). The merge requests made from the old one cannot be merged any more: reject them, and archive the topics whose work items used it (or end those sessions and remove their worktrees). Then the next Start makes a new history. |
 | Start or a worktree is refused: "The shared folder holds a .smurg/git that this workspace has no record of …" | You set `worktrees.json` aside (§9.3), or another workspace of this folder made that `.smurg/git`. smurg never takes over a history it has no record of. Move `.smurg/git` out of the shared folder: the next Start makes a new one. |
-| A work item, a merge request or Merge says "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on: reject them." | `.smurg/git` was moved or deleted while work of it waits. Put it back if you still have it; otherwise reject those merge requests and remove those worktrees: then the next Start makes a new history. |
+| A work item, a merge request or Merge says "smurg's own history of this folder (.smurg/git) is gone, so the work items and merge requests made from it cannot go on." | `.smurg/git` was moved or deleted while work of it waits. Put it back if you still have it; otherwise reject those merge requests and archive the topics of those work items (or end their sessions and remove their worktrees: a worktree a session still uses is not removed). Then the next Start makes a new history. |
 | A worktree is refused: "There is not enough free disk space for another work item's worktree …" | Each worktree of smurg's own history is a whole copy of the folder (§10.2). Free some space, or name large folders in a `.gitignore`. |
 | A teammate cannot create a worktree: "smurg has not checked git on the host's computer yet. …" | In a folder without `.git`, smurg runs no git for a teammate's request until it has checked git itself. Open a topic's Start dialog once, or create a worktree yourself. |
 | A session says "Claude Code could not use the model … on the host's account: it may not exist, or the account may not have access to it. Choose another model for this session." | Your Claude account cannot use the model someone chose for the session (the API refused it). "Choose a model" in the session picks another, or the host's default. |
@@ -879,8 +880,9 @@ smurg update            # update to the newest version
   you update (§2.2).
 - **Going back to an older version is not supported.** `smurg update` never installs one. A workspace that a newer
   smurg has shared may be refused by an older one: smurg 0.4.0 refuses every workspace that 0.5.0 or later has
-  shared, and its message tells you to move the workspace's folder away. Do not follow that advice (§9.4 is for
-  those who did): install the newest version again.
+  shared, and 0.5.0 every workspace that 0.6.0 or later has shared; their message tells you to move the workspace's
+  folder away. Do not follow that advice (§9.4 is for those who did): install the newest version again. (0.5.1 and
+  0.5.2 say that nothing was changed and that you run `smurg update`.)
 - If the download fails, the sha256 does not match or you press Ctrl-C, the current executable is left untouched and
   the partly downloaded temporary file is deleted.
 - When the folder that holds the executable is not writable (for example, it was not installed by the installer), it
@@ -1358,8 +1360,8 @@ by itself:
   ("Amy was removed. This session was stopped and now runs for the host"), and the worktrees they had kept pass
   to you. A member who is removed and joins again does not get their old sessions back.
 - In all these cases what they put in place goes with them: the kinds of commands they always allowed are removed,
-  a permission mode they chose that is looser than what the session or the topic would follow goes back (a stricter
-  one stays), a model they chose that may be billed to usage credits goes back to your default (the conversation
+  a permission mode they chose goes back unless it is stricter than what the session or the topic would follow (a
+  stricter one stays), a model they chose that may be billed to usage credits goes back to your default (the conversation
   says "The model is back to the host's default: …"), and work items they started that have not begun do not start
   until someone starts them again. A session that passed to you keeps the limits it was created with: its
   agent still cannot change the files only you may change.

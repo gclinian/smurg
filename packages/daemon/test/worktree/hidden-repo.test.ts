@@ -30,6 +30,7 @@ import { createWorktreeModule } from '../../src/worktree/module.ts';
 import { initialWorktreesDocument, worktreesDocumentSchema, type WorktreesDocument } from '../../src/worktree/store.ts';
 import type { WorktreeManagerImpl } from '../../src/worktree/worktree-manager.ts';
 import { GitRunner } from '../../src/worktree/git.ts';
+import { restartDaemonWith } from './restart.ts';
 import { settleError, startWorktreeStack, type WorktreeStack, type WorktreeStackOptions } from './support.ts';
 
 const run = promisify(execFile);
@@ -341,7 +342,14 @@ withGit('smurg\'s own history: snapshots, worktrees and merges', { timeout: 120_
 
     const bytes = await hiddenStack({ module: { limits: { hiddenMaxBytes: 100 } } });
     await writeFile(join(share(bytes), 'data.bin'), Buffer.alloc(200, 1));
-    expect(await bytes.manager.prepareStart()).toMatchObject({ problem: { id: 'worktree.hidden.tooLarge', params: { maxSize: '100 bytes', largest: expect.stringContaining('data.bin') } } });
+    await mkdir(join(share(bytes), 'big'), { recursive: true });
+    await writeFile(join(share(bytes), 'big', 'one.bin'), Buffer.alloc(300, 1));
+    await writeFile(join(share(bytes), 'big', 'two.bin'), Buffer.alloc(300, 1));
+    // Every file is measured (0.6.0's review: measuring stopped at the first file beyond the bound, so the refusal said
+    // what was measured up to there, and could leave out the real largest folder): the whole size, the real largest.
+    expect(await bytes.manager.prepareStart()).toMatchObject({
+      problem: { id: 'worktree.hidden.tooLarge', params: { size: '851 bytes', maxSize: '100 bytes', largest: expect.stringMatching(/^big \(600 bytes\), data\.bin \(200 bytes\)/) } },
+    });
     await dropStack();
 
     // Long paths: the listing is over 4 MiB (the runner's default bound), and every file is recorded.
@@ -482,6 +490,83 @@ withGit('smurg\'s own history: snapshots, worktrees and merges', { timeout: 120_
     expect((await s.host.conn.request('worktree.merge.approve', { requestId: request.id })).request.status).toBe('merged');
     expect(await readFile(join(nested, 'app.js'), 'utf8')).toBe('console.log(1);\n');
     expect((await s.git(['log', '--format=%s'], nested)).trim()).toBe('frontend');
+  });
+
+  it('after a restart a checkout\'s commit still leaves out a nested repository; a recorded file of a folder that became a repository leaves the history with it', async () => {
+    const s = await hiddenStack();
+    const nested = join(share(s), 'frontend');
+    await mkdir(nested, { recursive: true });
+    await writeFile(join(nested, 'app.js'), 'console.log(1);\n');
+    await s.git(['init', '-q', '-b', 'main'], nested);
+    await s.git(['add', '-A'], nested);
+    await s.git(['commit', '-q', '-m', 'frontend'], nested);
+    // A folder the history records as ordinary files, until it becomes a repository of its own.
+    await mkdir(join(share(s), 'vendor'), { recursive: true });
+    await writeFile(join(share(s), 'vendor', 'lib.js'), 'lib\n');
+    const worktree = await hostWorktree(s);
+    expect(await hiddenFiles(s)).toContain('vendor/lib.js');
+    await s.git(['init', '-q', '-b', 'main'], join(share(s), 'vendor'));
+    // smurg stops and starts again: what the last listing found is forgotten (0.6.0's review: the clone's exclude then
+    // lost `/frontend/`, the item's write into it reached the diff, and the merge wrote it into the user's repository).
+    await s.t.daemon.stop();
+    const daemon = await restartDaemonWith(s.t);
+    try {
+      const manager = daemon.ctx.services.worktrees as WorktreeManagerImpl;
+      const host = daemon.ctx.members.principalOf(daemon.ctx.members.hostUserId());
+      if (host === null) throw new Error('host');
+      await mkdir(join(worktree.dir, 'frontend'), { recursive: true });
+      await writeFile(join(worktree.dir, 'frontend', 'new.js'), 'by the item\n');
+      await writeFile(join(worktree.dir, 'src', 'app.ts'), 'export const answer = 43;\n');
+      const request = await manager.requestMerge({ worktreeId: worktree.id }, host);
+      expect(await readFile(join(worktree.dir, '.git', 'info', 'exclude'), 'utf8')).toContain('/frontend/');
+      expect((await manager.diff({ requestId: request.id }, host)).files.map((file) => file.path)).toEqual(['src/app.ts']);
+      expect((await manager.approve({ requestId: request.id }, host)).status).toBe('merged');
+      expect(await exists(join(nested, 'new.js'))).toBe(false);
+      expect((await s.git(['status', '--porcelain'], nested)).trim()).toBe('');
+      // The snapshot before that merge found vendor/ a repository: it is named, and its file left the history.
+      expect(await manager.prepareStart()).toMatchObject({ nestedRepos: ['frontend', 'vendor'] });
+      expect(await hiddenFiles(s)).not.toContain('vendor/lib.js');
+      expect(await hiddenFiles(s)).not.toContain('frontend/new.js');
+    } finally {
+      await daemon.stop();
+    }
+  });
+
+  it('a merge smurg made but did not get to record (it stopped right after git merge) is recorded merged at the next approval, not refused as a changed history', async () => {
+    const s = await hiddenStack();
+    const worktree = await hostWorktree(s);
+    await writeFile(join(worktree.dir, 'src', 'app.ts'), 'export const answer = 43;\n');
+    const request = await s.manager.requestMerge({ worktreeId: worktree.id }, s.principal(s.host.userId));
+    expect((await s.host.conn.request('worktree.merge.diff', { requestId: request.id })).files.map((file) => file.path)).toEqual(['src/app.ts']);
+    // What the approval's `git merge` leaves when smurg stops before it records the request (0.6.0's review: both the
+    // diff and the approval then said the history was changed by something else, and the request stayed open).
+    await hiddenGit(s, 'merge', '--quiet', '--no-ff', '--no-edit', '-m', 'Merge (smurg stopped here)', request.commit);
+    expect(await readFile(join(share(s), 'src', 'app.ts'), 'utf8')).toBe('export const answer = 43;\n');
+    expect((await s.host.conn.request('worktree.merge.diff', { requestId: request.id })).files).toEqual([]);
+    expect((await s.host.conn.request('worktree.merge.approve', { requestId: request.id })).request.status).toBe('merged');
+    expect(await readFile(join(share(s), 'src', 'app.ts'), 'utf8')).toBe('export const answer = 43;\n');
+    // A history moved elsewhere is still refused (the case above is only a commit that is in it already).
+    const second = await hostWorktree(s, 'ses_second');
+    await writeFile(join(second.dir, 'README.md'), '# demo, by the item\n');
+    const other = await s.manager.requestMerge({ worktreeId: second.id }, s.principal(s.host.userId));
+    await hiddenGit(s, 'update-ref', 'refs/heads/main', `${request.commit}^`);
+    expect(await settleError(s.host.conn.request('worktree.merge.approve', { requestId: other.id }))).toMatchObject({ reason: 'hidden-repo-changed' });
+  });
+
+  it('a .gitignore of the folder that un-ignores host-private names lets none of them into the history or a checkout', async () => {
+    const s = await hiddenStack({
+      files: { ...FILES, '.gitignore': '.*\n!.gitignore\n!.envrc\n!CLAUDE.local.md\n', '.envrc': 'export DEPLOY_TOKEN=host-secret\n', 'CLAUDE.local.md': 'host memory\n' },
+    });
+    const worktree = await hostWorktree(s);
+    // (0.6.0's review: the negations take precedence over the exclude file, and `git add -A` took them again)
+    const files = await hiddenFiles(s);
+    expect(files).toContain('.gitignore');
+    expect(files).not.toContain('.envrc');
+    expect(files).not.toContain('CLAUDE.local.md');
+    expect(await exists(join(worktree.dir, '.envrc'))).toBe(false);
+    expect(await exists(join(worktree.dir, 'CLAUDE.local.md'))).toBe(false);
+    // The host's own files stay where they are.
+    expect(await readFile(join(share(s), '.envrc'), 'utf8')).toBe('export DEPLOY_TOKEN=host-secret\n');
   });
 
   it('a host-private file under a spelling no glob catches is left out by name', async () => {

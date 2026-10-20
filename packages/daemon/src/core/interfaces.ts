@@ -1963,8 +1963,8 @@ export interface ConversationService {
 
   /**
    * What §3 removes for a member who was kicked, left or changed role: their votes; the rules they added
-   * (AgentSessions.setRules by the system, which writes `conversation.rule.removed.member`); a mode they chose that is
-   * LOOSER than what the session would follow without it (AgentSessions.setMode to null by the system, which writes
+   * (AgentSessions.setRules by the system, which writes `conversation.rule.removed.member`); a mode they chose unless it
+   * is STRICTER than what the session would follow without it (AgentSessions.setMode to null by the system, which writes
    * `conversation.mode.reset`; a stricter choice stays, DESIGN 0.6.0 D12); their queued messages
    * (AgentSessions.cancelQueued); a kicked member's undelivered message stops its turn. Returns it for the
    * `session.handover` entry. Called by the core only.

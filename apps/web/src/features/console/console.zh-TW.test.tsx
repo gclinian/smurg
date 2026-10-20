@@ -203,7 +203,7 @@ describe('host console in zh-TW: what agents may do without asking', () => {
     fixture.inbox = [AGENTS_AUTO];
     renderConsole({ section: 'settings', fixture });
     const settings = (await screen.findByRole('heading', { level: 2, name: '設定' })).closest('section') as HTMLElement;
-    const select = (await within(settings).findByRole('combobox', { name: 'agent 不用問就能做的事' })) as HTMLSelectElement;
+    const select = (await within(settings).findByRole('combobox', { name: 'agent 不必先問就能做的事' })) as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['自動：檢查通過就執行', '執行指令前先問', '編輯和執行指令前都先問', '什麼都不問']);
     expect(await within(settings).findByText(/^從 smurg 0\.6\.0 起，agent 以自動模式執行/)).toBeTruthy();
     expect(within(settings).getByRole('button', { name: '知道了' })).toBeTruthy();

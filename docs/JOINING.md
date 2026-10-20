@@ -312,7 +312,8 @@ has time, the ones on screen first.
   strip opens "What this session may do without asking": "Workspace default (…)" or one of the modes
   ("Auto: runs what a check allows", "Asks before commands", "Asks before edits and commands"), never
   "Asks for nothing" (only the host lets a whole workspace ask for nothing; the top bar then says so for everyone). A new
-  session and a new topic get both in their dialog. On some plans a model is billed to usage credits:
+  session gets both in its dialog, a new topic its model (the mode of its items is chosen in the plan and the Start
+  dialog). On some plans a model is billed to usage credits:
   "On some plans this model is billed to usage credits, and Claude Code does not ask first here."
 - **Remember**: an agent works on the host's computer with the host's account and spends the host's Claude usage.
   Ask it only for what the host agreed to, and never paste a password or an API key into a conversation: every
@@ -585,8 +586,8 @@ after by the host, so a plan does not stop because you left. Questions you would
 next person in line or by the host.
 
 **What is removed with you**: your votes on questions that are still open, your messages that an agent has not read
-yet, the kinds of commands you always allowed, a permission mode you chose that is looser than what the session would
-follow, and a model you chose that may be billed to usage credits. Work items you started that have
+yet, the kinds of commands you always allowed, a permission mode you chose that is not stricter than what the session
+would follow, and a model you chose that may be billed to usage credits. Work items you started that have
 not begun yet do not start until someone starts them again.
 
 **What is not deleted**:

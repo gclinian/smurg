@@ -168,6 +168,13 @@ describe('tool views and results', () => {
     const bash = buildToolView('Bash', { command: 'pnpm test' }, { kind: 'none' });
     expect(buildToolResult({ view: bash, ok: true, text: 'out', structured: { stdout: '\u001b[32mok\u001b[0m', stderr: 'warn' }, relativePath: rel })).toEqual({ exitCode: 0, body: { kind: 'output', text: 'ok\nwarn', truncated: false } });
     expect(buildToolResult({ view: bash, ok: false, text: 'Exit code 2\nboom', structured: { stdout: '', stderr: 'boom' }, relativePath: rel })).toMatchObject({ exitCode: 2, body: { kind: 'output', text: 'boom' } });
+    // A command that did not run (auto mode's check refused it, a person or a rule denied it) has no "Exit code" in its
+    // text, and no code is made up for it: the page reads it as failed, never as "Ran … exit 1" (0.5.x made up 1).
+    for (const refusal of ['Permission for this action was denied by the Claude Code auto mode classifier.', 'Permission to use Bash has been denied.', 'The user doesn\'t want to proceed with this tool use.']) {
+      const refused = buildToolResult({ view: bash, ok: false, text: refusal, structured: undefined, relativePath: rel });
+      expect(refused).not.toHaveProperty('exitCode');
+      expect(refused.body).toMatchObject({ kind: 'output', text: refusal });
+    }
     const long = buildToolResult({ view: bash, ok: true, text: '', structured: { stdout: 'a'.repeat(200_000), stderr: '' }, relativePath: rel });
     expect(long.body?.truncated).toBe(true);
     expect(Buffer.byteLength(long.body?.text ?? '')).toBeLessThanOrEqual(64 * 1024 + 16 * 1024 + 8);
@@ -282,7 +289,9 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(gateToolsOf(profile)).toEqual(DISCUSSION_TOOLS);
   });
 
-  it('a work item: acceptEdits in its worktree, the execution tools, its topic\'s spec and plan denied, the remembered rules allowed (only rememberable forms); ask-all is the default mode', () => {
+  // The title said "ask-all is the default mode" until 0.6.0, which made auto the default (DESIGN 0.6.0 D3): what the
+  // test checks is the mode that asks before commands, and that asking before edits too starts in Claude Code's default.
+  it('a work item in the mode that asks before commands: acceptEdits in its worktree, the execution tools, its topic\'s spec and plan denied, the remembered rules allowed (only rememberable forms); asking before edits too starts it in Claude Code\'s default mode', () => {
     const root = worktreeRoot('wt_1');
     const rules = [{ tool: 'Bash', pattern: 'pnpm test *' }, { tool: 'Bash', pattern: 'pnpm test *' }, { tool: 'Bash', pattern: 'curl *' }, { tool: 'WebFetch', pattern: 'domain:example.com' }, { tool: 'Bash', pattern: 'sh -c *' }];
     const profile = buildProfile({ ...base, purpose: 'item', mode: 'ask-commands', root, rootRealPath: '/w/wt_1', topicSlug: 'checkout', rules });

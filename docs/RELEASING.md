@@ -298,26 +298,35 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    by the deploy: the page of the release and the hosts of the version before connect to each other. If the workflow
    fails and you tag a fixed commit instead, redeploy from that one.
 
-   **(b) A release that raises it (0.6.0 raises it to 5): tag first, deploy and publish at once after the build.**
-   Do not deploy now. Go on with steps 4 to 6 (the tag, the workflow's builds and its GitHub release, `gh release
-   view`); then, from a clean checkout of the TAGGED commit, deploy the relay with the previous published version's
-   web build kept (for 0.6.0: v0.5.2's, made from its tag as §2 says) and check it, and publish (step 7) right after,
-   without a pause:
+   **(b) A release that raises it (0.6.0 raises it to 5): tag first; upload, deploy and switch `latest/` at once
+   after the build.** Do not deploy now. Go on with steps 4 to 6 (the tag, the workflow's builds and its GitHub
+   release, `gh release view`); then, from a clean checkout of the TAGGED commit (with the gh and wrangler logins of
+   step 7), check and upload the release with `latest/` left where it is, deploy the relay with the previous
+   published version's web build kept (for 0.6.0: v0.5.2's, made from its tag as §2 says) and check it, and switch
+   `latest/` right after, without a pause:
 
    ```sh
    git checkout vX.Y.Z && git status --short                                    # prints nothing
+   scripts/publish-downloads.sh --version X.Y.Z --from-release --dry-run        # step 7's checks and the logins; uploads nothing
+   scripts/publish-downloads.sh --version X.Y.Z --from-release --no-latest      # uploads vX.Y.Z/; latest/ stays: nobody updates to it yet
    scripts/deploy-relay.sh --keep-assets <assets folder of the previous published web build>   # §2; ends with "Done: …"
    scripts/deploy-relay.sh --check https://app.smurg.ai                         # "All checks passed."
-   scripts/publish-downloads.sh --version X.Y.Z --from-release                  # step 7, at once
+   scripts/publish-downloads.sh --set-latest X.Y.Z                              # at once: `smurg update` now finds X.Y.Z
+   scripts/publish-downloads.sh --check --version X.Y.Z                         # as people get it; "all checks passed"
    ```
 
    Why: from the moment the new page is live, a browser is refused by every host that still runs the older protocol
-   until that host updates, and a host can update only once the release is on `downloads.smurg.ai`. Tagging first
-   keeps that time to the minutes of the upload instead of the whole build; and no host of the new version exists
-   before step 7, so nobody meets the older page. **Never deploy before the release's executables have passed step
-   6** (a failed workflow then cuts nobody off: fix, delete the tag and tag again, below), and never publish before
-   `--check` says "All checks passed." for this build. The release notes say that hosts update before they share
-   again (`smurg update`); 0.6.0's last changelog item says so.
+   until that host updates, and a host can update only once `latest/` names the release (until then `smurg update`
+   says it is the latest version). The upload of step 7 (four executables, each read back) takes minutes, and a
+   problem with a login or the workflow's files would have to be solved while hosts are cut off: so the release is
+   checked and uploaded with `--no-latest` BEFORE the deploy (nobody updates to it, and the page they use is still
+   the old one), and only switching `latest/` (seconds, plus up to five minutes while the edge still serves the
+   previous `latest/`, step 7) is left for after it. Tagging first keeps the build out of that time too; and no host
+   of the new version exists before `latest/` moves, so nobody meets the older page. **Never deploy before the
+   release's executables have passed step 6 and are uploaded** (a failed workflow then cuts nobody off: fix, delete
+   the tag and tag again, below), and never switch `latest/` before `--check` says "All checks passed." for this
+   build. The release notes say that hosts update before they share again (`smurg update`); 0.6.0's last changelog
+   item says so.
 
    **0.5.0 took the other order** (protocol 3 to 4, no compatibility code on either side, ARCHITECTURE §4.3): it
    deployed from the release commit first, waited for `--check`, then tagged, built and published without a pause
@@ -348,8 +357,8 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
    jobs" (it refuses to continue while any release for the tag exists). If the notices differ (another Node.js
    release came out during the run), re-run all jobs. The job summary prints the commands of step 7.
 6. `gh release view vX.Y.Z --repo gclinian/smurg`: the notes and two files. The executables are not on
-   `downloads.smurg.ai` yet; do step 7 right away (a release that raises the protocol version deploys the relay
-   first, step 3 (b), and then does step 7 without a pause).
+   `downloads.smurg.ai` yet; do step 7 right away (a release that raises the protocol version does step 7 as step 3
+   (b) prints it: the upload with `--no-latest`, the relay deploy, then `--set-latest` without a pause).
 7. **Publish.** From a checkout with the wrangler login (§1.2):
 
    ```sh
@@ -414,9 +423,11 @@ Needed: push access (the tag), wrangler logged in to the Cloudflare account (§1
 If the workflow fails before the GitHub release is made, fix the cause, delete the tag
 (`git push --delete origin vX.Y.Z && git tag -d vX.Y.Z`) and tag the fixed commit again. If the GitHub release exists
 but nothing was uploaded to `downloads.smurg.ai` (step 7 never ran), delete the release and the tag, and do the same.
-After step 7, never: cut X.Y.(Z+1). In step 3 (b), when step 7 cannot finish after the deploy, the hosts of the older
-protocol stay cut off from browsers until it does: finish it (`--resume`, step 7), or roll the relay back to the
-deploy of the latest published release (§7) while you find the cause.
+After step 7, never: cut X.Y.(Z+1). In step 3 (b), the upload with `--no-latest` comes before the deploy: when it
+stops, finish it (`--resume --no-latest`, step 7) before you deploy; nobody is cut off meanwhile. When
+`--set-latest X.Y.Z` cannot finish after the deploy, the hosts of the older protocol stay cut off from browsers until
+it does: run it again, or roll the relay back to the deploy of the latest published release (§7) while you find the
+cause.
 
 ### 4.1 Deploying the product page smurg.ai
 
@@ -661,8 +672,13 @@ the suite (ARCHITECTURE §11 D-23 has the list with the reasons):
    number (`scripts/build-sea.sh --version 0.0.1 --out "$T/old/smurg" --no-smoke`) and run its `update` with the
    same variable: it refuses while that executable is sharing, leaves the executable alone when the download does
    not match its checksum (change one byte of the served file to see it), and otherwise ends with `Updated smurg:
-   0.0.1 -> X.Y.Z`. Never run a release's `install.sh` without `--base-url` or `SMURG_INSTALL_BASE_URL`: its
-   built-in location is the real downloads site.
+   0.0.1 -> X.Y.Z`. That is the new updater; every host updates with the OLD one: copy each published executable of
+   step 5 (downloaded and checked there) to `$T/old-<version>/smurg` and run its own `update` with the same variable,
+   each in a scratch `HOME` and `SMURG_HOME` of its own: each must end with `Updated smurg: <version> -> X.Y.Z`, and
+   `$T/old-<version>/smurg --version` must then say `smurg X.Y.Z (protocol v…)`. (A change to the build marker, the
+   `--version` line or `SHA256SUMS` that an older updater refuses would otherwise show only after `latest/` moved,
+   when those hosts can recover only with the install line.) Never run a release's `install.sh` without `--base-url`
+   or `SMURG_INSTALL_BASE_URL`: its built-in location is the real downloads site.
 5. **The upgrade from every published version that `smurg update` can start from** (since 0.5.1; for 0.5.1: 0.4.0
    and 0.5.0; for 0.6.0: 0.4.0, 0.5.0, 0.5.1 and 0.5.2), with the real executables. Download each one from
    `https://downloads.smurg.ai/v<version>/` into a scratch folder and check it against that version's `SHA256SUMS`
@@ -680,11 +696,14 @@ the suite (ARCHITECTURE §11 D-23 has the list with the reasons):
    shares a scratch folder, prints its key fingerprint and stops; the new one shares the same folder and must show
    the same workspace code and the same fingerprint, list the old invite link, and, when the old files needed a step
    (for 0.6.0 every published version's do: its workspaces switch to auto mode), print the one-line notice naming
-   the smurg that last wrote the folder (and, since 0.6.0, the line about auto mode), keep the old `state.json`
-   beside the new one byte for byte (`state.json.before-upgrade-from-<version>`) and write the stamp (shapes 2 since
+   the smurg that last wrote the folder (and, since 0.6.0, the line about auto mode), keep the old files beside the
+   new ones byte for byte, named after the step that ran, not after the old version
+   (`state.json.before-upgrade-from-0.4.0` for 0.4.0; `state.json.before-upgrade-from-0.5.0` and
+   `agent-sessions.json.before-upgrade-from-0.5.0` for 0.5.0, 0.5.1 and 0.5.2) and write the stamp (shapes 2 since
    0.6.0); then, since 0.6.0, the OLD executable shares the folder once more and refuses what the new one wrote with
-   its own words (0.5.1 and later: "Run smurg update. Nothing was changed."), the workspace's state folder byte for
-   byte as it was; a state file that other users can read is refused with the one `chmod`, never "move". A run that
+   its own words (0.5.1 and 0.5.2: "Nothing was changed." and "Run smurg update, then smurg host again."; 0.4.0 and
+   0.5.0 tell the host to move the folder away, advice not to follow, `docs/HOSTING.md` §9.1), the workspace's state
+   folder byte for byte as it was; a state file that other users can read is refused with the one `chmod`, never "move". A run that
    tested ends with one passed test per old executable (for 0.6.0 `Tests  4 passed (4)`) and nothing skipped.
    Without both variables the test is SKIPPED: one line on stderr, whatever the reporter,
    `[sea-upgrade] SKIPPED: the upgrade from the published executables was NOT tested.` (it goes on to name the two

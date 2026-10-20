@@ -291,13 +291,14 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
                 <IconAgent size={14} />
                 <div className="topics-agent">
                   <div className="topics-agent__pickers">
-                    <ModelPicker label={t('start.agent.model')} value={agent.model} disabled={busy} onChange={(model) => setAgentDraft({ ...agent, model })} />
+                    {/* Only sent with Start: a member's dialog for items that run directly has none, so nothing to choose. */}
+                    <ModelPicker label={t('start.agent.model')} value={agent.model} disabled={busy || directHostOnly} onChange={(model) => setAgentDraft({ ...agent, model })} />
                     <ModePicker
                       label={t('start.agent.mode')}
                       value={agent.permissionMode}
                       follows="workspace"
                       followed={workspaceMode}
-                      disabled={busy}
+                      disabled={busy || directHostOnly}
                       onChange={(permissionMode) => setAgentDraft({ ...agent, permissionMode })}
                     />
                   </div>
