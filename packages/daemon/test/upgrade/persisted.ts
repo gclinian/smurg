@@ -22,8 +22,9 @@ import type { PublishedVersion } from './fixture.ts';
 type Schema = z.ZodType;
 
 /**
- * The `since` of a kind no published smurg writes yet: shapes 2 is 0.6.0's, the version being built (DESIGN 0.6.0 D6).
- * When 0.6.0 is published and its fixture made, FIRST_OF_SHAPES says `2: '0.6.0'` (docs/RELEASING.md §4.5).
+ * The `since` of a kind no published smurg writes yet: the kept copy of a step that a version being built adds (0.7.0's
+ * shapes 3, DESIGN 0.7.0 D4). When that version is published and its fixture made, FIRST_OF_SHAPES names it
+ * (docs/RELEASING.md §4.5), as `2: '0.6.0'` does since 0.6.0's fixture is in the tree.
  */
 export const NOT_PUBLISHED = 'not published yet';
 
@@ -35,8 +36,7 @@ export function documentsOfThisSmurg(): readonly DocumentDeclaration[] {
 /**
  * The first smurg that writes TODAY's shape of each document with a step (DESIGN 0.6.0 D6): from that version on a
  * file of the document is today's schema; before it, the shape of one of its steps. A document that gains a step in a
- * release is named here with that release's version in the same change (`state`, `agent-sessions`: 0.6.0, which is
- * being built and not published).
+ * release is named here with that release's version in the same change (`state`, `agent-sessions`: 0.6.0).
  */
 const TODAY_SINCE: Readonly<Record<string, string>> = { state: '0.6.0', 'agent-sessions': '0.6.0', suggestions: '0.5.0' };
 
@@ -132,7 +132,7 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * so the first that can leave its kept copy. A step of a number no published smurg has yet needs its line here when
  * that smurg is published (until then its kept copies are of no published version).
  */
-const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion | typeof NOT_PUBLISHED>> = { 1: '0.5.1', 2: NOT_PUBLISHED };
+const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion | typeof NOT_PUBLISHED>> = { 1: '0.5.1', 2: '0.6.0' };
 const firstOfShapes = (shapes: number, what: string): PublishedVersion | typeof NOT_PUBLISHED => {
   const version = FIRST_OF_SHAPES[shapes];
   if (version === undefined) throw new Error(`no published smurg has shapes ${shapes} yet: say in test/upgrade/persisted.ts (FIRST_OF_SHAPES) since when ${what} is written`);

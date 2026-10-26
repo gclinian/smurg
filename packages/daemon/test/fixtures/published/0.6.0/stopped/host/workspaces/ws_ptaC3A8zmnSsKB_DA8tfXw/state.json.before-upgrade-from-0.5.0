@@ -1,0 +1,1149 @@
+{
+  "version": 1,
+  "workspaceId": "ws_ptaC3A8zmnSsKB_DA8tfXw",
+  "members": [
+    {
+      "userId": "dev:host",
+      "displayName": "Host",
+      "role": "host",
+      "color": "#4a6fa8",
+      "joinedAt": 1792485725420,
+      "lastSeenAt": 1792486213929,
+      "status": "active"
+    },
+    {
+      "userId": "dev:mei",
+      "displayName": "Mei",
+      "role": "agent",
+      "color": "#4363d8",
+      "joinedAt": 1792485728258,
+      "lastSeenAt": 1792486213931,
+      "status": "active"
+    },
+    {
+      "userId": "dev:amy",
+      "displayName": "Amy",
+      "role": "editor",
+      "color": "#b8860b",
+      "joinedAt": 1792485728315,
+      "lastSeenAt": 1792486213941,
+      "status": "active"
+    },
+    {
+      "userId": "dev:leo",
+      "displayName": "Leo",
+      "role": "viewer",
+      "color": "#d2691e",
+      "joinedAt": 1792485728358,
+      "lastSeenAt": 1792486213930,
+      "status": "active"
+    },
+    {
+      "userId": "dev:noa",
+      "displayName": "Noa",
+      "role": "agent",
+      "color": "#2e8b3e",
+      "joinedAt": 1792485731701,
+      "lastSeenAt": 1792486213938,
+      "status": "active"
+    },
+    {
+      "userId": "dev:bob",
+      "displayName": "Bob",
+      "role": "viewer",
+      "color": "#008080",
+      "joinedAt": 1792485740272,
+      "lastSeenAt": 1792486213946,
+      "status": "active"
+    },
+    {
+      "userId": "dev:kate",
+      "displayName": "Kate",
+      "role": "agent",
+      "color": "#0f9d9a",
+      "joinedAt": 1792485740319,
+      "lastSeenAt": 1792486213941,
+      "status": "active"
+    },
+    {
+      "userId": "dev:dave",
+      "displayName": "Dave",
+      "role": "agent",
+      "color": "#9a6324",
+      "joinedAt": 1792485740360,
+      "lastSeenAt": 1792485767053,
+      "status": "active"
+    },
+    {
+      "userId": "dev:ruth",
+      "displayName": "Ruth",
+      "role": "agent",
+      "color": "#e6194b",
+      "joinedAt": 1792485740404,
+      "lastSeenAt": 1792486213936,
+      "status": "active"
+    },
+    {
+      "userId": "dev:pete",
+      "displayName": "Pete",
+      "role": "agent",
+      "color": "#d45087",
+      "joinedAt": 1792485740451,
+      "lastSeenAt": 1792485767405,
+      "status": "kicked",
+      "kickedAt": 1792485767404
+    },
+    {
+      "userId": "dev:quinn",
+      "displayName": "Quinn",
+      "role": "editor",
+      "color": "#a03cc8",
+      "joinedAt": 1792485740495,
+      "lastSeenAt": 1792486213933,
+      "status": "active"
+    },
+    {
+      "userId": "dev:erin",
+      "displayName": "Erin",
+      "role": "editor",
+      "color": "#f032e6",
+      "joinedAt": 1792485740539,
+      "lastSeenAt": 1792485767966,
+      "status": "kicked",
+      "kickedAt": 1792485767966
+    },
+    {
+      "userId": "dev:olga",
+      "displayName": "Olga",
+      "role": "viewer",
+      "color": "#4a6fa8",
+      "joinedAt": 1792485740582,
+      "lastSeenAt": 1792486213935,
+      "status": "active"
+    },
+    {
+      "userId": "dev:gina",
+      "displayName": "Gina",
+      "role": "editor",
+      "color": "#d45087",
+      "joinedAt": 1792485740667,
+      "lastSeenAt": 1792486213944,
+      "status": "active"
+    },
+    {
+      "userId": "dev:frank",
+      "displayName": "Frank",
+      "role": "editor",
+      "color": "#2e8b3e",
+      "joinedAt": 1792485746846,
+      "lastSeenAt": 1792486213942,
+      "status": "active"
+    },
+    {
+      "userId": "dev:sam",
+      "displayName": "Sam",
+      "role": "agent",
+      "color": "#9a6324",
+      "joinedAt": 1792485791427,
+      "lastSeenAt": 1792485793362,
+      "status": "kicked",
+      "kickedAt": 1792485793361
+    },
+    {
+      "userId": "github:12345",
+      "displayName": "The Octocat",
+      "avatarUrl": "https://avatars.example/u/12345",
+      "role": "agent",
+      "color": "#d45087",
+      "joinedAt": 1792485818225,
+      "lastSeenAt": 1792485818271,
+      "status": "active"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "Z6qxu65TnkT8iO4zVGaORg",
+      "userId": "dev:host",
+      "publicKeyHex": "bc5903a77e842370121d3705f949bba934647e4f6e07d6e1db2d47a69e6b385e",
+      "name": "host browser",
+      "kind": "web",
+      "addedAt": 1792485728185,
+      "lastSeenAt": 1792486213929,
+      "revoked": false,
+      "inviteId": "inv_TyN4V4J0VKYD5sfTIUqShw"
+    },
+    {
+      "deviceId": "06b-sX4ZaChHmTs4X2TJjg",
+      "userId": "dev:mei",
+      "publicKeyHex": "5fabe778710119242af6b502e826649f855a575b89021efff741312d6fdf6913",
+      "name": "mei browser",
+      "kind": "web",
+      "addedAt": 1792485728258,
+      "lastSeenAt": 1792486213931,
+      "revoked": false,
+      "inviteId": "inv_X7_n4KDeQkTwdMtIKy_-eg"
+    },
+    {
+      "deviceId": "X0zww3p66rkzp_bAuYqdBA",
+      "userId": "dev:amy",
+      "publicKeyHex": "5ca80f9646b06e2c503d454ddfccd2cb2057a6668b309339cd745c5074907246",
+      "name": "amy browser",
+      "kind": "web",
+      "addedAt": 1792485728315,
+      "lastSeenAt": 1792486213930,
+      "revoked": false,
+      "inviteId": "inv_fNnOLwlAzv-N9Vd6IN-Flg"
+    },
+    {
+      "deviceId": "G69Wp4ZjCryEZYZdNvq3FQ",
+      "userId": "dev:leo",
+      "publicKeyHex": "c686b63b1a5c867b41eedba01cf5cc7050ee0ec6de4aad9e58eaa3ed811ca00f",
+      "name": "leo browser",
+      "kind": "web",
+      "addedAt": 1792485728358,
+      "lastSeenAt": 1792486213930,
+      "revoked": false,
+      "inviteId": "inv_TPatoP127WACXlTX5N3kxA"
+    },
+    {
+      "deviceId": "cXjrI78GHtEJkOd69l3D1A",
+      "userId": "dev:noa",
+      "publicKeyHex": "54f1d989a2b43a3b08b8cc566adb0639898c0c125fee467ff894b790119a360f",
+      "name": "noa browser",
+      "kind": "web",
+      "addedAt": 1792485731701,
+      "lastSeenAt": 1792486213938,
+      "revoked": false,
+      "inviteId": "inv_5M1EB-VfbkvBmy3ZkU0fag"
+    },
+    {
+      "deviceId": "cqWHtZwTB-mK4BeNeRWQRQ",
+      "userId": "dev:bob",
+      "publicKeyHex": "513256a3515b90f98b11b8863eac0fce7d804917dac0dcbf3c82f64204022d0e",
+      "name": "bob browser",
+      "kind": "web",
+      "addedAt": 1792485740272,
+      "lastSeenAt": 1792486213946,
+      "revoked": false,
+      "inviteId": "inv_GzBNwdPVi3uVom1Od628Bw"
+    },
+    {
+      "deviceId": "ilxv_wvxyeIFYDDFQ8wCBQ",
+      "userId": "dev:kate",
+      "publicKeyHex": "a77d2d5e933d55d1a0eefa9a51f53fbb34ac5b98f1ce016498568026722a9044",
+      "name": "kate browser",
+      "kind": "web",
+      "addedAt": 1792485740319,
+      "lastSeenAt": 1792486213941,
+      "revoked": false,
+      "inviteId": "inv_uXzHWILTJL1hqbuqmEmvDw"
+    },
+    {
+      "deviceId": "8TxAzdY2d0EZtAtsKKrqQw",
+      "userId": "dev:dave",
+      "publicKeyHex": "6bd6c9024a9c30519d99b3b8411fcaca76513dcaabd943fcf746e26ddc0ff04b",
+      "name": "dave browser",
+      "kind": "web",
+      "addedAt": 1792485740360,
+      "lastSeenAt": 1792485767053,
+      "revoked": false,
+      "inviteId": "inv_15ytZ3UIFjXiF4wqdcqtvA"
+    },
+    {
+      "deviceId": "lPr8XS447eyPdNdGK5tcgQ",
+      "userId": "dev:ruth",
+      "publicKeyHex": "323726c2b1a7d75a2c908c3d918af31d0aa15d47bf8225b1d07c76fb7ec4ac33",
+      "name": "ruth browser",
+      "kind": "web",
+      "addedAt": 1792485740404,
+      "lastSeenAt": 1792486213936,
+      "revoked": false,
+      "inviteId": "inv_y4W8QAjtPbbg23W9tTcT1g"
+    },
+    {
+      "deviceId": "JD0sZv1TRgyX1Exs4KfXag",
+      "userId": "dev:pete",
+      "publicKeyHex": "efd12563ed8078e24945c370891621551ffea6629141febcf1f906284e2f794d",
+      "name": "pete browser",
+      "kind": "web",
+      "addedAt": 1792485740451,
+      "lastSeenAt": 1792485767405,
+      "revoked": true,
+      "revokedAt": 1792485767404,
+      "inviteId": "inv_lxVQtuJmnMnWTZPuogbVlw"
+    },
+    {
+      "deviceId": "kUUZv4ktL6vrKshoAdrGjQ",
+      "userId": "dev:quinn",
+      "publicKeyHex": "b016a3d3f8c84fdfee1edd73155133ef3524d3f717bf368531e74ae8906e4313",
+      "name": "quinn browser",
+      "kind": "web",
+      "addedAt": 1792485740495,
+      "lastSeenAt": 1792486213933,
+      "revoked": false,
+      "inviteId": "inv_lxVQtuJmnMnWTZPuogbVlw"
+    },
+    {
+      "deviceId": "IhUPWSpAV3yA6e5ZM_mU0w",
+      "userId": "dev:erin",
+      "publicKeyHex": "49701f4d9f7c0c1b2d89529426cd6e3728a02401f9adf72097a91b2ba36de565",
+      "name": "erin browser",
+      "kind": "web",
+      "addedAt": 1792485740539,
+      "lastSeenAt": 1792485767966,
+      "revoked": true,
+      "revokedAt": 1792485767966,
+      "inviteId": "inv_2qqOBpkJASN3vP6G-TjxaQ"
+    },
+    {
+      "deviceId": "DEXUHmkLF43jCss8Je404w",
+      "userId": "dev:olga",
+      "publicKeyHex": "46db0d953e6d736c74746a12b8d17f7875779fd97e874616a931566ea159e74d",
+      "name": "olga browser",
+      "kind": "web",
+      "addedAt": 1792485740582,
+      "lastSeenAt": 1792486213935,
+      "revoked": false,
+      "inviteId": "inv_2qqOBpkJASN3vP6G-TjxaQ"
+    },
+    {
+      "deviceId": "Ri-ifalIvpIjiqnGIdO81w",
+      "userId": "dev:frank",
+      "publicKeyHex": "ae2994b0947c8f3f3d43ef7ddc1e82070c8e9b3e5653d33fa7c3b2c8ff6e033b",
+      "name": "frank browser",
+      "kind": "web",
+      "addedAt": 1792485740629,
+      "lastSeenAt": 1792485746779,
+      "revoked": true,
+      "revokedAt": 1792485746778,
+      "inviteId": "inv_2qqOBpkJASN3vP6G-TjxaQ"
+    },
+    {
+      "deviceId": "GFxsPZPcOfYQmnGVyJIzyg",
+      "userId": "dev:gina",
+      "publicKeyHex": "07028058b595ff4dfa5deb4e78894021720d13b7b9eaf2eedf15c373e708e433",
+      "name": "gina browser",
+      "kind": "web",
+      "addedAt": 1792485740667,
+      "lastSeenAt": 1792486213944,
+      "revoked": false,
+      "inviteId": "inv_a0UicBreZt_BMW9Exr0Q7A"
+    },
+    {
+      "deviceId": "UMunZUixLUuIUqX_Hz5MBg",
+      "userId": "dev:amy",
+      "publicKeyHex": "ad679b4de9c7b67e655b62c9ff755cec7d72382b84c18a75fb2c8e7f37de4402",
+      "name": "amy-2 browser",
+      "kind": "web",
+      "addedAt": 1792485740703,
+      "lastSeenAt": 1792486213941,
+      "revoked": false,
+      "inviteId": "inv_7CR7fsqo9EcWZV8fOg9ErQ"
+    },
+    {
+      "deviceId": "Vmbd7jNfe2VIQFAUz0UX9Q",
+      "userId": "dev:frank",
+      "publicKeyHex": "4b2a0069c0f1ce837b8740bd1f0c496cceaea7e0a2102ed23c4d162ee6793e1d",
+      "name": "frank-2 browser",
+      "kind": "web",
+      "addedAt": 1792485746846,
+      "lastSeenAt": 1792486213942,
+      "revoked": false,
+      "inviteId": "inv_szMaTCFHwo4m6ELPKZKsUQ"
+    },
+    {
+      "deviceId": "QV5H_N_jFkmLrQ_16DZ8OA",
+      "userId": "dev:sam",
+      "publicKeyHex": "4f2a8b27f85038ab1a5bb094db5c839b127a45764217e8563b8e91a590d88f13",
+      "name": "sam browser",
+      "kind": "web",
+      "addedAt": 1792485791427,
+      "lastSeenAt": 1792485793362,
+      "revoked": true,
+      "revokedAt": 1792485793361,
+      "inviteId": "inv_9TjXHo_wZ7QHDybfwVwMpw"
+    },
+    {
+      "deviceId": "Kq0Tg_vgGg88ji-2Q8uZqw",
+      "userId": "github:12345",
+      "publicKeyHex": "5bd03daed172e42cbc1c776ccc15a04687e604acfb698da5a6756d4735a27e28",
+      "name": "smurg CLI (fixture-host)",
+      "kind": "cli",
+      "addedAt": 1792485818225,
+      "lastSeenAt": 1792485818271,
+      "revoked": false,
+      "inviteId": "inv_zEcHbnQmMQc21Azo0c86MA"
+    }
+  ],
+  "invites": [
+    {
+      "id": "inv_vzAzUg1HrCy5IKN-UIV7mA",
+      "keyIdHex": "fb40d070810f7ad4fb17f919f0ede81b",
+      "pskHex": "b37387471a2ed96e3e0f3adb552a2d504780370c2ee4e29ab993eea2c271e07a",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1792485725671,
+      "createdBy": null,
+      "expiresAt": 1793090525671,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": true,
+      "host": true
+    },
+    {
+      "id": "inv_7CR7fsqo9EcWZV8fOg9ErQ",
+      "keyIdHex": "acc7746d18bb03f6ccdb0d98bcdc9107",
+      "pskHex": "129b63b126df14898760e13e04453e9be4b091f52a6e1cdc1e57443a601864b4",
+      "role": "editor",
+      "createdAt": 1792485725680,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090525680,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_TyN4V4J0VKYD5sfTIUqShw",
+      "keyIdHex": "2d2f31588e6f2fdd18b9b5f6aacd322f",
+      "pskHex": "59c81bca2c9b432569ea5390363e5703533d8daf4cbc600626352575ebb430af",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1792485728059,
+      "createdBy": null,
+      "expiresAt": 1793090528059,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": true
+    },
+    {
+      "id": "inv_xcD4kzjtbrEGUR_mIFLr_Q",
+      "keyIdHex": "7a17f89a05eab22336af7ea0e6bbd1df",
+      "pskHex": "161f2fbbc2f1f3f3ec7edd73a4a917fff52b2c7ddc454ffe45fef8347e397aaa",
+      "role": "editor",
+      "createdAt": 1792485728076,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090528076,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_X7_n4KDeQkTwdMtIKy_-eg",
+      "keyIdHex": "c2e5642ec0ffbd6def07e5b7722614b4",
+      "pskHex": "a303efe5b3609bd6c64b3e1473adee20094531680a217f54b9b8b4eb7cbab025",
+      "role": "agent",
+      "createdAt": 1792485728220,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090528220,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_fNnOLwlAzv-N9Vd6IN-Flg",
+      "keyIdHex": "307a42a486d0d27917cc1f675b45224d",
+      "pskHex": "1a9b27f2b5ab6cde5b2683aa8a7dcc8fe085f5da63b8c1ee1c38e4453013c026",
+      "role": "editor",
+      "createdAt": 1792485728279,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090528279,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_TPatoP127WACXlTX5N3kxA",
+      "keyIdHex": "9aa31f0a42885b39ab91da0289256b53",
+      "pskHex": "364d1d2f3cf9b5669b35becb9657d95fbf2a0bec6e484446c269a2ec4fef4f9f",
+      "role": "viewer",
+      "createdAt": 1792485728329,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090528329,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_5M1EB-VfbkvBmy3ZkU0fag",
+      "keyIdHex": "8821beb5addbcc49f7a86b0c7ccec81f",
+      "pskHex": "2a9776f9d75b200a7c4d2306a5dd6cd2aba198dc8de0fcb1ffc9b73a086e90df",
+      "role": "agent",
+      "createdAt": 1792485731672,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090531672,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_-oU4By4HA-5YqP9SCXMRRw",
+      "keyIdHex": "3f3d5abd09d1e06bac0fe0f794a384c8",
+      "pskHex": "9548eba272afeef2eb037509a37a99152873343a860dfb2fcd43822ac53addfb",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1792485733363,
+      "createdBy": null,
+      "expiresAt": 1793090533363,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": true,
+      "host": true
+    },
+    {
+      "id": "inv_iZCMBLvGYIuGTLlnecSnPQ",
+      "keyIdHex": "4c53a53cf9dc9332a0c07bbbe3d405e6",
+      "pskHex": "d0f529c7694ad83be9f5adde96e3cf221f7007211e828952e67013db10b0e59a",
+      "role": "editor",
+      "createdAt": 1792485733382,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090533382,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_XG1dTnQBkitzNfNxvvoUsg",
+      "keyIdHex": "7c55c73aa2bc5fe456907b20e26d419c",
+      "pskHex": "103ff5b01f8f1722e73b522d7354cf6e28e8dc89aded4009cee7580c643fbbf0",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1792485739184,
+      "createdBy": null,
+      "expiresAt": 1793090539184,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": true,
+      "host": true
+    },
+    {
+      "id": "inv_jzirbCoHe5bEvaL4UoLr6w",
+      "keyIdHex": "7a4788617f3dcfba9771e6e38ca1ae71",
+      "pskHex": "b6646c96b7899ecbe150bb5f545bfdebc50d9114c40d16edc08c8d75a0b765a6",
+      "role": "viewer",
+      "createdAt": 1792485739206,
+      "createdBy": "dev:host",
+      "expiresAt": 1795077739206,
+      "maxUses": 20,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_GzBNwdPVi3uVom1Od628Bw",
+      "keyIdHex": "684f445265dc0718d59fa5da2443e8df",
+      "pskHex": "d10d84597c3dabb7618da73fe6444adb6b8294f943c2abf03451739e00f9173d",
+      "role": "viewer",
+      "createdAt": 1792485740113,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540113,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_uXzHWILTJL1hqbuqmEmvDw",
+      "keyIdHex": "a982aa78d4f14be2e5073ca66d25e28e",
+      "pskHex": "9242650b9b81904f788ed7f0a551a7d7ac92b32c64eedf87129f7e6cf943a67a",
+      "role": "agent",
+      "createdAt": 1792485740124,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540124,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_15ytZ3UIFjXiF4wqdcqtvA",
+      "keyIdHex": "1a81e8b95b54400b0be2410bb0a61b49",
+      "pskHex": "7ff8a606743e75e13c9fdc483aef6e1be8cbc4e239c378d72a5aec6e8b4d04b2",
+      "role": "agent",
+      "createdAt": 1792485740131,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540131,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_y4W8QAjtPbbg23W9tTcT1g",
+      "keyIdHex": "bcb3092579a3827af2bc4bf840bebb82",
+      "pskHex": "3d3f54f30d15c22add656ae4dc6fa6fb1c6c01170e29d8135718bdd93ad198d0",
+      "role": "agent",
+      "createdAt": 1792485740139,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540139,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_lxVQtuJmnMnWTZPuogbVlw",
+      "keyIdHex": "4777a3deb73c123213440e291e2540bf",
+      "pskHex": "d12c7d61eae521152d494ed33fefd2e29d1872ed9a014725a5a5ecdd892b1ddc",
+      "role": "agent",
+      "createdAt": 1792485740149,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540149,
+      "maxUses": 3,
+      "uses": 2,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_2qqOBpkJASN3vP6G-TjxaQ",
+      "keyIdHex": "346315731fb96a982f6924005ec78efc",
+      "pskHex": "8cd2436d7d1562be68ee495c2eaf1f41b6b46c851abc7396daf14764867f67e1",
+      "role": "editor",
+      "createdAt": 1792485740156,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540156,
+      "maxUses": 5,
+      "uses": 3,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_a0UicBreZt_BMW9Exr0Q7A",
+      "keyIdHex": "fe28f2b35816a57013f8692667c0bfe5",
+      "pskHex": "26ee8fc4a5f348719b2330e68095334981db45a4cb16029974cdddf8167c1c83",
+      "role": "viewer",
+      "createdAt": 1792485740165,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540165,
+      "maxUses": 2,
+      "uses": 1,
+      "revoked": true,
+      "host": false
+    },
+    {
+      "id": "inv_16p41bFRELTERLhF7A84dw",
+      "keyIdHex": "ad3e9b02d56a8225c1ad32245f51b497",
+      "pskHex": "dc42f36356f228968d15a32c3eff111f0e868391780648ab7a50e6e1cb2edc15",
+      "role": "editor",
+      "createdAt": 1792485740174,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540174,
+      "maxUses": 3,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_cY0_JEhaz4IIUBmm6N0efw",
+      "keyIdHex": "7acaefc3c5c804d377b784e6e790e26a",
+      "pskHex": "303e216ba2cde22336972c1c032269a591280ad764bf1886187b1bba113a19b1",
+      "role": "viewer",
+      "createdAt": 1792485740183,
+      "createdBy": "dev:host",
+      "expiresAt": 1795077740183,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_03OnMmjJyYtGKYre3f2t2g",
+      "keyIdHex": "268a5c31a49710c109eb3f33abac26ae",
+      "pskHex": "19df4c5cbab14e78c879456b2d0eaaf14f5b3608c9a2b5d2bf6e95a1d4e748e5",
+      "role": "agent",
+      "createdAt": 1792485740193,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540193,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_OMUMvq-dMcK81pK-oPSPUw",
+      "keyIdHex": "03abde7f27a517cba275bc7cbea76655",
+      "pskHex": "b779015d3932fc51cf2284f16c4cb19ffb3cae90b0b36c5927c92779efc64750",
+      "role": "editor",
+      "createdAt": 1792485740201,
+      "createdBy": "dev:host",
+      "expiresAt": 1792485746201,
+      "maxUses": 2,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_dFpOqfW_379uIlntGJkMLw",
+      "keyIdHex": "b096e101ea1119072beefde71ab63648",
+      "pskHex": "2b7cea94006abced6cca986bd1000c2b86e4480b10d0bd20f5691729dc6b1e2f",
+      "role": "editor",
+      "createdAt": 1792485740209,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540209,
+      "maxUses": 4,
+      "uses": 0,
+      "revoked": true,
+      "host": false
+    },
+    {
+      "id": "inv_MLFGvmHJ74iYqEuJYC3B3A",
+      "keyIdHex": "73312ab4f2e0bbd2c531ea1c1b1dda5c",
+      "pskHex": "2106cc101ed611f71960c83fce35b0f7aaae46d70dcdd6640cfa286629219c5a",
+      "role": "agent",
+      "createdAt": 1792485740218,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090540218,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_szMaTCFHwo4m6ELPKZKsUQ",
+      "keyIdHex": "e128921742c91ea00e7ae4b48abef682",
+      "pskHex": "dff7085bde86c3c26c5ffd17d834542492e1f6e50e9b02e56340415b84373433",
+      "role": "editor",
+      "createdAt": 1792485746810,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090546810,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_3e7l3f7iK-0NPFXefzSMyw",
+      "keyIdHex": "bef33a0441871e9b1966e33a05c10142",
+      "pskHex": "411bae7b567075735d010ffc6e0db0a5b3326676853a1f25e9d05aa4b4b35f40",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1792485788339,
+      "createdBy": null,
+      "expiresAt": 1793090588339,
+      "maxUses": 1,
+      "uses": 0,
+      "revoked": false,
+      "host": true
+    },
+    {
+      "id": "inv_zEcHbnQmMQc21Azo0c86MA",
+      "keyIdHex": "fe0aea6144aa676db1bd4fbe28899cf2",
+      "pskHex": "26893f34b27a166daf297ed694e716128384a0ac4a4a235975b5a3e87aa971f7",
+      "role": "agent",
+      "createdAt": 1792485788359,
+      "createdBy": "dev:host",
+      "expiresAt": 1792658588359,
+      "maxUses": 3,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_9TjXHo_wZ7QHDybfwVwMpw",
+      "keyIdHex": "bc1cfc58a2415062a42f260ea41c201b",
+      "pskHex": "03204d5f97e7491776083051282a6f4cd76fd469154004e37c741561aff9ebc7",
+      "role": "agent",
+      "createdAt": 1792485791341,
+      "createdBy": "dev:host",
+      "expiresAt": 1793090591341,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    }
+  ],
+  "settings": {
+    "humanLockIdleMs": 45000,
+    "agentLockTimeoutMs": 60000,
+    "uploadChunkSize": 1048576,
+    "sharedDirs": [
+      "data"
+    ],
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 3,
+    "maxLiveAgents": 2,
+    "escalateAfterMs": 60000,
+    "agentMcp": true
+  },
+  "worktreeRoots": [
+    {
+      "worktreeId": "wt_111675e54a86257dfa501718",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_111675e54a86257dfa501718",
+      "ownerUserId": "dev:ruth",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485750858
+    },
+    {
+      "worktreeId": "wt_208c189f4b09233d8aeace46",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_208c189f4b09233d8aeace46",
+      "ownerUserId": "dev:kate",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485751646
+    },
+    {
+      "worktreeId": "wt_23ffb85487b2d56162c8ed20",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_23ffb85487b2d56162c8ed20",
+      "ownerUserId": "dev:ruth",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485764525
+    },
+    {
+      "worktreeId": "wt_e1021ae206eae14c245b7adb",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_e1021ae206eae14c245b7adb",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485771075,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-model"
+      }
+    },
+    {
+      "worktreeId": "wt_2093e38929eab54afc212689",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_2093e38929eab54afc212689",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485771187,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-email"
+      }
+    },
+    {
+      "worktreeId": "wt_96eb9ddc35a45afd95fd2550",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_96eb9ddc35a45afd95fd2550",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485771335,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-admin"
+      }
+    },
+    {
+      "worktreeId": "wt_c35e079e73047f112b320ee6",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_c35e079e73047f112b320ee6",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485771536,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-print"
+      }
+    },
+    {
+      "worktreeId": "wt_d679bac14e43957e67650e31",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_d679bac14e43957e67650e31",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485771769,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-audit"
+      }
+    },
+    {
+      "worktreeId": "wt_03fafa0f9f7fc880ce3157ed",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_03fafa0f9f7fc880ce3157ed",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485772667,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-terms"
+      }
+    },
+    {
+      "worktreeId": "wt_79a42e25599b0492b909ca58",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_79a42e25599b0492b909ca58",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485772777,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-fonts"
+      }
+    },
+    {
+      "worktreeId": "wt_09359867bf0a469d26dfb3ab",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_09359867bf0a469d26dfb3ab",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485772926,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-merge"
+      }
+    },
+    {
+      "worktreeId": "wt_7046013aae19905b56492e4b",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_7046013aae19905b56492e4b",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485773138,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-ink"
+      }
+    },
+    {
+      "worktreeId": "wt_80bc8dba8303fb3c307950f1",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_80bc8dba8303fb3c307950f1",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485774620,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-faq"
+      }
+    },
+    {
+      "worktreeId": "wt_04798e9539fbda978dd46dda",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_04798e9539fbda978dd46dda",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485774884,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-logo"
+      }
+    },
+    {
+      "worktreeId": "wt_f9f341cf0be5343b2af16a14",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_f9f341cf0be5343b2af16a14",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485775194,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-banner"
+      }
+    },
+    {
+      "worktreeId": "wt_a61ca5f4fe67332b21a76168",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_a61ca5f4fe67332b21a76168",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485775561,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-vendor"
+      }
+    },
+    {
+      "worktreeId": "wt_6dc9ee5086b7f71b9a1ce992",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_6dc9ee5086b7f71b9a1ce992",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485779455,
+      "item": {
+        "topicId": "tp_Zpo4DJrg28mpUId0fLSExQ",
+        "topicSlug": "gift-cards",
+        "itemId": "card-page"
+      }
+    },
+    {
+      "worktreeId": "wt_cf253c731944f5c10efc0965",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_cf253c731944f5c10efc0965",
+      "ownerUserId": "dev:ruth",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485789481
+    },
+    {
+      "worktreeId": "wt_3ce3252a11f3b12cb458d703",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_3ce3252a11f3b12cb458d703",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485791191,
+      "item": {
+        "topicId": "tp_tVBd_On5-FCRnWIs-eoreQ",
+        "topicSlug": "late-shipping",
+        "itemId": "late-note"
+      }
+    },
+    {
+      "worktreeId": "wt_f0457964bbd7d7ba9f0e7c88",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_f0457964bbd7d7ba9f0e7c88",
+      "ownerUserId": "dev:sam",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485793069,
+      "item": {
+        "topicId": "tp_nSB_40qiv3tr_Ndm0bRKkQ",
+        "topicSlug": "tiny-things",
+        "itemId": "tiny-one"
+      }
+    },
+    {
+      "worktreeId": "wt_f87aabd6258190ebecb646f1",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_f87aabd6258190ebecb646f1",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485798097,
+      "item": {
+        "topicId": "tp_m_xWwJkrmusdUtBW4VtoLQ",
+        "topicSlug": "wishlist",
+        "itemId": "wish-list"
+      }
+    },
+    {
+      "worktreeId": "wt_e582d7b1182ed2d0128ff28c",
+      "realPath": "/__SMURG_FIXTURE__/b052/project/.smurg/worktrees/wt_e582d7b1182ed2d0128ff28c",
+      "ownerUserId": "dev:mei",
+      "sharedLinks": [
+        {
+          "path": "data",
+          "mainPath": "data",
+          "targetRealPath": "/__SMURG_FIXTURE__/b052/project/data"
+        }
+      ],
+      "registeredAt": 1792485798325,
+      "item": {
+        "topicId": "tp_m_xWwJkrmusdUtBW4VtoLQ",
+        "topicSlug": "wishlist",
+        "itemId": "wish-share"
+      }
+    }
+  ]
+}

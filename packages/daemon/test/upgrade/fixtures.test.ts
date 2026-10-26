@@ -26,24 +26,8 @@ import { COVERAGE_PARTS, declare, newCoverage, report, visit, type CoverageRepor
  * Adding a point here goes together with a step or a raised WORKSPACE_SHAPES (test/upgrade/pin.test.ts says when).
  */
 const NOT_PUBLISHED_YET: Readonly<Record<string, readonly string[]>> = {
-  // 0.6.0 (DESIGN D6): optional keys of documents WITHOUT a step (a 0.5.x file passes as it is). state.json and
-  // agent-sessions.json have steps from 0.5.0: their files of 0.5.x are checked against the frozen shape the step reads
-  // (src/frozen/v0.5.0.ts), so their new points (`hostNotices`, `modeChoice`, `model`, `modelChangedBy`) are not here.
-  'topics.json': [
-    'topics[].agent',
-    'topics[].agent.model',
-    'topics[].agent.permissionMode',
-    'topics[].agent.modeChangedBy',
-    'topics[].agent.modelChangedBy',
-    'topics[].items[].direct',
-    'topics[].items[].pin.history',
-    'topics[].items[].pin.commit<null>',
-    'topics[].items[].pin.commit<value>',
-    'topics[].plan.lastPin.history',
-    'topics[].plan.lastPin.commit<null>',
-    'topics[].plan.lastPin.commit<value>',
-  ],
-  'worktrees.json': ['hidden', 'worktrees[].repo', 'merges[].repo', 'merges[].base'],
+  // Empty since the fixture of 0.6.0 is in the tree (DESIGN 0.7.0 D1): it visits every point 0.6.0 added (the twelve of
+  // topics.json, the four of worktrees.json) or lists it with a reason.
 };
 
 const NEWEST = PUBLISHED_VERSIONS[PUBLISHED_VERSIONS.length - 1] as PublishedVersion;

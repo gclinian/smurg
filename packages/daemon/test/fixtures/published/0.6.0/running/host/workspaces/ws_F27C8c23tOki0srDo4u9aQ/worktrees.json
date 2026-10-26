@@ -1,0 +1,662 @@
+{
+  "version": 1,
+  "worktrees": [
+    {
+      "id": "wt_d44aae84b76da4be071c7219",
+      "ownerUserId": "dev:ruth",
+      "ownerName": "Ruth",
+      "branch": "smurg/dev-ruth/wt_d44aae84b76da4be071c7219",
+      "kept": true,
+      "createdAt": 1793045731691,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "147cb00f592c1fff2244c2b4848ab91bfe652e40",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "2029610a7b393609cc052083e8a19665c6a0ec393654e4007663250143340721",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478"
+    },
+    {
+      "id": "wt_87ec36c14bc886f715580a6b",
+      "ownerUserId": "dev:kate",
+      "ownerName": "Kate",
+      "branch": "smurg/dev-kate/wt_87ec36c14bc886f715580a6b",
+      "kept": true,
+      "createdAt": 1793045732441,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "b3f2076a247a17c9dfb07d9b65cc7e9883d1be7a",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "d6dec1635fa3703475d5fe1fd8e57288a681260d722786c1640a4750e3c4f273",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478"
+    },
+    {
+      "id": "wt_f0290db2d7bf3647f9e6c963",
+      "ownerUserId": "dev:ruth",
+      "ownerName": "Ruth",
+      "branch": "smurg/dev-ruth/wt_f0290db2d7bf3647f9e6c963",
+      "kept": true,
+      "createdAt": 1793045752981,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "b3f2076a247a17c9dfb07d9b65cc7e9883d1be7a",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "b6da2f59a468e7cd287ee8b2bb3a90213c0ed7571bf7caa0e4d1c92a5ab51dbc",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478"
+    },
+    {
+      "id": "wt_b5d2072eb668d17cd7473496",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-model",
+      "kept": false,
+      "createdAt": 1793045757660,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "20735d7835bc659e896f55455e0f24e769bb79d924c968230af781dc60448599",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-model"
+      }
+    },
+    {
+      "id": "wt_e3eb04649ec5ac577a9462c8",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-email",
+      "kept": false,
+      "createdAt": 1793045757763,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "ae359b2e34b2637fa83cd5218e3d500d268b7a76a57103eda6168066e4f061ed",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-email"
+      }
+    },
+    {
+      "id": "wt_44d9d359ef34daafcad4db13",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-admin",
+      "kept": false,
+      "createdAt": 1793045757886,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "f0f6f175364cec4de687aeaac9fb3da0afa4092c85b580e3083442cfac1ba916",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-admin"
+      }
+    },
+    {
+      "id": "wt_6b7d8f72b0e4a4071881ff37",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-print",
+      "kept": false,
+      "createdAt": 1793045758013,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "b397f27845972f82904d69e0c25b08883307da102ca2d28c89c2da92c9b83515",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-print"
+      }
+    },
+    {
+      "id": "wt_a22aae7c8d672f11c3df9edb",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-audit",
+      "kept": false,
+      "createdAt": 1793045758193,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "c88daa761374a935bfa2a6d978979d7fedb652c370db92e1feb0c42ee38d2c33",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-audit"
+      }
+    },
+    {
+      "id": "wt_6dd9da0fc816e0ff2a7a99ee",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-fonts",
+      "kept": false,
+      "createdAt": 1793045759286,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "3aba02b048cd54c47ad301e2000004f9e80a14de3fac58193269c65e77331079",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-fonts"
+      }
+    },
+    {
+      "id": "wt_d2bac898bacc32f92c2eb8a7",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-merge",
+      "kept": false,
+      "createdAt": 1793045759397,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "d9956530d96316afb7728f53e703d950cc4a0f29cca49cd1d9d7670dfe382baa",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-merge"
+      }
+    },
+    {
+      "id": "wt_a52a60b9e312504ec3ef4faa",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-ink",
+      "kept": false,
+      "createdAt": 1793045759543,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "94fe6db68eceb1f7d7d2ac32757619b4cf3765c816dca6f2c6727a71ac552f53",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-ink"
+      }
+    },
+    {
+      "id": "wt_e5e49265a7f1ae77b962b8f6",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-faq",
+      "kept": false,
+      "createdAt": 1793045760766,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "535a694557f4ba503380d298454ccf07fd0e16c97f7a17c3098755cdb0a2241a",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-faq"
+      },
+      "handEdits": [
+        {
+          "path": "src/faq-by-amy.md",
+          "by": [
+            {
+              "userId": "dev:amy",
+              "displayName": "Amy"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "wt_c2fa533e51c9dd4d7696950f",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-logo",
+      "kept": false,
+      "createdAt": 1793045760876,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "cb5bb7a1b4b1ece3d93e0d0000a4c7cd90f8ac326a51daec3788cf1174f48608",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-logo"
+      }
+    },
+    {
+      "id": "wt_3c4b4c5a894fc287ef4d7663",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-banner",
+      "kept": false,
+      "createdAt": 1793045761078,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "a7197da5e6706aef9e5ae6c388f7f452c8cadfab1c3d60cf61893c06a33f5532",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-banner"
+      },
+      "merge": {
+        "parent": "718b6d900bb39bf27fc15ae5309e42beff3d3b78",
+        "conflicted": [
+          "src/gift/brand/brand.ts"
+        ]
+      }
+    },
+    {
+      "id": "wt_9d2c225859408f0e0dab494b",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-vendor",
+      "kept": false,
+      "createdAt": 1793045761298,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "c0ab48c5f0f643920dc2ab986cd4593c294e0ad83001441fba14800d3a4d9b28",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-vendor"
+      }
+    },
+    {
+      "id": "wt_43d1e12dfb6e8f5e8ec6220d",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/gift-cards/card-page",
+      "kept": false,
+      "createdAt": 1793045764980,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "5da00bb70dd37643b7c11f3fc4d1e93c8ac45753",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "ed8657c6096c7d9d4856a3666e99e6f2568f0baed7d054b27169903ccbdbc646",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+        "topicSlug": "gift-cards",
+        "itemId": "card-page"
+      }
+    },
+    {
+      "id": "wt_a5c183fb92d1ae4d88d15762",
+      "ownerUserId": "dev:ruth",
+      "ownerName": "Ruth",
+      "branch": "smurg/dev-ruth/wt_a5c183fb92d1ae4d88d15762",
+      "sessionId": "ses_92897e0da3a7828bd06547ee8da0a995",
+      "kept": false,
+      "createdAt": 1793045770833,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "9403a8c3ae8fb75759ba9bcbd5aac4ada64eaaa5",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "1cd1857a2f07bd95b6fbce4e2ecdaccd17812da09f1271fd9cea699a5c14b390",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478"
+    },
+    {
+      "id": "wt_a8ac1df0b96e50b75963731e",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/late-shipping/late-note",
+      "kept": false,
+      "createdAt": 1793045773368,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "9a155f67e9fe64f810b376d0060fe4f7cc45bbed",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "67547eba0924e40c6193c9472c8372c301790a27adad541d8ec70d089dfad529",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_sLdkMlhyFS8ZUWG0Ujbbzg",
+        "topicSlug": "late-shipping",
+        "itemId": "late-note"
+      }
+    },
+    {
+      "id": "wt_6627639aad19d0ac9d012d06",
+      "ownerUserId": "dev:host",
+      "ownerName": "Host",
+      "branch": "smurg/tiny-things/tiny-one",
+      "kept": false,
+      "createdAt": 1793045774698,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "da6730f4f2044a8fe0d2014e411d9f3c20fcaaa5",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "9ff9bedf44619df01fb3504bbeb7d965fae15eb243cc5b2c0eb90262a447634a",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_uiGC4QKommgYTrLtH9lVtw",
+        "topicSlug": "tiny-things",
+        "itemId": "tiny-one"
+      }
+    },
+    {
+      "id": "wt_eda0b8aaaccf9e65c268a9e9",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/wishlist/wish-list",
+      "kept": false,
+      "createdAt": 1793045779091,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "627a641355b55e004397aad43f26b72ecaea7e4375d58e973968fc4c1d9602c6",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+        "topicSlug": "wishlist",
+        "itemId": "wish-list"
+      }
+    },
+    {
+      "id": "wt_39f7e9f550c63a0c108a57fd",
+      "ownerUserId": "dev:mei",
+      "ownerName": "Mei",
+      "branch": "smurg/wishlist/wish-share",
+      "kept": false,
+      "createdAt": 1793045779314,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "ffca95216cb4038f1d7d50b3d1fc07a962d98bab5f19ce3214777ce70aa1c4cc",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478",
+      "item": {
+        "topicId": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+        "topicSlug": "wishlist",
+        "itemId": "wish-share"
+      }
+    },
+    {
+      "id": "wt_41d2c0f8e9014069c32a2de2",
+      "ownerUserId": "dev:kate",
+      "ownerName": "Kate",
+      "branch": "smurg/dev-kate/wt_41d2c0f8e9014069c32a2de2",
+      "sessionId": "ses_f7058cb9b291a0e8c2f4e753fca3b028",
+      "kept": false,
+      "createdAt": 1793045802195,
+      "sharedDirs": [
+        "data"
+      ],
+      "baseCommit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "439f77c68875cea0d4a05db651e999c2b0335d507725ddef2da634a22b115867",
+      "alternatesHash": "c4aa035594ce9f79c60f9131c673f152a0ef281b818cf8da046de09202237478"
+    }
+  ],
+  "merges": [
+    {
+      "id": "mr_a0bf042cd4ea89cccfe022b9",
+      "worktreeId": "wt_2e241db563ebd8ff3bd4d4ea",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 1 (cart-api)",
+      "commit": "2c1c6425a3847db6dcc0e23e6493d9d509e29551",
+      "status": "merged",
+      "reviewed": true,
+      "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "itemId": "cart-api",
+      "topicSlug": "checkout",
+      "createdAt": 1793045718990,
+      "decidedAt": 1793045719151,
+      "mergeCommit": "5326bbd203e4a0674ff8c504013c0402d9c4d06f"
+    },
+    {
+      "id": "mr_7433ced2b3553413ec77c3b2",
+      "worktreeId": "wt_107c57ffac2d6272e89a81ad",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 2 (checkout-page)",
+      "commit": "e558253c30d7d948d23f4600b1e31a6cebd1f29d",
+      "status": "merged",
+      "reviewed": true,
+      "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "itemId": "checkout-page",
+      "topicSlug": "checkout",
+      "createdAt": 1793045720177,
+      "decidedAt": 1793045720389,
+      "mergeCommit": "b2f687d4ec4569987b07e76f24d146adf657dcc0"
+    },
+    {
+      "id": "mr_0d160bff3c7d54aef9d2c732",
+      "worktreeId": "wt_7cd14e4b8ceac445f46c8aef",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 3 (receipt-email)",
+      "commit": "282eba14e4bf8c548b4b73f620cdda702a051d56",
+      "status": "merged",
+      "reviewed": true,
+      "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "itemId": "receipt-email",
+      "topicSlug": "checkout",
+      "createdAt": 1793045722126,
+      "decidedAt": 1793045722316,
+      "mergeCommit": "c98eaa2ca48cdaac6a28e767b1d8a9e8343430ad"
+    },
+    {
+      "id": "mr_82ffd383577ac7eece9a0636",
+      "worktreeId": "wt_d44aae84b76da4be071c7219",
+      "ownerUserId": "dev:ruth",
+      "requestedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "message": "The new feature",
+      "commit": "24d7ab21b0d6010421e2066a77da102e9aec3fc7",
+      "status": "merged",
+      "createdAt": 1793045731890,
+      "decidedAt": 1793045732011,
+      "mergeCommit": "b3f2076a247a17c9dfb07d9b65cc7e9883d1be7a"
+    },
+    {
+      "id": "mr_fe65441306a7289b93937f92",
+      "worktreeId": "wt_d44aae84b76da4be071c7219",
+      "ownerUserId": "dev:ruth",
+      "requestedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "message": "A second file",
+      "commit": "3c55783bde9779001d3d7b6a724ba0937fa53c6b",
+      "status": "rejected",
+      "createdAt": 1793045732181,
+      "decidedAt": 1793045732200,
+      "rejectReason": "Not yet, please."
+    },
+    {
+      "id": "mr_2dcdaa931a37ff7452d0e777",
+      "worktreeId": "wt_d44aae84b76da4be071c7219",
+      "ownerUserId": "dev:ruth",
+      "requestedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "message": "A third file",
+      "commit": "8a72250281ced9c048ef971403b24c68b4dbd665",
+      "status": "pending",
+      "createdAt": 1793045732369
+    },
+    {
+      "id": "mr_d5f9425397d147cb954a4110",
+      "worktreeId": "wt_87ec36c14bc886f715580a6b",
+      "ownerUserId": "dev:kate",
+      "requestedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "message": "Kate's notes",
+      "commit": "1a3d9778979d775b82b9aa065f67d4a7b53d54f9",
+      "status": "pending",
+      "createdAt": 1793045732655
+    },
+    {
+      "id": "mr_e9965830f68d6bfd493ff939",
+      "worktreeId": "wt_b5d2072eb668d17cd7473496",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 1 (card-model)",
+      "commit": "cb23b828ae8d59ac2c0cfd8e7a1220ee39ce378b",
+      "status": "merged",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-model",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045758694,
+      "decidedAt": 1793045764803,
+      "mergeCommit": "5da00bb70dd37643b7c11f3fc4d1e93c8ac45753"
+    },
+    {
+      "id": "mr_772bec04cfb4957ef2fd4586",
+      "worktreeId": "wt_976ad06f05b49fdfe40a4142",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 9 (card-terms)",
+      "commit": "05445e45c8a22abf88b058ef8c76ee7c42447edf",
+      "status": "merged",
+      "reviewed": true,
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-terms",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045760119,
+      "decidedAt": 1793045768537,
+      "mergeCommit": "9403a8c3ae8fb75759ba9bcbd5aac4ada64eaaa5"
+    },
+    {
+      "id": "mr_956c494878cf5144abd90d68",
+      "worktreeId": "wt_c2fa533e51c9dd4d7696950f",
+      "ownerUserId": "dev:mei",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 15 (card-logo)",
+      "commit": "12ddf13b33d58f7745319bd0944ae560c891695e",
+      "status": "merged",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-logo",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045761858,
+      "decidedAt": 1793045766591,
+      "mergeCommit": "718b6d900bb39bf27fc15ae5309e42beff3d3b78"
+    },
+    {
+      "id": "mr_c026b77b1fc1d247ad13c789",
+      "worktreeId": "wt_3c4b4c5a894fc287ef4d7663",
+      "ownerUserId": "dev:mei",
+      "message": "smurg: work item 16 (card-banner)",
+      "commit": "06861d87cdc757c3f4fe6dd64d913a4d49982e9d",
+      "status": "conflict",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-banner",
+      "topicSlug": "gift-cards",
+      "conflictFiles": [
+        "src/gift/brand/brand.ts"
+      ],
+      "createdAt": 1793045762019,
+      "decidedAt": 1793045766678
+    },
+    {
+      "id": "mr_ae0ab59092f07dbe4e673740",
+      "worktreeId": "wt_e5e49265a7f1ae77b962b8f6",
+      "ownerUserId": "dev:mei",
+      "message": "smurg: work item 12 (card-faq)",
+      "commit": "82b4c016b2509062fcb53a38620b1fba029d42a5",
+      "status": "draft",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-faq",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045764640
+    },
+    {
+      "id": "mr_d2195caf1cfe230ad5cfc0a1",
+      "worktreeId": "wt_43d1e12dfb6e8f5e8ec6220d",
+      "ownerUserId": "dev:mei",
+      "message": "smurg: work item 2 (card-page)",
+      "commit": "e2b9b631c93f5000d9104f836da51140db7d7298",
+      "status": "draft",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-page",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045765811
+    },
+    {
+      "id": "mr_13b9d66e95ba7e0fce59dc71",
+      "worktreeId": "wt_b5d2072eb668d17cd7473496",
+      "ownerUserId": "dev:mei",
+      "message": "smurg: work item 1 (card-model)",
+      "commit": "7befa8cfb670152fb519923a1b3a39de97fac603",
+      "status": "draft",
+      "reviewed": true,
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-model",
+      "topicSlug": "gift-cards",
+      "createdAt": 1793045765915
+    }
+  ]
+}

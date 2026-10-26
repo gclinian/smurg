@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "shared": [
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "relay": "http://127.0.0.1:65444",
+      "workspaceId": "ws_F27C8c23tOki0srDo4u9aQ",
+      "createdAt": 1793045711539
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/b052/project",
+      "relay": "http://127.0.0.1:65444",
+      "workspaceId": "ws_ptaC3A8zmnSsKB_DA8tfXw",
+      "createdAt": 1792485725373
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/b052/old/project",
+      "relay": "http://127.0.0.1:65444",
+      "workspaceId": "ws_x0ero8pS70bWM5G4VbZ1NA",
+      "createdAt": 1791377829732
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/nogit",
+      "relay": "http://127.0.0.1:65444",
+      "workspaceId": "ws_JQyGHiVuRmyk-52kXN9U-A",
+      "createdAt": 1793045816955
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/direct",
+      "relay": "http://127.0.0.1:65444",
+      "workspaceId": "ws_gK1sGiStR2H2bmRipOrmUw",
+      "createdAt": 1793045821314
+    }
+  ],
+  "joined": []
+}

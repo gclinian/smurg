@@ -1,0 +1,17 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Host"}},"fallback":"Host opened this session","seq":1,"at":1793045803556}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":2,"at":1793045803668}
+{"v":1,"kind":"message","messageId":"m_QM0nEEdK4q6f6eLrF79vmw","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please ask and wait.","origin":"composer","seq":3,"at":1793045803692}
+{"v":1,"kind":"delivery","messageId":"m_QM0nEEdK4q6f6eLrF79vmw","state":"started","seq":4,"at":1793045803695}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":5,"at":1793045803696}
+{"v":1,"kind":"card","card":"question","id":"rq_gliGuCZ18V3ui6JyyJA1RQ","seq":6,"at":1793045803807}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"error","durationMs":302,"seq":7,"at":1793045803997}
+{"v":1,"kind":"notice","level":"error","text":{"id":"notice.processExited","params":{"code":-1}},"fallback":"The agent's process ended unexpectedly (exit code -1).","action":"retry","seq":8,"at":1793045803998}
+{"v":1,"kind":"line","text":{"id":"conversation.retry.resumed","params":{"name":"Host"}},"fallback":"Host started this session again","seq":9,"at":1793045804044}
+{"v":1,"kind":"message","messageId":"m_nM8N-Fsofll_rfwa8lk8XA","from":{"userId":"dev:host","displayName":"Host","role":"host"},"text":"Please run something and wait.","origin":"composer","seq":10,"at":1793045804056}
+{"v":1,"kind":"delivery","messageId":"m_nM8N-Fsofll_rfwa8lk8XA","state":"queued","seq":11,"at":1793045804057}
+{"v":1,"kind":"delivery","messageId":"m_nM8N-Fsofll_rfwa8lk8XA","state":"started","seq":12,"at":1793045804168}
+{"v":1,"kind":"turn.started","turnId":"t_2","seq":13,"at":1793045804169}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0001","tool":{"name":"Bash","verb":"run","target":"sleep 5 && date"},"seq":14,"at":1793045804222}
+{"v":1,"kind":"card","card":"permission","id":"rq_Nxn5O0rGBiiy5RqXgU06pA","seq":15,"at":1793045804336}
+{"v":1,"kind":"turn.finished","turnId":"t_2","outcome":"error","durationMs":349,"seq":16,"at":1793045804517}
+{"v":1,"kind":"notice","level":"error","text":{"id":"notice.processExited","params":{"code":-1}},"fallback":"The agent's process ended unexpectedly (exit code -1).","action":"retry","seq":17,"at":1793045804519}

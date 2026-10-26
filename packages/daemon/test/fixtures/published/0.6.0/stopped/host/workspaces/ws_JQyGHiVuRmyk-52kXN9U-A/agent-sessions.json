@@ -1,0 +1,122 @@
+{
+  "sessions": [
+    {
+      "id": "ses_fc3cc0183e96606031c9cfbf57e7a350",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_tG29_LJL3gBUPYCSuPKfMA",
+        "slug": "shelf-notes",
+        "name": "Shelf notes"
+      },
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": null,
+      "fallbackDecider": "dev:host",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "666643ce-c6cf-47c1-a9fe-aeaf97eedd36",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "iuwa",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": false,
+      "createdAt": 1793045817298,
+      "noteworthyAt": 1793045817673,
+      "lastActivityAt": 1793045818070,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_9f8ca771cf433054c1492e0a246bb2c5",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_tG29_LJL3gBUPYCSuPKfMA",
+        "slug": "shelf-notes",
+        "name": "Shelf notes"
+      },
+      "item": {
+        "id": "shelf-page",
+        "number": 1,
+        "title": "Shelf page",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:host",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_e5b1849d195251cd77d37c39"
+      },
+      "worktreeId": "wt_e5b1849d195251cd77d37c39",
+      "branch": "smurg/shelf-notes/shelf-page",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "4738cd48-1eb4-4192-81d4-2e6cf5707f3b",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "qdr6",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": false,
+      "createdAt": 1793045818631,
+      "endedAt": 1793045819564,
+      "endReason": "merged",
+      "noteworthyAt": 1793045819363,
+      "lastActivityAt": 1793045819363,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_a29a75c35aa983456b77d6c0f6a852c0",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Auto mode without git",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "cf6ed108-2d06-4176-999f-4aa3607fa683",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "5ga9",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": false,
+      "createdAt": 1793045819635,
+      "noteworthyAt": 1793045819969,
+      "lastActivityAt": 1793045820073,
+      "claudeVersion": "2.1.288"
+    }
+  ]
+}

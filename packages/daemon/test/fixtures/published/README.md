@@ -9,6 +9,8 @@ refused, reset or lost.
     0.5.0/    written by the code of tag v0.5.0
     0.5.1/    written by the code of tag v0.5.1 (with a second workspace: what 0.4.0 wrote, opened by that code)
     0.5.2/    written by the code of tag v0.5.2 (the same)
+    0.6.0/    written by the code of tag v0.6.0 (with three more workspaces: what 0.5.2 wrote, opened by that code; a
+              folder without .git; a folder shared without the git program)
 
 Nothing here is edited by hand, with the exceptions each README names (the paths and the name of the machine a fixture
 was made on are replaced by placeholders). Every key in these folders was made for the fixture and protects nothing.
@@ -146,4 +148,6 @@ scratch `HOME` and `SMURG_HOME`, the relay of that tree on this computer with it
 Code of that tree (never a real `claude`, never the built-in relay, never anyone's own `~/.smurg`), a story played by
 clients of the client library and by the command, one picture of the disk while the host's smurg runs and one after
 `smurg stop`. Then the files are checked by the code that wrote them: its daemon starts on a copy, and every file is
-parsed with its own schema.
+parsed with its own schema. Since 0.6.0 the driver that plays the story and writes the fixture is kept beside these
+folders (`../drivers/fixture-driver-<version>.ts.txt`, its header says how it runs); the next version's fixture starts
+from it.

@@ -1,0 +1,8 @@
+2026-10-26T20:16:57.016Z info "hook socket listening" sessions=0
+2026-10-26T20:16:57.091Z info "control socket listening" module=control
+2026-10-26T20:16:57.103Z info "daemon started" workspace=ws_JQyGHiVuRmyk-52kXN9U-A relay=http://127.0.0.1:65444
+2026-10-26T20:16:57.111Z info "relay link online" module=relay link=ws
+2026-10-26T20:16:57.113Z info "relay link online" module=relay link=xfer
+2026-10-26T20:16:58.301Z info "worktree mode is available" module=worktree
+2026-10-26T20:16:58.333Z info "smurg's own history of the shared folder was created" module=worktree
+2026-10-26T20:17:00.719Z info "stop requested on the control socket" module=control

@@ -1,0 +1,10 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Kate"}},"fallback":"Kate opened this session","seq":1,"at":1793045819637}
+{"v":1,"kind":"message","messageId":"m_0IWvKB1firHFapPbki3A2Q","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Please write where the variable says.","origin":"composer","seq":2,"at":1793045819799}
+{"v":1,"kind":"delivery","messageId":"m_0IWvKB1firHFapPbki3A2Q","state":"started","seq":3,"at":1793045819800}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":4,"at":1793045819800}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0001","tool":{"name":"Bash","verb":"run","target":"printf 'kate was here\\n' > \"$KATE_TARGET\""},"seq":5,"at":1793045819857}
+{"v":1,"kind":"card","card":"permission","id":"rq_bqFRz-uh3Der6wAFtd8izA","seq":6,"at":1793045819969}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0001","ok":false,"result":{"durationMs":150,"body":{"kind":"output","text":"Host (Host) did not allow this. Do not try it again in another way; continue without it, or ask what to do instead.","truncated":false}},"seq":7,"at":1793045820007}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"Tried the variable.","seq":8,"at":1793045820007}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":273,"seq":9,"at":1793045820073}
+{"v":1,"kind":"delivery","messageId":"m_0IWvKB1firHFapPbki3A2Q","state":"completed","seq":10,"at":1793045820073}

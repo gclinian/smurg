@@ -1,0 +1,2071 @@
+{
+  "sessions": [
+    {
+      "id": "ses_5cdea056055dcf8321c198bc95f370ad",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_6kOPE8tJlwreGxRsjrMKgA",
+        "slug": "checkout",
+        "name": "Checkout"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "1bfdbf81-ac1e-49b8-bf4d-e16706e71a2f",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "1jx7",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": false,
+      "createdAt": 1793045714002,
+      "noteworthyAt": 1793045714815,
+      "lastActivityAt": 1793045715253,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_14d1baf0733212e5e986608696116a0a",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_6kOPE8tJlwreGxRsjrMKgA",
+        "slug": "checkout",
+        "name": "Checkout"
+      },
+      "item": {
+        "id": "cart-api",
+        "number": 1,
+        "title": "Cart API",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_2e241db563ebd8ff3bd4d4ea"
+      },
+      "worktreeId": "wt_2e241db563ebd8ff3bd4d4ea",
+      "branch": "smurg/checkout/cart-api",
+      "modeChoice": null,
+      "model": "sonnet",
+      "modelChangedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "rules": [],
+      "claudeSessionId": "ff2566bc-505e-4451-93a5-034bb04f702b",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "fpri",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": false,
+      "createdAt": 1793045715675,
+      "endedAt": 1793045719154,
+      "endReason": "merged",
+      "noteworthyAt": 1793045719003,
+      "lastActivityAt": 1793045719003,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_40150fc92b65130e1c3e7aecd78eddce",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_6kOPE8tJlwreGxRsjrMKgA",
+        "slug": "checkout",
+        "name": "Checkout"
+      },
+      "item": {
+        "id": "receipt-email",
+        "number": 3,
+        "title": "Receipt email",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_7cd14e4b8ceac445f46c8aef"
+      },
+      "worktreeId": "wt_7cd14e4b8ceac445f46c8aef",
+      "branch": "smurg/checkout/receipt-email",
+      "modeChoice": null,
+      "model": "sonnet",
+      "modelChangedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "rules": [],
+      "claudeSessionId": "9cb580d4-7cfa-4c92-9b77-317f8e520097",
+      "hasConversation": true,
+      "turnCounter": 4,
+      "smurgTag": "lcrv",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": false,
+      "createdAt": 1793045715770,
+      "endedAt": 1793045722318,
+      "endReason": "merged",
+      "noteworthyAt": 1793045721967,
+      "lastActivityAt": 1793045722138,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_f605340eb3b47a9a6d6437d40f9f5f6d",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "title": "Notes",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "5c13caf7-93af-4d71-89e1-86cc2fbe8c12",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "8znh",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": false,
+      "createdAt": 1793045716470,
+      "noteworthyAt": 1793045716596,
+      "lastActivityAt": 1793045716712,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_28de9875a6c1a854d6fe2048b9e269c0",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_6kOPE8tJlwreGxRsjrMKgA",
+        "slug": "checkout",
+        "name": "Checkout"
+      },
+      "item": {
+        "id": "checkout-page",
+        "number": 2,
+        "title": "Checkout page",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_107c57ffac2d6272e89a81ad"
+      },
+      "worktreeId": "wt_107c57ffac2d6272e89a81ad",
+      "branch": "smurg/checkout/checkout-page",
+      "modeChoice": null,
+      "model": "sonnet",
+      "modelChangedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "rules": [],
+      "claudeSessionId": "e9a8c52c-fd43-4dcf-8799-0d2d00baf0f8",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "rl5m",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": false,
+      "createdAt": 1793045719291,
+      "endedAt": 1793045720392,
+      "endReason": "merged",
+      "noteworthyAt": 1793045720189,
+      "lastActivityAt": 1793045720189,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_d745be114b338bd13e770e518d55dbfb",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "fallbackDecider": "dev:host",
+      "title": "Look around",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-commands",
+      "modeChangedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "model": "opus",
+      "modelChangedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "rules": [
+        {
+          "id": "rule_2m86JwtdLxJIhXMiNG_xYQ",
+          "tool": "WebFetch",
+          "pattern": "domain:example.com",
+          "scope": "session",
+          "addedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "addedAt": 1793045741112
+        }
+      ],
+      "claudeSessionId": "7b65a138-1d6c-4843-9844-7a47211fa38d",
+      "hasConversation": true,
+      "turnCounter": 15,
+      "smurgTag": "rp1q",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045740454,
+      "noteworthyAt": 1793045749958,
+      "lastActivityAt": 1793045803514,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_d735f2efb3b4c05f3b334eb4aeaf7898",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Short one",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "9c3ab1fb-e925-4e85-84a2-6b13ca902493",
+      "hasConversation": true,
+      "turnCounter": 4,
+      "smurgTag": "cdm5",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045750273,
+      "endedAt": 1793045751603,
+      "endReason": "ended",
+      "endedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "noteworthyAt": 1793045751551,
+      "lastActivityAt": 1793045751659,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_c6f5bf39d4db44e13ca40c3dbdf1e2e7",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": null,
+      "fallbackDecider": "dev:host",
+      "title": "Crash",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "861b231b-9cd6-40da-9093-c5f6c87f98f0",
+      "hasConversation": false,
+      "turnCounter": 1,
+      "smurgTag": "vk43",
+      "startFailures": 1,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045751768,
+      "noteworthyAt": 1793045751948,
+      "lastActivityAt": 1793045751948,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_7c22f3afe9da5ab8344036c5f5fe1ce0",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Terminated",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "2c2e20ee-d734-438c-8a22-8c4758fb129e",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "jw7z",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045752015,
+      "endedAt": 1793045752364,
+      "endReason": "terminated",
+      "endedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "noteworthyAt": 1793045752251,
+      "lastActivityAt": 1793045752364,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_ecf7bd11391031657b69e6430b1e6e1d",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Everything",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "4f0adcf4-bec5-40ac-99d4-999fafa38f5b",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "dl6b",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045752464,
+      "endedAt": 1793045752814,
+      "endReason": "ended",
+      "endedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "noteworthyAt": 1793045752700,
+      "lastActivityAt": 1793045752814,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_5b2e549846c27b5c038e94edde4f543d",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "ownerUserId": "dev:ruth",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:ruth",
+      "title": "In a worktree",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_f0290db2d7bf3647f9e6c963"
+      },
+      "worktreeId": "wt_f0290db2d7bf3647f9e6c963",
+      "branch": "smurg/dev-ruth/wt_f0290db2d7bf3647f9e6c963",
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "6e9fcdd7-976a-43d7-b543-9145d67a815f",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "q1rl",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045753000,
+      "endedAt": 1793045754003,
+      "endReason": "ended",
+      "endedBy": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "noteworthyAt": 1793045753947,
+      "lastActivityAt": 1793045754059,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_3d770bf28514dec354f89f09bc1ba587",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:dave",
+        "displayName": "Dave"
+      },
+      "ownerUserId": "dev:dave",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": null,
+      "title": "Dave's",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:dave",
+        "displayName": "Dave"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "59dc6ddf-2dcc-44d5-8ea3-b34fa52d994e",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "88rx",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045754467,
+      "endedAt": 1793045754951,
+      "endReason": "left",
+      "noteworthyAt": 1793045754698,
+      "lastActivityAt": 1793045754698,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_f7981bf0fd2b1091e2b042647f0aaa7c",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:pete",
+        "displayName": "Pete"
+      },
+      "ownerUserId": "dev:pete",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": null,
+      "title": "Pete's",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:pete",
+        "displayName": "Pete"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "6be5467a-f44c-4cf4-b0d2-371c57ed26f7",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "17w1",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045755054,
+      "endedAt": 1793045755421,
+      "endReason": "kicked",
+      "noteworthyAt": 1793045755299,
+      "lastActivityAt": 1793045755299,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_1ac76c675313b33505bc1394aace216a",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:quinn",
+        "displayName": "Quinn"
+      },
+      "ownerUserId": "dev:quinn",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:quinn",
+      "title": "Quinn's",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:quinn",
+        "displayName": "Quinn"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "3bb4b547-a407-4f93-aabd-55292a3aac27",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "wspe",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045755530,
+      "endedAt": 1793045755883,
+      "endReason": "role-changed",
+      "noteworthyAt": 1793045755765,
+      "lastActivityAt": 1793045755765,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_29288a31cf973375b10d1aad7bc1cb0b",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "a33c556a-d38f-45a5-81c3-d1ac52223efa",
+      "hasConversation": true,
+      "turnCounter": 6,
+      "smurgTag": "n2le",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045756047,
+      "noteworthyAt": 1793045771447,
+      "lastActivityAt": 1793045771623,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_2b8346823eb1469d7ae6bffcedba4e5f",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-model",
+        "number": 1,
+        "title": "Card model",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_b5d2072eb668d17cd7473496"
+      },
+      "worktreeId": "wt_b5d2072eb668d17cd7473496",
+      "branch": "smurg/gift-cards/card-model",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "2a34ee77-5f62-4527-a862-4045bcc1ac94",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "lhn8",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045757676,
+      "noteworthyAt": 1793045765669,
+      "lastActivityAt": 1793045765933,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_98d255013743be6667f161c5fbe2c57f",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-email",
+        "number": 3,
+        "title": "Card email",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:noa",
+        "displayName": "Noa"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_e3eb04649ec5ac577a9462c8"
+      },
+      "worktreeId": "wt_e3eb04649ec5ac577a9462c8",
+      "branch": "smurg/gift-cards/card-email",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "e0134d7a-5501-4631-9f82-e1a8fe1c5b15",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "5dal",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "agent"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045757779,
+      "noteworthyAt": 1793045758269,
+      "lastActivityAt": 1793045758270,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_ec87e2faa0b8a313e0ded61c094d9702",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-admin",
+        "number": 4,
+        "title": "Card admin",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_44d9d359ef34daafcad4db13"
+      },
+      "worktreeId": "wt_44d9d359ef34daafcad4db13",
+      "branch": "smurg/gift-cards/card-admin",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "dd30055f-4a65-4cd6-bc13-7b8664967a0e",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "80xb",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "restart"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045757900,
+      "noteworthyAt": 1793045758775,
+      "lastActivityAt": 1793045769551,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_3cfb8c1cce666aac8666967736cf5a71",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-print",
+        "number": 7,
+        "title": "Card print",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_6b7d8f72b0e4a4071881ff37"
+      },
+      "worktreeId": "wt_6b7d8f72b0e4a4071881ff37",
+      "branch": "smurg/gift-cards/card-print",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "2b41a44b-68da-46e4-ba7e-23b251336d5c",
+      "hasConversation": false,
+      "turnCounter": 1,
+      "smurgTag": "9f7e",
+      "startFailures": 1,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045758036,
+      "noteworthyAt": 1793045758361,
+      "lastActivityAt": 1793045758368,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_616ac64c9b5eaa502f410699c07ff134",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-audit",
+        "number": 8,
+        "title": "Card audit",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_a22aae7c8d672f11c3df9edb"
+      },
+      "worktreeId": "wt_a22aae7c8d672f11c3df9edb",
+      "branch": "smurg/gift-cards/card-audit",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "ded8b949-9e95-4100-bfaa-6f666a51d3cf",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "72l0",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "stopped"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045758216,
+      "endedAt": 1793045758788,
+      "endReason": "ended",
+      "endedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "noteworthyAt": 1793045758846,
+      "lastActivityAt": 1793045758847,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_057fc39968ac735adeb66e9b0af9beb6",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-terms",
+        "number": 9,
+        "title": "Card terms",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_976ad06f05b49fdfe40a4142"
+      },
+      "worktreeId": "wt_976ad06f05b49fdfe40a4142",
+      "branch": "smurg/gift-cards/card-terms",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "ad6e922d-13ff-4de2-8d8d-4dd4727bec3a",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "a05x",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045759204,
+      "endedAt": 1793045768544,
+      "endReason": "merged",
+      "noteworthyAt": 1793045760136,
+      "lastActivityAt": 1793045760136,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_3a7efa7a0bea53680f276af0c958bdb9",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-fonts",
+        "number": 11,
+        "title": "Card fonts",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_6dd9da0fc816e0ff2a7a99ee"
+      },
+      "worktreeId": "wt_6dd9da0fc816e0ff2a7a99ee",
+      "branch": "smurg/gift-cards/card-fonts",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "49c3a367-b9f0-4b5c-b45f-3cbf318d3384",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "4n8n",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "error"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045759301,
+      "noteworthyAt": 1793045759612,
+      "lastActivityAt": 1793045759614,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_4d8a47c1a39121dca6aab2f6ab656798",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-merge",
+        "number": 13,
+        "title": "Card merge",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_d2bac898bacc32f92c2eb8a7"
+      },
+      "worktreeId": "wt_d2bac898bacc32f92c2eb8a7",
+      "branch": "smurg/gift-cards/card-merge",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "2fb19ad1-18d4-41ef-9b42-91b431358a6f",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "9q1f",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045759412,
+      "noteworthyAt": 1793045760302,
+      "lastActivityAt": 1793045760474,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_8f0b051cdfaaf5d840e69b69f76bf656",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-ink",
+        "number": 14,
+        "title": "Card ink",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:ruth",
+        "displayName": "Ruth"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_a52a60b9e312504ec3ef4faa"
+      },
+      "worktreeId": "wt_a52a60b9e312504ec3ef4faa",
+      "branch": "smurg/gift-cards/card-ink",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "40490d4b-74e1-409d-a34b-dce7ca0c040e",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "ricm",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "agent"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045759558,
+      "noteworthyAt": 1793045772184,
+      "lastActivityAt": 1793045772186,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_9560a22425ce12ba7ccbfd590b42c0c9",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-faq",
+        "number": 12,
+        "title": "Card FAQ",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:noa",
+        "displayName": "Noa"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_e5e49265a7f1ae77b962b8f6"
+      },
+      "worktreeId": "wt_e5e49265a7f1ae77b962b8f6",
+      "branch": "smurg/gift-cards/card-faq",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "f0b53200-42bd-4180-a981-82dfe06d6cb3",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "z0m6",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045760782,
+      "noteworthyAt": 1793045766323,
+      "lastActivityAt": 1793045766450,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_a2bdea06c1d60ac98635902b931c4e72",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-logo",
+        "number": 15,
+        "title": "Card logo",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_c2fa533e51c9dd4d7696950f"
+      },
+      "worktreeId": "wt_c2fa533e51c9dd4d7696950f",
+      "branch": "smurg/gift-cards/card-logo",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "bcbc638a-2c08-4f3d-903e-240708bfc250",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "t2cb",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045760893,
+      "noteworthyAt": 1793045761615,
+      "lastActivityAt": 1793045761874,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_4d451636f58e19e47819eb9a4a248469",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-banner",
+        "number": 16,
+        "title": "Card banner",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:noa",
+        "displayName": "Noa"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_3c4b4c5a894fc287ef4d7663"
+      },
+      "worktreeId": "wt_3c4b4c5a894fc287ef4d7663",
+      "branch": "smurg/gift-cards/card-banner",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "7aabc714-0027-4816-b1c7-8053e6fd3fa6",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "xb9c",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045761093,
+      "noteworthyAt": 1793045766947,
+      "lastActivityAt": 1793045766953,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_800663bf7cdbc809901c1585e6f44d0a",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-vendor",
+        "number": 17,
+        "title": "Card vendor",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_9d2c225859408f0e0dab494b"
+      },
+      "worktreeId": "wt_9d2c225859408f0e0dab494b",
+      "branch": "smurg/gift-cards/card-vendor",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "ef10895f-3a4d-4bec-8e14-98fa5fe5ef2e",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "kwf2",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "error"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045761313,
+      "noteworthyAt": 1793045762131,
+      "lastActivityAt": 1793045762157,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_05576d093e757945f8d33490f19fd53c",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_t026TwEwZS9scck3_LsjwA",
+        "slug": "gift-cards",
+        "name": "Gift cards"
+      },
+      "item": {
+        "id": "card-page",
+        "number": 2,
+        "title": "Card page",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_43d1e12dfb6e8f5e8ec6220d"
+      },
+      "worktreeId": "wt_43d1e12dfb6e8f5e8ec6220d",
+      "branch": "smurg/gift-cards/card-page",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "ea1b4143-b8de-4664-b27c-5027bd1265ca",
+      "hasConversation": true,
+      "turnCounter": 4,
+      "smurgTag": "hphc",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045764996,
+      "noteworthyAt": 1793045767492,
+      "lastActivityAt": 1793045767610,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_75c267ec21152b545ae9a6bd5e343dcf",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_sLdkMlhyFS8ZUWG0Ujbbzg",
+        "slug": "late-shipping",
+        "name": "Late shipping"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "322c3e1f-c0b4-4018-b949-c788f58a1131",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "ss9d",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045772240,
+      "noteworthyAt": 1793045772610,
+      "lastActivityAt": 1793045773011,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_9bdd7caa75168cd652ca5b32d8999a20",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_uiGC4QKommgYTrLtH9lVtw",
+        "slug": "tiny-things",
+        "name": "Tiny things"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "a99c1d7d-cede-412a-9101-cc65095d63a7",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "s5d5",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045773592,
+      "noteworthyAt": 1793045773958,
+      "lastActivityAt": 1793045774357,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_19b9b615687383ccd3bd3a14756e4745",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_uiGC4QKommgYTrLtH9lVtw",
+        "slug": "tiny-things",
+        "name": "Tiny things"
+      },
+      "item": {
+        "id": "tiny-one",
+        "number": 1,
+        "title": "Tiny one",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:sam",
+        "displayName": "Sam"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "member",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": null,
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_6627639aad19d0ac9d012d06"
+      },
+      "worktreeId": "wt_6627639aad19d0ac9d012d06",
+      "branch": "smurg/tiny-things/tiny-one",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "2eb02236-c56d-4fab-8a5e-3ae34b3afb81",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "3f3e",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": false,
+        "stalled": "stopped"
+      },
+      "untrustedSaid": true,
+      "createdAt": 1793045774713,
+      "noteworthyAt": 1793045775068,
+      "lastActivityAt": 1793045775087,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_cd93b93d6e20a9273e4d94e862811b3a",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_sX6LlL6Pvrvt6C731bLgcQ",
+        "slug": "bare-shelves",
+        "name": "Bare shelves"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "7e75813c-09a5-4b8a-acd1-c04f1f6604da",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "eker",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045775111,
+      "noteworthyAt": 1793045775473,
+      "lastActivityAt": 1793045775862,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_c7cc4992f63a2d132170705ef3a99360",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_craAomRdK_jlSxYKtXggCA",
+        "slug": "exchange",
+        "name": "Exchange"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "682c64fe-6923-4508-ab46-5578cc30b015",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "eux1",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045775927,
+      "noteworthyAt": 1793045776691,
+      "lastActivityAt": 1793045776810,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_644d79c21f07adca210f2b91a57e9c5c",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_aOE_MM51ZU69pqld_VquxA",
+        "slug": "vouchers",
+        "name": "Vouchers"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "7ebc9a11-30bd-423a-ba06-4a119e77a260",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "iuru",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045776877,
+      "noteworthyAt": 1793045777636,
+      "lastActivityAt": 1793045777753,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_474e3318f1b0f0caaa3ad369285a557c",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+        "slug": "wishlist",
+        "name": "Wishlist"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "f556cf84-b3e5-4306-abfb-05a3f02ee928",
+      "hasConversation": true,
+      "turnCounter": 4,
+      "smurgTag": "ryrf",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045777860,
+      "noteworthyAt": 1793046169802,
+      "lastActivityAt": 1793046170398,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_d4384540a5e0fbe2cc82f7c73333f98d",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+        "slug": "wishlist",
+        "name": "Wishlist"
+      },
+      "item": {
+        "id": "wish-list",
+        "number": 1,
+        "title": "Wish list",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_eda0b8aaaccf9e65c268a9e9"
+      },
+      "worktreeId": "wt_eda0b8aaaccf9e65c268a9e9",
+      "branch": "smurg/wishlist/wish-list",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "0e1ca247-a4a1-4828-b690-46a8db0572c6",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "de0n",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045779107,
+      "noteworthyAt": 1793045779591,
+      "lastActivityAt": 1793046169980,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_190b6a46a26585b58ff105f1bdf2f559",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+        "slug": "wishlist",
+        "name": "Wishlist"
+      },
+      "item": {
+        "id": "wish-share",
+        "number": 2,
+        "title": "Wish share",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_39f7e9f550c63a0c108a57fd"
+      },
+      "worktreeId": "wt_39f7e9f550c63a0c108a57fd",
+      "branch": "smurg/wishlist/wish-share",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "15f49d4d-1d3f-4091-ba18-bf957d84bcd8",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "9v20",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045779332,
+      "noteworthyAt": 1793046169782,
+      "lastActivityAt": 1793046170138,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_6f69b23f3d8382e681b7c33f37ac74cb",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "title": "Readme",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "6f112bf5-7cef-41ee-9db9-07f2a6068108",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "qgoe",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045780160,
+      "noteworthyAt": 1793046169808,
+      "lastActivityAt": 1793046170285,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_1807624f0e67cedeaa5937d236c5c136",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": null,
+      "fallbackDecider": "dev:host",
+      "title": "Crash",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "1efd3d15-e3ff-47a8-bbfe-a0be42d6ecd6",
+      "hasConversation": false,
+      "turnCounter": 1,
+      "smurgTag": "q82r",
+      "startFailures": 1,
+      "lastTurnOpen": false,
+      "state": "failed",
+      "untrustedSaid": true,
+      "createdAt": 1793045796031,
+      "noteworthyAt": 1793045796214,
+      "lastActivityAt": 1793045796214,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_99a761da600e7d33e07e1d175b9e7971",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_gxjpvoVVHmYcTgGndkH72A",
+        "slug": "returns",
+        "name": "Returns"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "b84b6ae7-567d-4579-8ab1-c89fc5e6e334",
+      "hasConversation": true,
+      "turnCounter": 3,
+      "smurgTag": "8q1g",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045796242,
+      "endedAt": 1793045797185,
+      "endReason": "terminated",
+      "endedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "noteworthyAt": 1793045797108,
+      "lastActivityAt": 1793045797185,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_a9f2b7e3910ef5fb9a3b53727f8136e2",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_Sr8qInTQaYdKrZwitRXi6w",
+        "slug": "refunds",
+        "name": "Refunds and credit"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "e1e38413-8fea-4c05-9eac-72381b8e4b90",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "fivx",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045797292,
+      "endedAt": 1793045797827,
+      "endReason": "terminated",
+      "endedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "noteworthyAt": 1793045797778,
+      "lastActivityAt": 1793045797827,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_7cd22aed066a4dd7c3ab61f94e55ad4b",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_Sr8qInTQaYdKrZwitRXi6w",
+        "slug": "refunds",
+        "name": "Refunds and credit"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "74167033-e870-435c-8c8b-fa8d34713959",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "g07k",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045797930,
+      "noteworthyAt": 1793045798170,
+      "lastActivityAt": 1793045798171,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_046dcdc1258090ea4a0dfa7d7f387fbf",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_1KSssaX2vf7OuqptOyr7iQ",
+        "slug": "old-idea",
+        "name": "Old idea"
+      },
+      "openedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "ownerUserId": "dev:mei",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:mei",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "f3ce4dc6-a8b5-405f-b72f-d29aaa2afbb0",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "9bzk",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "ended",
+      "untrustedSaid": true,
+      "createdAt": 1793045798332,
+      "endedAt": 1793045798720,
+      "endReason": "archived",
+      "endedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "noteworthyAt": 1793045798696,
+      "lastActivityAt": 1793045798720,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_c7b750567766123ec26e5e38fda35a87",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Auto mode",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "auto",
+      "modeChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "428fb294-06d0-486f-a339-a25679b9b627",
+      "hasConversation": true,
+      "turnCounter": 4,
+      "smurgTag": "0c5g",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045800842,
+      "noteworthyAt": 1793045803074,
+      "lastActivityAt": 1793045803158,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_f7058cb9b291a0e8c2f4e753fca3b028",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "Auto mode in a worktree",
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_41d2c0f8e9014069c32a2de2"
+      },
+      "worktreeId": "wt_41d2c0f8e9014069c32a2de2",
+      "branch": "smurg/dev-kate/wt_41d2c0f8e9014069c32a2de2",
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "38d9bc79-1cac-415f-ac6c-c062f8c770e5",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "rbx6",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045802212,
+      "noteworthyAt": 1793045802514,
+      "lastActivityAt": 1793045802627,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_163a29f0892af9b155b726e673d24292",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "ownerUserId": "dev:kate",
+      "pathRights": "member",
+      "responsible": null,
+      "fallbackDecider": "dev:kate",
+      "title": "A model that is refused",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-commands",
+      "modeChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "model": "sonnet",
+      "modelChangedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "rules": [],
+      "claudeSessionId": "fc7abb46-9638-4270-b927-ee358f2f2eec",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "kcg8",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": true,
+      "createdAt": 1793045803219,
+      "noteworthyAt": 1793045803455,
+      "lastActivityAt": 1793045803479,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_24b3050e7b309871ae9f6632d7999b80",
+      "purpose": "free",
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": null,
+      "fallbackDecider": "dev:host",
+      "title": "Broken while asking",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": "ask-all",
+      "modeChangedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "66a75181-d21d-471e-bccc-dbcd1eb6f4fb",
+      "hasConversation": false,
+      "turnCounter": 2,
+      "smurgTag": "r6dy",
+      "startFailures": 2,
+      "lastTurnOpen": false,
+      "state": "failed",
+      "untrustedSaid": true,
+      "createdAt": 1793045803554,
+      "noteworthyAt": 1793045804518,
+      "lastActivityAt": 1793045804519,
+      "claudeVersion": "2.1.288"
+    }
+  ]
+}

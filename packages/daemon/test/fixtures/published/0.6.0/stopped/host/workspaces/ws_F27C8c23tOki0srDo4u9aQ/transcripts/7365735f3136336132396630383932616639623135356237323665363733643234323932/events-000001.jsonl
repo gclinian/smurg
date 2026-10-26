@@ -1,0 +1,10 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Kate"}},"fallback":"Kate opened this session","seq":1,"at":1793045803221}
+{"v":1,"kind":"message","messageId":"m_6w6y4J_aVwFlajNXmq3xVQ","from":{"userId":"dev:kate","displayName":"Kate","role":"agent"},"text":"Hello.","origin":"composer","seq":2,"at":1793045803221}
+{"v":1,"kind":"delivery","messageId":"m_6w6y4J_aVwFlajNXmq3xVQ","state":"queued","seq":3,"at":1793045803225}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1793045803340}
+{"v":1,"kind":"delivery","messageId":"m_6w6y4J_aVwFlajNXmq3xVQ","state":"started","seq":5,"at":1793045803343}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1793045803344}
+{"v":1,"kind":"notice","level":"error","text":{"id":"notice.modelRefused","params":{"model":"Fable"}},"fallback":"Claude Code could not use the model Fable on the host's account: it may not exist, or the account may not have access to it. Choose another model for this session.","action":"choose-model","seq":7,"at":1793045803399}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"error","durationMs":112,"seq":8,"at":1793045803454}
+{"v":1,"kind":"delivery","messageId":"m_6w6y4J_aVwFlajNXmq3xVQ","state":"completed","seq":9,"at":1793045803456}
+{"v":1,"kind":"line","text":{"id":"conversation.model.changed","params":{"by":"Kate","model":"sonnet"}},"fallback":"Kate changed the model: sonnet","seq":10,"at":1793045803479}

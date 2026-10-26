@@ -1,0 +1,144 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "id": "tp_eShefXnusWwtfEVFR1dXDA",
+      "name": "Price tags",
+      "slug": "price-tags",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "createdAt": 1793045821566,
+      "discussionSessionId": "ses_503543a7a29ddda4e8022b221346963b",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_503543a7a29ddda4e8022b221346963b"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "d2f3553e261f7169a2e838cf18e1964dfa6ad6413b3b922ff26cd2b2efcf0e27",
+        "changedAt": 1793045822013,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_503543a7a29ddda4e8022b221346963b",
+          "ownerUserId": "dev:host",
+          "displayName": "Claude (Price tags)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_503543a7a29ddda4e8022b221346963b",
+          "seq": 6,
+          "at": 1793045822013,
+          "askedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "63672cac140f2b7ccb153873a2aaa37ac87d292023f1a65556767fec955ddf0e",
+        "valid": true,
+        "changedAt": 1793045822306,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_503543a7a29ddda4e8022b221346963b",
+          "ownerUserId": "dev:host",
+          "displayName": "Claude (Price tags)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"tag-print\",\"Tag print\",\"Do tag print. Done when its tests pass.\",[],\"s\",[\"src/tags/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045821360
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "at": 1793045822398,
+          "planRevision": 1,
+          "specHash": "d2f3553e261f7169a2e838cf18e1964dfa6ad6413b3b922ff26cd2b2efcf0e27",
+          "planHash": "63672cac140f2b7ccb153873a2aaa37ac87d292023f1a65556767fec955ddf0e",
+          "commit": null,
+          "specBlob": null,
+          "planBlob": null,
+          "history": "direct"
+        }
+      },
+      "items": [
+        {
+          "id": "tag-print",
+          "number": 1,
+          "title": "Tag print",
+          "summary": "Do tag print. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/tags/**"
+          ],
+          "state": "done",
+          "since": 1793045822987,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:host",
+              "displayName": "Host"
+            },
+            "at": 1793045822398,
+            "planRevision": 1,
+            "specHash": "d2f3553e261f7169a2e838cf18e1964dfa6ad6413b3b922ff26cd2b2efcf0e27",
+            "planHash": "63672cac140f2b7ccb153873a2aaa37ac87d292023f1a65556767fec955ddf0e",
+            "commit": null,
+            "specBlob": null,
+            "planBlob": null,
+            "history": "direct"
+          },
+          "sessionId": "ses_3b357680bffee885a83f149285a7cba4",
+          "sessions": [
+            "ses_3b357680bffee885a83f149285a7cba4"
+          ],
+          "attempt": 1,
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_3b357680bffee885a83f149285a7cba4",
+              "attempt": 1,
+              "hash": "1ebfb2dc1eb4241118d90f332ae144f0e07b9d5b89e6bfd67f4a6529b084634c"
+            }
+          ],
+          "nudged": false,
+          "direct": true
+        }
+      ]
+    }
+  ]
+}

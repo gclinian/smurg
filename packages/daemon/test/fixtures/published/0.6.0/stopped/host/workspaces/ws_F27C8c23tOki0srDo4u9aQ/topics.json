@@ -1,0 +1,2509 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "id": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "name": "Checkout",
+      "slug": "checkout",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045713525,
+      "discussionSessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_5cdea056055dcf8321c198bc95f370ad"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "f03218f3385e61bdf40a264de9e3207b5e945dcded30e139a1904df0b9927c5d",
+        "changedAt": 1793045714817,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Checkout)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+          "seq": 17,
+          "at": 1793045714818,
+          "askedBy": {
+            "userId": "dev:amy",
+            "displayName": "Amy"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [
+        {
+          "id": "rl_0cDw57_eZhwZvG9U_-D-oQ",
+          "tool": "Bash",
+          "pattern": "pnpm test *",
+          "scope": "topic",
+          "addedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "addedAt": 1793045718487
+        }
+      ],
+      "plan": {
+        "exists": true,
+        "hash": "50c2e07be0da986dd2bc6c6b2ab1ac18d56200ef9929c9e40f6fdb4841b1dd59",
+        "valid": true,
+        "changedAt": 1793045715192,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Checkout)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"cart-api\",\"Cart API\",\"Compute the total in one module.\",[],\"m\",[\"src/cart/**\"]],[\"checkout-page\",\"Checkout page\",\"Put cart and payment on one page.\",[\"cart-api\"],\"l\",[\"src/checkout/**\"]],[\"receipt-email\",\"Receipt email\",\"Send a receipt after the payment.\",[],\"s\",[\"src/receipt/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1793045715586,
+          "planRevision": 1,
+          "specHash": "f03218f3385e61bdf40a264de9e3207b5e945dcded30e139a1904df0b9927c5d",
+          "planHash": "50c2e07be0da986dd2bc6c6b2ab1ac18d56200ef9929c9e40f6fdb4841b1dd59",
+          "commit": "3d170931a3cc8437aa8c3a3f6c55f9414df362a5",
+          "specBlob": "28d06fb7e726bc3c3369916b48f4d66a103566ff",
+          "planBlob": "7f28a6ce2144d9c83eb2591e79e7415ef9e402af"
+        }
+      },
+      "items": [
+        {
+          "id": "cart-api",
+          "number": 1,
+          "title": "Cart API",
+          "summary": "Compute the total in one module.",
+          "dependsOn": [],
+          "size": "m",
+          "touches": [
+            "src/cart/**"
+          ],
+          "state": "reviewed",
+          "since": 1793045719029,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:mei",
+            "displayName": "Mei",
+            "source": "chosen"
+          },
+          "chosen": true,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045715586,
+            "planRevision": 1,
+            "specHash": "f03218f3385e61bdf40a264de9e3207b5e945dcded30e139a1904df0b9927c5d",
+            "planHash": "50c2e07be0da986dd2bc6c6b2ab1ac18d56200ef9929c9e40f6fdb4841b1dd59",
+            "commit": "3d170931a3cc8437aa8c3a3f6c55f9414df362a5",
+            "specBlob": "28d06fb7e726bc3c3369916b48f4d66a103566ff",
+            "planBlob": "7f28a6ce2144d9c83eb2591e79e7415ef9e402af"
+          },
+          "sessionId": "ses_14d1baf0733212e5e986608696116a0a",
+          "sessions": [
+            "ses_14d1baf0733212e5e986608696116a0a"
+          ],
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_a0bf042cd4ea89cccfe022b9",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_14d1baf0733212e5e986608696116a0a",
+              "attempt": 1,
+              "hash": "30ef2d099e1116ff861393f833e9d9c01d8cf67cc61be5d2b9cb2e3791d335d1"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "checkout-page",
+          "number": 2,
+          "title": "Checkout page",
+          "summary": "Put cart and payment on one page.",
+          "dependsOn": [
+            "cart-api"
+          ],
+          "size": "l",
+          "touches": [
+            "src/checkout/**"
+          ],
+          "state": "reviewed",
+          "since": 1793045720258,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:amy",
+            "displayName": "Amy",
+            "source": "chosen"
+          },
+          "chosen": true,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045715586,
+            "planRevision": 1,
+            "specHash": "f03218f3385e61bdf40a264de9e3207b5e945dcded30e139a1904df0b9927c5d",
+            "planHash": "50c2e07be0da986dd2bc6c6b2ab1ac18d56200ef9929c9e40f6fdb4841b1dd59",
+            "commit": "3d170931a3cc8437aa8c3a3f6c55f9414df362a5",
+            "specBlob": "28d06fb7e726bc3c3369916b48f4d66a103566ff",
+            "planBlob": "7f28a6ce2144d9c83eb2591e79e7415ef9e402af"
+          },
+          "sessionId": "ses_28de9875a6c1a854d6fe2048b9e269c0",
+          "sessions": [
+            "ses_28de9875a6c1a854d6fe2048b9e269c0"
+          ],
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_7433ced2b3553413ec77c3b2",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_28de9875a6c1a854d6fe2048b9e269c0",
+              "attempt": 1,
+              "hash": "6ea344f053a287ffec2e164de629392118d91300a865eafc6964c7d44d035ee4"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "receipt-email",
+          "number": 3,
+          "title": "Receipt email",
+          "summary": "Send a receipt after the payment.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/receipt/**"
+          ],
+          "state": "reviewed",
+          "since": 1793045721319,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "chosen"
+          },
+          "chosen": true,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045715586,
+            "planRevision": 1,
+            "specHash": "f03218f3385e61bdf40a264de9e3207b5e945dcded30e139a1904df0b9927c5d",
+            "planHash": "50c2e07be0da986dd2bc6c6b2ab1ac18d56200ef9929c9e40f6fdb4841b1dd59",
+            "commit": "3d170931a3cc8437aa8c3a3f6c55f9414df362a5",
+            "specBlob": "28d06fb7e726bc3c3369916b48f4d66a103566ff",
+            "planBlob": "7f28a6ce2144d9c83eb2591e79e7415ef9e402af"
+          },
+          "sessionId": "ses_40150fc92b65130e1c3e7aecd78eddce",
+          "sessions": [
+            "ses_40150fc92b65130e1c3e7aecd78eddce"
+          ],
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_0d160bff3c7d54aef9d2c732",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_40150fc92b65130e1c3e7aecd78eddce",
+              "attempt": 1,
+              "hash": "d8a0e210bac8e337c429734afa23ec89c330c00522ca7cc6e678061121f828f6"
+            },
+            {
+              "sessionId": "ses_40150fc92b65130e1c3e7aecd78eddce",
+              "attempt": 1,
+              "hash": "0af8371a928e1fbe26cbda27bf5a046fb279082fd78617c8ba22ac82e20db71e"
+            }
+          ],
+          "nudged": false
+        }
+      ],
+      "agent": {
+        "model": "sonnet",
+        "permissionMode": "ask-commands",
+        "modeChangedBy": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        },
+        "modelChangedBy": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      }
+    },
+    {
+      "id": "tp_t026TwEwZS9scck3_LsjwA",
+      "name": "Gift cards",
+      "slug": "gift-cards",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045756042,
+      "discussionSessionId": "ses_29288a31cf973375b10d1aad7bc1cb0b",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_29288a31cf973375b10d1aad7bc1cb0b"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "7a43e2b600a08d82e480498772888dc929da0d5ef6ad6614d3d29e3c874a04a0",
+        "changedAt": 1793045772271,
+        "changedBy": {
+          "kind": "user",
+          "userId": "dev:amy",
+          "displayName": "Amy"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_29288a31cf973375b10d1aad7bc1cb0b",
+          "seq": 7,
+          "at": 1793045756412,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [
+          {
+            "by": {
+              "userId": "dev:amy",
+              "displayName": "Amy"
+            },
+            "at": 1793045771769
+          }
+        ],
+        "plan": [
+          {
+            "by": {
+              "userId": "dev:gina",
+              "displayName": "Gina"
+            },
+            "at": 1793045767802
+          }
+        ]
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "71c45bf52856a86ee2996c42809c7d9be7f1617c3cc3aaee15ef6fc3be7250ef",
+        "valid": true,
+        "changedAt": 1793045768281,
+        "changedBy": {
+          "kind": "user",
+          "userId": "dev:gina",
+          "displayName": "Gina"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"card-model\",\"Card model\",\"Do card model. Done when its tests pass.\",[],\"m\",[\"src/gift/model/**\"]],[\"card-page\",\"Card page\",\"Do card page. Done when its tests pass.\",[\"card-model\"],\"l\",[\"src/gift/page/**\"]],[\"card-email\",\"Card email\",\"Do card email. Done when its tests pass.\",[],\"s\",[\"src/gift/email/**\"]],[\"card-admin\",\"Card admin\",\"Do card admin. Done when its tests pass.\",[],\"s\",[\"src/gift/admin/**\"]],[\"card-export\",\"Card export\",\"Do card export. Done when its tests pass.\",[\"card-admin\"],\"s\",[\"src/gift/export/**\"]],[\"card-docs\",\"Card docs\",\"Do card docs. Done when its tests pass.\",[],\"s\",[\"docs/gift/**\"]],[\"card-print\",\"Card print\",\"Do card print. Done when its tests pass.\",[],\"s\",[\"src/gift/print/**\"]],[\"card-audit\",\"Card audit\",\"Do card audit. Done when its tests pass.\",[],\"s\",[\"src/gift/audit/**\"]],[\"card-terms\",\"Card terms\",\"Do card terms. Done when its tests pass.\",[],\"s\",[\"docs/terms/**\"]],[\"card-legal\",\"Card legal\",\"Do card legal. Done when its tests pass.\",[\"card-terms\"],\"s\",[\"docs/legal/**\"]],[\"card-fonts\",\"Card fonts\",\"Do card fonts. Done when its tests pass.\",[],\"s\",[\"src/gift/fonts/**\"]],[\"card-faq\",\"Card FAQ\",\"Do card faq. Done when its tests pass.\",[],\"s\",[\"docs/faq/**\"]],[\"card-merge\",\"Card merge\",\"Do card merge. Done when its tests pass.\",[],\"s\",[\"src/gift/merge/**\"]],[\"card-ink\",\"Card ink\",\"Do card ink. Done when its tests pass.\",[],\"s\",[\"src/gift/ink/**\"]],[\"card-logo\",\"Card logo\",\"Do card logo. Done when its tests pass.\",[],\"s\",[\"src/gift/brand/**\"]],[\"card-banner\",\"Card banner\",\"Do card banner. Done when its tests pass.\",[],\"s\",[\"src/gift/brand/**\"]],[\"card-vendor\",\"Card vendor\",\"\",[],\"s\",[\"vendor/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": true,
+        "pausedAt": 1793045770452,
+        "warnings": [
+          {
+            "text": {
+              "id": "plan.warning.noSummary",
+              "params": {
+                "number": 17
+              }
+            },
+            "fallback": "Item 17 has no description."
+          },
+          {
+            "text": {
+              "id": "plan.warning.overlap",
+              "params": {
+                "first": 15,
+                "second": 16
+              }
+            },
+            "fallback": "Items 15 and 16 may change the same files and neither waits for the other."
+          }
+        ],
+        "split": {
+          "source": "agent",
+          "reason": "Mei knows the model, Noa the mails, Kate the admin pages."
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1793045760681,
+          "planRevision": 1,
+          "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+          "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+          "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+          "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+          "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+        }
+      },
+      "items": [
+        {
+          "id": "card-model",
+          "number": 1,
+          "title": "Card model",
+          "summary": "Do card model. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "m",
+          "touches": [
+            "src/gift/model/**"
+          ],
+          "state": "reviewed",
+          "since": 1793046168656,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:mei",
+            "displayName": "Mei",
+            "source": "agent"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_2b8346823eb1469d7ae6bffcedba4e5f",
+          "sessions": [
+            "ses_2b8346823eb1469d7ae6bffcedba4e5f"
+          ],
+          "worktreeId": "wt_b5d2072eb668d17cd7473496",
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_13b9d66e95ba7e0fce59dc71",
+            "status": "draft",
+            "ready": true
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_2b8346823eb1469d7ae6bffcedba4e5f",
+              "attempt": 1,
+              "hash": "9993a43ac845f172a9317d9f5666cdcc4f37c1473924b7b2568a4438b9352691"
+            },
+            {
+              "sessionId": "ses_2b8346823eb1469d7ae6bffcedba4e5f",
+              "attempt": 1,
+              "hash": "674f388c2b9c47cd924602ad6830064ce6f5181be672957c4cd214b76441d529"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-page",
+          "number": 2,
+          "title": "Card page",
+          "summary": "Do card page. Done when its tests pass.",
+          "dependsOn": [
+            "card-model"
+          ],
+          "size": "l",
+          "touches": [
+            "src/gift/page/**"
+          ],
+          "state": "done",
+          "since": 1793045765828,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:mei",
+            "displayName": "Mei",
+            "source": "agent"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_05576d093e757945f8d33490f19fd53c",
+          "sessions": [
+            "ses_05576d093e757945f8d33490f19fd53c"
+          ],
+          "worktreeId": "wt_43d1e12dfb6e8f5e8ec6220d",
+          "attempt": 1,
+          "changesAsked": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045767492
+          },
+          "merge": {
+            "requestId": "mr_d2195caf1cfe230ad5cfc0a1",
+            "status": "draft",
+            "ready": false
+          },
+          "merged": false,
+          "checked": [
+            {
+              "sessionId": "ses_05576d093e757945f8d33490f19fd53c",
+              "attempt": 1,
+              "hash": "54fd5f197d3ce706153715e1fd778e66e01799530fffd5f93b1dbfc73389ccb2"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-email",
+          "number": 3,
+          "title": "Card email",
+          "summary": "Do card email. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/email/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "agent",
+          "since": 1793045758273,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:noa",
+            "displayName": "Noa",
+            "source": "agent"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_98d255013743be6667f161c5fbe2c57f",
+          "sessions": [
+            "ses_98d255013743be6667f161c5fbe2c57f"
+          ],
+          "worktreeId": "wt_e3eb04649ec5ac577a9462c8",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": true
+        },
+        {
+          "id": "card-admin",
+          "number": 4,
+          "title": "Card admin",
+          "summary": "Do card admin. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/admin/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "restart",
+          "since": 1793045770453,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:kate",
+            "displayName": "Kate",
+            "source": "agent"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_ec87e2faa0b8a313e0ded61c094d9702",
+          "sessions": [
+            "ses_ec87e2faa0b8a313e0ded61c094d9702"
+          ],
+          "worktreeId": "wt_44d9d359ef34daafcad4db13",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-export",
+          "number": 5,
+          "title": "Card export",
+          "summary": "Do card export. Done when its tests pass.",
+          "dependsOn": [
+            "card-admin"
+          ],
+          "size": "s",
+          "touches": [
+            "src/gift/export/**"
+          ],
+          "state": "not-started",
+          "since": 1793045768316,
+          "armed": false,
+          "disarmed": "plan-changed",
+          "retry": false,
+          "responsible": {
+            "userId": "dev:ruth",
+            "displayName": "Ruth",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "startError": {
+            "text": {
+              "id": "plan.item.disarmed.changed"
+            },
+            "fallback": "The spec or the plan changed since Start. This item did not start."
+          },
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-docs",
+          "number": 6,
+          "title": "Card docs",
+          "summary": "Do card docs. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "docs/gift/**"
+          ],
+          "state": "not-started",
+          "since": 1793045757090,
+          "armed": false,
+          "retry": false,
+          "responsible": null,
+          "chosen": true,
+          "sessions": [],
+          "attempt": 0,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-print",
+          "number": 7,
+          "title": "Card print",
+          "summary": "Do card print. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/print/**"
+          ],
+          "state": "failed",
+          "since": 1793045758369,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "chosen"
+          },
+          "chosen": true,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_3cfb8c1cce666aac8666967736cf5a71",
+          "sessions": [
+            "ses_3cfb8c1cce666aac8666967736cf5a71"
+          ],
+          "worktreeId": "wt_6b7d8f72b0e4a4071881ff37",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-audit",
+          "number": 8,
+          "title": "Card audit",
+          "summary": "Do card audit. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/audit/**"
+          ],
+          "state": "stopped",
+          "since": 1793045758934,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:kate",
+            "displayName": "Kate",
+            "source": "chosen"
+          },
+          "chosen": true,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045757580,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_616ac64c9b5eaa502f410699c07ff134",
+          "sessions": [
+            "ses_616ac64c9b5eaa502f410699c07ff134"
+          ],
+          "worktreeId": "wt_a22aae7c8d672f11c3df9edb",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-terms",
+          "number": 9,
+          "title": "Card terms",
+          "summary": "Do card terms. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "docs/terms/**"
+          ],
+          "state": "reviewed",
+          "since": 1793045768385,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045759110,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_057fc39968ac735adeb66e9b0af9beb6",
+          "sessions": [
+            "ses_057fc39968ac735adeb66e9b0af9beb6"
+          ],
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_772bec04cfb4957ef2fd4586",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_057fc39968ac735adeb66e9b0af9beb6",
+              "attempt": 1,
+              "hash": "794789baf73f577953dffe3cda98cb4e1b8266f7379389424cfafcd77901a605"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-legal",
+          "number": 10,
+          "title": "Card legal",
+          "summary": "Do card legal. Done when its tests pass.",
+          "dependsOn": [
+            "card-terms"
+          ],
+          "size": "s",
+          "touches": [
+            "docs/legal/**"
+          ],
+          "state": "not-started",
+          "since": 1793045768321,
+          "armed": false,
+          "disarmed": "plan-changed",
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045759110,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "startError": {
+            "text": {
+              "id": "plan.item.disarmed.changed"
+            },
+            "fallback": "The spec or the plan changed since Start. This item did not start."
+          },
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-fonts",
+          "number": 11,
+          "title": "Card fonts",
+          "summary": "Do card fonts. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/fonts/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "error",
+          "since": 1793045759614,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045759110,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_3a7efa7a0bea53680f276af0c958bdb9",
+          "sessions": [
+            "ses_3a7efa7a0bea53680f276af0c958bdb9"
+          ],
+          "worktreeId": "wt_6dd9da0fc816e0ff2a7a99ee",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "card-faq",
+          "number": 12,
+          "title": "Card FAQ",
+          "summary": "Do card faq. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "docs/faq/**"
+          ],
+          "state": "done",
+          "since": 1793045764655,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:noa",
+            "displayName": "Noa",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045760681,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_9560a22425ce12ba7ccbfd590b42c0c9",
+          "sessions": [
+            "ses_9560a22425ce12ba7ccbfd590b42c0c9"
+          ],
+          "worktreeId": "wt_e5e49265a7f1ae77b962b8f6",
+          "attempt": 1,
+          "changesAsked": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045765984
+          },
+          "merge": {
+            "requestId": "mr_ae0ab59092f07dbe4e673740",
+            "status": "draft",
+            "ready": false
+          },
+          "merged": false,
+          "checked": [
+            {
+              "sessionId": "ses_9560a22425ce12ba7ccbfd590b42c0c9",
+              "attempt": 1,
+              "hash": "2168b22395869b7e98cb22b75735ed2758c63470713fec3cceaa31024b21883b"
+            }
+          ],
+          "nudged": false,
+          "fix": {
+            "hash": "a0d5e296d8e063879ad3e4d7e09a68981ad2fae89af420f0f958fa5c1d4c8f86",
+            "count": 1
+          }
+        },
+        {
+          "id": "card-merge",
+          "number": 13,
+          "title": "Card merge",
+          "summary": "Do card merge. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/merge/**"
+          ],
+          "state": "done",
+          "since": 1793045760473,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:kate",
+            "displayName": "Kate",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045759110,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_4d8a47c1a39121dca6aab2f6ab656798",
+          "sessions": [
+            "ses_4d8a47c1a39121dca6aab2f6ab656798"
+          ],
+          "worktreeId": "wt_d2bac898bacc32f92c2eb8a7",
+          "attempt": 1,
+          "merged": false,
+          "checked": [
+            {
+              "sessionId": "ses_4d8a47c1a39121dca6aab2f6ab656798",
+              "attempt": 1,
+              "hash": "887ff5420409accbf8170e8249b3752e465f68d3d6804f20a47af1d47bf80434"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-ink",
+          "number": 14,
+          "title": "Card ink",
+          "summary": "Do card ink. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/ink/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "agent",
+          "since": 1793045772187,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:ruth",
+            "displayName": "Ruth",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045759110,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_8f0b051cdfaaf5d840e69b69f76bf656",
+          "sessions": [
+            "ses_8f0b051cdfaaf5d840e69b69f76bf656"
+          ],
+          "worktreeId": "wt_a52a60b9e312504ec3ef4faa",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": true
+        },
+        {
+          "id": "card-logo",
+          "number": 15,
+          "title": "Card logo",
+          "summary": "Do card logo. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/brand/**"
+          ],
+          "state": "done",
+          "since": 1793045761873,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045760681,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_a2bdea06c1d60ac98635902b931c4e72",
+          "sessions": [
+            "ses_a2bdea06c1d60ac98635902b931c4e72"
+          ],
+          "worktreeId": "wt_c2fa533e51c9dd4d7696950f",
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_956c494878cf5144abd90d68",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_a2bdea06c1d60ac98635902b931c4e72",
+              "attempt": 1,
+              "hash": "5a84f72ec89f11219913d90c14f82aa9f821272b35370961ebfccdd734ac6203"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-banner",
+          "number": 16,
+          "title": "Card banner",
+          "summary": "Do card banner. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/gift/brand/**"
+          ],
+          "state": "done",
+          "since": 1793045762036,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:noa",
+            "displayName": "Noa",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045760681,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_4d451636f58e19e47819eb9a4a248469",
+          "sessions": [
+            "ses_4d451636f58e19e47819eb9a4a248469"
+          ],
+          "worktreeId": "wt_3c4b4c5a894fc287ef4d7663",
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_c026b77b1fc1d247ad13c789",
+            "status": "conflict",
+            "ready": false
+          },
+          "merged": false,
+          "checked": [
+            {
+              "sessionId": "ses_4d451636f58e19e47819eb9a4a248469",
+              "attempt": 1,
+              "hash": "6d93b59ded1b050378b57dc5160b654d48efd68ce8e076756fcc7f9a0032343b"
+            }
+          ],
+          "nudged": false
+        },
+        {
+          "id": "card-vendor",
+          "number": 17,
+          "title": "Card vendor",
+          "summary": "",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "vendor/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "error",
+          "since": 1793045762157,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:kate",
+            "displayName": "Kate",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045760681,
+            "planRevision": 1,
+            "specHash": "5559a94bf9d58bf809236b82f10098cfe445bb08bcf7bb0cdc6eec3b48a849b3",
+            "planHash": "017f7e91556de3488486f663d86e0e9820b0a60b307d84e81dc9de75a6d6323c",
+            "commit": "4ab165947fe5cefe22f40dcd4b414ca8e8f57a21",
+            "specBlob": "75d4e9655bfe543082b1623e9a3ef39fb33a43c9",
+            "planBlob": "5367cc9cfe875f7164d38ba031bf2547bc878243"
+          },
+          "sessionId": "ses_800663bf7cdbc809901c1585e6f44d0a",
+          "sessions": [
+            "ses_800663bf7cdbc809901c1585e6f44d0a"
+          ],
+          "worktreeId": "wt_9d2c225859408f0e0dab494b",
+          "attempt": 1,
+          "merged": false,
+          "checked": [
+            {
+              "sessionId": "ses_800663bf7cdbc809901c1585e6f44d0a",
+              "attempt": 1,
+              "hash": "99b1a41611a7b8ed1ada2f5ff4c78637fc5d75ab0255041ce59f258458d2321f"
+            }
+          ],
+          "nudged": false,
+          "snapshotOwed": true
+        }
+      ],
+      "agent": {
+        "permissionMode": "ask-commands",
+        "modeChangedBy": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      }
+    },
+    {
+      "id": "tp_sLdkMlhyFS8ZUWG0Ujbbzg",
+      "name": "Late shipping",
+      "slug": "late-shipping",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045772237,
+      "discussionSessionId": "ses_75c267ec21152b545ae9a6bd5e343dcf",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_75c267ec21152b545ae9a6bd5e343dcf"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "4685ae0701537994f3b9178e972bb36596752355518b69f0427282f5bdac44e8",
+        "changedAt": 1793045772612,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_75c267ec21152b545ae9a6bd5e343dcf",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Late shipping)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_75c267ec21152b545ae9a6bd5e343dcf",
+          "seq": 7,
+          "at": 1793045772614,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "05daa9f3427e72001f90dfcb6cdfdbcbc9bf7b6b838a237a9a6d045776d917b3",
+        "valid": true,
+        "changedAt": 1793045772861,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_75c267ec21152b545ae9a6bd5e343dcf",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Late shipping)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"late-note\",\"Late note\",\"Do late note. Done when its tests pass.\",[],\"s\",[\"src/late/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1793045773287,
+          "planRevision": 1,
+          "specHash": "4685ae0701537994f3b9178e972bb36596752355518b69f0427282f5bdac44e8",
+          "planHash": "05daa9f3427e72001f90dfcb6cdfdbcbc9bf7b6b838a237a9a6d045776d917b3",
+          "commit": "9a155f67e9fe64f810b376d0060fe4f7cc45bbed",
+          "specBlob": "4dfe85fc8e519089961839695ab9af432d769c1d",
+          "planBlob": "3cee548cb2d4d3a0b7c35979126aad69f775f7eb"
+        }
+      },
+      "items": [
+        {
+          "id": "late-note",
+          "number": 1,
+          "title": "Late note",
+          "summary": "Do late note. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/late/**"
+          ],
+          "state": "not-started",
+          "since": 1793045773476,
+          "armed": false,
+          "disarmed": "start-failed",
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045773287,
+            "planRevision": 1,
+            "specHash": "4685ae0701537994f3b9178e972bb36596752355518b69f0427282f5bdac44e8",
+            "planHash": "05daa9f3427e72001f90dfcb6cdfdbcbc9bf7b6b838a237a9a6d045776d917b3",
+            "commit": "9a155f67e9fe64f810b376d0060fe4f7cc45bbed",
+            "specBlob": "4dfe85fc8e519089961839695ab9af432d769c1d",
+            "planBlob": "3cee548cb2d4d3a0b7c35979126aad69f775f7eb"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "startError": {
+            "text": {
+              "id": "session.claude.tooOld",
+              "params": {
+                "found": "2.1.100",
+                "min": "2.1.288"
+              }
+            },
+            "fallback": "Claude Code on the host's computer is version 2.1.100. Agent sessions need 2.1.288 or newer. The host should update Claude Code."
+          },
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        }
+      ]
+    },
+    {
+      "id": "tp_uiGC4QKommgYTrLtH9lVtw",
+      "name": "Tiny things",
+      "slug": "tiny-things",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045773554,
+      "discussionSessionId": "ses_9bdd7caa75168cd652ca5b32d8999a20",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_9bdd7caa75168cd652ca5b32d8999a20"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "ff5c16962827c356abb58ff7137be1f5a0fd63cd8d1ab1e747a6b768642a5bf1",
+        "changedAt": 1793045773960,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_9bdd7caa75168cd652ca5b32d8999a20",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Tiny things)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_9bdd7caa75168cd652ca5b32d8999a20",
+          "seq": 7,
+          "at": 1793045773962,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "e3cbb1958d8cd270bd7662f0bc0e7df23703682f924a53423753fd98854a2525",
+        "valid": true,
+        "changedAt": 1793045774295,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_9bdd7caa75168cd652ca5b32d8999a20",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Tiny things)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"tiny-one\",\"Tiny one\",\"Do tiny one. Done when its tests pass.\",[],\"s\",[\"src/tiny/one/**\"]],[\"tiny-two\",\"Tiny two\",\"Do tiny two. Done when its tests pass.\",[\"tiny-one\"],\"s\",[\"src/tiny/two/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:sam",
+            "displayName": "Sam"
+          },
+          "at": 1793045774609,
+          "planRevision": 1,
+          "specHash": "ff5c16962827c356abb58ff7137be1f5a0fd63cd8d1ab1e747a6b768642a5bf1",
+          "planHash": "e3cbb1958d8cd270bd7662f0bc0e7df23703682f924a53423753fd98854a2525",
+          "commit": "da6730f4f2044a8fe0d2014e411d9f3c20fcaaa5",
+          "specBlob": "b27f999ace19bcd591b5bdd1d7e9233cd1e6202d",
+          "planBlob": "d20b3f1825988371a8188a75e10f6b0128db8b69"
+        }
+      },
+      "items": [
+        {
+          "id": "tiny-one",
+          "number": 1,
+          "title": "Tiny one",
+          "summary": "Do tiny one. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/tiny/one/**"
+          ],
+          "state": "stalled",
+          "stalledBy": "stopped",
+          "since": 1793045775066,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:sam",
+            "displayName": "Sam"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:sam",
+              "displayName": "Sam"
+            },
+            "at": 1793045774609,
+            "planRevision": 1,
+            "specHash": "ff5c16962827c356abb58ff7137be1f5a0fd63cd8d1ab1e747a6b768642a5bf1",
+            "planHash": "e3cbb1958d8cd270bd7662f0bc0e7df23703682f924a53423753fd98854a2525",
+            "commit": "da6730f4f2044a8fe0d2014e411d9f3c20fcaaa5",
+            "specBlob": "b27f999ace19bcd591b5bdd1d7e9233cd1e6202d",
+            "planBlob": "d20b3f1825988371a8188a75e10f6b0128db8b69"
+          },
+          "sessionId": "ses_19b9b615687383ccd3bd3a14756e4745",
+          "sessions": [
+            "ses_19b9b615687383ccd3bd3a14756e4745"
+          ],
+          "worktreeId": "wt_6627639aad19d0ac9d012d06",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "tiny-two",
+          "number": 2,
+          "title": "Tiny two",
+          "summary": "Do tiny two. Done when its tests pass.",
+          "dependsOn": [
+            "tiny-one"
+          ],
+          "size": "s",
+          "touches": [
+            "src/tiny/two/**"
+          ],
+          "state": "not-started",
+          "since": 1793045774998,
+          "armed": false,
+          "disarmed": "starter-removed",
+          "retry": false,
+          "responsible": {
+            "userId": "dev:mei",
+            "displayName": "Mei",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:sam",
+            "displayName": "Sam"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:sam",
+              "displayName": "Sam"
+            },
+            "at": 1793045774609,
+            "planRevision": 1,
+            "specHash": "ff5c16962827c356abb58ff7137be1f5a0fd63cd8d1ab1e747a6b768642a5bf1",
+            "planHash": "e3cbb1958d8cd270bd7662f0bc0e7df23703682f924a53423753fd98854a2525",
+            "commit": "da6730f4f2044a8fe0d2014e411d9f3c20fcaaa5",
+            "specBlob": "b27f999ace19bcd591b5bdd1d7e9233cd1e6202d",
+            "planBlob": "d20b3f1825988371a8188a75e10f6b0128db8b69"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "startError": {
+            "text": {
+              "id": "plan.item.disarmed.starter",
+              "params": {
+                "name": "Sam"
+              }
+            },
+            "fallback": "Sam, who started this plan, was removed. This item did not start."
+          },
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        }
+      ]
+    },
+    {
+      "id": "tp_sX6LlL6Pvrvt6C731bLgcQ",
+      "name": "Bare shelves",
+      "slug": "bare-shelves",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045775108,
+      "discussionSessionId": "ses_cd93b93d6e20a9273e4d94e862811b3a",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_cd93b93d6e20a9273e4d94e862811b3a"
+      ],
+      "spec": {
+        "exists": false,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "changedAt": 1793045776199,
+        "changedBy": {
+          "kind": "user",
+          "userId": "dev:amy",
+          "displayName": "Amy"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_cd93b93d6e20a9273e4d94e862811b3a",
+          "seq": 7,
+          "at": 1793045775478,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [
+          {
+            "by": {
+              "userId": "dev:amy",
+              "displayName": "Amy"
+            },
+            "at": 1793045775908
+          }
+        ],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "063fa2179ff7bf53d278bf00938369db94ffbd61a2bf59f09382ba496bd8a3e9",
+        "valid": true,
+        "changedAt": 1793045775676,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_cd93b93d6e20a9273e4d94e862811b3a",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Bare shelves)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"bare-one\",\"Bare one\",\"Do bare one. Done when its tests pass.\",[],\"s\",[\"src/bare/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ]
+      },
+      "items": [
+        {
+          "id": "bare-one",
+          "number": 1,
+          "title": "Bare one",
+          "summary": "Do bare one. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/bare/**"
+          ],
+          "state": "not-started",
+          "since": 1793045775676,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "sessions": [],
+          "attempt": 0,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        }
+      ]
+    },
+    {
+      "id": "tp_craAomRdK_jlSxYKtXggCA",
+      "name": "Exchange",
+      "slug": "exchange",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045775924,
+      "discussionSessionId": "ses_c7cc4992f63a2d132170705ef3a99360",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_c7cc4992f63a2d132170705ef3a99360"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "f09bd15f7a15485eb2dd79d874afc1672b3e5d67d16d1bb47e2e3724ae0aabb0",
+        "changedAt": 1793045776300,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_c7cc4992f63a2d132170705ef3a99360",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Exchange)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_c7cc4992f63a2d132170705ef3a99360",
+          "seq": 7,
+          "at": 1793045776302,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "df59c4e5e509915820f99e5f9764004953bd599b61fcb509794482c7f19beadd",
+        "valid": false,
+        "error": {
+          "text": {
+            "id": "plan.error.duplicateId",
+            "params": {
+              "line": 15,
+              "id": "swap"
+            }
+          },
+          "fallback": "Line 15: the id \"swap\" is used twice.",
+          "line": 15
+        },
+        "changedAt": 1793045776550,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_c7cc4992f63a2d132170705ef3a99360",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Exchange)"
+        },
+        "parsed": false,
+        "fingerprint": "",
+        "revision": 0,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "fix": {
+          "hash": "df59c4e5e509915820f99e5f9764004953bd599b61fcb509794482c7f19beadd",
+          "count": 1
+        }
+      },
+      "items": []
+    },
+    {
+      "id": "tp_aOE_MM51ZU69pqld_VquxA",
+      "name": "Vouchers",
+      "slug": "vouchers",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045776875,
+      "discussionSessionId": "ses_644d79c21f07adca210f2b91a57e9c5c",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_644d79c21f07adca210f2b91a57e9c5c"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "afd71662a3a469aa5e06269aae2808efbcd12ab742a4162e5a3c894f372fa34c",
+        "changedAt": 1793045799964,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_644d79c21f07adca210f2b91a57e9c5c",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Vouchers)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_644d79c21f07adca210f2b91a57e9c5c",
+          "seq": 7,
+          "at": 1793045777247,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "d19f9b159c4205cea971f24e1056d754a8b2b4bf6ca3a4f806fea9228cb84408",
+        "valid": false,
+        "error": {
+          "text": {
+            "id": "plan.error.cycle",
+            "params": {
+              "ids": [
+                "print",
+                "send"
+              ]
+            }
+          },
+          "fallback": "Work items depend on each other in a circle: print, send."
+        },
+        "changedAt": 1793045801403,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_644d79c21f07adca210f2b91a57e9c5c",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Vouchers)"
+        },
+        "parsed": false,
+        "fingerprint": "",
+        "revision": 0,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "fix": {
+          "hash": "5ab9716f7efc5f04d7e4d3253f1f99b0311de1675e048e34d19cf0807c65c956",
+          "count": 1
+        }
+      },
+      "items": []
+    },
+    {
+      "id": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+      "name": "Wishlist",
+      "slug": "wishlist",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045777858,
+      "discussionSessionId": "ses_474e3318f1b0f0caaa3ad369285a557c",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_474e3318f1b0f0caaa3ad369285a557c"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+        "changedAt": 1793045778226,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_474e3318f1b0f0caaa3ad369285a557c",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Wishlist)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_474e3318f1b0f0caaa3ad369285a557c",
+          "seq": 7,
+          "at": 1793045778228,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+        "valid": true,
+        "changedAt": 1793045778477,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_474e3318f1b0f0caaa3ad369285a557c",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Wishlist)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"wish-list\",\"Wish list\",\"Do wish list. Done when its tests pass.\",[],\"s\",[\"src/wish/list/**\"]],[\"wish-share\",\"Wish share\",\"Do wish share. Done when its tests pass.\",[],\"s\",[\"src/wish/share/**\"]],[\"wish-sync\",\"Wish sync\",\"Do wish sync. Done when its tests pass.\",[],\"s\",[\"src/wish/list/**\"]],[\"wish-mail\",\"Wish mail\",\"Do wish mail. Done when its tests pass.\",[\"wish-share\"],\"s\",[\"src/wish/share/**\"]]]",
+        "revision": 1,
+        "mode": "everyone",
+        "paused": false,
+        "warnings": [
+          {
+            "text": {
+              "id": "plan.warning.overlap",
+              "params": {
+                "first": 1,
+                "second": 3
+              }
+            },
+            "fallback": "Items 1 and 3 may change the same files and neither waits for the other."
+          }
+        ],
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "at": 1793045778913,
+          "planRevision": 1,
+          "specHash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+          "planHash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+          "commit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+          "specBlob": "4b15fcfc94acba272c95c5c18ca008fd19d52030",
+          "planBlob": "c8715b99ecc678efbe9affc7cb80d2d3e47404c4"
+        }
+      },
+      "items": [
+        {
+          "id": "wish-list",
+          "number": 1,
+          "title": "Wish list",
+          "summary": "Do wish list. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/wish/list/**"
+          ],
+          "state": "running",
+          "since": 1793045779119,
+          "armed": false,
+          "retry": false,
+          "responsible": null,
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045778913,
+            "planRevision": 1,
+            "specHash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+            "planHash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+            "commit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+            "specBlob": "4b15fcfc94acba272c95c5c18ca008fd19d52030",
+            "planBlob": "c8715b99ecc678efbe9affc7cb80d2d3e47404c4"
+          },
+          "sessionId": "ses_d4384540a5e0fbe2cc82f7c73333f98d",
+          "sessions": [
+            "ses_d4384540a5e0fbe2cc82f7c73333f98d"
+          ],
+          "worktreeId": "wt_eda0b8aaaccf9e65c268a9e9",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "wish-share",
+          "number": 2,
+          "title": "Wish share",
+          "summary": "Do wish share. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/wish/share/**"
+          ],
+          "state": "running",
+          "since": 1793045779345,
+          "armed": false,
+          "retry": false,
+          "responsible": null,
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045778913,
+            "planRevision": 1,
+            "specHash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+            "planHash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+            "commit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+            "specBlob": "4b15fcfc94acba272c95c5c18ca008fd19d52030",
+            "planBlob": "c8715b99ecc678efbe9affc7cb80d2d3e47404c4"
+          },
+          "sessionId": "ses_190b6a46a26585b58ff105f1bdf2f559",
+          "sessions": [
+            "ses_190b6a46a26585b58ff105f1bdf2f559"
+          ],
+          "worktreeId": "wt_39f7e9f550c63a0c108a57fd",
+          "attempt": 1,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "wish-sync",
+          "number": 3,
+          "title": "Wish sync",
+          "summary": "Do wish sync. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/wish/list/**"
+          ],
+          "state": "queued",
+          "since": 1793045778913,
+          "armed": true,
+          "retry": false,
+          "responsible": null,
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045778913,
+            "planRevision": 1,
+            "specHash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+            "planHash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+            "commit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+            "specBlob": "4b15fcfc94acba272c95c5c18ca008fd19d52030",
+            "planBlob": "c8715b99ecc678efbe9affc7cb80d2d3e47404c4"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        },
+        {
+          "id": "wish-mail",
+          "number": 4,
+          "title": "Wish mail",
+          "summary": "Do wish mail. Done when its tests pass.",
+          "dependsOn": [
+            "wish-share"
+          ],
+          "size": "s",
+          "touches": [
+            "src/wish/share/**"
+          ],
+          "state": "waiting",
+          "since": 1793045778913,
+          "armed": true,
+          "retry": false,
+          "responsible": null,
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:mei",
+              "displayName": "Mei"
+            },
+            "at": 1793045778913,
+            "planRevision": 1,
+            "specHash": "bafc4f51f3498bd54589b8cbd8744641e598bad084b3e33ae17f02a1ac7fc079",
+            "planHash": "13bc1943bf3427b22cdfce77d8d486f1d1fa261a199e7f2cf4769cc540f40038",
+            "commit": "34e334445eab2d9cd0915f00e7e91adab6742fe6",
+            "specBlob": "4b15fcfc94acba272c95c5c18ca008fd19d52030",
+            "planBlob": "c8715b99ecc678efbe9affc7cb80d2d3e47404c4"
+          },
+          "sessions": [],
+          "attempt": 0,
+          "merged": false,
+          "checked": [],
+          "nudged": false
+        }
+      ],
+      "agent": {
+        "permissionMode": "ask-commands",
+        "modeChangedBy": {
+          "userId": "dev:mei",
+          "displayName": "Mei"
+        }
+      }
+    },
+    {
+      "id": "tp_gxjpvoVVHmYcTgGndkH72A",
+      "name": "Returns",
+      "slug": "returns",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045796239,
+      "discussionSessionId": "ses_99a761da600e7d33e07e1d175b9e7971",
+      "discussion": "lost",
+      "lostAt": 1793045797275,
+      "discussionSessions": [
+        "ses_99a761da600e7d33e07e1d175b9e7971"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "f95ae9b8eb97406e893454134d3cae9fe65dd88d6291e8507a9ee0cb0215f939",
+        "changedAt": 1793045796599,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_99a761da600e7d33e07e1d175b9e7971",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Returns)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_99a761da600e7d33e07e1d175b9e7971",
+          "seq": 7,
+          "at": 1793045796601,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "b05d053e2a24bca352c676fb20bc16a21c291c44ceaca38b2fd1baef78a56834",
+        "valid": false,
+        "error": {
+          "text": {
+            "id": "plan.error.badId",
+            "params": {
+              "line": 8
+            }
+          },
+          "fallback": "Line 8: an id uses lower-case letters, digits and hyphens.",
+          "line": 8
+        },
+        "changedAt": 1793045796822,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_99a761da600e7d33e07e1d175b9e7971",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Returns)"
+        },
+        "parsed": false,
+        "fingerprint": "",
+        "revision": 0,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045711589
+          },
+          {
+            "userId": "dev:mei",
+            "name": "Mei",
+            "joinedAt": 1793045713394
+          },
+          {
+            "userId": "dev:noa",
+            "name": "Noa",
+            "joinedAt": 1793045716447
+          },
+          {
+            "userId": "dev:kate",
+            "name": "Kate",
+            "joinedAt": 1793045723693
+          },
+          {
+            "userId": "dev:ruth",
+            "name": "Ruth",
+            "joinedAt": 1793045723787
+          }
+        ],
+        "fix": {
+          "hash": "b05d053e2a24bca352c676fb20bc16a21c291c44ceaca38b2fd1baef78a56834",
+          "count": 1
+        }
+      },
+      "items": []
+    },
+    {
+      "id": "tp_Sr8qInTQaYdKrZwitRXi6w",
+      "name": "Refunds and credit",
+      "slug": "refunds",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045797290,
+      "discussionSessionId": "ses_7cd22aed066a4dd7c3ab61f94e55ad4b",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_a9f2b7e3910ef5fb9a3b53727f8136e2",
+        "ses_7cd22aed066a4dd7c3ab61f94e55ad4b"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "2a2e63c5a02c56f5c9a084b482acad81eb025eb5560f9c5e2ee1f803cbddb478",
+        "changedAt": 1793045797780,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_a9f2b7e3910ef5fb9a3b53727f8136e2",
+          "ownerUserId": "dev:mei",
+          "displayName": "Claude (Refunds)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_a9f2b7e3910ef5fb9a3b53727f8136e2",
+          "seq": 8,
+          "at": 1793045797782,
+          "askedBy": {
+            "userId": "dev:mei",
+            "displayName": "Mei"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": false,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "valid": false,
+        "parsed": false,
+        "fingerprint": "",
+        "revision": 0,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "people": []
+      },
+      "items": []
+    },
+    {
+      "id": "tp_1KSssaX2vf7OuqptOyr7iQ",
+      "name": "Old idea",
+      "slug": "old-idea",
+      "archived": true,
+      "createdBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "createdAt": 1793045798329,
+      "discussionSessionId": "ses_046dcdc1258090ea4a0dfa7d7f387fbf",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_046dcdc1258090ea4a0dfa7d7f387fbf"
+      ],
+      "spec": {
+        "exists": false,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": false,
+        "hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "valid": false,
+        "parsed": false,
+        "fingerprint": "",
+        "revision": 0,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "people": []
+      },
+      "items": []
+    }
+  ]
+}

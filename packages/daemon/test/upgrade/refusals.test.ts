@@ -70,15 +70,16 @@ interface Case {
 }
 
 /** A document that one of the LAST modules opens: everything before it has been created and started by then. */
-const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 'suggestions', '0.5.0': 'topics', '0.5.1': 'topics', '0.5.2': 'topics' };
+const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 'suggestions', '0.5.0': 'topics', '0.5.1': 'topics', '0.5.2': 'topics', '0.6.0': 'topics' };
 /** 0.5.1 is the first published smurg that stamps a folder: its fixture and every later one hold a stamp. */
 const stampedBy = (version: PublishedVersion): boolean => version !== '0.4.0' && version !== '0.5.0';
 /**
  * What a start of 0.6.0 upgrades in the folder a version left (DESIGN 0.6.0 D6): 0.4.0's state.json and suggestions.json
  * (its state.json through both steps, named after the first), 0.5.x's state.json and agent-sessions.json (the owner's
- * decision: auto mode); with the stamp's writer once a version stamps folders.
+ * decision: auto mode); with the stamp's writer once a version stamps folders. What 0.6.0 wrote: nothing.
  */
 function upgradesOf(version: PublishedVersion, copy: FixtureCopy): unknown[] {
+  if (version === '0.6.0') return [];
   const from = version === '0.4.0' ? '0.4.0' : '0.5.0';
   const documents = version === '0.4.0' ? ['state', 'suggestions'] : ['state', 'agent-sessions'];
   return documents.map((document) => ({ document, from, copy: join(copy.workspaceDir, keptCopyName(document, from)), ...(stampedBy(version) ? { writer: version } : {}) }));

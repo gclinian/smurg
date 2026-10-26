@@ -18,7 +18,7 @@ import { createTempRunDir, registerTestDir, removeTempRunDir } from '../../src/t
 /** `packages/daemon/test/fixtures/published` */
 export const PUBLISHED_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures', 'published');
 /** Every published version that has a fixture, oldest first. The last one wrote the shapes this smurg writes. */
-export const PUBLISHED_VERSIONS = ['0.4.0', '0.5.0', '0.5.1', '0.5.2'] as const;
+export const PUBLISHED_VERSIONS = ['0.4.0', '0.5.0', '0.5.1', '0.5.2', '0.6.0'] as const;
 export type PublishedVersion = (typeof PUBLISHED_VERSIONS)[number];
 export type FixtureVariantName = 'stopped' | 'running';
 
@@ -275,4 +275,6 @@ export interface StoredState {
   readonly invites: readonly { readonly id: string; readonly keyIdHex: string; readonly role: string; readonly createdAt: number; readonly expiresAt?: number; readonly maxUses?: number; readonly uses: number; readonly revoked: boolean; readonly host: boolean }[];
   readonly settings: Readonly<Record<string, unknown>>;
   readonly worktreeRoots: readonly unknown[];
+  /** Since 0.6.0: the notices the host has not seen yet. */
+  readonly hostNotices?: readonly string[];
 }

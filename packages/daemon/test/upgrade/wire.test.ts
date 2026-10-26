@@ -1,4 +1,4 @@
-// THE WIRE OF THIS TREE IS THE WIRE OF THE PUBLISHED TAG (0.5.2, the newest published smurg).
+// THE WIRE OF THIS TREE IS THE WIRE OF THE PUBLISHED TAG (0.6.0, the newest published smurg).
 //
 // The relay serves ONE web app to everybody. A page built from this tree talks to hosts that still run the published
 // smurg, and every message schema is strict: one added key in a payload, and that page cuts off every such host
@@ -6,7 +6,7 @@
 // nothing a peer sends or accepts may differ from it. Nothing in the tree said so: the pin of the stored shapes hashes
 // only what a stored schema is built from, and other-version.test.ts runs the tag's daemon on FOLDERS, not a message.
 //
-// Two things are compared with the protocol package of the tag itself (`git archive v0.5.2 packages/protocol`):
+// Two things are compared with the protocol package of the tag itself (`git archive v0.6.0 packages/protocol`):
 //   1. WHAT THE PACKAGE SAYS, as text, by the pin's own machinery (wire-runner.ts, run with plain node in each tree):
 //      the protocol version; every registered message type with its direction, channel, capability, checks and
 //      flags, and the shape of its payload and of its result; every schema and every data constant the tag exports
@@ -19,7 +19,7 @@
 // so and asks for nothing (peers of another version are refused at the handshake, with words).
 //
 // The tag must be at hand, as for other-version.test.ts: this repository's git with the tag (`GIT_DIR` works), or
-// `$SMURG_PUBLISHED_TREES/v0.5.2/packages/protocol`. Without it these tests are SKIPPED and say so; for the release
+// `$SMURG_PUBLISHED_TREES/v0.6.0/packages/protocol`. Without it these tests are SKIPPED and say so; for the release
 // (SMURG_RELEASE_GATE=1) a missing tag FAILS. After a release, TAG moves to the new tag (docs/RELEASING.md).
 import { execFile } from 'node:child_process';
 import { cp, mkdir, readFile, readdir, symlink } from 'node:fs/promises';
@@ -34,7 +34,7 @@ const run = promisify(execFile);
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, '..', '..', '..', '..');
 const PROTOCOL = join(REPO, 'packages', 'protocol');
-const TAG = 'v0.5.2';
+const TAG = 'v0.6.0';
 const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
 const MIB = 1024 * 1024;
 

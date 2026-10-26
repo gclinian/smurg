@@ -1,0 +1,148 @@
+{
+  "version": 1,
+  "topics": [
+    {
+      "id": "tp_tG29_LJL3gBUPYCSuPKfMA",
+      "name": "Shelf notes",
+      "slug": "shelf-notes",
+      "archived": false,
+      "createdBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "createdAt": 1793045817206,
+      "discussionSessionId": "ses_fc3cc0183e96606031c9cfbf57e7a350",
+      "discussion": "live",
+      "discussionSessions": [
+        "ses_fc3cc0183e96606031c9cfbf57e7a350"
+      ],
+      "spec": {
+        "exists": true,
+        "hash": "742c1eeed13750e5804ce2f44f256b0eae74c4d8087495ef40dc4cb817042ddb",
+        "changedAt": 1793045817675,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_fc3cc0183e96606031c9cfbf57e7a350",
+          "ownerUserId": "dev:host",
+          "displayName": "Claude (Shelf notes)"
+        },
+        "lastAgentChange": {
+          "sessionId": "ses_fc3cc0183e96606031c9cfbf57e7a350",
+          "seq": 6,
+          "at": 1793045817676,
+          "askedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          }
+        }
+      },
+      "handEdits": {
+        "spec": [],
+        "plan": []
+      },
+      "rules": [],
+      "plan": {
+        "exists": true,
+        "hash": "90105c4c01946f240e0042d9d24b66971dfac6c4908451396412379221b50c71",
+        "valid": true,
+        "changedAt": 1793045818010,
+        "changedBy": {
+          "kind": "agent",
+          "sessionId": "ses_fc3cc0183e96606031c9cfbf57e7a350",
+          "ownerUserId": "dev:host",
+          "displayName": "Claude (Shelf notes)"
+        },
+        "parsed": true,
+        "fingerprint": "[[\"shelf-page\",\"Shelf page\",\"Do shelf page. Done when its tests pass.\",[],\"s\",[\"src/shelf/**\"]]]",
+        "revision": 1,
+        "mode": "assigned",
+        "paused": false,
+        "warnings": [],
+        "split": {
+          "source": "smurg"
+        },
+        "people": [
+          {
+            "userId": "dev:host",
+            "name": "Host",
+            "joinedAt": 1793045816998
+          }
+        ],
+        "lastPin": {
+          "by": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "at": 1793045818502,
+          "planRevision": 1,
+          "specHash": "742c1eeed13750e5804ce2f44f256b0eae74c4d8087495ef40dc4cb817042ddb",
+          "planHash": "90105c4c01946f240e0042d9d24b66971dfac6c4908451396412379221b50c71",
+          "commit": "2a7cf2d081ca1cea450e96e12e14c4df3ffa6723",
+          "specBlob": "bebd1ba58e19d03377f8c29abd18321173b441a8",
+          "planBlob": "865d5f544899adcf0cf70fbed5d5edde729f2d50",
+          "history": "smurg"
+        }
+      },
+      "items": [
+        {
+          "id": "shelf-page",
+          "number": 1,
+          "title": "Shelf page",
+          "summary": "Do shelf page. Done when its tests pass.",
+          "dependsOn": [],
+          "size": "s",
+          "touches": [
+            "src/shelf/**"
+          ],
+          "state": "reviewed",
+          "since": 1793045819409,
+          "armed": false,
+          "retry": false,
+          "responsible": {
+            "userId": "dev:host",
+            "displayName": "Host",
+            "source": "smurg"
+          },
+          "chosen": false,
+          "startedBy": {
+            "userId": "dev:host",
+            "displayName": "Host"
+          },
+          "pin": {
+            "by": {
+              "userId": "dev:host",
+              "displayName": "Host"
+            },
+            "at": 1793045818502,
+            "planRevision": 1,
+            "specHash": "742c1eeed13750e5804ce2f44f256b0eae74c4d8087495ef40dc4cb817042ddb",
+            "planHash": "90105c4c01946f240e0042d9d24b66971dfac6c4908451396412379221b50c71",
+            "commit": "2a7cf2d081ca1cea450e96e12e14c4df3ffa6723",
+            "specBlob": "bebd1ba58e19d03377f8c29abd18321173b441a8",
+            "planBlob": "865d5f544899adcf0cf70fbed5d5edde729f2d50",
+            "history": "smurg"
+          },
+          "sessionId": "ses_9f8ca771cf433054c1492e0a246bb2c5",
+          "sessions": [
+            "ses_9f8ca771cf433054c1492e0a246bb2c5"
+          ],
+          "attempt": 1,
+          "merge": {
+            "requestId": "mr_ee9a4ea16cfc716c95b7f873",
+            "status": "merged",
+            "ready": false
+          },
+          "merged": true,
+          "checked": [
+            {
+              "sessionId": "ses_9f8ca771cf433054c1492e0a246bb2c5",
+              "attempt": 1,
+              "hash": "c1ab68ccc7b64e80a72c86cae6bbce9cd8d04ac6d6d8cf0ccb0d44bd004a228b"
+            }
+          ],
+          "nudged": false
+        }
+      ]
+    }
+  ]
+}

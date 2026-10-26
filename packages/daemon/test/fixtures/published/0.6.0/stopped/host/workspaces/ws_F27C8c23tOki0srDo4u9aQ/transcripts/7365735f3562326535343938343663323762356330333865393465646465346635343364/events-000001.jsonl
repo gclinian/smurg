@@ -1,0 +1,30 @@
+{"v":1,"kind":"line","text":{"id":"conversation.started.free","params":{"name":"Ruth"}},"fallback":"Ruth opened this session","seq":1,"at":1793045753001}
+{"v":1,"kind":"message","messageId":"m_XY5UbR8Em_sXyhy-FrTJ1A","from":{"userId":"dev:ruth","displayName":"Ruth","role":"agent"},"text":"Please write a note in the worktree.","origin":"composer","seq":2,"at":1793045753001}
+{"v":1,"kind":"delivery","messageId":"m_XY5UbR8Em_sXyhy-FrTJ1A","state":"queued","seq":3,"at":1793045753002}
+{"v":1,"kind":"notice","level":"warning","text":{"id":"session.projectSettings.untrusted"},"fallback":"The host has not confirmed this folder's Claude Code project settings. This session runs without them and without the project's CLAUDE.md.","action":"restart-agent","seq":4,"at":1793045753115}
+{"v":1,"kind":"delivery","messageId":"m_XY5UbR8Em_sXyhy-FrTJ1A","state":"started","seq":5,"at":1793045753116}
+{"v":1,"kind":"turn.started","turnId":"t_1","seq":6,"at":1793045753117}
+{"v":1,"kind":"tool.started","turnId":"t_1","toolUseId":"toolu_fake_0001","tool":{"name":"Write","verb":"create","target":"notes/agent-note.md","file":{"root":{"kind":"worktree","worktreeId":"wt_f0290db2d7bf3647f9e6c963"},"path":"notes/agent-note.md"}},"seq":7,"at":1793045753175}
+{"v":1,"kind":"tool.finished","turnId":"t_1","toolUseId":"toolu_fake_0001","ok":true,"result":{"durationMs":114,"additions":1,"deletions":0,"body":{"kind":"diff","text":"+written by the agent inside its worktree\n","truncated":false}},"seq":8,"at":1793045753289}
+{"v":1,"kind":"text","turnId":"t_1","blockId":"b_1_1","text":"Noted.","seq":9,"at":1793045753289}
+{"v":1,"kind":"turn.finished","turnId":"t_1","outcome":"completed","durationMs":225,"seq":10,"at":1793045753341}
+{"v":1,"kind":"delivery","messageId":"m_XY5UbR8Em_sXyhy-FrTJ1A","state":"completed","seq":11,"at":1793045753342}
+{"v":1,"kind":"line","text":{"id":"conversation.mode.changed","params":{"by":"Ruth","mode":"ask-all"}},"fallback":"Ruth changed the permission mode: asks before edits and commands","seq":12,"at":1793045753401}
+{"v":1,"kind":"message","messageId":"m_ZW3fuX5Fl057wuuBai8XGQ","from":{"userId":"dev:ruth","displayName":"Ruth","role":"agent"},"text":"Please change the note in the worktree.","origin":"composer","seq":13,"at":1793045753416}
+{"v":1,"kind":"delivery","messageId":"m_ZW3fuX5Fl057wuuBai8XGQ","state":"started","seq":14,"at":1793045753417}
+{"v":1,"kind":"turn.started","turnId":"t_2","seq":15,"at":1793045753418}
+{"v":1,"kind":"tool.started","turnId":"t_2","toolUseId":"toolu_fake_0002","tool":{"name":"Edit","verb":"edit","target":"notes/agent-note.md","file":{"root":{"kind":"worktree","worktreeId":"wt_f0290db2d7bf3647f9e6c963"},"path":"notes/agent-note.md"}},"seq":16,"at":1793045753476}
+{"v":1,"kind":"card","card":"permission","id":"rq_trScYPyKeI7MjnubxUbDVg","seq":17,"at":1793045753590}
+{"v":1,"kind":"tool.finished","turnId":"t_2","toolUseId":"toolu_fake_0002","ok":true,"result":{"durationMs":221,"additions":1,"deletions":1,"body":{"kind":"diff","text":"@@ -1,1 +1,1 @@\n-written\n+changed\n","truncated":false}},"seq":18,"at":1793045753698}
+{"v":1,"kind":"text","turnId":"t_2","blockId":"b_2_1","text":"Changed.","seq":19,"at":1793045753698}
+{"v":1,"kind":"turn.finished","turnId":"t_2","outcome":"completed","durationMs":337,"seq":20,"at":1793045753753}
+{"v":1,"kind":"delivery","messageId":"m_ZW3fuX5Fl057wuuBai8XGQ","state":"completed","seq":21,"at":1793045753754}
+{"v":1,"kind":"card","card":"suggestion","id":"sug_QVVeBS8tJJFXt9gcWTkX5Q","seq":22,"at":1793045753815}
+{"v":1,"kind":"message","messageId":"m_jLBvP6JthjcjI5bcA1MDsA","from":{"userId":"dev:ruth","displayName":"Ruth","role":"agent"},"text":"Now ask once more, please.","origin":"composer","seq":23,"at":1793045753837}
+{"v":1,"kind":"delivery","messageId":"m_jLBvP6JthjcjI5bcA1MDsA","state":"started","seq":24,"at":1793045753838}
+{"v":1,"kind":"turn.started","turnId":"t_3","seq":25,"at":1793045753839}
+{"v":1,"kind":"card","card":"question","id":"rq_1KpQ4Pdo5in6qmEpIqwsHg","seq":26,"at":1793045753947}
+{"v":1,"kind":"line","text":{"id":"conversation.ended","params":{"name":"Ruth"}},"fallback":"Ruth ended this session","seq":27,"at":1793045754003}
+{"v":1,"kind":"text","turnId":"t_3","blockId":"b_3_1","text":"Thanks again.","seq":28,"at":1793045754005}
+{"v":1,"kind":"turn.finished","turnId":"t_3","outcome":"interrupted","durationMs":222,"seq":29,"at":1793045754059}
+{"v":1,"kind":"delivery","messageId":"m_jLBvP6JthjcjI5bcA1MDsA","state":"completed","seq":30,"at":1793045754060}

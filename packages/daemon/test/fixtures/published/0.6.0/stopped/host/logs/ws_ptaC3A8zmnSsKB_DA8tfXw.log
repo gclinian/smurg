@@ -1,0 +1,94 @@
+2026-10-20T08:42:05.439Z info "hook socket listening" sessions=0
+2026-10-20T08:42:05.670Z info "control socket listening" module=control
+2026-10-20T08:42:05.680Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:63672
+2026-10-20T08:42:05.687Z info "relay link online" module=relay link=ws
+2026-10-20T08:42:05.689Z info "relay link online" module=relay link=xfer
+2026-10-20T08:42:06.408Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:08.002Z info "hook socket listening" sessions=0
+2026-10-20T08:42:08.059Z info "control socket listening" module=control
+2026-10-20T08:42:08.076Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:63672
+2026-10-20T08:42:08.082Z info "relay link online" module=relay link=ws
+2026-10-20T08:42:08.086Z info "relay link online" module=relay link=xfer
+2026-10-20T08:42:12.488Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:13.280Z info "hook socket listening" sessions=0
+2026-10-20T08:42:13.363Z info "control socket listening" module=control
+2026-10-20T08:42:13.382Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:63672
+2026-10-20T08:42:13.390Z info "relay link online" module=relay link=ws
+2026-10-20T08:42:13.392Z info "relay link online" module=relay link=xfer
+2026-10-20T08:42:18.581Z info "stop requested on the control socket" module=control
+2026-10-20T08:42:19.117Z info "hook socket listening" sessions=0
+2026-10-20T08:42:19.184Z info "control socket listening" module=control
+2026-10-20T08:42:19.206Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:63672
+2026-10-20T08:42:19.212Z info "relay link online" module=relay link=ws
+2026-10-20T08:42:19.217Z info "relay link online" module=relay link=xfer
+2026-10-20T08:42:33.393Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_1676a939dd0b4f946e895717304c8852 tool=TodoWrite
+2026-10-20T08:42:33.670Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_1676a939dd0b4f946e895717304c8852 tool=SomethingNew
+2026-10-20T08:42:38.870Z info "agent notified a member" session=ses_1676a939dd0b4f946e895717304c8852 member=dev:bob
+2026-10-20T08:42:43.400Z warn "an agent process ended unexpectedly" session=ses_8285d3dc7fb7a6f794564511cf66545a code=3 signal=none stderr="the stand-in crashed on purpose\n"
+2026-10-20T08:42:51.919Z warn "an agent process ended unexpectedly" session=ses_dc1d42b4504f20ae544d6d94562ceb50 code=7 signal=none stderr="printer on fire\n"
+2026-10-20T08:42:53.495Z warn "an agent process ended unexpectedly" session=ses_fd35f85231ee9f0a6bcab1451e457f23 code=9 signal=none stderr="out of ink\n"
+2026-10-20T08:42:56.704Z error "snapshot failed" topic=tp_Zpo4DJrg28mpUId0fLSExQ item=card-vendor error=SmurgError
+2026-10-20T08:43:06.424Z info "stop requested on the control socket" module=control
+2026-10-20T08:43:08.139Z info "hook socket listening" sessions=0
+2026-10-20T08:43:08.196Z warn "inbox: a source failed" module=inbox source=plans error=SmurgError
+2026-10-20T08:43:08.339Z info "control socket listening" module=control
+2026-10-20T08:43:08.359Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:63672
+2026-10-20T08:43:08.370Z info "relay link online" module=relay link=ws
+2026-10-20T08:43:08.375Z info "relay link online" module=relay link=xfer
+2026-10-20T08:43:21.592Z warn "an agent process ended unexpectedly" session=ses_04a99ffb84138c4726c9efd4d417895f code=3 signal=none stderr="the stand-in crashed on purpose\n"
+2026-10-20T08:50:13.928Z info "stop requested on the control socket" module=control
+2026-10-20T08:50:14.669Z info "agent notified a member" session=ses_fdc2fed71d268993b8b3d68ee041de75 member=dev:bob
+2026-10-26T20:16:54.721Z info "state file upgraded" module=state document=state from=0.5.0 copy=/__SMURG_FIXTURE__/host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/state.json.before-upgrade-from-0.5.0 putBack=false
+2026-10-26T20:16:54.733Z info "state file upgraded" module=state document=agent-sessions from=0.5.0 copy=/__SMURG_FIXTURE__/host/workspaces/ws_ptaC3A8zmnSsKB_DA8tfXw/agent-sessions.json.before-upgrade-from-0.5.0 putBack=false
+2026-10-26T20:16:54.743Z info "This workspace was last shared with smurg 0.5.2: its members, invite links and settings were carried over. What changed: https://smurg.ai/docs/hosting/#92-after-an-update-what-your-workspace-keeps"
+2026-10-26T20:16:54.743Z info "\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose \"Asks before commands\" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first"
+2026-10-26T20:16:54.748Z info "hook socket listening" sessions=0
+2026-10-26T20:16:54.758Z error "could not watch a root" root=wt:wt_111675e54a86257dfa501718 error="not the root directory"
+2026-10-26T20:16:54.758Z error "could not watch a root" root=wt:wt_208c189f4b09233d8aeace46 error="not the root directory"
+2026-10-26T20:16:54.758Z error "could not watch a root" root=wt:wt_23ffb85487b2d56162c8ed20 error="not the root directory"
+2026-10-26T20:16:54.758Z error "could not watch a root" root=wt:wt_e1021ae206eae14c245b7adb error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_2093e38929eab54afc212689 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_96eb9ddc35a45afd95fd2550 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_c35e079e73047f112b320ee6 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_d679bac14e43957e67650e31 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_03fafa0f9f7fc880ce3157ed error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_79a42e25599b0492b909ca58 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_09359867bf0a469d26dfb3ab error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_7046013aae19905b56492e4b error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_80bc8dba8303fb3c307950f1 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_04798e9539fbda978dd46dda error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_f9f341cf0be5343b2af16a14 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_a61ca5f4fe67332b21a76168 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_6dc9ee5086b7f71b9a1ce992 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_cf253c731944f5c10efc0965 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_3ce3252a11f3b12cb458d703 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_f0457964bbd7d7ba9f0e7c88 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_f87aabd6258190ebecb646f1 error="not the root directory"
+2026-10-26T20:16:54.759Z error "could not watch a root" root=wt:wt_e582d7b1182ed2d0128ff28c error="not the root directory"
+2026-10-26T20:16:54.769Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_111675e54a86257dfa501718
+2026-10-26T20:16:54.777Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_208c189f4b09233d8aeace46
+2026-10-26T20:16:54.785Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_23ffb85487b2d56162c8ed20
+2026-10-26T20:16:54.792Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_e1021ae206eae14c245b7adb
+2026-10-26T20:16:54.799Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_2093e38929eab54afc212689
+2026-10-26T20:16:54.807Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_96eb9ddc35a45afd95fd2550
+2026-10-26T20:16:54.815Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_c35e079e73047f112b320ee6
+2026-10-26T20:16:54.823Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_d679bac14e43957e67650e31
+2026-10-26T20:16:54.829Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_03fafa0f9f7fc880ce3157ed
+2026-10-26T20:16:54.835Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_79a42e25599b0492b909ca58
+2026-10-26T20:16:54.841Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_09359867bf0a469d26dfb3ab
+2026-10-26T20:16:54.847Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_7046013aae19905b56492e4b
+2026-10-26T20:16:54.855Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_80bc8dba8303fb3c307950f1
+2026-10-26T20:16:54.862Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_04798e9539fbda978dd46dda
+2026-10-26T20:16:54.868Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_f9f341cf0be5343b2af16a14
+2026-10-26T20:16:54.874Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_a61ca5f4fe67332b21a76168
+2026-10-26T20:16:54.882Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_6dc9ee5086b7f71b9a1ce992
+2026-10-26T20:16:54.890Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_cf253c731944f5c10efc0965
+2026-10-26T20:16:54.898Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_3ce3252a11f3b12cb458d703
+2026-10-26T20:16:54.906Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_f0457964bbd7d7ba9f0e7c88
+2026-10-26T20:16:54.910Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_f87aabd6258190ebecb646f1
+2026-10-26T20:16:54.918Z warn "worktree directory missing; record dropped" module=worktree worktree=wt_e582d7b1182ed2d0128ff28c
+2026-10-26T20:16:55.114Z info "control socket listening" module=control
+2026-10-26T20:16:55.136Z info "daemon started" workspace=ws_ptaC3A8zmnSsKB_DA8tfXw relay=http://127.0.0.1:65444
+2026-10-26T20:16:55.142Z info "relay link online" module=relay link=ws
+2026-10-26T20:16:55.147Z info "relay link online" module=relay link=xfer
+2026-10-26T20:16:55.497Z info "stop requested on the control socket" module=control

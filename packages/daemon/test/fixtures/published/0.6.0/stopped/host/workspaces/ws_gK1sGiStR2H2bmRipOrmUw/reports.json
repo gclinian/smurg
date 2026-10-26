@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "reports": [
+    {
+      "version": 1,
+      "writtenAt": 1793045822987,
+      "outcome": "complete",
+      "state": "to-review",
+      "reviewers": [
+        {
+          "userId": "dev:host",
+          "displayName": "Host"
+        }
+      ],
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_eShefXnusWwtfEVFR1dXDA",
+      "itemId": "tag-print",
+      "file": {
+        "root": {
+          "kind": "main"
+        },
+        "path": "specs/price-tags/reports/tag-print.md"
+      },
+      "sections": {
+        "done": "The work of Tag print.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "noChanges": "no-history",
+      "questions": [],
+      "contentHash": "1ebfb2dc1eb4241118d90f332ae144f0e07b9d5b89e6bfd67f4a6529b084634c",
+      "sessionId": "ses_3b357680bffee885a83f149285a7cba4",
+      "waitingSince": 1793045822987,
+      "pending": []
+    }
+  ]
+}

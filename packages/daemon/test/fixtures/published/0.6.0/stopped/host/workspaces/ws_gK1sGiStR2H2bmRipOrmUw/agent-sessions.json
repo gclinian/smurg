@@ -1,0 +1,86 @@
+{
+  "sessions": [
+    {
+      "id": "ses_503543a7a29ddda4e8022b221346963b",
+      "purpose": "discussion",
+      "topic": {
+        "id": "tp_eShefXnusWwtfEVFR1dXDA",
+        "slug": "price-tags",
+        "name": "Price tags"
+      },
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": null,
+      "fallbackDecider": "dev:host",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "3e9e18bc-ef03-4a5d-a69f-57efb8a3a896",
+      "hasConversation": true,
+      "turnCounter": 2,
+      "smurgTag": "638u",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "untrustedSaid": false,
+      "createdAt": 1793045821648,
+      "noteworthyAt": 1793045822011,
+      "lastActivityAt": 1793045822367,
+      "claudeVersion": "2.1.288"
+    },
+    {
+      "id": "ses_3b357680bffee885a83f149285a7cba4",
+      "purpose": "item",
+      "topic": {
+        "id": "tp_eShefXnusWwtfEVFR1dXDA",
+        "slug": "price-tags",
+        "name": "Price tags"
+      },
+      "item": {
+        "id": "tag-print",
+        "number": 1,
+        "title": "Tag print",
+        "attempt": 1
+      },
+      "openedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "ownerUserId": "dev:host",
+      "pathRights": "host",
+      "responsible": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "fallbackDecider": "dev:host",
+      "root": {
+        "kind": "main"
+      },
+      "modeChoice": null,
+      "model": null,
+      "rules": [],
+      "claudeSessionId": "d6c413d9-9d2b-4d41-9711-64e84441edc5",
+      "hasConversation": true,
+      "turnCounter": 1,
+      "smurgTag": "71hd",
+      "startFailures": 0,
+      "lastTurnOpen": false,
+      "state": "live",
+      "itemState": {
+        "reportRegistered": true
+      },
+      "untrustedSaid": false,
+      "createdAt": 1793045822401,
+      "noteworthyAt": 1793045822985,
+      "lastActivityAt": 1793045822988,
+      "claudeVersion": "2.1.288"
+    }
+  ]
+}

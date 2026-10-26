@@ -1,0 +1,111 @@
+{
+  "version": 2,
+  "workspaceId": "ws_JQyGHiVuRmyk-52kXN9U-A",
+  "members": [
+    {
+      "userId": "dev:host",
+      "displayName": "Host",
+      "role": "host",
+      "color": "#4a6fa8",
+      "joinedAt": 1793045816998,
+      "lastSeenAt": 1793045820366,
+      "status": "active"
+    },
+    {
+      "userId": "dev:kate",
+      "displayName": "Kate",
+      "role": "agent",
+      "color": "#0f9d9a",
+      "joinedAt": 1793045819612,
+      "lastSeenAt": 1793045820366,
+      "status": "active"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "koaYQiZtdjJXYuZ9XZJjZQ",
+      "userId": "dev:host",
+      "publicKeyHex": "000d26a63b1ba2c3d7f20f8af5cc19b1b00ac67fbcc45a3fed2ade4f83c98f0a",
+      "name": "host browser",
+      "kind": "web",
+      "addedAt": 1793045817182,
+      "lastSeenAt": 1793045820366,
+      "revoked": false,
+      "inviteId": "inv_GkybGD1vCvjPd3mZDkNRQg"
+    },
+    {
+      "deviceId": "NRL8bNXDR7pygY1Bojg4pw",
+      "userId": "dev:kate",
+      "publicKeyHex": "71e325a40e4e0e168f8289eee3178f29a7de6548b224566abb3d6e93e7ba6425",
+      "name": "kate browser",
+      "kind": "web",
+      "addedAt": 1793045819612,
+      "lastSeenAt": 1793045820366,
+      "revoked": false,
+      "inviteId": "inv_euRnn7V5XeTvOrME1MsZUg"
+    }
+  ],
+  "invites": [
+    {
+      "id": "inv_GkybGD1vCvjPd3mZDkNRQg",
+      "keyIdHex": "ebe1fb523e019885868577d1fc5877e6",
+      "pskHex": "1e621c3e8099fbd2c1a42432a11381abc1e074df6b77b176860b760f7a1f5e41",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1793045817092,
+      "createdBy": null,
+      "expiresAt": 1793650617092,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": true
+    },
+    {
+      "id": "inv_Py3vR07balTGOqPo8OQbjw",
+      "keyIdHex": "ce77e1fe8194a4481b00ee4d0fb0ac82",
+      "pskHex": "f9540047a61c62812e129fb0d71c72eb65927765e8897bf1efed824917c9e75b",
+      "role": "editor",
+      "createdAt": 1793045817103,
+      "createdBy": "dev:host",
+      "expiresAt": 1793650617103,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    },
+    {
+      "id": "inv_euRnn7V5XeTvOrME1MsZUg",
+      "keyIdHex": "7bea93b3da6e3b8f0ca92376ca4e5fa4",
+      "pskHex": "2727a69f096c0943c3dd4069365c1f50c19a417b074d4e154f47c0af7139b10e",
+      "role": "agent",
+      "createdAt": 1793045819584,
+      "createdBy": "dev:host",
+      "expiresAt": 1793650619584,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": false
+    }
+  ],
+  "settings": {
+    "humanLockIdleMs": 30000,
+    "agentLockTimeoutMs": 60000,
+    "uploadChunkSize": 4194304,
+    "sharedDirs": [],
+    "permissionMode": "auto",
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 5,
+    "maxLiveAgents": 5,
+    "escalateAfterMs": 300000,
+    "agentMcp": false
+  },
+  "worktreeRoots": [
+    {
+      "worktreeId": "wt_0024b08abae8a0cd28f5dca2",
+      "realPath": "/__SMURG_FIXTURE__/nogit/.smurg/worktrees/wt_0024b08abae8a0cd28f5dca2",
+      "ownerUserId": "dev:kate",
+      "sharedLinks": [],
+      "registeredAt": 1793045820210
+    }
+  ],
+  "hostNotices": []
+}

@@ -13,7 +13,8 @@
 //
 // Since 0.6.0 (protocol 5, DESIGN 0.6.0 D2) the attach answer is where two versions meet on one computer: it embeds
 // the Welcome, whose settings gained `permissionMode`, so a local attach across versions ends with these words at
-// once, both ways (one welcome sample per protocol below; the other way is checked with the code of tag v0.5.2).
+// once, both ways (one welcome sample per protocol below; the other way is checked with the code of the newest
+// published tag, v0.6.0, stated over the protocol of each side: DESIGN 0.7.0 D1).
 import { execFile } from 'node:child_process';
 import { chmod, cp, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
 import { createServer, type Server, type Socket } from 'node:net';
@@ -35,7 +36,7 @@ import {
   runPathsFor,
   type CtlStatus,
 } from '@smurg/daemon';
-import { decodeEnvelope, welcomeSchema } from '@smurg/protocol';
+import { PROTOCOL_VERSION, decodeEnvelope, welcomeSchema } from '@smurg/protocol';
 import { probeDaemon, probeDaemons } from '../src/channel/discover.ts';
 import { ctlAsk } from '../src/channel/local-channel.ts';
 import { formatFailure } from '../src/cli/errors.ts';
@@ -610,32 +611,37 @@ const WELCOME_V5 = (workspaceId: string): Record<string, unknown> => {
   return { ...welcome, settings: { ...(welcome['settings'] as object), permissionMode: 'auto' } };
 };
 
+/** One welcome sample per protocol: what a daemon of that protocol puts in its attach answer. */
+const WELCOMES: Readonly<Record<number, (workspaceId: string) => Record<string, unknown>>> = { 4: WELCOME_V4, 5: WELCOME_V5 };
+
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
+/** The newest published smurg (docs/RELEASING.md §4.5 moves it after a release). */
+const TAG = 'v0.6.0';
 
 /**
- * The protocol package of tag v0.5.2 (the newest published smurg) in a scratch folder: `git archive`, as
- * packages/daemon/test/upgrade/other-version.test.ts gets that tag's code, or `$SMURG_PUBLISHED_TREES/v0.5.2/`; its
+ * The protocol package of the newest published tag in a scratch folder: `git archive`, as
+ * packages/daemon/test/upgrade/other-version.test.ts gets that tag's code, or `$SMURG_PUBLISHED_TREES/<tag>/`; its
  * dependencies are this checkout's. Or why it cannot be had (a shallow clone has no tags).
  */
-async function protocolOfV052(into: string): Promise<{ readonly src: string } | { readonly missing: string }> {
+async function protocolOfTheTag(into: string): Promise<{ readonly src: string } | { readonly missing: string }> {
   const given = process.env['SMURG_PUBLISHED_TREES'];
   try {
     if (given !== undefined && given !== '') {
-      await cp(join(given, 'v0.5.2', 'packages', 'protocol'), join(into, 'packages', 'protocol'), { recursive: true, filter: (source) => !source.split('/').includes('node_modules') });
+      await cp(join(given, TAG, 'packages', 'protocol'), join(into, 'packages', 'protocol'), { recursive: true, filter: (source) => !source.split('/').includes('node_modules') });
       // The package's tsconfig extends the repository's (the test runner reads it to compile the tag's TypeScript).
-      await cp(join(given, 'v0.5.2', 'tsconfig.base.json'), join(into, 'tsconfig.base.json')).catch(() => cp(join(REPO, 'tsconfig.base.json'), join(into, 'tsconfig.base.json')));
+      await cp(join(given, TAG, 'tsconfig.base.json'), join(into, 'tsconfig.base.json')).catch(() => cp(join(REPO, 'tsconfig.base.json'), join(into, 'tsconfig.base.json')));
     } else {
       const archive = join(into, 'tag.tar');
-      await run('git', ['-C', REPO, 'archive', '--format=tar', '-o', archive, 'v0.5.2', 'packages/protocol', 'tsconfig.base.json'], { maxBuffer: 64 * 1024 * 1024 });
+      await run('git', ['-C', REPO, 'archive', '--format=tar', '-o', archive, TAG, 'packages/protocol', 'tsconfig.base.json'], { maxBuffer: 64 * 1024 * 1024 });
       await run('tar', ['-xf', archive, '-C', into]);
     }
   } catch (err) {
-    return { missing: `the protocol package of v0.5.2 could not be had (no tag: a shallow checkout?): ${err instanceof Error ? err.message.split('\n')[0] : 'unknown'}` };
+    return { missing: `the protocol package of ${TAG} could not be had (no tag: a shallow checkout?): ${err instanceof Error ? err.message.split('\n')[0] : 'unknown'}` };
   }
   await symlink(join(REPO, 'packages', 'protocol', 'node_modules'), join(into, 'packages', 'protocol', 'node_modules'));
   const version = (JSON.parse(await readFile(join(into, 'packages', 'protocol', 'package.json'), 'utf8')) as { version: string }).version;
-  if (version !== '0.5.2') return { missing: `the tree for v0.5.2 says it is ${version}` };
+  if (`v${version}` !== TAG) return { missing: `the tree for ${TAG} says it is ${version}` };
   return { src: join(into, 'packages', 'protocol', 'src') };
 }
 
@@ -657,20 +663,32 @@ describe('smurg attach on the host and a daemon of another version', () => {
     expect(decoded.ok).toBe(false);
   });
 
-  it('the other way round: the strict welcome schema of v0.5.2 (the code of the tag) accepts protocol 4\'s sample and refuses protocol 5\'s, so a command of 0.5.x cannot read the attach answer of a 0.6.0 daemon and ends with its own other-version words', async (context) => {
+  it(`the other way round, stated over the protocol of each side: the strict welcome schema of ${TAG} (the code of the tag) reads this smurg's attach answer while both have one protocol, and refuses it once this smurg's protocol is newer, so a command of the tag ends with its own other-version words`, async (context) => {
     const { dirs } = await setup();
-    const tree = await protocolOfV052(dirs.home);
+    const tree = await protocolOfTheTag(dirs.home);
     if ('missing' in tree) {
       if (RELEASE_GATE) throw new Error(tree.missing);
       console.warn(`SKIPPED: ${tree.missing}`);
       context.skip();
       return;
     }
-    const { welcomeSchema: welcomeOfV052 } = (await import(join(tree.src, 'schema', 'handshake.ts'))) as { welcomeSchema: typeof welcomeSchema };
-    expect(welcomeOfV052.safeParse(WELCOME_V4('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
-    const refused = welcomeOfV052.safeParse(WELCOME_V5('ws_AAAAAAAAAAAAAAAAAAAAAA'));
-    expect(refused.success).toBe(false);
-    expect(refused.error?.issues).toMatchObject([{ code: 'unrecognized_keys', keys: ['permissionMode'], path: ['settings'] }]);
+    const { welcomeSchema: welcomeOfTheTag } = (await import(join(tree.src, 'schema', 'handshake.ts'))) as { welcomeSchema: typeof welcomeSchema };
+    const { PROTOCOL_VERSION: protocolOfTag } = (await import(join(tree.src, 'constants.ts'))) as { PROTOCOL_VERSION: number };
+    const ours = WELCOMES[PROTOCOL_VERSION];
+    const theirs = WELCOMES[protocolOfTag];
+    if (ours === undefined || theirs === undefined) throw new Error(`no welcome sample of protocol ${ours === undefined ? PROTOCOL_VERSION : protocolOfTag} here: add one beside WELCOME_V5`);
+    expect(protocolOfTag, 'a protocol version is only ever raised').toBeLessThanOrEqual(PROTOCOL_VERSION);
+    // The tag reads the sample of its own protocol, and refuses the one before it (its settings lack a key).
+    expect(welcomeOfTheTag.safeParse(theirs('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
+    const older = WELCOMES[protocolOfTag - 1];
+    if (older !== undefined) expect(welcomeOfTheTag.safeParse(older('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(false);
+    const read = welcomeOfTheTag.safeParse(ours('ws_AAAAAAAAAAAAAAAAAAAAAA'));
+    if (protocolOfTag === PROTOCOL_VERSION) {
+      expect(read.success).toBe(true);
+    } else {
+      expect(read.success).toBe(false);
+      expect(read.error?.issues.map((issue) => issue.code)).toContain('unrecognized_keys');
+    }
   });
 
   it('a daemon of protocol 4 (0.4.0 to 0.5.2): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', async () => {

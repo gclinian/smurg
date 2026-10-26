@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "worktrees": [],
+  "merges": [
+    {
+      "id": "mr_5af9acb2f4fe6eaf64f84491",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add feature.txt",
+      "commit": "64ac33881126fe19f23c279370fff9b07d1423b3",
+      "status": "merged",
+      "createdAt": 1791378177756,
+      "decidedAt": 1791378177954,
+      "mergeCommit": "a2994971f987c85acaf652915d82bf07a0093219"
+    },
+    {
+      "id": "mr_4a6503df8edff6caa18d3920",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add second.txt",
+      "commit": "b154d4fc43774a7d4c69876c74f830b0bddc03ab",
+      "status": "rejected",
+      "createdAt": 1791378178130,
+      "decidedAt": 1791378178142,
+      "rejectReason": "請先修正測試"
+    },
+    {
+      "id": "mr_3ef5388b8d2467de233905c8",
+      "worktreeId": "wt_1a6446cb2f94b9ce8fadd272",
+      "ownerUserId": "dev:carol",
+      "requestedBy": {
+        "userId": "dev:carol",
+        "displayName": "Carol"
+      },
+      "message": "add third.txt\n- waits for the host",
+      "commit": "07784a8e1c5ae0e9e6e8729fda62421d21ca395d",
+      "status": "pending",
+      "createdAt": 1791378178333
+    },
+    {
+      "id": "mr_a8132d293bf7d3d1164e8d2f",
+      "worktreeId": "wt_efcb449900c9593bcdf13b6b",
+      "ownerUserId": "dev:host",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "notes from the agent",
+      "commit": "944589c0ed8896c1de5d2e002cc11c155132e069",
+      "status": "pending",
+      "createdAt": 1791378178934
+    }
+  ]
+}

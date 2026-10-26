@@ -731,18 +731,19 @@ rule and how the daemon keeps it are in ARCHITECTURE §11 D-24; `CONTRIBUTING.md
 stored shape. For a release it means:
 
 - **The gate runs from a checkout that has the tags of the published versions.**
-  `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.5.2`
+  `packages/daemon/test/upgrade/other-version.test.ts` takes the daemon and the protocol package of tag `v0.6.0`
   (the newest published smurg; its two tests of 0.5.0's own refusal take `v0.5.0`) with `git archive` and lets that
   code and this tree open each other's workspace folders, and `packages/cli/test/ctl-other-version.test.ts` takes
-  v0.5.2's protocol package the same way. Without the tag their tests skip, each with the reason in its name line
+  v0.6.0's protocol package the same way. Without the tag their tests skip, each with the reason in its name line
   (CI has the tags: its checkout fetches the whole history); with `SMURG_RELEASE_GATE=1` a missing tag fails. In the
   Ubuntu VM, whose copy of the tree has no `.git`, name the mounted repository: `GIT_DIR=<the mounted
   repository>/.git`. `SMURG_PUBLISHED_TREES=<folder>` names trees made beforehand instead
-  (`<folder>/v0.5.2/packages/{daemon,protocol}` and the same for `v0.5.0`). `packages/daemon/test/upgrade/wire.test.ts`
+  (`<folder>/v0.6.0/packages/{daemon,protocol}` and the same for `v0.5.0`). `packages/daemon/test/upgrade/wire.test.ts`
   needs the tag in the same way: while the protocol version is the published one, it holds this tree's wire to the
   tag's (every registered message type with its shape, every exported schema and constant, and every source file of
-  `packages/protocol/src` except the ones it names with a reason). 0.6.0 raises the protocol version: its two
-  comparisons say that the wire changed on purpose and skip, and its release-gate check that the tag is at hand runs.
+  `packages/protocol/src` except the ones it names with a reason). A release that raises the protocol version (0.6.0
+  did, 0.7.0 does): its comparisons say that the wire changed on purpose and skip, and its release-gate check that the
+  tag is at hand runs.
 - **A released version gets its fixture.** `packages/daemon/test/fixtures/published/<version>/` holds what that
   version wrote, made by running that version's own code until every stored shape has an instance (its `README.md`
   says how each was made and how a test copies one; the driver that made 0.5.0's is not in the repository, and the
@@ -751,12 +752,16 @@ stored shape. For a release it means:
   (`test/upgrade/fixture.ts`) with its story in `STORIES` and what its files become in `UPGRADES`
   (`test/upgrade/opens.test.ts`), empty `NOT_PUBLISHED_YET` (`test/upgrade/fixtures.test.ts`), and add the tag to
   `other-version.test.ts` and `wire.test.ts` (`TAG` in both; the list `CHANGED_WITHOUT_A_WIRE_CHANGE` of the
-  second is emptied then). The newest fixture is the one whose coverage must match today's schemas exactly. **After
-  0.6.0 is published** its fixture is made the same way, and it must hold every point that `NOT_PUBLISHED_YET` lists
-  today (a topic's agent settings, direct items and the history of their pins; smurg's own history in
-  `worktrees.json`, the records that say which repository they belong to, a merge's recorded base) and, as the
-  newest fixture, every point of today's schemas; `TAG` moves to `v0.6.0` in both tests, and
-  `ctl-other-version.test.ts` reads v0.6.0's protocol package.
+  second is emptied then). The newest fixture is the one whose coverage must match today's schemas exactly. 0.6.0's
+  fixture was made the same way after its release (DESIGN 0.7.0 D1), by a driver that is kept this time:
+  `packages/daemon/test/fixtures/drivers/fixture-driver-0.6.0.ts.txt` (its header says where it is copied in the
+  tag's tree and the one command that runs it). It holds every point that 0.6.0 added (a topic's agent settings,
+  direct items and the history of their pins; smurg's own history in `worktrees.json`, the records that say which
+  repository they belong to, a merge's recorded base) and, as the newest fixture, every point of today's schemas or a
+  reason; `TAG` is `v0.6.0` in `other-version.test.ts`, `wire.test.ts` and `ctl-other-version.test.ts`, whose cases
+  are stated over the numbers of each side (the `shapes` and the protocol the tag's code has, and this tree's).
+  **After 0.7.0 is published** its fixture is made from that driver, carried to the tag's tree and to 0.7.0's story,
+  and must hold every point `NOT_PUBLISHED_YET` lists then; `TAG` moves to `v0.7.0` in the three tests.
 - **A stored shape that changed since the last release has its step.** While a version is built, the pin
   (`test/upgrade/pin.test.ts`) fails when one of the places that decide what a stored file accepts changes (what it
   sees, and what it does not, is in `CONTRIBUTING.md`) and asks the question; the answer

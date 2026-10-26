@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "reports": [
+    {
+      "version": 1,
+      "writtenAt": 1793045819361,
+      "outcome": "complete",
+      "state": "reviewed",
+      "reviewers": [
+        {
+          "userId": "dev:host",
+          "displayName": "Host"
+        }
+      ],
+      "review": {
+        "by": {
+          "userId": "dev:host",
+          "displayName": "Host"
+        },
+        "at": 1793045819408,
+        "version": 1
+      },
+      "checks": {
+        "passed": 1,
+        "notVerified": 0
+      },
+      "topicId": "tp_tG29_LJL3gBUPYCSuPKfMA",
+      "itemId": "shelf-page",
+      "file": {
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_e5b1849d195251cd77d37c39"
+        },
+        "path": "specs/shelf-notes/reports/shelf-page.md"
+      },
+      "sections": {
+        "done": "The work of Shelf page.",
+        "why": "As the spec decided.",
+        "verified": [
+          {
+            "text": "`pnpm test`: 3 tests passed",
+            "passed": true
+          }
+        ],
+        "watchOut": "Nothing special."
+      },
+      "changes": {
+        "requestId": "mr_ee9a4ea16cfc716c95b7f873",
+        "files": 2,
+        "additions": 17,
+        "deletions": 0,
+        "byHand": []
+      },
+      "questions": [],
+      "contentHash": "c1ab68ccc7b64e80a72c86cae6bbce9cd8d04ac6d6d8cf0ccb0d44bd004a228b",
+      "sessionId": "ses_9f8ca771cf433054c1492e0a246bb2c5",
+      "waitingSince": 1793045819361,
+      "pending": []
+    }
+  ]
+}

@@ -1,0 +1,713 @@
+{
+  "invites": {
+    "bob-viewer-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=1EsIwAZy-07oMIuumsbCdQ99AeFmwVFxe5IGK0QuccI",
+      "id": "inv_3Yb1L0_4MSuHdlcJxdJ5wg",
+      "role": "viewer",
+      "maxUses": 1,
+      "createdAt": 1793045723513,
+      "expiresAt": 1793650523513
+    },
+    "kate-agent-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=jnVcvBHqjZu9kYD-DSSWaHOF_gdld1Jje9gfmCXbY-U",
+      "id": "inv_pIYJ39mM1Uc9i_fPMUiDPg",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045723520,
+      "expiresAt": 1793650523520
+    },
+    "dave-agent-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=rQyt1ab5xPRFU1NYuSfJ_odazATTpj8VSCWI5-D5LmM",
+      "id": "inv_7RfOr4pAaS2_B4brKIYOcA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045723528,
+      "expiresAt": 1793650523528
+    },
+    "ruth-agent-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=RwGOEKVvBWKifl_DXkUhZd36lqAcFEFIh_7ImXRJuXE",
+      "id": "inv_4PnXZb83TQsk2d2okLgcYw",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045723536,
+      "expiresAt": 1793650523536
+    },
+    "agents-3uses": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=-zsjPN0NxkO8xyUp3VDwxc7uS9McYb6o7iPGMegozpE",
+      "id": "inv_xObP8_PVTY_JgGFr0uVagA",
+      "role": "agent",
+      "maxUses": 3,
+      "createdAt": 1793045723542,
+      "expiresAt": 1793650523542
+    },
+    "multi-editor-5uses": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=yAqZG8uyO84KMoXPC5e1INCZ13ysQkHtfBYrU2xaZ60",
+      "id": "inv_8Y9QYvQpejbRdypJakokrg",
+      "role": "editor",
+      "maxUses": 5,
+      "createdAt": 1793045723550,
+      "expiresAt": 1793650523550
+    },
+    "gina-viewer-2uses-then-revoked": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=2jAQD4zW96q1PszVP0lVBl73sfJvAHywJZD2kkEgV7M",
+      "id": "inv_8KbBKVSReW-HjygRM09U4Q",
+      "role": "viewer",
+      "maxUses": 2,
+      "createdAt": 1793045723558,
+      "expiresAt": 1793650523558,
+      "revoked": true
+    },
+    "unused-editor-3uses": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=y7SQJp0xmsnzx-XO3gS6PVvZFlFXLKbSY2aDu-bG5wg",
+      "id": "inv_cl7g_f2IzuOVY66nGi567Q",
+      "role": "editor",
+      "maxUses": 3,
+      "createdAt": 1793045723568,
+      "expiresAt": 1793650523568
+    },
+    "unused-viewer-nolimit-30d": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=qbALxss90dgFGwmKER-8tun7sqltPjh6oKFsz1c259s",
+      "id": "inv_JyNtx8WfAi7i1rK7b0GG9A",
+      "role": "viewer",
+      "expiresInSec": 2592000,
+      "createdAt": 1793045723574,
+      "expiresAt": 1795637723574
+    },
+    "unused-agent-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=YA6A_lCakUZVnkfq34IcuHTN7_AC6plDg2cyMqnWg3U",
+      "id": "inv_vM4QpXcrp0wQTirqKUCq4Q",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045723583,
+      "expiresAt": 1793650523583
+    },
+    "expired-editor-6s": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=Df8rWAqTNhFLoWn436z_A2ZUwWKluuzb4YE4V7VPyOc",
+      "id": "inv_WPU76nyby_9hBPQ5ZHArMw",
+      "role": "editor",
+      "maxUses": 2,
+      "expiresInSec": 6,
+      "createdAt": 1793045723592,
+      "expiresAt": 1793045729592
+    },
+    "revoked-unused-editor": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=JdfSB35r3ZhTH09Crw1skbAMCo59BBksf_U8wyxvkfU",
+      "id": "inv_kJxYnF6YwoNGpAs4HdYJ3A",
+      "role": "editor",
+      "maxUses": 4,
+      "createdAt": 1793045723598,
+      "expiresAt": 1793650523598,
+      "revoked": true
+    },
+    "cli-member-agent-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=jdOGPe9fF0wk3ZE1VKyUb8JVI8lLPkpTOWxHNRACtzY",
+      "id": "inv_FrjQkvOm8liHwxNLK2ubvA",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045723605,
+      "expiresAt": 1793650523605
+    },
+    "frank-editor-rejoin-1use": {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=bVrjNwn0_RIa-LdneeNO9-Hr2W7s32U6II085KKA3AI",
+      "id": "inv_tKb7S4Wx3UNeHUqNJC6U4g",
+      "role": "editor",
+      "maxUses": 1,
+      "createdAt": 1793045729926,
+      "expiresAt": 1793650529926
+    },
+    "sam-agent-1use": {
+      "url": "http://localhost:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=Ue4XDsk_kwzvy7AArc4bXdPwG9rnjuC3Xq-DwmGQyrM",
+      "id": "inv_7yCaadnXSlvDJflz1r0wZw",
+      "role": "agent",
+      "maxUses": 1,
+      "createdAt": 1793045773495,
+      "expiresAt": 1793650573495
+    }
+  },
+  "workspaceId": "ws_F27C8c23tOki0srDo4u9aQ",
+  "relay": "http://127.0.0.1:65444",
+  "firstRun": {
+    "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=tByH91y3dRx-7oKUeAGFC9yNvLGoCqT8PUNm-IMJ3oc",
+    "teammatesLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=I23xQtTu5KeaNecX7Tpd0n2WQ8Hl6IAV8gotOm7cUs4",
+    "note": "printed by the first `smurg host`; the host link was never used and is revoked by the next start, the teammates' link (editor, 7 days, no use limit) was used later"
+  },
+  "statusFirstRun": "Workspace ws_F27C8c23tOki0srDo4u9aQ\n  Folder: /__SMURG_FIXTURE__/project\n  Relay: http://127.0.0.1:65444, interactive connection connected, file transfer connected\n  Connections: 0, members online: 0\n  Daemon key fingerprint: a594 b35c 18d0 6806 5727\n  Keep-awake: off (turned off with --no-keep-awake)\n  Notices of agents' shell commands: on\n  Claude Code: not checked yet (smurg checks it when the first agent session starts)\n  Agent sessions: none\n  Topics: none\n  Claude Code project settings: none in this folder\n  Your own Claude Code allow rules: none apply to agent sessions\n  Log: /__SMURG_FIXTURE__/host/logs/ws_F27C8c23tOki0srDo4u9aQ.log\n  Daemon process: 16165\n",
+  "story": {
+    "startedAt": 1793045713254,
+    "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=CZlWLtleWKvMGPItPY8kucCtvKfLvR0N1HChMQ-D3Mk",
+    "note": "the host link of the start the tree's story began with: used by the host's own device (devices/host)"
+  },
+  "settingsBefore": {
+    "humanLockIdleMs": 30000,
+    "agentLockTimeoutMs": 60000,
+    "uploadChunkSize": 4194304,
+    "sharedDirs": [],
+    "permissionMode": "auto",
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 5,
+    "maxLiveAgents": 5,
+    "escalateAfterMs": 300000,
+    "agentMcp": false
+  },
+  "storyInvites": [
+    {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=eFGlXXV6saTlAhWwkucG_ceWlprEoyoHegrBLeHpR6w",
+      "role": "agent",
+      "for": "mei"
+    },
+    {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=NA_JifhDP-HhHKyoSnZv3rjYSo1ME04tqHvjyXY1LKI",
+      "role": "editor",
+      "for": "amy"
+    },
+    {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=cs82OZag7bZBgskaCUbufZOnyft43zq-ItEDuuXmKA0",
+      "role": "viewer",
+      "for": "leo"
+    },
+    {
+      "url": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=knap98nldIqioJAgt0FEd0WUbWI6awSLSl_Y6LutuOk",
+      "role": "agent",
+      "for": "noa"
+    }
+  ],
+  "checkout": {
+    "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+    "discussionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+    "notesId": "ses_f605340eb3b47a9a6d6437d40f9f5f6d",
+    "cartId": "ses_14d1baf0733212e5e986608696116a0a",
+    "receiptId": "ses_40150fc92b65130e1c3e7aecd78eddce",
+    "pageId": "ses_28de9875a6c1a854d6fe2048b9e269c0",
+    "suggestionLeftPending": "sug_I6A_DKeTCgx7sdDgzZBD0Q"
+  },
+  "claudeConfigFirst": [
+    {
+      "root": {
+        "kind": "main"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": null
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": null
+        },
+        {
+          "path": ".mcp.json",
+          "decision": null
+        },
+        {
+          "path": ".claude",
+          "decision": null
+        }
+      ]
+    }
+  ],
+  "settingsAfter": {
+    "humanLockIdleMs": 45000,
+    "agentLockTimeoutMs": 60000,
+    "uploadChunkSize": 1048576,
+    "sharedDirs": [
+      "data"
+    ],
+    "permissionMode": "auto",
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 3,
+    "maxLiveAgents": 8,
+    "escalateAfterMs": 60000,
+    "agentMcp": false
+  },
+  "refused": {
+    "a used-up single-use link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "a revoked link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "an expired link": {
+      "kind": "rejected",
+      "reason": "invite-invalid"
+    },
+    "a removed member's device, no link": {
+      "kind": "rejected",
+      "reason": "device-revoked"
+    }
+  },
+  "devicesRevoked": {
+    "frank (first device)": "frank"
+  },
+  "conflicts": {
+    "open": {
+      "id": "conflict_c4v-RL1VKuMVgfExJm6Nkg",
+      "path": "conflict.txt",
+      "for": "dev:amy"
+    },
+    "applied": "conflict_g7Wz-HoH1Sc1riZ7fVKhsA",
+    "dismissed": "conflict_odq3P40ENygOA1oAcOQG7g",
+    "openWithManyHunks": "conflict_GTWwkcCGLLEqiXzTSCgvYA",
+    "openInWorktree": "conflict_6Im63j4Lh1C-GUCfB_2zoA",
+    "openByAgent": "conflict_P8u-lox2wJsWGeeW8jwkJg",
+    "openByTheAgentWithALongHunk": "conflict_aJNMq2zU0_6OFEkXjLCFBw"
+  },
+  "sessions": {
+    "T1-host-terminal-ended-by-the-restart": "ses_b077ea962a930030dacfdb2bf9085052",
+    "T2-kate-terminal-exited-by-itself": "ses_95075b7fe219df7e2154d44780fd14ff",
+    "T3-kate-terminal-ended-by-the-host": "ses_ff0ad7cef165872b1a69faf7ea37f0dc",
+    "W1-ruth-terminal-in-a-worktree-ended-by-the-restart": "ses_226de2ef480f4c0af0087b5206027fc5",
+    "W2-kate-terminal-in-a-worktree-kept": "ses_290e7d42062ab090e699bc451d83f891",
+    "W3-ruth-terminal-in-a-worktree-removed": "ses_24a32576f50c3c43f6edc2d40e722766",
+    "A1-host-agent-main": "ses_d745be114b338bd13e770e518d55dbfb",
+    "A2-kate-agent-ended-by-kate": "ses_d735f2efb3b4c05f3b334eb4aeaf7898",
+    "A3-host-agent-crashed": "ses_c6f5bf39d4db44e13ca40c3dbdf1e2e7",
+    "A5-kate-agent-ended-by-the-host": "ses_7c22f3afe9da5ab8344036c5f5fe1ce0",
+    "A11-kate-agent-one-very-long-answer": "ses_ecf7bd11391031657b69e6430b1e6e1d",
+    "A4-ruth-agent-in-a-worktree-ended-kept": "ses_5b2e549846c27b5c038e94edde4f543d",
+    "A6-dave-agent-ended-when-he-left": "ses_3d770bf28514dec354f89f09bc1ba587",
+    "T4-dave-terminal-ended-when-he-left": "ses_151d2104f3fac4b87aba3ca797c5ae15",
+    "A7-pete-agent-ended-when-he-was-removed": "ses_f7981bf0fd2b1091e2b042647f0aaa7c",
+    "A8-quinn-agent-ended-when-her-role-changed": "ses_1ac76c675313b33505bc1394aace216a",
+    "T5-host-terminal-running": "ses_a9403340c9c9ba6fe068e3c83c934e5f",
+    "W5-ruth-terminal-in-a-worktree-running": "ses_92897e0da3a7828bd06547ee8da0a995",
+    "wish-list": "ses_d4384540a5e0fbe2cc82f7c73333f98d",
+    "wish-share": "ses_190b6a46a26585b58ff105f1bdf2f559",
+    "A9-mei-agent-main-waiting-for-a-decision": "ses_6f69b23f3d8382e681b7c33f37ac74cb",
+    "A10-host-agent-failed": "ses_1807624f0e67cedeaa5937d236c5c136",
+    "A12-kate-agent-in-auto-mode": "ses_c7b750567766123ec26e5e38fda35a87",
+    "A14-kate-agent-in-auto-mode-in-a-worktree": "ses_f7058cb9b291a0e8c2f4e753fca3b028",
+    "A13-kate-agent-model-refused": "ses_163a29f0892af9b155b726e673d24292",
+    "A15-host-agent-dies-while-it-asks": "ses_24b3050e7b309871ae9f6632d7999b80"
+  },
+  "worktrees": {
+    "W1-ruth-kept-with-a-waiting-change": "wt_d44aae84b76da4be071c7219",
+    "W2-kate-kept-no-session": "wt_87ec36c14bc886f715580a6b",
+    "W3-ruth-removed": "wt_2db6e538d6e109d6ca443b22",
+    "W4-ruth-agent-kept": "wt_f0290db2d7bf3647f9e6c963",
+    "W5-ruth-running-terminal": "wt_a5c183fb92d1ae4d88d15762"
+  },
+  "merges": {
+    "free-merged": "mr_82ffd383577ac7eece9a0636",
+    "free-rejected": "mr_fe65441306a7289b93937f92",
+    "free-pending": "mr_2dcdaa931a37ff7452d0e777",
+    "free-conflict": "mr_d5f9425397d147cb954a4110"
+  },
+  "uploads": {
+    "interrupted": [
+      {
+        "path": "assets/in-worktree.bin",
+        "root": {
+          "kind": "worktree",
+          "worktreeId": "wt_87ec36c14bc886f715580a6b"
+        },
+        "uploadId": "up_FEUdUm67xkOhfv9IYYHZeA",
+        "size": 1048606,
+        "chunkSize": 1048576,
+        "chunkCount": 2,
+        "chunksSent": [
+          1
+        ],
+        "onConflict": "rename"
+      },
+      {
+        "path": "assets/logo.txt",
+        "uploadId": "up_1FlXydi12uDGTcMz8YTY9w",
+        "size": 1048907,
+        "chunkSize": 1048576,
+        "chunkCount": 2,
+        "chunksSent": [
+          1
+        ],
+        "onConflict": "overwrite"
+      },
+      {
+        "path": "assets/clip.bin",
+        "uploadId": "up_z7yy7Zxr72wWS8ALaSirYQ",
+        "size": 1022710,
+        "chunkSize": 1048576,
+        "chunkCount": 1,
+        "chunksSent": [],
+        "onConflict": "fail"
+      }
+    ]
+  },
+  "suggestions": {
+    "s1-amy-edited-then-withdrawn": "sug_L6044dKdi-2GrpiIRgIUOA",
+    "s2-amy-rejected-with-a-reason": "sug_8Wr8efhhmY0nhxlzbaMhMA",
+    "s2b-amy-rejected-without-a-reason": "sug_TXJU_Ya6yWKYKbrL9c5GEQ",
+    "s3-amy-selection-accepted": "sug_xZuNhuWKWGzNdorB7MumiA",
+    "s4-erin-accepted-after-an-edit-by-kate": "sug_0pYqd3iu_dNZjAiaThqC2g",
+    "s4b-amy-accepted-after-an-edit-by-mei": "sug_jo7GQwI1UHEDzIqu6mSG-w",
+    "s5-amy-accepted": "sug_LGnFfhVpKJC9Lg6osv3m-g",
+    "s6-gina-pending": "sug_zdc3LpcdPl1_UBF6H-A-Bw",
+    "s7-erin-withdrawn-when-she-is-removed": "sug_AkoWrP5n3vf7yvNH7fYXeQ",
+    "s8-olga-withdrawn-when-she-is-a-viewer": "sug_dweB4OqezW20WqbYwSatAw",
+    "s9-amy-rejected-when-the-session-ended": "sug_YxCDOuOPsozTQFgN3EX4XA",
+    "s10-amy-in-a-worktree-rejected-when-the-session-ended": "sug_QVVeBS8tJJFXt9gcWTkX5Q",
+    "s11-amy-in-a-work-item-pending": "sug_jPqXp4ND3LdMkLdTJxxLnQ",
+    "s12-gina-pending-in-a-waiting-session": "sug_dsH3hs1dvzfDfNl4_OOxoA",
+    "s13-amy-rejected-when-the-topic-was-archived": "sug_NAiVBfhkodEe2qCcAOXemg"
+  },
+  "claudeConfig": [
+    {
+      "root": {
+        "kind": "main"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": "trust"
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".mcp.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".claude",
+          "decision": "ignore"
+        }
+      ]
+    },
+    {
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_87ec36c14bc886f715580a6b"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": "trust"
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".mcp.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".claude",
+          "decision": "ignore"
+        }
+      ]
+    },
+    {
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_d44aae84b76da4be071c7219"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": "trust"
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".mcp.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".claude",
+          "decision": "ignore"
+        }
+      ]
+    },
+    {
+      "root": {
+        "kind": "worktree",
+        "worktreeId": "wt_f0290db2d7bf3647f9e6c963"
+      },
+      "state": "ignored",
+      "files": [
+        {
+          "path": ".claude/settings.json",
+          "decision": "trust"
+        },
+        {
+          "path": ".claude/settings.local.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".mcp.json",
+          "decision": "ignore"
+        },
+        {
+          "path": ".claude",
+          "decision": "ignore"
+        }
+      ]
+    }
+  ],
+  "left": {
+    "dave": "dev:dave"
+  },
+  "kicked": {
+    "erin": "dev:erin",
+    "pete": "dev:pete",
+    "sam": "dev:sam"
+  },
+  "roleChanged": {
+    "gina": "viewer -> editor",
+    "quinn": "agent -> editor",
+    "olga": "editor -> viewer"
+  },
+  "topics": {
+    "gift-cards": {
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "discussionId": "ses_29288a31cf973375b10d1aad7bc1cb0b",
+      "sessions": {
+        "card-model": "ses_2b8346823eb1469d7ae6bffcedba4e5f",
+        "card-email": "ses_98d255013743be6667f161c5fbe2c57f",
+        "card-admin": "ses_ec87e2faa0b8a313e0ded61c094d9702",
+        "card-print": "ses_3cfb8c1cce666aac8666967736cf5a71",
+        "card-audit": "ses_616ac64c9b5eaa502f410699c07ff134",
+        "card-terms": "ses_057fc39968ac735adeb66e9b0af9beb6",
+        "card-fonts": "ses_3a7efa7a0bea53680f276af0c958bdb9",
+        "card-merge": "ses_4d8a47c1a39121dca6aab2f6ab656798",
+        "card-ink": "ses_8f0b051cdfaaf5d840e69b69f76bf656",
+        "card-faq": "ses_9560a22425ce12ba7ccbfd590b42c0c9",
+        "card-logo": "ses_a2bdea06c1d60ac98635902b931c4e72",
+        "card-banner": "ses_4d451636f58e19e47819eb9a4a248469",
+        "card-vendor": "ses_800663bf7cdbc809901c1585e6f44d0a",
+        "card-page": "ses_05576d093e757945f8d33490f19fd53c"
+      },
+      "expiryQuestion": "rq_O7WLbXteoCTD3d3EVMSuOw"
+    },
+    "late-shipping": {
+      "topicId": "tp_sLdkMlhyFS8ZUWG0Ujbbzg",
+      "discussionId": "ses_75c267ec21152b545ae9a6bd5e343dcf"
+    },
+    "tiny-things": {
+      "topicId": "tp_uiGC4QKommgYTrLtH9lVtw",
+      "discussionId": "ses_9bdd7caa75168cd652ca5b32d8999a20"
+    },
+    "bare-shelves": {
+      "topicId": "tp_sX6LlL6Pvrvt6C731bLgcQ",
+      "discussionId": "ses_cd93b93d6e20a9273e4d94e862811b3a"
+    },
+    "exchange": {
+      "topicId": "tp_craAomRdK_jlSxYKtXggCA",
+      "discussionId": "ses_c7cc4992f63a2d132170705ef3a99360"
+    },
+    "vouchers": {
+      "topicId": "tp_aOE_MM51ZU69pqld_VquxA",
+      "discussionId": "ses_644d79c21f07adca210f2b91a57e9c5c"
+    },
+    "wishlist": {
+      "topicId": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+      "discussionId": "ses_474e3318f1b0f0caaa3ad369285a557c"
+    },
+    "returns": {
+      "topicId": "tp_gxjpvoVVHmYcTgGndkH72A",
+      "discussionId": "ses_99a761da600e7d33e07e1d175b9e7971"
+    },
+    "refunds": {
+      "topicId": "tp_Sr8qInTQaYdKrZwitRXi6w",
+      "discussionId": "ses_a9f2b7e3910ef5fb9a3b53727f8136e2"
+    },
+    "old-idea": {
+      "topicId": "tp_1KSssaX2vf7OuqptOyr7iQ",
+      "discussionId": "ses_046dcdc1258090ea4a0dfa7d7f387fbf"
+    }
+  },
+  "lastRun": {
+    "hostLink": "http://localhost:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=A3rFyw-aWfpAXdyYQlII5FXO4Ip6xkgtxDEX4PHZcQA",
+    "teammatesLink": "http://localhost:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=26fWPTNod5_lOXpOcAcuDX19FApTs8gUdtEFh2Ju9T0",
+    "webOrigin": "http://localhost:65444",
+    "note": "printed by the last `smurg host` (agent, 2 days, 3 uses, with the web address of another name of the relay); the teammates' link was used by the member who uses the command"
+  },
+  "cliMember": {
+    "attach": "Workspace \"Bookshop\" (ws_F27C8c23tOki0srDo4u9aQ, through the relay http://127.0.0.1:65444)\nNo.   Session ID                            Type      Owner         Status      Title\n1     ses_a9403340c9c9ba6fe068e3c83c934e5f  terminal  Host          running     Terminal (Host)\n2     ses_92897e0da3a7828bd06547ee8da0a995  terminal  Ruth          running     Ruth in a worktree\n\nAgent sessions (conversations):\nSession ID                            Status                    Topic                     Title\nses_5cdea056055dcf8321c198bc95f370ad  idle                      Checkout                  Discussion\nses_14d1baf0733212e5e986608696116a0a  ended                     Checkout                  1 · Cart API\nses_40150fc92b65130e1c3e7aecd78eddce  ended                     Checkout                  3 · Receipt email\nses_28de9875a6c1a854d6fe2048b9e269c0  ended                     Checkout                  2 · Checkout page\nses_29288a31cf973375b10d1aad7bc1cb0b  idle                      Gift cards                Discussion\nses_2b8346823eb1469d7ae6bffcedba4e5f  done                      Gift cards                1 · Card model\nses_98d255013743be6667f161c5fbe2c57f  stopped without a report  Gift cards                3 · Card email\nses_ec87e2faa0b8a313e0ded61c094d9702  stopped without a report  Gift cards                4 · Card admin\nses_3cfb8c1cce666aac8666967736cf5a71  idle                      Gift cards                7 · Card print\nses_616ac64c9b5eaa502f410699c07ff134  ended                     Gift cards                8 · Card audit\nses_057fc39968ac735adeb66e9b0af9beb6  ended                     Gift cards                9 · Card terms\nses_3a7efa7a0bea53680f276af0c958bdb9  stopped without a report  Gift cards                11 · Card fonts\nses_4d8a47c1a39121dca6aab2f6ab656798  done                      Gift cards                13 · Card merge\nses_8f0b051cdfaaf5d840e69b69f76bf656  stopped without a report  Gift cards                14 · Card ink\nses_9560a22425ce12ba7ccbfd590b42c0c9  done                      Gift cards                12 · Card FAQ\nses_a2bdea06c1d60ac98635902b931c4e72  done                      Gift cards                15 · Card logo\nses_4d451636f58e19e47819eb9a4a248469  done                      Gift cards                16 · Card banner\nses_800663bf7cdbc809901c1585e6f44d0a  stopped without a report  Gift cards                17 · Card vendor\nses_05576d093e757945f8d33490f19fd53c  done                      Gift cards                2 · Card page\nses_75c267ec21152b545ae9a6bd5e343dcf  idle                      Late shipping             Discussion\nses_9bdd7caa75168cd652ca5b32d8999a20  idle                      Tiny things               Discussion\nses_19b9b615687383ccd3bd3a14756e4745  stopped without a report  Tiny things               1 · Tiny one\nses_cd93b93d6e20a9273e4d94e862811b3a  idle                      Bare shelves              Discussion\nses_c7cc4992f63a2d132170705ef3a99360  idle                      Exchange                  Discussion\nses_644d79c21f07adca210f2b91a57e9c5c  idle                      Vouchers                  Discussion\nses_474e3318f1b0f0caaa3ad369285a557c  waiting for an answer     Wishlist                  Discussion\nses_d4384540a5e0fbe2cc82f7c73333f98d  waiting for permission    Wishlist                  1 · Wish list\nses_190b6a46a26585b58ff105f1bdf2f559  running                   Wishlist                  2 · Wish share\nses_99a761da600e7d33e07e1d175b9e7971  ended                     Returns                   Discussion\nses_a9f2b7e3910ef5fb9a3b53727f8136e2  ended                     Refunds and credit        Discussion\nses_7cd22aed066a4dd7c3ab61f94e55ad4b  idle                      Refunds and credit        Discussion\nses_f605340eb3b47a9a6d6437d40f9f5f6d  idle                      No topic                  Notes\nses_d745be114b338bd13e770e518d55dbfb  idle                      No topic                  Look around\nses_d735f2efb3b4c05f3b334eb4aeaf7898  ended                     No topic                  Short one\nses_c6f5bf39d4db44e13ca40c3dbdf1e2e7  idle                      No topic                  Crash\nses_7c22f3afe9da5ab8344036c5f5fe1ce0  ended                     No topic                  Terminated\nses_ecf7bd11391031657b69e6430b1e6e1d  ended                     No topic                  Everything\nses_5b2e549846c27b5c038e94edde4f543d  ended                     No topic                  In a worktree\nses_3d770bf28514dec354f89f09bc1ba587  ended                     No topic                  Dave's\nses_f7981bf0fd2b1091e2b042647f0aaa7c  ended                     No topic                  Pete's\nses_1ac76c675313b33505bc1394aace216a  ended                     No topic                  Quinn's\nses_6f69b23f3d8382e681b7c33f37ac74cb  waiting for permission    No topic                  Readme\nses_1807624f0e67cedeaa5937d236c5c136  failed                    No topic                  Crash\nses_c7b750567766123ec26e5e38fda35a87  idle                      No topic                  Auto mode\nses_f7058cb9b291a0e8c2f4e753fca3b028  idle                      No topic                  Auto mode in a worktree\nses_163a29f0892af9b155b726e673d24292  idle                      No topic                  A model that is refused\nses_24b3050e7b309871ae9f6632d7999b80  failed                    No topic                  Broken while asking\n\nAttach with smurg attach <number or session ID>.\nAgent conversations open in the browser: http://localhost:65444/w/ws_F27C8c23tOki0srDo4u9aQ\n",
+    "login": "github:12345 by device code (the mock GitHub of the relay tests)",
+    "secondLogin": "dev:octo at http://localhost:65444, logged out again"
+  },
+  "b052": {
+    "ws_ptaC3A8zmnSsKB_DA8tfXw": {
+      "folder": "/__SMURG_FIXTURE__/b052/project",
+      "hostLink": "http://127.0.0.1:65444/join/ws_ptaC3A8zmnSsKB_DA8tfXw#k=Q2lJXmRN8SLMJrFOvcQ4ecbuYDEQ6bqLhDN4p5AVur4&s=l2xbhN0lDom7G7SQMnEeD64MYczbH24Z0J2pjXJ0Tfg",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_ptaC3A8zmnSsKB_DA8tfXw#k=Q2lJXmRN8SLMJrFOvcQ4ecbuYDEQ6bqLhDN4p5AVur4&s=auNxyL-Ya7iSzX1gxSjcxrBWGRX2Y5yBZB75Ijka2Dc",
+      "printed": [
+        "Agents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose \"Asks before commands\" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first"
+      ]
+    },
+    "ws_x0ero8pS70bWM5G4VbZ1NA": {
+      "folder": "/__SMURG_FIXTURE__/b052/old/project",
+      "hostLink": "http://127.0.0.1:65444/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=P4Iu_EY3aftxsPM396DDFqyH1x9u5givnZ2QC5eA8v8",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=Wrz4KT77WlCfkY9uSNHRTboVSdu_87Tw1uLFZMVgvcs",
+      "printed": [
+        "Agents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose \"Asks before commands\" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first"
+      ]
+    }
+  },
+  "nogit": {
+    "workspaceId": "ws_JQyGHiVuRmyk-52kXN9U-A",
+    "folder": "/__SMURG_FIXTURE__/nogit",
+    "topicId": "tp_tG29_LJL3gBUPYCSuPKfMA",
+    "kateLink": "http://127.0.0.1:65444/join/ws_JQyGHiVuRmyk-52kXN9U-A#k=lRHamuekQB6sEVH6CIv9NRHR9zZhHzOvaTRHl7IpkoQ&s=i_gB1ZV1W2CwVDj75xW79IpwVNrZX6J0BzhQQIsw6pA"
+  },
+  "direct": {
+    "workspaceId": "ws_gK1sGiStR2H2bmRipOrmUw",
+    "folder": "/__SMURG_FIXTURE__/direct",
+    "topicId": "tp_eShefXnusWwtfEVFR1dXDA"
+  },
+  "starts": [
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Bookshop",
+        "--role",
+        "editor",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=tByH91y3dRx-7oKUeAGFC9yNvLGoCqT8PUNm-IMJ3oc",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=I23xQtTu5KeaNecX7Tpd0n2WQ8Hl6IAV8gotOm7cUs4"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Bookshop",
+        "--role",
+        "editor",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=CZlWLtleWKvMGPItPY8kucCtvKfLvR0N1HChMQ-D3Mk",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=B9Zi8sH2dyYMs_LCa_7g-KbIibF5u42o3r70luq6jCw"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Bookshop",
+        "--role",
+        "editor",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=UStLY8tMUfYXk7oXaTlLtySBavBv5_gB-18AaV8ytJw",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=b7UVIsu1_AaciMrmnQTWMpF7xoSFF_r07bkT7dpSRNE"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Bookshop",
+        "--role",
+        "viewer",
+        "--expires",
+        "30d",
+        "--max-uses",
+        "20",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=A06x07HgBHA8pl74qJoQLxVT7kiLMG8w7WIShdIjtww",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=c9COm5IooBQC5WUfKcU8-rxtx683izxlvRaMR8iQk58"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Bookshop",
+        "--role",
+        "agent",
+        "--expires",
+        "2d",
+        "--max-uses",
+        "3",
+        "--web-origin",
+        "http://localhost:65444",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://localhost:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=A3rFyw-aWfpAXdyYQlII5FXO4Ip6xkgtxDEX4PHZcQA",
+      "teammatesLink": "http://localhost:65444/join/ws_F27C8c23tOki0srDo4u9aQ#k=pZSzXBjQaAZXJ19RHywx2vgqlwA3MUOxNnZ6tXFcQ8U&s=26fWPTNod5_lOXpOcAcuDX19FApTs8gUdtEFh2Ju9T0"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/b052/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/b052/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_ptaC3A8zmnSsKB_DA8tfXw#k=Q2lJXmRN8SLMJrFOvcQ4ecbuYDEQ6bqLhDN4p5AVur4&s=l2xbhN0lDom7G7SQMnEeD64MYczbH24Z0J2pjXJ0Tfg",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_ptaC3A8zmnSsKB_DA8tfXw#k=Q2lJXmRN8SLMJrFOvcQ4ecbuYDEQ6bqLhDN4p5AVur4&s=auNxyL-Ya7iSzX1gxSjcxrBWGRX2Y5yBZB75Ijka2Dc"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/b052/old/project",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/b052/old/project",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=P4Iu_EY3aftxsPM396DDFqyH1x9u5givnZ2QC5eA8v8",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_x0ero8pS70bWM5G4VbZ1NA#k=VSHh1F9O2iz_gcQXfTIvcXnQFsI-alx-HaXpdVGJ3lk&s=Wrz4KT77WlCfkY9uSNHRTboVSdu_87Tw1uLFZMVgvcs"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/nogit",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/nogit",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Notes",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_JQyGHiVuRmyk-52kXN9U-A#k=lRHamuekQB6sEVH6CIv9NRHR9zZhHzOvaTRHl7IpkoQ&s=z4wiiF3J5a37M4NNf5Uhpr3IL2ckynGVcGcbM85X-lw",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_JQyGHiVuRmyk-52kXN9U-A#k=lRHamuekQB6sEVH6CIv9NRHR9zZhHzOvaTRHl7IpkoQ&s=DAzUMiPfXGrqaPFlxQCJVlMev48GeHK5oAldIj63kSI"
+    },
+    {
+      "folder": "/__SMURG_FIXTURE__/direct",
+      "args": [
+        "host",
+        "/__SMURG_FIXTURE__/direct",
+        "--relay",
+        "http://127.0.0.1:65444",
+        "--name",
+        "Direct",
+        "--no-keep-awake"
+      ],
+      "hostLink": "http://127.0.0.1:65444/join/ws_gK1sGiStR2H2bmRipOrmUw#k=DKDSRd37TtCmhSbsOtveRoHkZFRN9X9PZNnXOBVnKwE&s=C5-zpHgLtOVo88s7tW1es4Aq23iWMS9G0ctt72BQYn4",
+      "teammatesLink": "http://127.0.0.1:65444/join/ws_gK1sGiStR2H2bmRipOrmUw#k=DKDSRd37TtCmhSbsOtveRoHkZFRN9X9PZNnXOBVnKwE&s=iQIFN8LgPn7sgX2er-KkBS3XDmgmk9tvfgdf3Wkkn98"
+    }
+  ],
+  "runningAt": 1793046168721,
+  "stoppedAt": 1793046170531
+}

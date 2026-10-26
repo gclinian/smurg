@@ -1,0 +1,47 @@
+{
+  "decisions": [
+    {
+      "path": ".claude/settings.json",
+      "hash": "218ef91e52d50422eaaab2828b47fd56e0586b4387283373b141a433ff1d9b98",
+      "decision": "trust",
+      "scripts": [
+        {
+          "path": "scripts/lint.sh",
+          "hash": "28d3b9e880a77975493dc7e359144c0295a4f694cfe0af4f928c22307bc5c320"
+        },
+        {
+          "path": "scripts/optional.sh",
+          "hash": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+        }
+      ],
+      "at": 1793045723492
+    },
+    {
+      "path": ".claude/settings.local.json",
+      "hash": "82e3ec5f4ce2dfebb44abc2c85acea480973056bf902181b68da062edcffe452",
+      "decision": "ignore",
+      "scripts": [],
+      "at": 1793045723495
+    },
+    {
+      "path": ".mcp.json",
+      "hash": "c547d18bcd72e7a88d78ac6c10d014d12f7a20631380bec2264b857243cdead1",
+      "decision": "ignore",
+      "scripts": [
+        {
+          "path": "docs-server.js",
+          "hash": "a17fcf0a2f50e2d495e4f90ce263410edc183add6c62699a2facbccf60410f74"
+        }
+      ],
+      "at": 1793045723497
+    }
+  ],
+  "loaded": {
+    "trusted": [
+      "cbca0dfa69053fed65b262e309de68bca8284121a5ca9b270fba143f5b9698f4"
+    ],
+    "ignored": [
+      "9e37a65951443af056022bd15c4da2d7954354b233d4314bb4fd741023c4d850"
+    ]
+  }
+}

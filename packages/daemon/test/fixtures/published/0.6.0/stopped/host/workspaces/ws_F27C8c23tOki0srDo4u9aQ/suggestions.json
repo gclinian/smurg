@@ -1,0 +1,360 @@
+{
+  "version": 1,
+  "suggestions": [
+    {
+      "id": "sug_uPNUgRowg8kG2-I4I_5nXg",
+      "sessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "About SPEC.md:\nPlease say that coupons are not part of it. smurg-flow-SUGGESTION-3c721381fc0511318480405e",
+      "origin": "revise",
+      "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "status": "accepted",
+      "createdAt": 1793045714575,
+      "resolvedAt": 1793045714590,
+      "finalText": "About SPEC.md:\nPlease say that coupons are not part of it. smurg-flow-SUGGESTION-3c721381fc0511318480405e",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_I6A_DKeTCgx7sdDgzZBD0Q",
+      "sessionId": "ses_5cdea056055dcf8321c198bc95f370ad",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please also think of gift cards.",
+      "origin": "composer",
+      "topicId": "tp_6kOPE8tJlwreGxRsjrMKgA",
+      "status": "pending",
+      "createdAt": 1793045716345,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_L6044dKdi-2GrpiIRgIUOA",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please also count the folders, edited.",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1793045749011,
+      "resolvedAt": 1793045749041,
+      "sessionOwnerUserId": "dev:host",
+      "editedAt": 1793045749028
+    },
+    {
+      "id": "sug_8Wr8efhhmY0nhxlzbaMhMA",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please delete the old notes.",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1793045749055,
+      "resolvedAt": 1793045749080,
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "rejectReason": "We keep them.",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_TXJU_Ya6yWKYKbrL9c5GEQ",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please rename every file.",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1793045749096,
+      "resolvedAt": 1793045749115,
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_xZuNhuWKWGzNdorB7MumiA",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "add a test for the title",
+      "origin": "selection",
+      "source": {
+        "file": {
+          "root": {
+            "kind": "main"
+          },
+          "path": "src/app.ts"
+        },
+        "startLine": 1,
+        "endLine": 1
+      },
+      "status": "accepted",
+      "createdAt": 1793045749133,
+      "resolvedAt": 1793045749155,
+      "finalText": "add a test for the title",
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_0pYqd3iu_dNZjAiaThqC2g",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "rename the title in src/app.ts",
+      "cleaned": true,
+      "origin": "composer",
+      "status": "accepted-modified",
+      "createdAt": 1793045749391,
+      "resolvedAt": 1793045749417,
+      "finalText": "rename the title in src/app.ts only",
+      "decidedBy": {
+        "userId": "dev:kate",
+        "displayName": "Kate"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_jo7GQwI1UHEDzIqu6mSG-w",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "rename the shop",
+      "origin": "composer",
+      "status": "accepted-modified",
+      "createdAt": 1793045749656,
+      "resolvedAt": 1793045749680,
+      "finalText": "rename the shop in the README only",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_LGnFfhVpKJC9Lg6osv3m-g",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "tidy this up please, @Kate",
+      "origin": "composer",
+      "mentions": [
+        "dev:kate"
+      ],
+      "status": "accepted",
+      "createdAt": 1793045749926,
+      "resolvedAt": 1793045749959,
+      "finalText": "tidy this up please, @Kate",
+      "decidedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_zdc3LpcdPl1_UBF6H-A-Bw",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "Please add a page for gina.",
+      "origin": "composer",
+      "status": "pending",
+      "createdAt": 1793045750203,
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_AkoWrP5n3vf7yvNH7fYXeQ",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:erin",
+        "displayName": "Erin"
+      },
+      "text": "Please add a page for erin.",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1793045750229,
+      "resolvedAt": 1793045755986,
+      "closedReason": "author-kicked",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_dweB4OqezW20WqbYwSatAw",
+      "sessionId": "ses_d745be114b338bd13e770e518d55dbfb",
+      "author": {
+        "userId": "dev:olga",
+        "displayName": "Olga"
+      },
+      "text": "Please add a page for olga.",
+      "origin": "composer",
+      "status": "withdrawn",
+      "createdAt": 1793045750248,
+      "resolvedAt": 1793045756019,
+      "closedReason": "author-demoted",
+      "sessionOwnerUserId": "dev:host"
+    },
+    {
+      "id": "sug_YxCDOuOPsozTQFgN3EX4XA",
+      "sessionId": "ses_d735f2efb3b4c05f3b334eb4aeaf7898",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please say goodbye.",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1793045750625,
+      "resolvedAt": 1793045751747,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:kate"
+    },
+    {
+      "id": "sug_QVVeBS8tJJFXt9gcWTkX5Q",
+      "sessionId": "ses_5b2e549846c27b5c038e94edde4f543d",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please write a second note.",
+      "origin": "composer",
+      "status": "rejected",
+      "createdAt": 1793045753815,
+      "resolvedAt": 1793045754154,
+      "closedReason": "session-ended",
+      "sessionOwnerUserId": "dev:ruth"
+    },
+    {
+      "id": "sug_jPqXp4ND3LdMkLdTJxxLnQ",
+      "sessionId": "ses_ec87e2faa0b8a313e0ded61c094d9702",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Please also add a log of the admin changes.",
+      "origin": "composer",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-admin",
+      "status": "pending",
+      "createdAt": 1793045758774,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_W98_IaDrx6Osx2KMpNV1AQ",
+      "sessionId": "ses_05576d093e757945f8d33490f19fd53c",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Should an empty card show a warning?",
+      "origin": "follow-up",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-page",
+      "status": "pending",
+      "createdAt": 1793045767222,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_dgV4Dmeo62O3gYlU66CEhw",
+      "sessionId": "ses_05576d093e757945f8d33490f19fd53c",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "Could the page be green?",
+      "origin": "follow-up",
+      "topicId": "tp_t026TwEwZS9scck3_LsjwA",
+      "itemId": "card-page",
+      "status": "pending",
+      "createdAt": 1793045767733,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_CUhBFsQJFp-8WoJChqNT6w",
+      "sessionId": "ses_190b6a46a26585b58ff105f1bdf2f559",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "keep the old link working",
+      "origin": "selection",
+      "topicId": "tp_XbpYaoHl7-vgPF0_NFCSsg",
+      "itemId": "wish-share",
+      "source": {
+        "file": {
+          "root": {
+            "kind": "worktree",
+            "worktreeId": "wt_39f7e9f550c63a0c108a57fd"
+          },
+          "path": "src/wish/share/share.ts"
+        },
+        "startLine": 1,
+        "endLine": 1
+      },
+      "status": "accepted",
+      "createdAt": 1793045779855,
+      "resolvedAt": 1793045779881,
+      "finalText": "keep the old link working",
+      "decidedBy": {
+        "userId": "dev:mei",
+        "displayName": "Mei"
+      },
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_dsH3hs1dvzfDfNl4_OOxoA",
+      "sessionId": "ses_6f69b23f3d8382e681b7c33f37ac74cb",
+      "author": {
+        "userId": "dev:gina",
+        "displayName": "Gina"
+      },
+      "text": "Please also fix the typo in the title.",
+      "origin": "composer",
+      "status": "pending",
+      "createdAt": 1793045796016,
+      "sessionOwnerUserId": "dev:mei"
+    },
+    {
+      "id": "sug_NAiVBfhkodEe2qCcAOXemg",
+      "sessionId": "ses_046dcdc1258090ea4a0dfa7d7f387fbf",
+      "author": {
+        "userId": "dev:amy",
+        "displayName": "Amy"
+      },
+      "text": "Maybe later.",
+      "origin": "composer",
+      "topicId": "tp_1KSssaX2vf7OuqptOyr7iQ",
+      "status": "rejected",
+      "createdAt": 1793045798696,
+      "resolvedAt": 1793045798819,
+      "closedReason": "topic-archived",
+      "sessionOwnerUserId": "dev:mei"
+    }
+  ]
+}

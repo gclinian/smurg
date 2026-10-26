@@ -65,7 +65,8 @@ function loadedOf(t: TestDaemon): ReadonlyMap<string, { readonly value: unknown;
 // What each fixture's files must become. The shapes that differ from today's: 0.4.0's state.json and suggestions.json
 // (DESIGN A3, A4), and the state.json and agent-sessions.json of 0.5.0, 0.5.1 and 0.5.2 (DESIGN 0.6.0 D6); everything
 // else every published smurg wrote is today's shape as it is (0.5.1 and 0.5.2 wrote what 0.5.0 wrote, and stamped the
-// folder; 0.6.0 only added optional keys to the other documents).
+// folder; 0.6.0 only added optional keys to the other documents). What 0.6.0 wrote is today's shape everywhere: it
+// opens with no step (DESIGN 0.7.0 D1).
 // =====================================================================================================================
 
 /** The values the step from 0.4.0 adds to the settings: constants of the step (the closed side), and this machine's default. */
@@ -129,7 +130,12 @@ const UPGRADES: Readonly<Record<PublishedVersion, Upgrades>> = {
   '0.5.0': FROM_V050,
   '0.5.1': FROM_V050,
   '0.5.2': FROM_V050,
+  '0.6.0': { from: {}, expected: (_name, stored) => stored },
 };
+/** The notices the host has not seen yet once a fixture is open: the step from 0.5.0 adds `agents-auto`; 0.6.0's own are kept. */
+const noticesOf = (version: PublishedVersion, stored: StoredState): readonly string[] => (version === '0.6.0' ? (stored.hostNotices ?? []) : NOTICES_FROM_V050);
+/** The `shapes` of the stamp a version writes (0.5.1 and 0.5.2: 1; 0.6.0: 2). */
+const shapesOf = (version: PublishedVersion): number => (version === '0.6.0' ? 2 : 1);
 /** 0.5.1 is the first published smurg that stamps a folder: the host is told the version that last wrote it. */
 const writerOf = (version: PublishedVersion): string | null => (version === '0.4.0' || version === '0.5.0' ? null : version);
 
@@ -157,8 +163,8 @@ interface Story {
 }
 
 /**
- * The bookshop of the fixtures of 0.5.0, 0.5.1 and 0.5.2: one story, played by the code of each tag (their READMEs,
- * "How it was made"); the people, devices and links are the same, by label.
+ * The bookshop of the fixtures of 0.5.0, 0.5.1, 0.5.2 and 0.6.0: one story, played by the code of each tag (their
+ * READMEs, "How it was made"); the people, devices and links are the same, by label.
  */
 const BOOKSHOP: Story = {
   in: {
@@ -240,6 +246,7 @@ const STORIES: Readonly<Record<PublishedVersion, Story>> = {
   '0.5.0': BOOKSHOP,
   '0.5.1': BOOKSHOP,
   '0.5.2': BOOKSHOP,
+  '0.6.0': BOOKSHOP,
 };
 
 describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000 }, (version) => {
@@ -281,10 +288,11 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     const pins = [copy.cliMemberHome, ...Object.keys(story.in).map((label) => join(copy.devices, label))];
     for (const home of pins) expect(toHex((await readPinnedDaemonKey(home, copy.workspaceId)) as Uint8Array), `the pin in ${home}`).toBe(toHex(t.daemon.daemonPublicKey));
     // Every setting the host chose is the one in force; what the step from 0.4.0 adds is closed (agents get no MCP
-    // servers of the host's); the step from 0.5.0 switches the workspace to auto mode (the owner's decision).
+    // servers of the host's); the step from 0.5.0 switches the workspace to auto mode (the owner's decision); a
+    // workspace of 0.6.0 is in auto mode already (its default).
     expect(t.ctx.settings.get()).toEqual({ ...(version === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...before.settings, ...SETTINGS_ADDED_FROM_V050 });
     if (version === '0.4.0') expect(t.ctx.settings.get().agentMcp).toBe(false);
-    expect(t.ctx.settings.notices()).toEqual(NOTICES_FROM_V050);
+    expect(t.ctx.settings.notices()).toEqual(noticesOf(version, before));
     // Every member with their role and status, removed ones included.
     for (const member of before.members) expect(t.ctx.members.get(member.userId), member.userId).toMatchObject({ role: member.role, status: member.status, displayName: member.displayName });
     expect(before.members.filter((member) => member.status === 'kicked').map((member) => member.userId).sort()).toEqual(Object.keys(story.removed).sort());
@@ -439,9 +447,9 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
     expect((await stat(join(copy.workspaceDir, STAMP_NAME))).mode & 0o777).toBe(0o600);
     expect(Math.abs((await readJson<{ at: number }>(join(copy.workspaceDir, STAMP_NAME))).at - copy.at)).toBeLessThan(60_000);
-    // What the start read: the stamp the published smurg wrote (`smurg`, `shapes: 1`, `at`), or none.
+    // What the start read: the stamp the published smurg wrote (`smurg`, its `shapes`, `at`), or none.
     expect(t.daemon.internals.folder.stamp).toEqual(stampBefore);
-    if (stampBefore !== null) expect(stampBefore).toEqual({ smurg: version, shapes: 1, at: expect.any(Number) });
+    if (stampBefore !== null) expect(stampBefore).toEqual({ smurg: version, shapes: shapesOf(version), at: expect.any(Number) });
   });
 
   it('a second start runs no step, writes no document again because of an upgrade and makes no second copy', async () => {

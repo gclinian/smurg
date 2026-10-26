@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "worktrees": [
+    {
+      "id": "wt_0024b08abae8a0cd28f5dca2",
+      "ownerUserId": "dev:kate",
+      "ownerName": "Kate",
+      "branch": "smurg/dev-kate/wt_0024b08abae8a0cd28f5dca2",
+      "kept": true,
+      "createdAt": 1793045820210,
+      "sharedDirs": [],
+      "baseCommit": "45613ca21d5868d40a357314286e9969a08564bd",
+      "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+      "headHash": "fb94f5bfad02678ca2b6533b27213cb753e06d507ad668415bf617661866cbc4",
+      "alternatesHash": "dca7a785008df4804e56a18cf01089eb60bbb6ce49de3f6737428b0538f781fe",
+      "repo": "smurg"
+    }
+  ],
+  "merges": [
+    {
+      "id": "mr_ee9a4ea16cfc716c95b7f873",
+      "worktreeId": "wt_e5b1849d195251cd77d37c39",
+      "ownerUserId": "dev:host",
+      "requestedBy": {
+        "userId": "dev:host",
+        "displayName": "Host"
+      },
+      "message": "smurg: work item 1 (shelf-page)",
+      "commit": "a66ce1be85e8cb8e5d75040bac993c2e27d0ac6f",
+      "status": "merged",
+      "reviewed": true,
+      "topicId": "tp_tG29_LJL3gBUPYCSuPKfMA",
+      "itemId": "shelf-page",
+      "topicSlug": "shelf-notes",
+      "createdAt": 1793045819345,
+      "decidedAt": 1793045819562,
+      "mergeCommit": "45613ca21d5868d40a357314286e9969a08564bd",
+      "repo": "smurg",
+      "base": "2a7cf2d081ca1cea450e96e12e14c4df3ffa6723"
+    }
+  ],
+  "hidden": {
+    "createdAt": 1793045818322,
+    "configHash": "cae33efdb02cf774435c1ff9cb16bcc1014606908530c6e1dc727615fe3e8cda",
+    "headHash": "28d25bf82af4c0e2b72f50959b2beb859e3e60b9630a5e8c603dad4ddb2b6e80"
+  }
+}

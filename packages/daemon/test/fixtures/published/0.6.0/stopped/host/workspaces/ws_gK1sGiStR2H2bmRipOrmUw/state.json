@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "workspaceId": "ws_gK1sGiStR2H2bmRipOrmUw",
+  "members": [
+    {
+      "userId": "dev:host",
+      "displayName": "Host",
+      "role": "host",
+      "color": "#4a6fa8",
+      "joinedAt": 1793045821360,
+      "lastSeenAt": 1793045823022,
+      "status": "active"
+    }
+  ],
+  "devices": [
+    {
+      "deviceId": "koaYQiZtdjJXYuZ9XZJjZQ",
+      "userId": "dev:host",
+      "publicKeyHex": "000d26a63b1ba2c3d7f20f8af5cc19b1b00ac67fbcc45a3fed2ade4f83c98f0a",
+      "name": "host browser",
+      "kind": "web",
+      "addedAt": 1793045821542,
+      "lastSeenAt": 1793045823022,
+      "revoked": false,
+      "inviteId": "inv_t0ri8fgbrE_7SfGDpF_-Ag"
+    }
+  ],
+  "invites": [
+    {
+      "id": "inv_t0ri8fgbrE_7SfGDpF_-Ag",
+      "keyIdHex": "77cd8ed81c8814954b6ae18f8b736a24",
+      "pskHex": "9e8ed53bb24ecc83188e984714ee9d2ea5b7b46159511a22606c8ceeb9e94a41",
+      "role": "host",
+      "boundUserId": "dev:host",
+      "createdAt": 1793045821462,
+      "createdBy": null,
+      "expiresAt": 1793650621462,
+      "maxUses": 1,
+      "uses": 1,
+      "revoked": false,
+      "host": true
+    },
+    {
+      "id": "inv__sAWfIa_u-w9G5QBHgPewg",
+      "keyIdHex": "412ab6ed49b9c6e240c1e9902ad56315",
+      "pskHex": "8c0dfa5314c1f1beb8b283bab7aefd7df616eaf992bad7764052b93dfbf3f513",
+      "role": "editor",
+      "createdAt": 1793045821474,
+      "createdBy": "dev:host",
+      "expiresAt": 1793650621474,
+      "uses": 0,
+      "revoked": false,
+      "host": false
+    }
+  ],
+  "settings": {
+    "humanLockIdleMs": 30000,
+    "agentLockTimeoutMs": 60000,
+    "uploadChunkSize": 4194304,
+    "sharedDirs": [],
+    "permissionMode": "auto",
+    "diskReserveBytes": 5368709120,
+    "diskReservePercent": 5,
+    "maxLiveAgents": 5,
+    "escalateAfterMs": 300000,
+    "agentMcp": false
+  },
+  "worktreeRoots": [],
+  "hostNotices": []
+}

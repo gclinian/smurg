@@ -1,0 +1,42 @@
+2026-10-26T20:15:11.607Z info "hook socket listening" sessions=0
+2026-10-26T20:15:11.941Z info "control socket listening" module=control
+2026-10-26T20:15:11.952Z info "daemon started" workspace=ws_F27C8c23tOki0srDo4u9aQ relay=http://127.0.0.1:65444
+2026-10-26T20:15:11.960Z info "relay link online" module=relay link=ws
+2026-10-26T20:15:11.965Z info "relay link online" module=relay link=xfer
+2026-10-26T20:15:12.674Z info "stop requested on the control socket" module=control
+2026-10-26T20:15:13.194Z info "hook socket listening" sessions=0
+2026-10-26T20:15:13.223Z info "control socket listening" module=control
+2026-10-26T20:15:13.239Z info "daemon started" workspace=ws_F27C8c23tOki0srDo4u9aQ relay=http://127.0.0.1:65444
+2026-10-26T20:15:13.245Z info "relay link online" module=relay link=ws
+2026-10-26T20:15:13.247Z info "relay link online" module=relay link=xfer
+2026-10-26T20:15:17.227Z info "stop requested on the control socket" module=control
+2026-10-26T20:15:17.874Z info "hook socket listening" sessions=0
+2026-10-26T20:15:17.942Z info "control socket listening" module=control
+2026-10-26T20:15:17.957Z info "daemon started" workspace=ws_F27C8c23tOki0srDo4u9aQ relay=http://127.0.0.1:65444
+2026-10-26T20:15:17.964Z info "relay link online" module=relay link=ws
+2026-10-26T20:15:17.967Z info "relay link online" module=relay link=xfer
+2026-10-26T20:15:22.829Z info "stop requested on the control socket" module=control
+2026-10-26T20:15:23.364Z info "hook socket listening" sessions=0
+2026-10-26T20:15:23.416Z info "control socket listening" module=control
+2026-10-26T20:15:23.436Z info "daemon started" workspace=ws_F27C8c23tOki0srDo4u9aQ relay=http://127.0.0.1:65444
+2026-10-26T20:15:23.443Z info "relay link online" module=relay link=ws
+2026-10-26T20:15:23.446Z info "relay link online" module=relay link=xfer
+2026-10-26T20:15:40.924Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_d745be114b338bd13e770e518d55dbfb tool=TodoWrite
+2026-10-26T20:15:41.223Z info "agent.tool.unknown: a tool outside the session's list was refused" session=ses_d745be114b338bd13e770e518d55dbfb tool=SomethingNew
+2026-10-26T20:15:47.616Z info "agent notified a member" session=ses_d745be114b338bd13e770e518d55dbfb member=dev:bob
+2026-10-26T20:15:51.947Z warn "an agent process ended unexpectedly" session=ses_c6f5bf39d4db44e13ca40c3dbdf1e2e7 code=3 signal=none stderr="boom\n"
+2026-10-26T20:15:58.360Z warn "an agent process ended unexpectedly" session=ses_3cfb8c1cce666aac8666967736cf5a71 code=2 signal=none stderr="printer on fire\n"
+2026-10-26T20:15:59.814Z warn "an agent process ended unexpectedly" session=ses_8f0b051cdfaaf5d840e69b69f76bf656 code=4 signal=none stderr="no ink\n"
+2026-10-26T20:16:02.156Z error "snapshot failed" topic=tp_t026TwEwZS9scck3_LsjwA item=card-vendor error=SmurgError
+2026-10-26T20:16:09.191Z info "stop requested on the control socket" module=control
+2026-10-26T20:16:10.339Z info "hook socket listening" sessions=0
+2026-10-26T20:16:10.381Z warn "inbox: a source failed" module=inbox source=plans error=SmurgError
+2026-10-26T20:16:10.471Z info "control socket listening" module=control
+2026-10-26T20:16:10.491Z info "daemon started" workspace=ws_F27C8c23tOki0srDo4u9aQ relay=http://127.0.0.1:65444
+2026-10-26T20:16:10.500Z info "relay link online" module=relay link=ws
+2026-10-26T20:16:10.506Z info "relay link online" module=relay link=xfer
+2026-10-26T20:16:36.213Z warn "an agent process ended unexpectedly" session=ses_1807624f0e67cedeaa5937d236c5c136 code=3 signal=none stderr="boom\n"
+2026-10-26T20:16:43.993Z warn "an agent process ended unexpectedly" session=ses_24b3050e7b309871ae9f6632d7999b80 code=-1 signal=SIGKILL stderr=""
+2026-10-26T20:16:44.513Z warn "an agent process ended unexpectedly" session=ses_24b3050e7b309871ae9f6632d7999b80 code=-1 signal=SIGKILL stderr=""
+2026-10-26T20:22:49.335Z info "stop requested on the control socket" module=control
+2026-10-26T20:22:50.221Z info "agent notified a member" session=ses_6f69b23f3d8382e681b7c33f37ac74cb member=dev:bob

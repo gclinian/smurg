@@ -1,0 +1,7 @@
+2026-10-26T20:17:01.382Z info "hook socket listening" sessions=0
+2026-10-26T20:17:01.462Z info "control socket listening" module=control
+2026-10-26T20:17:01.474Z info "daemon started" workspace=ws_gK1sGiStR2H2bmRipOrmUw relay=http://127.0.0.1:65444
+2026-10-26T20:17:01.481Z info "relay link online" module=relay link=ws
+2026-10-26T20:17:01.486Z info "relay link online" module=relay link=xfer
+2026-10-26T20:17:02.390Z info "worktree mode is unavailable" module=worktree reason=git-not-found
+2026-10-26T20:17:03.361Z info "stop requested on the control socket" module=control
