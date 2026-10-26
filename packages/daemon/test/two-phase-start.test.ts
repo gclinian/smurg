@@ -57,13 +57,14 @@ async function home(): Promise<Home> {
 const readJson = async <T>(path: string): Promise<T> => JSON.parse(await readFile(path, 'utf8')) as T;
 
 /**
- * Turns the folder today's smurg wrote into what 0.4.0 left: state.json without what 0.6.0 added (version 2, the
- * workspace's permission mode, the host's notices) and without the three settings 0.5.0 added, suggestions.json with
- * entries that have no `origin`, no stamp. Returns the state as 0.4.0 held it.
+ * Turns the folder today's smurg wrote into what 0.4.0 left: state.json without what 0.7.0 and 0.6.0 added (the
+ * versions 3 and 2, the setting `merging`, the workspace's permission mode, the host's notices) and without the three
+ * settings 0.5.0 added, suggestions.json with entries that have no `origin`, no stamp. Returns the state as 0.4.0 held
+ * it.
  */
 async function asV040Left(h: Home): Promise<Record<string, unknown>> {
   const { hostNotices: _notices, ...state } = await readJson<WorkspaceState>(join(h.dir, 'state.json'));
-  const { maxLiveAgents: _a, escalateAfterMs: _b, agentMcp: _c, permissionMode: _d, ...six } = state.settings;
+  const { maxLiveAgents: _a, escalateAfterMs: _b, agentMcp: _c, permissionMode: _d, merging: _e, ...six } = state.settings;
   const old = { ...state, version: 1, settings: { ...six, humanLockIdleMs: 45_000, sharedDirs: [] } };
   await writeFile(join(h.dir, 'state.json'), serializeDocument(old), { mode: 0o600 });
   await writeFile(join(h.dir, 'suggestions.json'), serializeDocument(suggestionsOfV040()), { mode: 0o600 });
@@ -184,9 +185,10 @@ describe('a start has two phases', { timeout: 60_000 }, () => {
     expect(loaded).toMatchObject({ upgradedFrom: '0.4.0' });
     const { settings, ...rest } = loaded?.value as WorkspaceState;
     const { settings: oldSettings, ...oldRest } = old;
-    // Both steps ran: 0.4.0's settings got 0.5.0's three, and 0.5.0's state got 0.6.0's mode and the notice.
-    expect(rest).toEqual({ ...oldRest, version: 2, hostNotices: ['agents-auto'] });
-    expect(settings).toMatchObject({ ...(oldSettings as object), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
+    // Every step ran: 0.4.0's settings got 0.5.0's three, 0.5.0's state got 0.6.0's mode and its notice, and 0.6.0's
+    // state got 0.7.0's automatic merging and its notice.
+    expect(rest).toEqual({ ...oldRest, version: 3, hostNotices: ['agents-auto', 'auto-merge'] });
+    expect(settings).toMatchObject({ ...(oldSettings as object), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' });
     expect(settings.maxLiveAgents).toBe(defaultMaxLiveAgents(totalmem()));
     // What the members see: carried settings, the member who joined under "0.4.0".
     expect(t.ctx.settings.get()).toMatchObject({ humanLockIdleMs: 45_000, agentMcp: false, escalateAfterMs: 300_000 });

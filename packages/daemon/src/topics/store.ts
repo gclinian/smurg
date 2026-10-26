@@ -8,10 +8,23 @@
 //
 // 0.6.0 (DESIGN D6): optional keys only (a 0.5.x file passes as it is): a topic's agent settings, an item that ran
 // directly in the shared folder, and a pin that says which history the Start used.
+//
+// 0.7.0 (DESIGN 0.7.0 D4): optional keys only again (a 0.6.0 file passes as it is): the merge policy and the branch a
+// Start pinned, what an item that smurg merges by itself waits for (`autoMerge`, `mergeTries`), the turns of its
+// sessions and the turn a report was checked in (`turns`, `checked[].turn`, `lastTurn`), who merged it (`mergedAs`),
+// "Leave it out" (`leftOut`), the host's undo (`undone`), the automatic continues (`autoContinue`), a topic's
+// "I've checked the result" (`checked`) and who paused a plan (`pausedBy`); and a report checked in the turn that
+// made it (`checkedInTurn`). Nothing reads them yet but the store (0.7.0 S2 to S6).
 import { z } from 'zod';
 import { declareDocument } from '../core/state-store.ts';
 import {
+  AUTO_MERGE_PATHS_MAX,
+  AUTO_MERGE_REASONS,
+  AUTO_MERGE_REASONS_OF_STATE,
+  AUTO_MERGE_STATES,
   DISARMED_REASONS,
+  HOST_HOLDS,
+  MERGE_POLICIES,
   HAND_EDITS_MAX,
   ITEM_GLOB_MAX_CHARS,
   ITEM_SIZES,
@@ -27,8 +40,10 @@ import {
   SPLIT_REASON_MAX_CHARS,
   TOPICS_MAX,
   actorSchema,
+  entryPathSchema,
   epochMsSchema,
   fileErrorSchema,
+  gitCommitSchema,
   handEditSchema,
   indexSchema,
   itemIdSchema,
@@ -42,6 +57,7 @@ import {
   reportInfoSchema,
   SESSION_MODE_CHOICES,
   sha256HexSchema,
+  shortBranchSchema,
   shortTextSchema,
   stalledBySchema,
   topicNameSchema,
@@ -69,6 +85,12 @@ const gitIdSchema = z.string().regex(/^[0-9a-f]{7,64}$/, 'not a git object id');
  * hash as pinned in the working tree AND at HEAD. `history` (0.6.0): which history the Start used: `smurg` (smurg's
  * own history, `.smurg/git`) or `direct` (no git: no checkpoint, `commit` and the blobs null; the items run in the
  * folder itself); absent: the folder's own git, as every 0.5.x pin.
+ *
+ * 0.7.0 (DESIGN 0.7.0 D3): `merging`, what the Start said about how its items reach the main workspace (`auto`: smurg
+ * merges an item that is in order, while the workspace's setting says so too; `host`: the host merges each); absent:
+ * a Start of 0.6.0 (the host merges), or a direct Start (nothing to merge). `branch`: with the folder's own git, the
+ * branch the checkpoint was committed on (smurg merges only into it). A Start on a detached HEAD pins `host` and no
+ * branch.
  */
 export const pinSchema = z
   .strictObject({
@@ -81,10 +103,42 @@ export const pinSchema = z
     specBlob: gitIdSchema.nullable(),
     planBlob: gitIdSchema.nullable(),
     history: z.enum(['smurg', 'direct']).optional(),
+    merging: z.enum(MERGE_POLICIES).optional(),
+    branch: shortBranchSchema.optional(),
   })
   .refine((pin) => (pin.commit === null) === (pin.history === 'direct'), 'a pin has a checkpoint commit unless its items run directly in the folder')
-  .refine((pin) => pin.history !== 'direct' || (pin.specBlob === null && pin.planBlob === null), 'a direct pin names no blob');
+  .refine((pin) => pin.history !== 'direct' || (pin.specBlob === null && pin.planBlob === null), 'a direct pin names no blob')
+  .refine((pin) => pin.history !== 'direct' || pin.merging === undefined, 'a direct pin names no merge policy (nothing to merge)')
+  .refine((pin) => pin.branch === undefined || (pin.history === undefined && pin.commit !== null), 'a branch only with the folder\'s own git')
+  .refine((pin) => pin.merging !== 'auto' || pin.history !== undefined || pin.branch !== undefined, 'smurg merges into the folder\'s own git only on the branch the Start used (a detached Start pins host)');
 export type Pin = z.infer<typeof pinSchema>;
+
+/**
+ * What a started item that smurg merges by itself waits for now (0.7.0, DESIGN 0.7.0 D4, D8, D9): the record the merge
+ * queue keeps, which the wire's `WorkItem.autoMerge` shows. The waits nobody keeps (`queued`, `paused`, `busy`, and
+ * `asked` while its answer is to come) are computed, never stored. `requestId`: the merge request it is about.
+ * `escalatedAt`: when a hold that is not the host's also reached the host and the members with agent access.
+ */
+export const storedAutoMergeSchema = z
+  .strictObject({
+    state: z.enum(AUTO_MERGE_STATES),
+    reason: z.enum(AUTO_MERGE_REASONS),
+    since: epochMsSchema,
+    hostOnly: z.boolean(),
+    paths: z.array(entryPathSchema).max(AUTO_MERGE_PATHS_MAX).optional(),
+    branch: z.strictObject({ expected: shortBranchSchema, current: shortTextSchema }).optional(),
+    escalatedAt: epochMsSchema.optional(),
+    requestId: opaqueIdSchema.optional(),
+    /** A `conflict` whose other side is a person's change (or a change made outside smurg). */
+    people: z.array(z.strictObject({ path: entryPathSchema, by: z.array(userRefSchema).max(5), outside: z.boolean() })).max(AUTO_MERGE_PATHS_MAX).optional(),
+  })
+  .refine((record) => AUTO_MERGE_REASONS_OF_STATE[record.state].includes(record.reason), 'a reason of another state')
+  .refine((record) => record.state !== 'waiting' || !['queued', 'paused', 'busy', 'asked'].includes(record.reason), 'a wait nobody keeps is computed, not stored')
+  .refine((record) => record.hostOnly === (record.state === 'held' && (HOST_HOLDS as readonly string[]).includes(record.reason)), 'only a hold of HOST_HOLDS is the host\'s')
+  .refine((record) => record.escalatedAt === undefined || (record.state === 'held' && !record.hostOnly), 'only a hold that is not the host\'s escalates')
+  .refine((record) => record.branch === undefined || record.reason === 'branch', 'the branches go with the reason branch')
+  .refine((record) => record.people === undefined || record.reason === 'conflict', 'people go with a conflict');
+export type StoredAutoMerge = z.infer<typeof storedAutoMergeSchema>;
 
 export const storedItemSchema = z.strictObject({
   id: itemIdSchema,
@@ -121,8 +175,11 @@ export const storedItemSchema = z.strictObject({
   /** Its changes reached the main workspace once: what depends on it may start. */
   merged: z.boolean(),
   // ---- report bookkeeping ----
-  /** Contents of the report file `check_report` answered ok for, with the session that asked. */
-  checked: z.array(z.strictObject({ sessionId: opaqueIdSchema, attempt: indexSchema, hash: sha256HexSchema })).max(CHECKED_HASHES_MAX),
+  /**
+   * Contents of the report file `check_report` answered ok for, with the session that asked. `turn` (0.7.0): the turn
+   * it answered in (`turns + 1` at that moment); absent on entries of 0.6.0.
+   */
+  checked: z.array(z.strictObject({ sessionId: opaqueIdSchema, attempt: indexSchema, hash: sha256HexSchema, turn: indexSchema.optional() })).max(CHECKED_HASHES_MAX),
   /** `nudge-report` was sent since a person last wrote to the session. */
   nudged: z.boolean(),
   /** `fix-report` was sent for this content, this many times in a row. */
@@ -134,6 +191,23 @@ export const storedItemSchema = z.strictObject({
   snapshotOwed: z.literal(true).optional(),
   /** It ran directly in the shared folder (no git, DESIGN 0.6.0 D15). */
   direct: z.literal(true).optional(),
+  // ---- automatic merging and what goes with it (0.7.0; absent in every file of 0.6.0) ----
+  /** What it waits for before smurg merges it; it goes when that is over. */
+  autoMerge: storedAutoMergeSchema.optional(),
+  /** Resolve turns smurg asked for since the item's Start (kept when a new version clears a hold; absent: 0). */
+  mergeTries: indexSchema.optional(),
+  /** Finished turns of the item's sessions, counted when a turn's end arrives (absent: 0). */
+  turns: indexSchema.optional(),
+  /** The newest turn after the current report version did not complete (a person stopped it, or it ended on an error). */
+  lastTurn: z.strictObject({ outcome: z.enum(['interrupted', 'error']), at: epochMsSchema }).optional(),
+  /** Who merged it and the merge commit (worktrees.json keeps only the newest decided merges; direct and accepted items have no request). */
+  mergedAs: z.strictObject({ requestId: opaqueIdSchema.optional(), commit: gitCommitSchema.optional(), at: epochMsSchema, by: z.union([z.literal('smurg'), userRefSchema]) }).optional(),
+  /** "Leave it out": it and what depends on it are not merged. */
+  leftOut: z.strictObject({ by: userRefSchema, at: epochMsSchema }).optional(),
+  /** The host undid its merge with this commit. */
+  undone: z.strictObject({ by: userRefSchema, at: epochMsSchema, commit: gitCommitSchema }).optional(),
+  /** smurg continued it by itself (a usage limit that ended, a broken turn, a crash, a failed snapshot), this many times. */
+  autoContinue: z.strictObject({ cause: z.enum(['usage-limit', 'error', 'crash', 'snapshot']), count: indexSchema, at: epochMsSchema }).optional(),
 });
 export type StoredItem = z.infer<typeof storedItemSchema>;
 
@@ -154,6 +228,8 @@ export const storedPlanSchema = z.strictObject({
   mode: z.enum(PLAN_MODES),
   paused: z.boolean(),
   pausedAt: epochMsSchema.optional(),
+  /** A person's "Pause" (0.7.0); absent with `paused`: smurg paused it (a restart of 0.6.0, an interrupted direct item). */
+  pausedBy: userRefSchema.optional(),
   warnings: z.array(wireTextSchema).max(PLAN_WARNINGS_MAX),
   split: z.strictObject({ source: z.enum(['agent', 'smurg']), reason: multilineTextSchema(SPLIT_REASON_MAX_CHARS).optional() }).optional(),
   /** The members with agent access who were online when "Generate plan" was pressed: who the agent may propose. */
@@ -203,6 +279,8 @@ export const storedTopicSchema = z.strictObject({
   items: z.array(storedItemSchema).max(PLAN_INFO_ITEMS_MAX),
   /** The topic's agent settings; absent: none chosen (the host's default model, the workspace's mode). */
   agent: storedTopicAgentSchema.optional(),
+  /** "I've checked the result" (0.7.0): who pressed it, and when. */
+  checked: z.strictObject({ by: userRefSchema, at: epochMsSchema }).optional(),
 });
 export type StoredTopic = z.infer<typeof storedTopicSchema>;
 
@@ -226,6 +304,11 @@ export const storedReportSchema = reportInfoSchema.extend({
   sessionId: opaqueIdSchema,
   /** Since when this version waits for a review (the escalation's start). */
   waitingSince: epochMsSchema,
+  /**
+   * 0.7.0: `check_report` answered ok for this content in the turn that produced this version, or a later turn that
+   * changed nothing confirmed it (stored only; absent: no).
+   */
+  checkedInTurn: z.literal(true).optional(),
   /** Follow-ups whose answer is still to come: the message a turn will take, or the suggestion that may be accepted. */
   pending: z
     .array(

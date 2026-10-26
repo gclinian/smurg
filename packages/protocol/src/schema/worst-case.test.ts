@@ -1,15 +1,18 @@
-// The worst case of every protocol 4 and 5 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
+// The worst case of every protocol 4, 5 and 6 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
 // string below MSGPACK_MAX_STR_LENGTH. The samples are in worst-case.fixture.ts: at the schema's own maxima, or, where
 // the registry names a size rule, the largest message that rule lets through.
 import { describe, expect, it } from 'vitest';
 import { collectPages, decodeEnvelope, encodeEnvelope, encodedSize, takeListPage, takeWithinBytes } from '../codec.ts';
 import { MAX_APP_MESSAGE, MSGPACK_MAX_STR_LENGTH } from '../constants.ts';
-import { EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES } from './limits.ts';
+import { inboxItemSchema } from './inbox.ts';
+import { AUTO_MERGE_TEXT_MAX_BYTES, EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES, PLAN_INFO_ITEMS_MAX } from './limits.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES, type MessageType } from './registry.ts';
-import { startPreflightSchema } from './topics.ts';
+import { autoMergeInfoSchema, autoMergeTextBytes, planInfoSchema, startPreflightSchema } from './topics.ts';
 import {
   WORST_CASES,
+  worstAutoMerge,
   worstConfigRoot,
+  worstDecisionItem,
   worstDirectPreflight,
   worstEvent,
   worstHostState,
@@ -18,6 +21,7 @@ import {
   worstPlan,
   worstPreflight,
   worstQuestion,
+  worstReadyItem,
   worstReport,
   worstSession,
   worstSmurgPreflight,
@@ -114,6 +118,32 @@ describe('worst-case sizes of what protocol 5 added (DESIGN 0.6.0 D4, D5)', () =
       const parsed = startPreflightSchema.safeParse(preflight);
       expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
       expect(encodedSize({ preflight })).toBeLessThan(MAX_APP_MESSAGE);
+    }
+  });
+});
+
+describe('worst-case sizes of what protocol 6 added (DESIGN 0.7.0 Appendix A)', () => {
+  it('a work item\'s merge hold at its largest fills the byte bound of its paths and people, and one byte more is refused', () => {
+    expect(autoMergeInfoSchema.safeParse(worstAutoMerge).success).toBe(true);
+    expect(autoMergeTextBytes(worstAutoMerge)).toBeGreaterThan(AUTO_MERGE_TEXT_MAX_BYTES - 64);
+    expect(autoMergeTextBytes(worstAutoMerge)).toBeLessThanOrEqual(AUTO_MERGE_TEXT_MAX_BYTES);
+    const more = { ...worstAutoMerge, paths: worstAutoMerge.paths.map((path, i) => (i === 0 ? `${path}x`.repeat(2) : path)) };
+    expect(autoMergeTextBytes(more)).toBeGreaterThan(AUTO_MERGE_TEXT_MAX_BYTES);
+    expect(autoMergeInfoSchema.safeParse(more).success).toBe(false);
+  });
+
+  it('a plan whose every item carries the largest hold, and every other key of protocol 6, is valid and fits one Envelope', () => {
+    expect(worstPlan.items).toHaveLength(PLAN_INFO_ITEMS_MAX);
+    const parsed = planInfoSchema.safeParse(worstPlan);
+    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
+    expect(encodedSize({ plan: worstPlan })).toBeLessThan(MAX_APP_MESSAGE);
+  });
+
+  it('the largest decision and the largest topic ready to check are valid and fit a list reply', () => {
+    for (const item of [worstDecisionItem, worstReadyItem]) {
+      const parsed = inboxItemSchema.safeParse(item);
+      expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
+      expect(encodedSize(item)).toBeLessThan(encodedSize(worstInboxItem(0)));
     }
   });
 });

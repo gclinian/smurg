@@ -22,6 +22,8 @@ reports[].review.insteadOf: the same as #3
 reports[].checks: #5 object strict
 reports[].checks.passed: number format=safeint [greater_than value=0 inclusive=true]
 reports[].checks.notVerified: number format=safeint [greater_than value=0 inclusive=true]
+reports[].checks.failed: optional
+reports[].checks.failed: number format=safeint [greater_than value=0 inclusive=true]
 reports[].error: optional
 reports[].error: #6 object strict
 reports[].error.text: #7 object [custom] strict
@@ -54,11 +56,13 @@ reports[].sections: #13 object strict
 reports[].sections.done: string [custom] [custom]
 reports[].sections.why: string [custom] [custom]
 reports[].sections.verified: array [max_length maximum=100]
-reports[].sections.verified[]: #14 object strict
+reports[].sections.verified[]: #14 object [custom] strict
 reports[].sections.verified[].text: string [min_length minimum=0] [max_length maximum=2000] [custom]
 reports[].sections.verified[].passed: boolean
 reports[].sections.verified[].note: optional
 reports[].sections.verified[].note: string [min_length minimum=0] [max_length maximum=2000] [custom]
+reports[].sections.verified[].failed: optional
+reports[].sections.verified[].failed: literal true
 reports[].sections.watchOut: string [custom] [custom]
 reports[].sections.followUps: optional
 reports[].sections.followUps: string [custom] [custom]
@@ -75,6 +79,8 @@ reports[].changes.byHand[].path|in: string [max_length maximum=16384]
 reports[].changes.byHand[].path|out: transform
 reports[].changes.byHand[].by: array [max_length maximum=20]
 reports[].changes.byHand[].by[]: the same as #3
+reports[].changes.byHandTruncated: optional
+reports[].changes.byHandTruncated: literal true
 reports[].noChanges: optional
 reports[].noChanges: enum "host-only-paths"|"spec-files"|"conflict-markers"|"no-history"
 reports[].questions: array [max_length maximum=50]
@@ -94,6 +100,8 @@ reports[].questions[].answer.at: number format=safeint [greater_than value=0 inc
 reports[].contentHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
 reports[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 reports[].waitingSince: number format=safeint [greater_than value=0 inclusive=true]
+reports[].checkedInTurn: optional
+reports[].checkedInTurn: literal true
 reports[].pending: array [max_length maximum=100]
 reports[].pending[]: #19 object strict
 reports[].pending[].questionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]

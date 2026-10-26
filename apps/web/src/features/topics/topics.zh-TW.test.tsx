@@ -95,7 +95,7 @@ describe('the topic screens in zh-TW', () => {
       rules: [],
       sharedDirs: [],
       blockers: [{ text: msg('plan.start.invalid'), fallback: 'Fix PLAN.md before you start.' }],
-      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
+      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     };
     const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
     expect(text).toEqual([
@@ -147,7 +147,7 @@ describe('the topic screens in zh-TW', () => {
       rules: [],
       sharedDirs: [],
       blockers: [],
-      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
+      history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     };
     for (const reason of Object.keys(GIT_REASONS) as GitReason[]) {
       const lines = startLines({ ...base, blockers: [{ text: GIT_REASONS[reason], fallback: `fallback of ${reason}` }] }, PLAN, MEI.userId);
@@ -177,14 +177,14 @@ describe('the topic screens in zh-TW', () => {
       rules: [],
       sharedDirs: [],
       blockers: [],
-      history: 'smurg', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: ['frontend'], cloudSynced: true,
+      history: 'smurg', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: ['frontend'], cloudSynced: true, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     };
     const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
     expect(text).toContain('這個資料夾沒有自己的 git 儲存庫。smurg 會把資料夾現在的樣子記在它自己的版本紀錄裡（在 .smurg 裡，不是你的 .git），每個項目都從這裡開始。');
     expect(text).toContain('這些資料夾各自是一個 git 儲存庫，工作項目看不到它們：frontend。要在其中一個裡工作，請分享那個資料夾。');
     expect(text).toContain('這個資料夾由雲端服務同步：smurg 在 .smurg 裡的版本紀錄和每個工作項目的 worktree 也會被同步，只存在雲端的檔案可能讓開始失敗。');
     // Directly in the folder: no checkout, so no line about one.
-    expect(startLines({ ...preflight, history: 'direct', nestedRepos: [], cloudSynced: false, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: 'x' }, hostOnly: false } }, PLAN, MEI.userId).map((line) => line.id)).not.toContain('shared');
+    expect(startLines({ ...preflight, history: 'direct', nestedRepos: [], cloudSynced: false, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: 'x' }, hostOnly: false }, merging: null }, PLAN, MEI.userId).map((line) => line.id)).not.toContain('shared');
   });
 
   // 0.6.0 on purpose (DESIGN D14, D15): a folder without `.git` no longer stops Start; without the git program the

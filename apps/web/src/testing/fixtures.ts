@@ -56,7 +56,7 @@ export function makeWelcome(options: { role?: Role; userId?: string; displayName
       displayName: options.displayName ?? (role === 'host' ? 'Ian' : 'Amy'),
     }),
     workspace: { id: WORKSPACE_ID, name: 'class-project', hostUserId: HOST_USER, hostName: 'Ian', platform: 'darwin', isGitRepo: true },
-    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto' },
+    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto', merging: 'auto' },
     serverTime: options.serverTime ?? Date.now(),
   };
 }

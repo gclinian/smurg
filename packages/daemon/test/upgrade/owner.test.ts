@@ -19,6 +19,8 @@ import { join } from 'node:path';
 import { parseInviteUrl, toHex } from '@smurg/protocol';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMaxLiveAgents } from '../../src/core/config.ts';
+import { WORKSPACE_SHAPES } from '../../src/core/state-store.ts';
+import { STATE_VERSION } from '../../src/core/workspace-state.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
 import { DAEMON_VERSION, DEFAULT_FEATURE_MODULES, createDaemon, type Daemon } from '../../src/daemon.ts';
 import { MEMORY_RELAY_ORIGIN, MemoryRelay, TestIdentityIssuer, createTempDir, removeTempDir } from '../../src/testing/index.ts';
@@ -134,25 +136,26 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect(first.fingerprint).toBe('5521 e1d4 5f4e da2c ff81');
     expect(toHex(parseInviteUrl(first.hostInviteUrl as string).fingerprint)).toBe(toHex(parseInviteUrl(ledger.links['teamLink'] as string).fingerprint));
 
-    // The stamp: this smurg wrote the folder last, with shapes 2 (0.6.0).
-    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
+    // The stamp: this smurg wrote the folder last, with its shapes (3 since 0.7.0).
+    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES, at: expect.any(Number) });
     // The copies: the files as 0.4.0 left them, byte for byte, private.
     expect(await keptIn(dir)).toEqual(['state.json.before-upgrade-from-0.4.0', 'suggestions.json.before-upgrade-from-0.4.0']);
     expect(sha256Of(await readFile(join(dir, keptCopyName('state', '0.4.0'))))).toBe(sha256Of(oldState));
     expect(sha256Of(await readFile(join(dir, keptCopyName('suggestions', '0.4.0'))))).toBe(sha256Of(oldSuggestions));
     for (const name of [STAMP_NAME, ...(await keptIn(dir))]) expect((await stat(join(dir, name))).mode & 0o777, name).toBe(0o600);
 
-    // The settings in force: the six the host chose under 0.4.0, the three 0.5.0 added, closed, and the workspace's
-    // permission mode 0.6.0 added: auto (the owner's decision, DECISIONS.md 2), said to the host until they have seen it.
-    expect(first.ctx.settings.get()).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
-    expect(first.ctx.settings.notices()).toEqual(['agents-auto']);
+    // The settings in force: the six the host chose under 0.4.0, the three 0.5.0 added, closed, the workspace's
+    // permission mode 0.6.0 added: auto (the owner's decision, DECISIONS.md 2), and the setting `merging` 0.7.0 added:
+    // automatic merging (the owner's words of 2026-10-26), each said to the host until they have seen it.
+    expect(first.ctx.settings.get()).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' });
+    expect(first.ctx.settings.notices()).toEqual(['agents-auto', 'auto-merge']);
     await host.stop();
 
     // ---- The documents on disk after that run, in the shapes this smurg (and 0.5.0) writes.
     const state = await readJson<StoredState>(join(dir, 'state.json'));
-    expect(state.version).toBe(2);
+    expect(state.version).toBe(STATE_VERSION);
     expect(state.workspaceId).toBe(old.workspaceId);
-    expect(state.settings).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
+    expect(state.settings).toEqual({ ...old.settings, maxLiveAgents: defaultMaxLiveAgents(totalmem()), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' });
     // Every member and every device, the removed and the revoked ones as they were.
     expect(state.members.map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(old.members.map((member) => `${member.userId} ${member.role} ${member.status}`));
     expect(state.members.filter((member) => member.status === 'kicked').map((member) => member.userId)).toEqual(['dev:erin']);
@@ -218,7 +221,7 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     expect([...loaded.keys()].sort()).toEqual([...stored.keys()].sort());
     for (const [name, value] of stored) {
       expect(loaded.get(name)?.upgradedFrom, name).toBe(name === 'state' || name === 'agent-sessions' ? '0.5.0' : null);
-      if (name === 'state') expect(loaded.get(name)?.value, 'state.json').toEqual({ ...(value as object), version: 2, settings: { ...old.settings, permissionMode: 'auto' }, hostNotices: ['agents-auto'] });
+      if (name === 'state') expect(loaded.get(name)?.value, 'state.json').toEqual({ ...(value as object), version: STATE_VERSION, settings: { ...old.settings, permissionMode: 'auto', merging: 'auto' }, hostNotices: ['agents-auto', 'auto-merge'] });
       else if (name === 'agent-sessions') {
         const sessions = (loaded.get(name)?.value as { sessions: Record<string, unknown>[] }).sessions;
         const before = (value as { sessions: Record<string, unknown>[] }).sessions;
@@ -233,13 +236,14 @@ describe('as the owner met it: `smurg host` on the folder a published smurg shar
     }
     expect(first.workspaceId).toBe('ws_n8MKlviIItx2COhFvmlwCw');
     expect(first.fingerprint).toBe('cb32 c31a ed6d e26a 69b9');
-    // The settings the host chose under 0.5.0 stay; the workspace's mode is auto (the step's constant).
-    expect(first.ctx.settings.get()).toEqual({ ...old.settings, permissionMode: 'auto' });
-    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
+    // The settings the host chose under 0.5.0 stay; the workspace's mode is auto and its items merge by themselves (the
+    // constants of the steps from 0.5.0 and from 0.6.0).
+    expect(first.ctx.settings.get()).toEqual({ ...old.settings, permissionMode: 'auto', merging: 'auto' });
+    expect(await readJson(join(dir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES, at: expect.any(Number) });
     await host.stop();
 
     const state = await readJson<StoredState>(join(dir, 'state.json'));
-    expect(state.settings).toEqual({ ...old.settings, permissionMode: 'auto' });
+    expect(state.settings).toEqual({ ...old.settings, permissionMode: 'auto', merging: 'auto' });
     expect(state.members.map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(old.members.map((member) => `${member.userId} ${member.role} ${member.status}`));
     expect(state.members.filter((member) => member.status === 'kicked').map((member) => member.userId)).toEqual(['dev:pete', 'dev:erin', 'dev:sam']);
     expect(state.devices).toEqual(old.devices);

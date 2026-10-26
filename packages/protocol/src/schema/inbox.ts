@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { actorSchema, itemIdSchema, itemTitleSchema, userRefSchema } from './entities.ts';
-import { reportChecksSchema, reportOutcomeSchema } from './topics.ts';
+import { autoMergeReasonSchema, reportChecksSchema, reportOutcomeSchema } from './topics.ts';
 import { INBOX_ALSO_FOR_MAX, INBOX_EXCERPT_MAX_CHARS, INBOX_KEY_MAX_CHARS, OPTION_LABEL_MAX_CHARS, PLAN_ITEMS_MAX } from './limits.ts';
 import { epochMsSchema, indexSchema, lineTextSchema, multilineTextSchema, opaqueIdSchema } from './primitives.ts';
 
@@ -12,13 +12,13 @@ import { epochMsSchema, indexSchema, lineTextSchema, multilineTextSchema, opaque
 /**
  * The sections of the host console an item may open (`ColumnTarget { kind: 'console' }`). The attention subjects map
  * to them: `account` and `storage` → `sessions`; `project-settings` → `claude-config`; `host-rules` → `host-rules`;
- * `agents-auto` → `settings`.
+ * `agents-auto` and `auto-merge` → `settings`.
  */
 export const CONSOLE_SECTIONS = ['members', 'sessions', 'suggestions', 'merges', 'invites', 'audit', 'settings', 'claude-config', 'host-rules'] as const;
 export const consoleSectionSchema = z.enum(CONSOLE_SECTIONS);
 export type ConsoleSection = z.infer<typeof consoleSectionSchema>;
 
-/** What a column shows; an inbox item opens its `target`. */
+/** What a column shows; an inbox item opens its `target`. `result` (protocol 6): a topic's Result column. */
 export const columnTargetSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('session'), sessionId: opaqueIdSchema }),
   z.strictObject({ kind: z.literal('spec'), topicId: opaqueIdSchema }),
@@ -26,16 +26,23 @@ export const columnTargetSchema = z.discriminatedUnion('kind', [
   z.strictObject({ kind: z.literal('report'), topicId: opaqueIdSchema, itemId: itemIdSchema }),
   z.strictObject({ kind: z.literal('changes'), requestId: opaqueIdSchema }),
   z.strictObject({ kind: z.literal('console'), section: consoleSectionSchema }),
+  z.strictObject({ kind: z.literal('result'), topicId: opaqueIdSchema }),
 ]);
 export type ColumnTarget = z.infer<typeof columnTargetSchema>;
 
-export const INBOX_KINDS = ['question', 'vote', 'permission', 'attention', 'suggestion', 'report', 'merge', 'mention', 'result'] as const;
+/**
+ * `decision` (protocol 6): a work item that smurg merges by itself is held until a person decides (the item's
+ * carers, or the host for a host-only hold). `ready` (protocol 6): every item of a topic is settled, the result waits
+ * to be checked (every member's inbox, Viewers included).
+ */
+export const INBOX_KINDS = ['question', 'vote', 'permission', 'attention', 'suggestion', 'report', 'merge', 'mention', 'result', 'decision', 'ready'] as const;
 export const inboxKindSchema = z.enum(INBOX_KINDS);
 export type InboxKind = z.infer<typeof inboxKindSchema>;
 
 /**
  * Work that stopped and has no card, and what the host must know. `agents-auto` (protocol 5): the host's notice of the
- * 0.6.0 update (agents run in auto mode), until the host has seen it (`admin.notice.seen`).
+ * 0.6.0 update (agents run in auto mode), until the host has seen it (`admin.notice.seen`). `auto-merge` (protocol 6):
+ * the host's notice of the 0.7.0 update (work items merge by themselves), the same way.
  */
 export const ATTENTION_SUBJECTS = [
   'item-stalled',
@@ -49,6 +56,7 @@ export const ATTENTION_SUBJECTS = [
   'host-rules',
   'storage',
   'agents-auto',
+  'auto-merge',
 ] as const;
 export const attentionSubjectSchema = z.enum(ATTENTION_SUBJECTS);
 export type AttentionSubject = z.infer<typeof attentionSubjectSchema>;
@@ -61,10 +69,10 @@ export const inboxAnchorSchema = z.strictObject({ cardId: opaqueIdSchema.optiona
 /** What became of one's own suggestion (an item of kind `result`). */
 export const INBOX_RESULTS = ['rejected', 'accepted-edited'] as const;
 
-/** Whether an item of this kind stops an agent or a plan (`InboxItem.waiting`). */
+/** Whether an item of this kind stops an agent or a plan (`InboxItem.waiting`). A decision does; a topic ready to check does not. */
 export function inboxKindWaits(kind: InboxKind, subject?: AttentionSubject): boolean {
-  if (kind === 'question' || kind === 'vote' || kind === 'permission') return true;
-  return kind === 'attention' && subject !== undefined && subject !== 'host-rules' && subject !== 'storage' && subject !== 'agents-auto';
+  if (kind === 'question' || kind === 'vote' || kind === 'permission' || kind === 'decision') return true;
+  return kind === 'attention' && subject !== undefined && subject !== 'host-rules' && subject !== 'storage' && subject !== 'agents-auto' && subject !== 'auto-merge';
 }
 
 /** The fields of an item beyond the ones every item has (`key`, `kind`, `at`, `unread`, `waiting`, `target`, `excerpt`). */
@@ -92,6 +100,8 @@ export const INBOX_KIND_FIELD_NAMES = [
   'ready',
   'unblocks',
   'conflict',
+  'reason',
+  'tally',
 ] as const;
 export type InboxKindField = (typeof INBOX_KIND_FIELD_NAMES)[number];
 
@@ -108,16 +118,17 @@ const WAITS_FOR = ['waitsFor', 'waitsForOffline', 'escalated', 'alsoFor', 'alsoF
  *   mention     the text around the mention                     merge       the request's message, or ''
  *   report      ''                                              attention   the topic's name for `plan-paused` and
  *                                                                           `discussion-lost`, else ''
+ *   decision    ''                                              ready       the topic's name
  *
  * The row names a work item from `item` (its number and title), never from `excerpt`.
  */
 export const INBOX_KIND_FIELDS: Readonly<Record<InboxKind, { readonly required: readonly InboxKindField[]; readonly optional: readonly InboxKindField[] }>> = Object.freeze({
   // A question I decide. `anchor.cardId`: the question. `leading`: `leadingLabel()`. `waitsFor`: the decider, in the
   // copies of the others who may submit once it escalated.
-  question: { required: ['sessionId', 'anchor', 'voted', 'eligible', 'allVoted'], optional: [...WHERE, 'leading', ...WAITS_FOR] },
+  question: { required: ['sessionId', 'anchor', 'voted', 'eligible', 'allVoted'], optional: [...WHERE, 'leading', ...WAITS_FOR, 'unblocks'] },
   // An open question of a session with nobody assigned, for a member who has not voted. `waitsFor`: who decides.
   vote: { required: ['sessionId', 'anchor', 'voted', 'eligible'], optional: [...WHERE, 'waitsFor', 'waitsForOffline'] },
-  permission: { required: ['sessionId', 'anchor'], optional: [...WHERE, ...WAITS_FOR] },
+  permission: { required: ['sessionId', 'anchor'], optional: [...WHERE, ...WAITS_FOR, 'unblocks'] },
   // ONE item per author and session. `anchor.cardId`: the oldest pending one. `count`: how many are pending.
   suggestion: { required: ['sessionId', 'anchor', 'from', 'count'], optional: [...WHERE, 'alsoFor', 'alsoForMore'] },
   report: { required: ['topicId', 'itemId', 'item', 'outcome', 'checks'], optional: ['sessionId', ...WAITS_FOR] },
@@ -126,8 +137,13 @@ export const INBOX_KIND_FIELDS: Readonly<Record<InboxKind, { readonly required: 
   mention: { required: ['from'], optional: [...WHERE, 'sessionId', 'anchor'] },
   // `from`: who rejected or edited it. `anchor.cardId`: the suggestion.
   result: { required: ['sessionId', 'anchor', 'from', 'result'], optional: [...WHERE] },
-  // `count`: sessions an account problem stops; items of a paused plan.
-  attention: { required: ['subject'], optional: [...WHERE, 'sessionId', 'count'] },
+  // `count`: sessions an account problem stops; items of a paused plan. `unblocks` (protocol 6): item numbers that wait.
+  attention: { required: ['subject'], optional: [...WHERE, 'sessionId', 'count', 'unblocks'] },
+  // A work item held for a decision (protocol 6). `reason`: why it was not merged. `unblocks`: item numbers that wait
+  // for it, transitively. `outcome`, `checks`: of its report, when the reason is about it.
+  decision: { required: ['topicId', 'itemId', 'item', 'reason'], optional: ['sessionId', 'unblocks', 'outcome', 'checks', ...WAITS_FOR] },
+  // A topic ready to check (protocol 6). `tally`: its items; `checks`: the sum over the merged items' reports.
+  ready: { required: ['topicId', 'tally', 'checks'], optional: [] },
 });
 
 /** Kinds whose `anchor.cardId` names the card the item is about. */
@@ -174,9 +190,13 @@ export const inboxItemSchema = z
     result: z.enum(INBOX_RESULTS).optional(),
     /** merge: a reviewed draft. */
     ready: z.boolean().optional(),
-    /** Item numbers that wait for this merge. */
+    /** Item numbers that wait for this merge, this decision, question or permission request. */
     unblocks: z.array(z.int().min(1)).max(PLAN_ITEMS_MAX).optional(),
     conflict: z.boolean().optional(),
+    /** With kind `decision`: why the item was not merged (protocol 6). */
+    reason: autoMergeReasonSchema.optional(),
+    /** With kind `ready`: the topic's items, and how many of them are merged, left out and undone (protocol 6). */
+    tally: z.strictObject({ items: indexSchema, merged: indexSchema, leftOut: indexSchema, undone: indexSchema }).optional(),
   })
   .superRefine((item, ctx) => {
     const fields = INBOX_KIND_FIELDS[item.kind];

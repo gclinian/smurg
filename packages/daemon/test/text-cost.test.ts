@@ -30,6 +30,7 @@ import { classifyText, encodeText } from '../src/docs/text-codec.ts';
 import { planBatch, planFolders } from '../src/files/upload.ts';
 import { stateShapeV040, suggestionsShapeV040 } from '../src/frozen/v0.4.0.ts';
 import { agentSessionsShapeV050, stateShapeV050 } from '../src/frozen/v0.5.0.ts';
+import { stateShapeV060 } from '../src/frozen/v0.6.0.ts';
 import { looseKey } from '../src/files/util.ts';
 import { bashPlaces, judgePlaces, type BashReading, type ResolvedPlace } from '../src/hooks/bash-guard.ts';
 import { bashWhileTypingReason, daemonUnreachableReason, gateDenyReason, pathDeniedReason } from '../src/hooks/deny-text.ts';
@@ -251,6 +252,11 @@ const stateOfV050With = (text: string): unknown => {
   const state = stateWith(text) as { settings: Record<string, unknown> };
   return { ...state, settings: { ...state.settings, maxLiveAgents: 4, escalateAfterMs: 300_000, agentMcp: false } };
 };
+/** state.json as 0.6.0 wrote it: 0.5.0's, version 2, the workspace's mode and the notices (texts as above). */
+const stateOfV060With = (text: string): unknown => {
+  const state = stateOfV050With(text) as { settings: Record<string, unknown> };
+  return { ...state, version: 2, settings: { ...state.settings, permissionMode: 'auto' }, hostNotices: ['agents-auto'] };
+};
 /** agent-sessions.json as 0.5.x wrote it: every text a member or an agent put into a session's record. */
 const agentSessionsOfV050With = (text: string): unknown => ({
   sessions: [{
@@ -284,6 +290,10 @@ const UPGRADE_LOOKS: Readonly<Record<string, Look>> = {
   },
   'the frozen shapes of smurg 0.5.0, 0.5.1 and 0.5.2 (state.json, agent-sessions.json: every text and every path)': {
     run: (text) => void [stateShapeV050.safeParse(stateOfV050With(text)), agentSessionsShapeV050.safeParse(agentSessionsOfV050With(text))],
+    fronts: ['a/', '/', 'C:', 'dev:', '#'],
+  },
+  'the frozen shape of smurg 0.6.0 (state.json: every text and every path)': {
+    run: (text) => void stateShapeV060.safeParse(stateOfV060With(text)),
     fronts: ['a/', '/', 'C:', 'dev:', '#'],
   },
   'loadDocumentValue and escapeForTerminal (a refused state file: zod names unknown keys as they are)': { run: (text) => void [refuse(text), escapeForTerminal(text)] },
@@ -584,6 +594,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'frozen/v0.4.0.ts': 16,
   // (0.5.0's own rules, as 0.4.0's above: the same scalars and paths, and a mark run read without HFS+'s ignorables.)
   'frozen/v0.5.0.ts': 19,
+  // (0.6.0's, for state.json alone: 0.5.0's scalars and paths without what only agent-sessions.json used.)
+  'frozen/v0.6.0.ts': 17,
   'hooks/bash-guard.ts': 6,
   'hooks/deny-text.ts': 4,
   'hooks/schemas.ts': 1,
@@ -655,6 +667,7 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'files/zip.ts': 1,
   'frozen/v0.4.0.ts': 1,
   'frozen/v0.5.0.ts': 1, // its `normalize` of a path (below)
+  'frozen/v0.6.0.ts': 1, // the same `normalize` of a path
   'hooks/settings-writer.ts': 2,
   'inbox/derive.ts': 2,
   'inbox/inbox-service.ts': 2,
@@ -683,12 +696,13 @@ describe('the regular expressions, normalisations and sorts of packages/daemon',
     const found = countInSources(SOURCES);
     expect(found.expressions).toEqual(EXPRESSIONS);
     expect(found.orderings).toEqual(ORDERINGS);
-    // TWO files normalise by themselves: the frozen shapes of smurg 0.4.0 and 0.5.0 (src/frozen/), which are literal
-    // copies of what those versions accepted and import nothing of today's code. 0.4.0 normalised a path before it
-    // measured its names; the copy answers 'segment-too-long' for a run of marks no name can hold BEFORE it normalises
-    // (the one line that is not 0.4.0's, and it changes no answer), so no run of more than 1,020 marks reaches
-    // `normalize` there, and no text of more than 16,384 units. 0.5.0 refused a run of more than 30 marks before it
-    // normalised, as the copy does. Each reads the host's own files, once, at a start (UPGRADE_LOOKS measures them).
-    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual(['frozen/v0.4.0.ts', 'frozen/v0.5.0.ts']);
+    // THREE files normalise by themselves: the frozen shapes of smurg 0.4.0, 0.5.0 and 0.6.0 (src/frozen/), which are
+    // literal copies of what those versions accepted and import nothing of today's code. 0.4.0 normalised a path before
+    // it measured its names; the copy answers 'segment-too-long' for a run of marks no name can hold BEFORE it
+    // normalises (the one line that is not 0.4.0's, and it changes no answer), so no run of more than 1,020 marks
+    // reaches `normalize` there, and no text of more than 16,384 units. 0.5.0 and 0.6.0 refused a run of more than 30
+    // marks before they normalised, as the copies do. Each reads the host's own files, once, at a start (UPGRADE_LOOKS
+    // measures them).
+    expect(Object.keys(SOURCES).filter((name) => (SOURCES[name] as string).includes('.normalize('))).toEqual(['frozen/v0.4.0.ts', 'frozen/v0.5.0.ts', 'frozen/v0.6.0.ts']);
   });
 });

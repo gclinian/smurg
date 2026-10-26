@@ -153,6 +153,14 @@ export const activity = {
     en: (p) => `Rejected the merge of ${p.requester}'s worktree`,
     'zh-TW': (p) => `拒絕合併${p.requester}的 worktree`,
   }),
+  'activity.mergeAuto': message({ item: 'string', starter: 'string' }, {
+    en: (p) => `smurg merged ${p.starter}'s work item ${p.item} into the main workspace (automatic merging)`,
+    'zh-TW': (p) => `smurg 把${p.starter}的工作項目 ${p.item} 合併到主工作區（自動合併）`,
+  }),
+  'activity.undo': message({ items: 'list' }, {
+    en: (p) => `Took ${joinList('en', p.items)} back out of the main workspace`,
+    'zh-TW': (p) => `把 ${joinList('zh-TW', p.items)} 從主工作區拿掉了`,
+  }),
   'activity.mergeConflict': message({ requester: 'string', count: 'number' }, {
     en: (p) => `Merging ${p.requester}'s worktree hit conflicts in ${p.count} ${plural(p.count, 'file', 'files')}. The main workspace was not changed`,
     'zh-TW': (p) => `合併${p.requester}的 worktree 時發生衝突（${p.count} 個檔案），主工作區沒有改變`,

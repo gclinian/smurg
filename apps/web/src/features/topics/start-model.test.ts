@@ -43,7 +43,7 @@ function preflight(overrides: Partial<StartPreflight> = {}): StartPreflight {
     sharedDirs: [],
     blockers: [],
     // protocol 5: the folder's own git; the topic's agent settings (none chosen) and the mode its items would run with
-    history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
+    history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     ...overrides,
   };
 }
@@ -139,9 +139,9 @@ describe('the Start dialog’s lines', () => {
   });
 
   it('without git an item waits for the others to be done, not merged (DESIGN 0.6.0 D15: nothing waits for a merge)', () => {
-    const direct = startLines(preflight({ history: 'direct', commit: null, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: '' }, hostOnly: false } }), plan, null);
+    const direct = startLines(preflight({ history: 'direct', commit: null, direct: { reason: { text: msg('worktree.unavailable.gitCannotRun'), fallback: '' }, hostOnly: false }, merging: null }), plan, null);
     expect(textOf(direct, 'waits')).toEqual(['3 · Checkout page starts by itself when 1 · Cart API and 2 · Payment form are done, if the spec and the plan are still what you see now.']);
-    const one = startLines(preflight({ history: 'direct', commit: null, waits: [{ itemId: 'checkout-page', for: ['cart-api'] }] }), plan, null);
+    const one = startLines(preflight({ history: 'direct', commit: null, waits: [{ itemId: 'checkout-page', for: ['cart-api'] }], merging: null }), plan, null);
     expect(textOf(one, 'waits')).toEqual(['3 · Checkout page starts by itself when 1 · Cart API is done, if the spec and the plan are still what you see now.']);
     // With smurg's own history it still waits for the merge.
     expect(textOf(startLines(preflight({ history: 'smurg', commit: null }), plan, null), 'waits')[0]).toMatch(/are merged, if the spec/);

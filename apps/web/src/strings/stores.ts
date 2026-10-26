@@ -42,6 +42,7 @@ export const tStores = defineStrings(
     'phase.spec': 'Spec',
     'phase.plan': 'Plan',
     'phase.executing': 'Executing',
+    'phase.ready': 'Ready to check',
     'phase.complete': 'Complete',
     // The kinds of things that wait for a person (inbox items and cards; ui/KindIcon).
     'kind.question': 'Question',
@@ -53,6 +54,8 @@ export const tStores = defineStrings(
     'kind.merge': 'Merge request',
     'kind.mention': 'Mention',
     'kind.result': 'What happened to your suggestion',
+    'kind.decision': 'Decision',
+    'kind.ready': 'Ready to check',
     // What a column of the sessions view shows (lib/columns/describe.ts), and a work item's name.
     'item.label': '{number} · {title}',
     'column.session': 'Session',

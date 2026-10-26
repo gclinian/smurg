@@ -120,7 +120,7 @@ describe('the union (protocol 4)', () => {
 // ARCHITECTURE §11 D-15 (owner decision 2026-10-01): no guest sandbox, no guest login process, no guest API key, no
 // guest switches. Every session runs like the host's own; SessionInfo names who opened it (`openedBy`).
 describe('no guest sandbox (D-15)', () => {
-  const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto' };
+  const base = { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto', merging: 'auto' };
 
   it('sessions are agents or terminals; SessionInfo has no sandboxed flag', () => {
     expect([...SESSION_KINDS]).toEqual(['agent', 'terminal']);
@@ -155,6 +155,10 @@ describe('no guest sandbox (D-15)', () => {
     expect(publicSettingsSchema.safeParse({ ...base, permissionMode: undefined }).success).toBe(false);
     expect(publicSettingsSchema.safeParse({ ...base, permissionMode: 'bypassPermissions' }).success).toBe(false);
     for (const mode of PERMISSION_MODES) expect(publicSettingsSchema.safeParse({ ...base, permissionMode: mode }).success, mode).toBe(true);
+    // Protocol 6: every member learns how work items merge (smurg merges them, or the host).
+    expect(publicSettingsSchema.safeParse({ ...base, merging: undefined }).success).toBe(false);
+    expect(publicSettingsSchema.safeParse({ ...base, merging: 'host' }).success).toBe(true);
+    expect(publicSettingsSchema.safeParse({ ...base, merging: 'smurg' }).success).toBe(false);
     const host = { ...base, diskReserveBytes: 1, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 300_000, agentMcp: false };
     expect(hostSettingsSchema.safeParse(host).success).toBe(true);
     expect(hostSettingsSchema.safeParse({ ...host, allowedDomains: [] }).success).toBe(false);
@@ -165,5 +169,6 @@ describe('no guest sandbox (D-15)', () => {
     expect(hostSettingsPatchSchema.safeParse({ allowedDomains: ['pypi.org'] }).success).toBe(false);
     expect(hostSettingsPatchSchema.safeParse({ guestMainWorkspace: true }).success).toBe(false);
     expect(hostSettingsPatchSchema.safeParse({ agentMcp: true }).success).toBe(true);
+    expect(hostSettingsPatchSchema.safeParse({ merging: 'host' }).success).toBe(true);
   });
 });

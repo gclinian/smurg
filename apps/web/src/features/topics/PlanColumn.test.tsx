@@ -333,7 +333,7 @@ describe('the plan column: executing', () => {
       buildWorkItem({ id: 'f', number: 6, title: 'Checkout page', state: 'not-started', disarmed: 'start-failed', startError: { text: msg('plan.start.worktreeLimit', { max: 20 }), fallback: 'x' }, dependsOn: [] }),
       buildWorkItem({ id: 'old', number: 0, title: 'Dropped idea', inPlan: false, state: 'stopped', sessionId: 's9', attempt: 1 }),
     ],
-    waitingFor: [{ user: IAN, questions: 1, permissions: 0, reports: 0, since: Date.now() - 5.5 * 60_000 }],
+    waitingFor: [{ user: IAN, questions: 1, permissions: 0, reports: 0, decisions: 0, since: Date.now() - 5.5 * 60_000 }],
   });
   const SESSIONS = [session('s1', 'a', 1, 'waiting-answer'), session('s2', 'b', 2, 'running'), session('s3', 'c', 3, 'idle'), session('s4', 'd', 4, 'stalled'), session('s5', 'e', 5, 'failed')];
 

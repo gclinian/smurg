@@ -352,7 +352,7 @@ describe('host console: settings', () => {
     view.fixture.settings = { ...SETTINGS, humanLockIdleMs: 45_000, sharedDirs: ['data', 'models'] };
     act(() =>
       view.conn.emit('channel.settingsUpdated', {
-        settings: { humanLockIdleMs: 45_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: ['data'], permissionMode: 'auto' },
+        settings: { humanLockIdleMs: 45_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: ['data'], permissionMode: 'auto', merging: 'auto' },
       }),
     );
     await waitFor(() => expect(idle.value).toBe('45'));

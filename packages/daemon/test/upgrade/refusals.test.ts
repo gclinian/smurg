@@ -16,6 +16,8 @@ import { appendFile, chmod, mkdir, readFile, readdir, rename, rm, writeFile } fr
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { silentLogger } from '../../src/core/logger.ts';
+import { WORKSPACE_SHAPES } from '../../src/core/state-store.ts';
+import { STATE_VERSION } from '../../src/core/workspace-state.ts';
 import { DEFAULT_FEATURE_MODULES, createDaemon } from '../../src/daemon.ts';
 import { MEMORY_RELAY_ORIGIN, MemoryRelay, createTempDir, removeTempDir, type TestDaemon } from '../../src/testing/index.ts';
 import { clockAt, startOn } from './daemon-on.ts';
@@ -74,14 +76,14 @@ const LATER_DOCUMENT: Readonly<Record<PublishedVersion, string>> = { '0.4.0': 's
 /** 0.5.1 is the first published smurg that stamps a folder: its fixture and every later one hold a stamp. */
 const stampedBy = (version: PublishedVersion): boolean => version !== '0.4.0' && version !== '0.5.0';
 /**
- * What a start of 0.6.0 upgrades in the folder a version left (DESIGN 0.6.0 D6): 0.4.0's state.json and suggestions.json
- * (its state.json through both steps, named after the first), 0.5.x's state.json and agent-sessions.json (the owner's
- * decision: auto mode); with the stamp's writer once a version stamps folders. What 0.6.0 wrote: nothing.
+ * What a start of 0.7.0 upgrades in the folder a version left (DESIGN 0.6.0 D6, DESIGN 0.7.0 D4): 0.4.0's state.json
+ * and suggestions.json (its state.json through every step, named after the first), 0.5.x's state.json and
+ * agent-sessions.json (the owner's decision: auto mode; then automatic merging), 0.6.0's state.json (automatic merging,
+ * the owner's words of 2026-10-26); with the stamp's writer once a version stamps folders.
  */
 function upgradesOf(version: PublishedVersion, copy: FixtureCopy): unknown[] {
-  if (version === '0.6.0') return [];
-  const from = version === '0.4.0' ? '0.4.0' : '0.5.0';
-  const documents = version === '0.4.0' ? ['state', 'suggestions'] : ['state', 'agent-sessions'];
+  const from = version === '0.4.0' ? '0.4.0' : version === '0.6.0' ? '0.6.0' : '0.5.0';
+  const documents = version === '0.4.0' ? ['state', 'suggestions'] : version === '0.6.0' ? ['state'] : ['state', 'agent-sessions'];
   return documents.map((document) => ({ document, from, copy: join(copy.workspaceDir, keptCopyName(document, from)), ...(stampedBy(version) ? { writer: version } : {}) }));
 }
 
@@ -101,16 +103,16 @@ function casesOf(version: PublishedVersion): Case[] {
       damage: async (copy) => {
         const path = join(copy.workspaceDir, STAMP_NAME);
         const before = await readFile(path).catch(() => null);
-        // One above the shapes of this smurg (0.6.0 writes 2).
-        await writeFile(path, serialize({ smurg: '9.3.1', shapes: 3, at: copy.at }), { mode: 0o600 });
+        // One above the shapes of this smurg (0.7.0 writes 3).
+        await writeFile(path, serialize({ smurg: '9.3.1', shapes: WORKSPACE_SHAPES + 1, at: copy.at }), { mode: 0o600 });
         return () => (before === null ? rm(path) : writeFile(path, before, { mode: 0o600 }));
       },
       refusal: (copy) => ({ kind: 'newer', path: copy.workspaceDir, writtenBy: '9.3.1' }),
     },
     {
       name: 'a document with a newer `version`',
-      // One above the version of state.json this smurg writes (0.6.0 writes 2).
-      damage: (copy) => replaceDocument(copy, 'state', (value) => ({ ...value, version: 3 })),
+      // One above the version of state.json this smurg writes (0.7.0 writes 3).
+      damage: (copy) => replaceDocument(copy, 'state', (value) => ({ ...value, version: STATE_VERSION + 1 })),
       refusal: (copy) => ({ kind: 'newer', path: join(copy.workspaceDir, 'state.json') }),
     },
     {

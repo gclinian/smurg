@@ -45,7 +45,7 @@ worktrees[].handEdits[].by[].displayName: string [min_length minimum=1] [max_len
 worktrees[].repo: optional
 worktrees[].repo: literal "smurg"
 merges: array [max_length maximum=1000]
-merges[]: #7 object [custom] strict
+merges[]: #7 object [custom] [custom] [custom] strict
 merges[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/] [string_format format=regex pattern=^mr_[0-9a-f]{24}$/]
 merges[].worktreeId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 merges[].ownerUserId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
@@ -79,8 +79,24 @@ merges[].repo: optional
 merges[].repo: literal "smurg"
 merges[].base: optional
 merges[].base: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+merges[].auto: optional
+merges[].auto: literal true
+merges[].undone: optional
+merges[].undone: #8 object strict
+merges[].undone.commit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+merges[].undone.at: number format=safeint [greater_than value=0 inclusive=true]
+merges[].undone.by: the same as #6
 hidden: optional
-hidden: #8 object strict
+hidden: #9 object strict
 hidden.createdAt: number format=safeint [greater_than value=0 inclusive=true]
 hidden.configHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
 hidden.headHash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+undo: optional
+undo: #10 object strict
+undo.requestIds: array [min_length minimum=1] [max_length maximum=64]
+undo.requestIds[]: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/] [string_format format=regex pattern=^mr_[0-9a-f]{24}$/]
+undo.pre: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+undo.target: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+undo.repo: optional
+undo.repo: literal "smurg"
+undo.at: number format=safeint [greater_than value=0 inclusive=true]

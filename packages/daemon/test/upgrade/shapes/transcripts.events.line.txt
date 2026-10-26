@@ -50,7 +50,7 @@
 <3>: #10 object strict
 <3>.kind: literal "smurg"
 <3>.messageId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
-<3>.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"
+<3>.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"|"remove-paths"|"verify-again"
 <3>.by: optional
 <3>.by: the same as #9
 <3>.text: string [custom] [custom]

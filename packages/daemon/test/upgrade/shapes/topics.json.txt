@@ -90,6 +90,8 @@ topics[].plan.mode: enum "assigned"|"everyone"
 topics[].plan.paused: boolean
 topics[].plan.pausedAt: optional
 topics[].plan.pausedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].plan.pausedBy: optional
+topics[].plan.pausedBy: the same as #3
 topics[].plan.warnings: array [max_length maximum=40]
 topics[].plan.warnings[]: #18 object strict
 topics[].plan.warnings[].text: the same as #16
@@ -105,7 +107,7 @@ topics[].plan.people[].userId: string [string_format format=regex pattern=^(?:gi
 topics[].plan.people[].name: string [min_length minimum=0] [max_length maximum=256] [custom]
 topics[].plan.people[].joinedAt: number format=safeint [greater_than value=0 inclusive=true]
 topics[].plan.lastPin: optional
-topics[].plan.lastPin: #21 object [custom] [custom] strict
+topics[].plan.lastPin: #21 object [custom] [custom] [custom] [custom] [custom] strict
 topics[].plan.lastPin.by: the same as #3
 topics[].plan.lastPin.at: number format=safeint [greater_than value=0 inclusive=true]
 topics[].plan.lastPin.planRevision: number format=safeint [greater_than value=0 inclusive=true]
@@ -119,6 +121,12 @@ topics[].plan.lastPin.planBlob: nullable
 topics[].plan.lastPin.planBlob: string [string_format format=regex pattern=^[0-9a-f]{7,64}$/]
 topics[].plan.lastPin.history: optional
 topics[].plan.lastPin.history: enum "smurg"|"direct"
+topics[].plan.lastPin.merging: optional
+topics[].plan.lastPin.merging: enum "auto"|"host"
+topics[].plan.lastPin.branch: optional
+topics[].plan.lastPin.branch: pipe
+topics[].plan.lastPin.branch|in: string [min_length minimum=0] [max_length maximum=256] [custom]
+topics[].plan.lastPin.branch|out: string [min_length minimum=1]
 topics[].plan.fix: optional
 topics[].plan.fix: #22 object strict
 topics[].plan.fix.hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
@@ -176,6 +184,8 @@ topics[].items[].checked[]: #27 object strict
 topics[].items[].checked[].sessionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 topics[].items[].checked[].attempt: number format=safeint [greater_than value=0 inclusive=true]
 topics[].items[].checked[].hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]
+topics[].items[].checked[].turn: optional
+topics[].items[].checked[].turn: number format=safeint [greater_than value=0 inclusive=true]
 topics[].items[].nudged: boolean
 topics[].items[].fix: optional
 topics[].items[].fix: #28 object strict
@@ -185,8 +195,70 @@ topics[].items[].snapshotOwed: optional
 topics[].items[].snapshotOwed: literal true
 topics[].items[].direct: optional
 topics[].items[].direct: literal true
+topics[].items[].autoMerge: optional
+topics[].items[].autoMerge: #29 object [custom] [custom] [custom] [custom] [custom] [custom] strict
+topics[].items[].autoMerge.state: enum "waiting"|"resolving"|"held"
+topics[].items[].autoMerge.reason: enum "queued"|"paused"|"busy"|"asked"|"typing"|"git-busy"|"behind"|"retry"|"conflict"|"markers"|"stale-report"|"partial"|"blocked"|"check-failed"|"not-verified"|"report-invalid"|"rejected"|"stopped"|"policy"|"local-changes"|"in-the-way"|"staged"|"branch"|"history-changed"|"merge-failed"|"by-hand"|"undo-interrupted"
+topics[].items[].autoMerge.since: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].autoMerge.hostOnly: boolean
+topics[].items[].autoMerge.paths: optional
+topics[].items[].autoMerge.paths: array [max_length maximum=20]
+topics[].items[].autoMerge.paths[]: pipe
+topics[].items[].autoMerge.paths[]|in: string [max_length maximum=16384]
+topics[].items[].autoMerge.paths[]|out: transform
+topics[].items[].autoMerge.branch: optional
+topics[].items[].autoMerge.branch: #30 object strict
+topics[].items[].autoMerge.branch.expected: pipe
+topics[].items[].autoMerge.branch.expected|in: string [min_length minimum=0] [max_length maximum=256] [custom]
+topics[].items[].autoMerge.branch.expected|out: string [min_length minimum=1]
+topics[].items[].autoMerge.branch.current: string [min_length minimum=0] [max_length maximum=256] [custom]
+topics[].items[].autoMerge.escalatedAt: optional
+topics[].items[].autoMerge.escalatedAt: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].autoMerge.requestId: optional
+topics[].items[].autoMerge.requestId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].autoMerge.people: optional
+topics[].items[].autoMerge.people: array [max_length maximum=20]
+topics[].items[].autoMerge.people[]: #31 object strict
+topics[].items[].autoMerge.people[].path: pipe
+topics[].items[].autoMerge.people[].path|in: string [max_length maximum=16384]
+topics[].items[].autoMerge.people[].path|out: transform
+topics[].items[].autoMerge.people[].by: array [max_length maximum=5]
+topics[].items[].autoMerge.people[].by[]: the same as #3
+topics[].items[].autoMerge.people[].outside: boolean
+topics[].items[].mergeTries: optional
+topics[].items[].mergeTries: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].turns: optional
+topics[].items[].turns: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].lastTurn: optional
+topics[].items[].lastTurn: #32 object strict
+topics[].items[].lastTurn.outcome: enum "interrupted"|"error"
+topics[].items[].lastTurn.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].mergedAs: optional
+topics[].items[].mergedAs: #33 object strict
+topics[].items[].mergedAs.requestId: optional
+topics[].items[].mergedAs.requestId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+topics[].items[].mergedAs.commit: optional
+topics[].items[].mergedAs.commit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+topics[].items[].mergedAs.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].mergedAs.by: #34 union
+topics[].items[].mergedAs.by<0>: literal "smurg"
+topics[].items[].mergedAs.by<1>: the same as #3
+topics[].items[].leftOut: optional
+topics[].items[].leftOut: #35 object strict
+topics[].items[].leftOut.by: the same as #3
+topics[].items[].leftOut.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].undone: optional
+topics[].items[].undone: #36 object strict
+topics[].items[].undone.by: the same as #3
+topics[].items[].undone.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].undone.commit: string [string_format format=regex pattern=^[0-9a-f]{40}(?:[0-9a-f]{24})?$/]
+topics[].items[].autoContinue: optional
+topics[].items[].autoContinue: #37 object strict
+topics[].items[].autoContinue.cause: enum "usage-limit"|"error"|"crash"|"snapshot"
+topics[].items[].autoContinue.count: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].autoContinue.at: number format=safeint [greater_than value=0 inclusive=true]
 topics[].agent: optional
-topics[].agent: #29 object strict
+topics[].agent: #38 object strict
 topics[].agent.model: optional
 topics[].agent.model: string [min_length minimum=1] [max_length maximum=256] [string_format format=regex pattern=^[A-Za-z0-9][A-Za-z0-9._:/@[\]+-]*$/]
 topics[].agent.permissionMode: optional
@@ -195,3 +267,7 @@ topics[].agent.modeChangedBy: optional
 topics[].agent.modeChangedBy: the same as #3
 topics[].agent.modelChangedBy: optional
 topics[].agent.modelChangedBy: the same as #3
+topics[].checked: optional
+topics[].checked: #39 object strict
+topics[].checked.by: the same as #3
+topics[].checked.at: number format=safeint [greater_than value=0 inclusive=true]

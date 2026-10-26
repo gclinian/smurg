@@ -235,7 +235,14 @@ describe('R11 host console', () => {
         'auth.join', 'auth.connect', 'auth.disconnect', 'auth.rejected', 'authz.denied', 'path.denied',
         'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change', 'claude-config.decide', 'transcript.redact',
       ]);
-      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action)).sort());
+      // Protocol 6 names the actions of 0.7.0 before this smurg writes them (DESIGN 0.7.0 D4): automatic merging, its
+      // holds and undo, the end of a topic, Pause, the carers' and the host's new actions on a work item, the automatic
+      // continues and the setting's turn to the host. Each joins the lists above with the step that writes it.
+      const notWrittenYet = new Set<AuditAction>([
+        'worktree.merge.auto', 'worktree.merge.held', 'worktree.merge.undo', 'topic.check', 'plan.pause', 'plan.item.leaveOut',
+        'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue', 'plan.merging.host',
+      ]);
+      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notWrittenYet.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;

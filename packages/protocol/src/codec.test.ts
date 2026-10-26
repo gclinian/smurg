@@ -434,7 +434,7 @@ describe('Verdict', () => {
     resumed: false,
     member: { ...member, role: 'host' },
     workspace: { id: 'AbCdEfGh_-012345', name: 'Smurg', hostUserId: member.userId, hostName: 'Ian', platform: 'darwin', isGitRepo: true },
-    settings: { humanLockIdleMs: hostSettings.humanLockIdleMs, agentLockTimeoutMs: hostSettings.agentLockTimeoutMs, uploadChunkSize: hostSettings.uploadChunkSize, sharedDirs: hostSettings.sharedDirs, permissionMode: hostSettings.permissionMode },
+    settings: { humanLockIdleMs: hostSettings.humanLockIdleMs, agentLockTimeoutMs: hostSettings.agentLockTimeoutMs, uploadChunkSize: hostSettings.uploadChunkSize, sharedDirs: hostSettings.sharedDirs, permissionMode: hostSettings.permissionMode, merging: hostSettings.merging },
     serverTime: 1_727_000_000_000,
   } as const;
 

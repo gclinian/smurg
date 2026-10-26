@@ -53,6 +53,8 @@ export function defaultHostSettings(memoryBytes = 24 * GiB): HostSettings {
     agentMcp: false,
     // 0.6.0 (the owner's decision): agents run in auto mode unless the host chooses a mode that asks.
     permissionMode: 'auto',
+    // 0.7.0 (the owner's words of 2026-10-26): smurg merges a work item that is in order unless the host merges each.
+    merging: 'auto',
   });
 }
 

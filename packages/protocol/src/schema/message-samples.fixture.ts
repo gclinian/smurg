@@ -255,10 +255,14 @@ export const topic = {
   discussion: 'live',
   spec: { exists: true, changedAt: T, changedBy: agentActor, lastAgentChange: { sessionId: 'sess_a', seq: 7, at: T, askedBy: AMY_REF } },
   handEdits: { spec: [{ by: AMY_REF, at: T }, { by: 'outside', at: T }], plan: [] },
-  plan: { exists: true, valid: false, error: { ...wireText, line: 12 }, generating: false, stale: true, mode: 'assigned', paused: false, changedAt: T, changedBy: { kind: 'user', ...AMY_REF }, items: 3, started: 1, reviewed: 0, merged: 0 },
+  plan: { exists: true, valid: false, error: { ...wireText, line: 12 }, generating: false, stale: true, mode: 'assigned', paused: false, changedAt: T, changedBy: { kind: 'user', ...AMY_REF }, items: 3, started: 1, reviewed: 0, merged: 0, leftOut: 0, undone: 0 },
   rules: [rule],
   agent: { model: 'sonnet', permissionMode: null },
 };
+/** Protocol 6: a topic whose items are all settled (one left out), and the same topic after "I've checked the result". */
+export const readyTopic = { ...topic, phase: 'ready', plan: { ...topic.plan, valid: true, error: undefined, stale: false, started: 3, reviewed: 1, merged: 2, leftOut: 1, undone: 0 } };
+export const checkedTopic = { ...readyTopic, phase: 'complete', checked: { by: AMY_REF, at: T } };
+export const pausedTopic = { ...topic, plan: { ...topic.plan, paused: true, pausedBy: IAN } };
 export const workItem = {
   id: 'cart-api',
   number: 1,
@@ -279,6 +283,33 @@ export const workItem = {
   report: reportSummary,
   merge: { requestId: 'mr_1', status: 'draft', ready: false },
 };
+/** Protocol 6: work items that smurg merges by itself: merged by smurg; held for its carers; held for the host; a conflict with a person's change; left out; undone. */
+export const mergedAutoItem = { ...workItem, state: 'reviewed', changesAsked: undefined, merge: { requestId: 'mr_1', status: 'merged', ready: false }, merging: 'auto', merged: { at: T, by: 'smurg' } };
+export const heldItem = {
+  ...workItem,
+  id: 'receipt-email',
+  number: 2,
+  title: 'Receipt email',
+  changesAsked: undefined,
+  merging: 'auto',
+  autoMerge: { state: 'held', reason: 'partial', since: T, tries: 0, hostOnly: false, escalated: true },
+  waiting: 'question',
+};
+export const hostHeldItem = {
+  ...heldItem,
+  autoMerge: { state: 'held', reason: 'policy', since: T, tries: 0, hostOnly: true, escalated: false, paths: ['.github/workflows/ci.yml'] },
+  waiting: undefined,
+};
+export const branchHeldItem = { ...hostHeldItem, autoMerge: { state: 'held', reason: 'branch', since: T, tries: 0, hostOnly: true, escalated: false, branch: { expected: 'main', current: 'experiment' } } };
+export const conflictItem = {
+  ...heldItem,
+  autoMerge: { state: 'held', reason: 'conflict', since: T, tries: 0, hostOnly: false, escalated: false, paths: ['config.txt'], people: [{ path: 'config.txt', by: [AMY_REF], outside: false }] },
+  waiting: undefined,
+};
+export const askedItem = { ...heldItem, autoMerge: { state: 'waiting', reason: 'asked', since: T, tries: 0, hostOnly: false, escalated: false, asked: IAN }, waiting: undefined };
+export const resolvingItem = { ...heldItem, autoMerge: { state: 'resolving', reason: 'conflict', since: T, tries: 2, hostOnly: false, escalated: false, paths: ['src/cart/api.ts'] }, waiting: undefined };
+export const leftOutItem = { ...workItem, id: 'checkout-page', number: 3, state: 'stopped', changesAsked: undefined, merge: undefined, report: undefined, leftOut: { by: AMY_REF, at: T } };
+export const undoneItem = { ...workItem, state: 'not-started', changesAsked: undefined, merge: undefined, report: undefined, sessionId: undefined, worktreeId: undefined, undone: { by: IAN, at: T } };
 export const waitingItem = {
   id: 'checkout-page',
   number: 3,
@@ -306,8 +337,14 @@ export const plan = {
   items: [workItem, waitingItem],
   split: { source: 'agent', reason: 'Amy knows the cart code.' },
   warnings: [{ text: { id: 'plan.warning.overlap', params: { first: 1, second: 2 } }, fallback: 'Items 1 and 2 may change the same files and neither waits for the other.' }],
-  waitingFor: [{ user: IAN, questions: 1, permissions: 0, reports: 2, since: T }],
+  waitingFor: [{ user: IAN, questions: 1, permissions: 0, reports: 2, decisions: 0, since: T }],
   slots: { inUse: 2, max: 8, waitingForPeople: 1 },
+};
+/** Protocol 6: a plan that runs by itself, with every kind of item it shows. */
+export const autoPlan = {
+  ...plan,
+  items: [mergedAutoItem, heldItem, hostHeldItem, branchHeldItem, conflictItem, askedItem, resolvingItem, leftOutItem, undoneItem],
+  waitingFor: [{ user: AMY_REF, questions: 1, permissions: 0, reports: 0, decisions: 2, since: T }],
 };
 export const report = {
   ...reportSummary,
@@ -323,6 +360,14 @@ export const report = {
   },
   changes: { requestId: 'mr_1', files: 4, additions: 120, deletions: 8, byHand: [{ path: 'src/cart/api.ts', by: [AMY_REF] }] },
   questions: [{ id: 'm_9', from: IAN, text: 'Why not check stock here?', at: T, answer: { text: 'Item 5 does.', at: T } }],
+};
+/** Protocol 6: a report with a failed check (`- [!] …: failed: …`), and one whose hand-edit list was cut. */
+export const failedReport = {
+  ...report,
+  outcome: 'partial',
+  checks: { passed: 1, notVerified: 1, failed: 1 },
+  sections: { ...report.sections, verified: [...report.sections.verified, { text: '`pnpm test checkout`', passed: false, failed: true, note: '2 of 9 tests failed' }] },
+  changes: { ...report.changes, byHandTruncated: true },
 };
 export const preflight = {
   planRevision: 4,
@@ -349,7 +394,11 @@ export const preflight = {
   agent: { model: 'sonnet', permissionMode: null, effective: 'auto' },
   nestedRepos: [],
   cloudSynced: false,
+  merging: { workspace: 'auto', proposed: 'auto', detached: false },
 };
+/** Protocol 6: a Start on a detached HEAD (only the host merges), and one in a workspace whose host merges each item. */
+export const detachedPreflight = { ...preflight, merging: { workspace: 'auto', proposed: 'host', detached: true } };
+export const hostMergesPreflight = { ...preflight, merging: { workspace: 'host', proposed: 'host', detached: false } };
 /** Protocol 5: the Start dialog of a folder without .git (smurg's own history) and of a host without git (direct). */
 export const smurgHistoryPreflight = { ...preflight, history: 'smurg', commit: null, nestedRepos: ['frontend'], cloudSynced: true };
 export const directPreflight = {
@@ -358,6 +407,7 @@ export const directPreflight = {
   commit: null,
   direct: { reason: { text: { id: 'worktree.unavailable.gitCannotRun' }, fallback: 'git does not run on the host.' }, hostOnly: true },
   agent: { model: null, permissionMode: 'ask-all', effective: 'ask-all' },
+  merging: null,
 };
 const CART_ITEM = { number: 1, title: 'Cart API' };
 /** A question I decide (kind `question`). */
@@ -560,8 +610,62 @@ export const agentsAutoItem = {
   target: { kind: 'console', section: 'settings' },
   excerpt: '',
 };
+/** Protocol 6: the host's notice of the 0.7.0 update (work items merge by themselves), until the host has seen it. */
+export const autoMergeNoticeItem = { ...agentsAutoItem, key: 'attention:auto-merge:workspace', subject: 'auto-merge' };
+/** Protocol 6: a work item held for a decision of its responsible person (it stops item 3), and one for the host. */
+export const decisionItem = {
+  key: 'decision:tp_1.cart-api',
+  kind: 'decision',
+  at: T,
+  unread: true,
+  waiting: true,
+  topicId: 'tp_1',
+  sessionId: 'sess_i',
+  itemId: 'cart-api',
+  item: CART_ITEM,
+  target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' },
+  excerpt: '',
+  reason: 'partial',
+  outcome: 'partial',
+  checks: { passed: 2, notVerified: 1, failed: 0 },
+  unblocks: [3],
+  escalated: false,
+};
+export const hostDecisionItem = { ...decisionItem, unread: false, reason: 'policy', outcome: undefined, checks: undefined, unblocks: undefined, escalated: undefined };
+/** Protocol 6: a topic whose items are all settled, in every member's inbox (it stops nothing). */
+export const readyItem = {
+  key: 'ready:tp_1',
+  kind: 'ready',
+  at: T,
+  unread: true,
+  waiting: false,
+  topicId: 'tp_1',
+  target: { kind: 'result', topicId: 'tp_1' },
+  excerpt: 'Checkout 結帳',
+  tally: { items: 3, merged: 2, leftOut: 1, undone: 0 },
+  checks: { passed: 5, notVerified: 1, failed: 0 },
+};
 /** One valid item of every kind (and of the attention subjects that differ). */
-export const INBOX_SAMPLES = [inboxItem, voteItem, permissionItem, suggestionItem, reportItem, attentionItem, accountItem, hostRulesItem, pausedItem, mergeItem, requestedMergeItem, mentionItem, resultItem, agentsAutoItem];
+export const INBOX_SAMPLES = [
+  inboxItem,
+  voteItem,
+  permissionItem,
+  suggestionItem,
+  reportItem,
+  attentionItem,
+  accountItem,
+  hostRulesItem,
+  pausedItem,
+  mergeItem,
+  requestedMergeItem,
+  mentionItem,
+  resultItem,
+  agentsAutoItem,
+  autoMergeNoticeItem,
+  decisionItem,
+  hostDecisionItem,
+  readyItem,
+];
 /** Protocol 5: the host's agent (the list Claude Code 2.1.288 answered, U1 E3) and how work items run. */
 export const agentModels = [
   { value: 'opus', name: 'Opus', description: 'Opus 5.5 · Most capable for complex work · $15/$75 per Mtok', resolved: 'claude-opus-5-5', auto: true },
@@ -665,6 +769,7 @@ export const publicSettings = {
   uploadChunkSize: 4 * MiB,
   sharedDirs: ['data', 'checkpoints'],
   permissionMode: 'auto' as const,
+  merging: 'auto' as const,
 };
 export const hostSettings = {
   ...publicSettings,
@@ -691,6 +796,9 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         // protocol 5: every member learns the workspace's mode; it is one of smurg's four
         { settings: { ...publicSettings, permissionMode: undefined } },
         { settings: { ...publicSettings, permissionMode: 'bypassPermissions' } },
+        // protocol 6: every member learns how work items merge; it is one of the two policies
+        { settings: { ...publicSettings, merging: undefined } },
+        { settings: { ...publicSettings, merging: 'smurg' } },
         // the guest switches of protocol 1 are gone with the guest sandbox (ARCHITECTURE §11 D-15)
         { settings: { ...publicSettings, guestSubscriptionLogin: false } },
         { settings: { ...publicSettings, guestMainWorkspace: true } },
@@ -1469,8 +1577,16 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'topic.list': {
     payload: { valid: [{}, { archived: true }, { after: 'tp_1' }], invalid: [{ archived: 'yes' }] },
     result: {
-      valid: [{ topics: [topic, { ...topic, id: 'tp_2', slug: 'topic-2', phase: 'discussing', discussion: 'lost', discussionSessionId: undefined }], hasMore: false }],
-      invalid: [{ topics: [topic] }, { topics: [{ ...topic, phase: 'archived' }], hasMore: false }, { topics: [{ ...topic, slug: 'Checkout' }], hasMore: false }],
+      valid: [{ topics: [topic, { ...topic, id: 'tp_2', slug: 'topic-2', phase: 'discussing', discussion: 'lost', discussionSessionId: undefined }], hasMore: false }, { topics: [readyTopic, checkedTopic, pausedTopic], hasMore: false }],
+      invalid: [
+        { topics: [topic] },
+        { topics: [{ ...topic, phase: 'archived' }], hasMore: false },
+        { topics: [{ ...topic, slug: 'Checkout' }], hasMore: false },
+        // protocol 6: every topic counts its items left out and undone
+        { topics: [{ ...topic, plan: { ...topic.plan, leftOut: undefined } }], hasMore: false },
+        { topics: [{ ...topic, plan: { ...topic.plan, undone: -1 } }], hasMore: false },
+        { topics: [{ ...checkedTopic, checked: { by: AMY_REF } }], hasMore: false },
+      ],
     },
   },
   'topic.updated': { payload: { valid: [{ topic }], invalid: [{ topic: { ...topic, rules: [{ ...rule, pattern: '' }] } }] } },
@@ -1522,7 +1638,27 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       invalid: [{}, { plan: { ...plan, items: [{ ...workItem, id: 'Cart API' }] } }, { plan: { ...plan, items: [{ ...workItem, state: 'merged' }] } }, { plan: { ...plan, specHash: 'abc' } }],
     },
   },
-  'plan.updated': { payload: { valid: [{ plan }], invalid: [{ plan: null }] } },
+  'plan.updated': {
+    payload: {
+      valid: [{ plan }, { plan: autoPlan }],
+      invalid: [
+        { plan: null },
+        // protocol 6: what a work item says about its merge
+        { plan: { ...plan, waitingFor: [{ user: IAN, questions: 1, permissions: 0, reports: 2, since: T }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, merging: 'smurg' }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, reason: 'tired' } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, state: 'waiting' } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, hostOnly: true } }] } },
+        { plan: { ...autoPlan, items: [{ ...hostHeldItem, autoMerge: { ...hostHeldItem.autoMerge, escalated: true } }] } },
+        { plan: { ...autoPlan, items: [{ ...hostHeldItem, autoMerge: { ...hostHeldItem.autoMerge, paths: Array.from({ length: 21 }, (_, i) => `f${i}.txt`) } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, people: conflictItem.autoMerge.people } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, asked: IAN } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, autoMerge: { ...heldItem.autoMerge, branch: branchHeldItem.autoMerge.branch } }] } },
+        { plan: { ...autoPlan, items: [{ ...mergedAutoItem, merged: { at: T, by: 'host' } }] } },
+        { plan: { ...autoPlan, items: [{ ...heldItem, waiting: 'card' }] } },
+      ],
+    },
+  },
   'plan.mode.set': { payload: { valid: [{ topicId: 'tp_1', mode: 'everyone' }], invalid: [{ topicId: 'tp_1', mode: 'nobody' }] }, result: { valid: [{ plan }], invalid: [{}] } },
   'plan.assign': {
     payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api', userId: AMY }, { topicId: 'tp_1', itemId: 'cart-api', userId: null }], invalid: [{ topicId: 'tp_1', itemId: 'cart-api' }, { topicId: 'tp_1', itemId: 'Cart', userId: null }] },
@@ -1532,7 +1668,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'plan.preflight': {
     payload: { valid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', itemIds: ['cart-api'] }], invalid: [{ topicId: 'tp_1', itemIds: [] }] },
     result: {
-      valid: [{ preflight }, { preflight: { ...preflight, commit: null } }, { preflight: smurgHistoryPreflight }, { preflight: directPreflight }],
+      valid: [{ preflight }, { preflight: { ...preflight, commit: null } }, { preflight: smurgHistoryPreflight }, { preflight: directPreflight }, { preflight: detachedPreflight }, { preflight: hostMergesPreflight }],
       invalid: [
         { preflight: { ...preflight, planHash: undefined } },
         { preflight: { ...preflight, invisibleCharacters: ['report'] } },
@@ -1547,6 +1683,13 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { preflight: { ...preflight, nestedRepos: Array.from({ length: 21 }, (_, i) => `repo-${i}`), history: 'smurg', commit: null } },
         { preflight: { ...preflight, agent: { model: null, permissionMode: 'ask-nothing', effective: 'ask-nothing' } } },
         { preflight: { ...preflight, agent: { model: null, permissionMode: null } } },
+        // protocol 6: how the items merge, said unless they run directly in the folder; a detached HEAD is the host's
+        { preflight: { ...preflight, merging: undefined } },
+        { preflight: { ...preflight, merging: null } },
+        { preflight: { ...directPreflight, merging: preflight.merging } },
+        { preflight: { ...preflight, merging: { workspace: 'auto', proposed: 'auto', detached: true } } },
+        { preflight: { ...smurgHistoryPreflight, merging: { workspace: 'auto', proposed: 'host', detached: true } } },
+        { preflight: { ...preflight, merging: { workspace: 'host', proposed: 'auto', detached: false } } },
       ],
     },
   },
@@ -1587,8 +1730,17 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'report.get': {
     payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] },
     result: {
-      valid: [{ report }, { report: { ...report, changes: undefined, noChanges: 'spec-files', questions: [] } }, { report: { ...report, changes: undefined, noChanges: 'no-history', questions: [] } }],
-      invalid: [{ report: reportSummary }, { report: { ...report, outcome: 'done' } }, { report: { ...report, sections: { ...report.sections, verified: [{ text: 'x' }] } } }],
+      valid: [{ report }, { report: { ...report, changes: undefined, noChanges: 'spec-files', questions: [] } }, { report: { ...report, changes: undefined, noChanges: 'no-history', questions: [] } }, { report: failedReport }],
+      invalid: [
+        { report: reportSummary },
+        { report: { ...report, outcome: 'done' } },
+        { report: { ...report, sections: { ...report.sections, verified: [{ text: 'x' }] } } },
+        // protocol 6: a failed check did not pass and says what happened
+        { report: { ...failedReport, sections: { ...failedReport.sections, verified: [{ text: 'x', passed: true, failed: true, note: 'y' }] } } },
+        { report: { ...failedReport, sections: { ...failedReport.sections, verified: [{ text: 'x', passed: false, failed: true }] } } },
+        { report: { ...failedReport, sections: { ...failedReport.sections, verified: [{ text: 'x', passed: false, failed: false, note: 'y' }] } } },
+        { report: { ...failedReport, changes: { ...failedReport.changes, byHandTruncated: false } } },
+      ],
     },
   },
   'report.updated': {
@@ -1641,6 +1793,17 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { items: [{ ...accountItem, key: 'attention:storage:workspace' }], hasMore: false },
         // a console target names one of the console's sections
         { items: [{ ...accountItem, target: { kind: 'console', section: 'agents' } }], hasMore: false },
+        // protocol 6: a decision waits and names its reason; a topic ready to check waits for nobody and opens its result
+        { items: [{ ...decisionItem, waiting: false }], hasMore: false },
+        { items: [{ ...decisionItem, reason: undefined }], hasMore: false },
+        { items: [{ ...decisionItem, reason: 'tired' }], hasMore: false },
+        { items: [{ ...decisionItem, tally: readyItem.tally }], hasMore: false },
+        { items: [{ ...readyItem, waiting: true }], hasMore: false },
+        { items: [{ ...readyItem, tally: undefined }], hasMore: false },
+        { items: [{ ...readyItem, reason: 'partial' }], hasMore: false },
+        { items: [{ ...readyItem, target: { kind: 'result' } }], hasMore: false },
+        { items: [{ ...autoMergeNoticeItem, waiting: true }], hasMore: false },
+        { items: [{ ...reportItem, reason: 'partial' }], hasMore: false },
       ],
     },
   },
@@ -1674,8 +1837,12 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'worktree.merge.list': {
     payload: emptyOnly,
     result: {
-      valid: [{ requests: [mergeRequest, { ...mergeRequest, id: 'mr_2', status: 'conflict', conflictFiles: ['src/app.ts'], decidedAt: T }] }],
-      invalid: [{ requests: [{ ...mergeRequest, conflictFiles: ['../x'] }] }],
+      valid: [
+        { requests: [mergeRequest, { ...mergeRequest, id: 'mr_2', status: 'conflict', conflictFiles: ['src/app.ts'], decidedAt: T }] },
+        // protocol 6: merged by smurg, and a merge the host undid
+        { requests: [{ ...draftRequest, status: 'merged', decidedAt: T, auto: true }, { ...draftRequest, id: 'mr_3', status: 'merged', decidedAt: T, auto: true, undone: { commit: 'f'.repeat(40), at: T, by: IAN } }] },
+      ],
+      invalid: [{ requests: [{ ...mergeRequest, conflictFiles: ['../x'] }] }, { requests: [{ ...draftRequest, auto: false }] }, { requests: [{ ...draftRequest, undone: { commit: 'HEAD', at: T, by: IAN } }] }],
     },
   },
   'worktree.merge.diff': {
@@ -1760,8 +1927,10 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   },
   'admin.settings.set': {
     payload: {
-      valid: [{}, { diskReserveBytes: 10 * GiB }, { sharedDirs: ['data'] }, { maxLiveAgents: 2, escalateAfterMs: 60_000, agentMcp: true }, { permissionMode: 'ask-nothing' }, { permissionMode: 'ask-commands' }],
+      valid: [{}, { diskReserveBytes: 10 * GiB }, { sharedDirs: ['data'] }, { maxLiveAgents: 2, escalateAfterMs: 60_000, agentMcp: true }, { permissionMode: 'ask-nothing' }, { permissionMode: 'ask-commands' }, { merging: 'host' }, { merging: 'auto' }],
       invalid: [
+        { merging: 'never' },
+        { merging: null },
         { permissionMode: 'bypassPermissions' },
         { permissionMode: null },
         { diskReservePercent: 101 },
@@ -1833,6 +2002,6 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     },
   },
   'admin.hostRules.seen': { payload: emptyOnly, result: emptyOnly },
-  'admin.notice.seen': { payload: { valid: [{ notice: 'agents-auto' }], invalid: [{}, { notice: 'host-rules' }, { notice: 'agents-auto', also: 1 }] }, result: emptyOnly },
+  'admin.notice.seen': { payload: { valid: [{ notice: 'agents-auto' }, { notice: 'auto-merge' }], invalid: [{}, { notice: 'host-rules' }, { notice: 'agents-auto', also: 1 }] }, result: emptyOnly },
   'admin.transcript.redact': { payload: { valid: [{ sessionId: 'sess_a', seq: 7 }], invalid: [{ sessionId: 'sess_a', seq: 0 }, { sessionId: 'sess_a' }] }, result: emptyOnly },
 };

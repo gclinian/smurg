@@ -16,10 +16,11 @@ import {
   INBOX_NOTES_PER_MEMBER_MAX,
   INBOX_RESULTS,
   actorSchema,
-  columnTargetSchema,
+  consoleSectionSchema,
   epochMsSchema,
   inboxAnchorSchema,
   inboxKeySchema,
+  itemIdSchema,
   multilineTextSchema,
   opaqueIdSchema,
   userIdSchema,
@@ -30,6 +31,21 @@ export const INBOX_VERSION = 1;
 /** A stamp is a few characters the derivation makes (a version, a status, an id). */
 export const SEEN_STAMP_MAX_CHARS = 200;
 
+/**
+ * Where a stored mention was written: the six column kinds of 0.6.0, on purpose not the wire's `columnTargetSchema`
+ * (0.7.0, DESIGN 0.7.0 D4, R-ENG E4). The wire gained the Result column (`result`), where nobody writes, so a stored
+ * note never names it, and inbox.json keeps the shape 0.6.0 wrote: no step.
+ */
+export const storedColumnTargetSchema = z.discriminatedUnion('kind', [
+  z.strictObject({ kind: z.literal('session'), sessionId: opaqueIdSchema }),
+  z.strictObject({ kind: z.literal('spec'), topicId: opaqueIdSchema }),
+  z.strictObject({ kind: z.literal('plan'), topicId: opaqueIdSchema }),
+  z.strictObject({ kind: z.literal('report'), topicId: opaqueIdSchema, itemId: itemIdSchema }),
+  z.strictObject({ kind: z.literal('changes'), requestId: opaqueIdSchema }),
+  z.strictObject({ kind: z.literal('console'), section: consoleSectionSchema }),
+]);
+export type StoredColumnTarget = z.infer<typeof storedColumnTargetSchema>;
+
 const mentionNoteSchema = z.strictObject({
   id: opaqueIdSchema,
   kind: z.literal('mention'),
@@ -37,7 +53,7 @@ const mentionNoteSchema = z.strictObject({
   /** Who mentioned the member: a person or an agent. */
   from: actorSchema,
   /** What the mention was written in. */
-  target: columnTargetSchema,
+  target: storedColumnTargetSchema,
   anchor: inboxAnchorSchema.optional(),
   /** The text around the mention. */
   excerpt: multilineTextSchema(INBOX_EXCERPT_MAX_CHARS),

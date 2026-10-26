@@ -191,6 +191,44 @@ export const topics = {
     'zh-TW': () => '這個工作項目沒有需要解決的合併衝突',
   }),
 
+  // ---- decisions, the end of a topic, undo (protocol 6) --------------------------------------------------------
+  'topic.check.notReady': message({}, {
+    en: () => 'This topic is not ready to check yet: not every work item is merged.',
+    'zh-TW': () => '這個主題還不能驗收：還有工作項目沒有合併。',
+  }),
+  'plan.item.leaveOut.merged': message({}, {
+    en: () => 'This work item is merged already. To take its change back out, the host undoes it.',
+    'zh-TW': () => '這個工作項目已經合併了。要把它的變更拿掉，請主人復原。',
+  }),
+  'plan.item.accept.notHeld': message({}, {
+    en: () => 'This work item does not wait for a decision.',
+    'zh-TW': () => '這個工作項目沒有在等決定。',
+  }),
+  'plan.item.release.notHeld': message({}, {
+    en: () => 'This work item does not wait for a decision that "Merge it as it is" can settle.',
+    'zh-TW': () => '這個工作項目沒有在等「就這樣合併」能處理的決定。',
+  }),
+  'plan.item.removePaths.notHeld': message({}, {
+    en: () => 'This work item has no change that only the host may merge.',
+    'zh-TW': () => '這個工作項目沒有只有主人能合併的變更。',
+  }),
+  'undo.changed': message({}, {
+    en: () => 'Something changed since you looked. Look at what the undo does again.',
+    'zh-TW': () => '從你看過到現在，有東西變了。請再看一次復原會做什麼。',
+  }),
+  'undo.notOk': message({}, {
+    en: () => 'smurg cannot take this back cleanly now. Nothing was changed.',
+    'zh-TW': () => 'smurg 現在沒辦法順利拿掉它。沒有任何東西被改動。',
+  }),
+  'undo.unavailable.direct': message({}, {
+    en: () => 'Without git there is nothing to undo: smurg kept no history of the shared folder.',
+    'zh-TW': () => '沒有 git 時沒有東西可以復原：smurg 沒有保存分享的資料夾的版本紀錄。',
+  }),
+  'undo.unavailable.notFound': message({}, {
+    en: () => "smurg cannot find this item's merge in the main workspace's history any more.",
+    'zh-TW': () => 'smurg 在主工作區的版本紀錄裡找不到這個項目的合併了。',
+  }),
+
   // ---- result reports ------------------------------------------------------------------------------------------
   'report.none': message({}, {
     en: () => 'This work item has no result report yet.',
@@ -209,8 +247,8 @@ export const topics = {
     'zh-TW': () => '這個工作項目還沒完成。請確認仍要標記為已看過',
   }),
   'report.closed': message({}, {
-    en: () => "This item is merged and reviewed. Ask in the topic's discussion.",
-    'zh-TW': () => '這個項目已合併並看過，請到主題的討論裡提問',
+    en: () => "This work item is finished: its change is in the main workspace and its session has ended. Ask in the topic's discussion: the plan can get a new item.",
+    'zh-TW': () => '這個工作項目已經結束：它的變更在主工作區裡，它的 session 也結束了。請到主題的討論裡提：計畫可以加新的項目。',
   }),
   'report.error.format': message({ line: 'number' }, {
     en: (p) => `The result report does not follow the fixed format (line ${p.line}).`,

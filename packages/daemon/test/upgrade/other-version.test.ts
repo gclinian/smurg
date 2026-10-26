@@ -154,10 +154,20 @@ const tagSide = (): { readonly shapes: number; readonly stateVersion: number } =
   return { shapes: tree.shapes, stateVersion: tree.stateVersion };
 };
 /** What a start of THIS smurg upgrades in the folder a published version left (the steps this tree has beyond it). */
-const upgradedHereFrom = (version: string): string[] => (version === '0.4.0' ? ['state', 'suggestions'] : version === '0.6.0' ? [] : ['state', 'agent-sessions']);
-/** The kept copies a start of this smurg leaves in that folder. */
+const upgradedHereFrom = (version: string): string[] => (version === '0.4.0' ? ['state', 'suggestions'] : version === '0.6.0' ? ['state'] : ['state', 'agent-sessions']);
+/** The kept copies a start of this smurg leaves in that folder (each named after the first step that ran on it). */
 const keptHereFrom = (version: string): string[] =>
-  version === '0.4.0' ? [keptCopyName('state', '0.4.0'), keptCopyName('suggestions', '0.4.0')] : version === '0.6.0' ? [] : [keptCopyName('state', '0.5.0'), keptCopyName('agent-sessions', '0.5.0')];
+  version === '0.4.0'
+    ? [keptCopyName('state', '0.4.0'), keptCopyName('suggestions', '0.4.0')]
+    : version === '0.6.0'
+      ? [keptCopyName('state', '0.6.0')]
+      : [keptCopyName('state', '0.5.0'), keptCopyName('agent-sessions', '0.5.0')];
+/**
+ * What the steps this tree has beyond the tag add to state.json (this tree's side of the numbers): since 0.7.0 the step
+ * from 0.6.0 sets automatic merging and its notice (DESIGN 0.7.0 D4). Nothing while both sides write the same shapes.
+ */
+const beyondTheTag = (): { readonly settings: Readonly<Record<string, unknown>>; readonly notices: readonly string[] } =>
+  WORKSPACE_SHAPES > tagSide().shapes ? { settings: { merging: 'auto' }, notices: ['auto-merge'] } : { settings: {}, notices: [] };
 const keptOf = async (dir: string): Promise<Record<string, string>> => Object.fromEntries(Object.entries(await snapshotOf(dir)).filter(([name]) => name.includes('.before-upgrade-from-') || name === `./${STAMP_NAME}`));
 const copiesOf = async (dir: string): Promise<Record<string, string>> => Object.fromEntries(Object.entries(await keptOf(dir)).filter(([name]) => name !== `./${STAMP_NAME}`));
 /** Why a test of the two tags cannot run here, or null. */
@@ -287,8 +297,8 @@ describe(`smurg ${TAG.slice(1)} and this smurg open each other's folders (the co
       for (const entry of t.daemon.upgraded) expect(entry.writer, entry.document).toBe(TAG.slice(1));
     } else expect(t.daemon.upgraded).toEqual([]);
     expect(t.daemon.putBack).toBe(false);
-    expect(t.ctx.settings.get()).toMatchObject({ ...tagState.settings });
-    expect(t.ctx.settings.notices()).toEqual(tagState.hostNotices ?? []);
+    expect(t.ctx.settings.get()).toEqual({ ...tagState.settings, ...beyondTheTag().settings });
+    expect(t.ctx.settings.notices()).toEqual([...new Set([...(tagState.hostNotices ?? []), ...beyondTheTag().notices])]);
     expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(before));
   });
 
@@ -316,14 +326,15 @@ describe(`smurg ${TAG.slice(1)} and this smurg open each other's folders (the co
 
     // This smurg: each document by its own shape. state.json is 0.5.0's (the owner's values stand, agentMcp too: the
     // step from 0.4.0 does not run over what a host wrote; the step from 0.5.0 adds auto mode), suggestions.json is
-    // 0.4.0's and is upgraded; the agent-sessions.json 0.5.0 made holds no session: today's shape as it is.
+    // 0.4.0's and is upgraded; the agent-sessions.json 0.5.0 made holds no session: today's shape as it is. (0.7.0: the
+    // step from 0.6.0 runs on state.json after the one from 0.5.0: automatic merging.)
     const t = (running = await startOn(copy));
     expect(t.daemon.upgraded.map((entry) => `${entry.document} from ${entry.from}`)).toEqual(['state from 0.5.0', 'suggestions from 0.4.0']);
     expect(t.daemon.putBack).toBe(false);
     const loaded = t.daemon.internals.folder.loaded;
     expect(loaded.get('state')?.upgradedFrom).toBe('0.5.0');
-    expect((loaded.get('state')?.value as StoredState).settings).toEqual({ ...mended.settings, permissionMode: 'auto' });
-    expect(t.ctx.settings.get()).toMatchObject({ maxLiveAgents: 5, agentMcp: true, permissionMode: 'auto' });
+    expect((loaded.get('state')?.value as StoredState).settings).toEqual({ ...mended.settings, permissionMode: 'auto', merging: 'auto' });
+    expect(t.ctx.settings.get()).toMatchObject({ maxLiveAgents: 5, agentMcp: true, permissionMode: 'auto', merging: 'auto' });
     expect(t.ctx.members.list({ includeKicked: true }).map((member) => `${member.userId} ${member.role} ${member.status}`)).toEqual(membersOf(original));
     expect((await readFile(join(copy.workspaceDir, keptCopyName('suggestions', '0.4.0')))).equals(suggestionsBefore)).toBe(true);
     expect((await readdir(copy.workspaceDir)).filter((name) => name.includes('.before-upgrade-from-')).sort()).toEqual([keptCopyName('state', '0.5.0'), keptCopyName('suggestions', '0.4.0')].sort());

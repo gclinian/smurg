@@ -147,6 +147,15 @@ export const MODE_FALLBACKS = ['model-no-auto', 'auto-off', 'ask-nothing-off'] a
 export const modeFallbackSchema = z.enum(MODE_FALLBACKS);
 export type ModeFallback = z.infer<typeof modeFallbackSchema>;
 
+/**
+ * How a work item's change reaches the main workspace (protocol 6): `auto`, smurg merges it when it is in order (its
+ * report says complete, at least one check passed and none failed, and more: DESIGN 0.7.0 D6), on the host's standing
+ * consent; `host`, the host reads its diff and merges it (0.6.0's flow). The workspace's setting is the host's alone.
+ */
+export const MERGE_POLICIES = ['auto', 'host'] as const;
+export const mergePolicySchema = z.enum(MERGE_POLICIES);
+export type MergePolicy = z.infer<typeof mergePolicySchema>;
+
 export const HUMAN_LOCK_IDLE_MS_RANGE = { min: 1_000, max: 3_600_000 } as const;
 export const AGENT_LOCK_TIMEOUT_MS_RANGE = { min: 1_000, max: 600_000 } as const;
 
@@ -154,7 +163,9 @@ export const AGENT_LOCK_TIMEOUT_MS_RANGE = { min: 1_000, max: 600_000 } as const
  * Settings every member receives in the Welcome. `sharedDirs` are paths in the main root (D12). (Protocol 2,
  * ARCHITECTURE §11 D-15: the guest switches `guestSubscriptionLogin` and `guestMainWorkspace` of protocol 1 are gone
  * with the guest sandbox. Protocol 5: `permissionMode`, the workspace's default for agent sessions, which every
- * member's dialogs name; only the host sets it, and only the host may set `ask-nothing`.)
+ * member's dialogs name; only the host sets it, and only the host may set `ask-nothing`. Protocol 6: `merging`, how
+ * work items of a later Start reach the main workspace, which the Start dialog and the plan name; only the host sets
+ * it.)
  */
 export const publicSettingsSchema = z.strictObject({
   humanLockIdleMs: z.int().min(HUMAN_LOCK_IDLE_MS_RANGE.min).max(HUMAN_LOCK_IDLE_MS_RANGE.max),
@@ -162,6 +173,7 @@ export const publicSettingsSchema = z.strictObject({
   uploadChunkSize: z.int().min(MIN_CHUNK_SIZE).max(MAX_CHUNK_SIZE),
   sharedDirs: z.array(entryPathSchema).max(SHARED_DIRS_MAX),
   permissionMode: permissionModeSchema,
+  merging: mergePolicySchema,
 });
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
 
@@ -556,8 +568,11 @@ export const hostStateSchema = z.strictObject({
 });
 export type HostState = z.infer<typeof hostStateSchema>;
 
-/** Notices the host has not seen yet (`state.json`, `admin.notice.seen`): `agents-auto`, the 0.6.0 update's. */
-export const HOST_NOTICES = ['agents-auto'] as const;
+/**
+ * Notices the host has not seen yet (`state.json`, `admin.notice.seen`): `agents-auto`, the 0.6.0 update's (agents
+ * run in auto mode); `auto-merge`, the 0.7.0 update's (work items merge by themselves, protocol 6).
+ */
+export const HOST_NOTICES = ['agents-auto', 'auto-merge'] as const;
 export const hostNoticeSchema = z.enum(HOST_NOTICES);
 export type HostNotice = z.infer<typeof hostNoticeSchema>;
 
@@ -713,6 +728,10 @@ export const mergeRequestSchema = z.strictObject({
   decidedAt: epochMsSchema.optional(),
   /** reason given by the host with worktree.merge.reject */
   rejectReason: reasonTextSchema.optional(),
+  /** smurg merged it on the host's standing consent (automatic merging, protocol 6); absent: the host did, or nobody yet. */
+  auto: z.literal(true).optional(),
+  /** The host took the merge back out of the main workspace with this commit (protocol 6). */
+  undone: z.strictObject({ commit: gitCommitSchema, at: epochMsSchema, by: userRefSchema }).optional(),
 });
 export type MergeRequest = z.infer<typeof mergeRequestSchema>;
 
@@ -889,6 +908,18 @@ export const AUDIT_ACTIONS = [
   'worktree.merge.request',
   'worktree.merge.approve',
   'worktree.merge.reject',
+  // protocol 6 (smurg 0.7.0): automatic merging, decisions, the end of a topic, undo
+  'worktree.merge.auto',
+  'worktree.merge.held',
+  'worktree.merge.undo',
+  'topic.check',
+  'plan.pause',
+  'plan.item.leaveOut',
+  'plan.item.accept',
+  'plan.item.release',
+  'plan.item.removePaths',
+  'plan.item.autoContinue',
+  'plan.merging.host',
   'member.role',
   'member.kick',
   'member.leave',

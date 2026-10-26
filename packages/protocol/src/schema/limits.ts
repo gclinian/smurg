@@ -245,6 +245,17 @@ export const REPORT_FOLLOW_UPS_MAX = 50;
 export const REPORT_FOLLOW_UP_TEXT_MAX_BYTES = 16 * KiB;
 export const REPORT_BY_HAND_MAX = 50;
 
+/** Paths a work item's merge wait or hold names (protocol 6: `WorkItem.autoMerge.paths`, `.people`). */
+export const AUTO_MERGE_PATHS_MAX = 20;
+/**
+ * UTF-8 bytes the paths and the people of one `WorkItem.autoMerge` may take together (protocol 6): every item of a
+ * plan may carry one and a plan travels whole, so the lists' maxima alone (20 paths of 4,096 characters, 100 names)
+ * would not fit one Envelope. The daemon cuts the lists to fit (`autoMergeTextBytes`).
+ */
+export const AUTO_MERGE_TEXT_MAX_BYTES = 16 * KiB;
+/** Work items one undo names: what it takes back, what is left out with it, what blocks it (protocol 6). */
+export const UNDO_ITEMS_MAX = 64;
+
 export const INBOX_ITEMS_MAX = 1_000;
 export const INBOX_KEY_MAX_CHARS = 200;
 export const INBOX_EXCERPT_MAX_CHARS = 300;

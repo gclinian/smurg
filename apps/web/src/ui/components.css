@@ -1067,11 +1067,13 @@
 }
 .ui-kind--permission,
 .ui-kind--vote,
-.ui-kind--attention {
+.ui-kind--attention,
+.ui-kind--decision {
   background: var(--color-warning-soft);
   color: var(--color-warning);
 }
-.ui-kind--report {
+.ui-kind--report,
+.ui-kind--ready {
   background: var(--color-success-soft);
   color: var(--color-success);
 }

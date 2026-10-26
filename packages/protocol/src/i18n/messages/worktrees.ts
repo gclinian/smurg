@@ -300,6 +300,10 @@ export const worktrees = {
     en: () => 'Another git operation (a merge, a rebase or similar) is in progress in the main workspace. Finish it, then merge.',
     'zh-TW': () => '主工作區正在進行其他 git 操作（merge、rebase 等），請先完成再合併',
   }),
+  'merge.staged': message({}, {
+    en: () => 'Changes are staged in the main workspace (git add), and git does not merge over them. Commit or unstage them, then merge.',
+    'zh-TW': () => '主工作區有已暫存的變更（git add），git 不會在它們上面合併。請先提交或取消暫存，再合併。',
+  }),
   'merge.failed': message({}, {
     en: () => 'The merge failed and the main workspace was not changed. Check the state of the main workspace, then try again.',
     'zh-TW': () => '合併失敗，主工作區沒有被修改；請檢查主工作區的狀態後再試',

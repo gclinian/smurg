@@ -149,7 +149,7 @@ export function buildTopic(overrides?: Overrides<Topic>): Topic {
       discussion: 'live',
       spec: { exists: false },
       handEdits: { spec: [], plan: [] },
-      plan: { exists: false, valid: false, generating: false, stale: false, mode: 'assigned', paused: false, items: 0, started: 0, reviewed: 0, merged: 0 },
+      plan: { exists: false, valid: false, generating: false, stale: false, mode: 'assigned', paused: false, items: 0, started: 0, reviewed: 0, merged: 0, leftOut: 0, undone: 0 },
       rules: [],
       agent: { model: null, permissionMode: null },
     },
@@ -248,6 +248,8 @@ const INBOX_DEFAULTS: { readonly [K in InboxKind]: Omit<InboxItem, 'kind' | 'at'
   mention: { key: 'mention:nt_1', waiting: false, sessionId: 'sess_a', target: SESSION_TARGET, from: AMY, excerpt: '@Host please look' },
   result: { key: 'result:nt_2', waiting: false, sessionId: 'sess_a', target: SESSION_TARGET, anchor: { cardId: 'sg_1' }, from: { kind: 'user', ...FAKE_HOST }, excerpt: 'Use the session store', result: 'rejected' },
   attention: { key: 'attention:item-stalled:tp_1.cart-api', waiting: true, subject: 'item-stalled', ...CART_ITEM, sessionId: 'sess_i', target: { kind: 'session', sessionId: 'sess_i' }, excerpt: '' },
+  decision: { key: 'decision:tp_1.cart-api', waiting: true, ...CART_ITEM, sessionId: 'sess_i', target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, excerpt: '', reason: 'partial', outcome: 'partial', checks: { passed: 1, notVerified: 1 } },
+  ready: { key: 'ready:tp_1', waiting: false, topicId: 'tp_1', target: { kind: 'result', topicId: 'tp_1' }, excerpt: 'Checkout', tally: { items: 1, merged: 1, leftOut: 0, undone: 0 }, checks: { passed: 1, notVerified: 0 } },
 };
 
 /** An unread inbox item of `kind`. For another attention subject pass `subject`, `key` and (for the two that do not stop work) `waiting: false`. */

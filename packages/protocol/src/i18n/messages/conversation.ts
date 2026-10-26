@@ -36,6 +36,34 @@ const MODE_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-
 const modeEn = (mode: string): string => MODE_PHRASES[mode]?.en ?? mode;
 const modeZh = (mode: string): string => MODE_PHRASES[mode]?.['zh-TW'] ?? mode;
 
+/**
+ * Why smurg did not merge a work item (`conversation.held`, protocol 6): the held reasons of `AutoMergeReason`, in the
+ * short words of the plan's badges (the web's `hold.*`), without the names some of those carry: the conversation shows
+ * who wrote and what changed.
+ */
+const HOLD_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-TW': string }>> = {
+  partial: { en: 'not complete (partial)', 'zh-TW': '沒有完成（部分完成）' },
+  blocked: { en: 'not complete (blocked)', 'zh-TW': '沒有完成（受阻）' },
+  'check-failed': { en: 'a check failed', 'zh-TW': '有驗證失敗' },
+  'not-verified': { en: 'no check passed', 'zh-TW': '沒有通過的驗證' },
+  'report-invalid': { en: 'the report cannot be read', 'zh-TW': '報告無法讀取' },
+  rejected: { en: 'the host did not merge it', 'zh-TW': '主人沒有合併它' },
+  conflict: { en: 'it does not merge cleanly', 'zh-TW': '沒辦法順利合併' },
+  asked: { en: 'someone wrote to the agent after its report', 'zh-TW': '有人在報告之後對 agent 說了話' },
+  stopped: { en: 'its last turn did not finish', 'zh-TW': '它的上一輪沒有做完' },
+  'stale-report': { en: 'its report was not checked again after its last change', 'zh-TW': '最後一次修改之後沒有再檢查報告' },
+  'by-hand': { en: 'files of it were edited by hand', 'zh-TW': '它的檔案被手動改過' },
+  'undo-interrupted': { en: 'an undo was interrupted in the main workspace', 'zh-TW': '主工作區有一次復原被中斷了' },
+  policy: { en: 'it changes files only the host may merge', 'zh-TW': '改到只有主人能合併的檔案' },
+  'local-changes': { en: 'uncommitted changes in the main workspace are in the way', 'zh-TW': '主工作區有還沒提交的修改擋住了' },
+  'in-the-way': { en: 'files in the main workspace are in the way', 'zh-TW': '主工作區有檔案擋住了' },
+  staged: { en: 'changes are staged in the main workspace', 'zh-TW': '主工作區有已暫存的變更' },
+  branch: { en: 'the main workspace is on another branch', 'zh-TW': '主工作區換了分支' },
+  'git-busy': { en: 'git has been busy in the main workspace for a while', 'zh-TW': '主工作區的 git 已經忙了一段時間' },
+  'history-changed': { en: "smurg's own history of the folder changed", 'zh-TW': 'smurg 為資料夾保存的版本紀錄變了' },
+  'merge-failed': { en: 'smurg cannot merge it', 'zh-TW': 'smurg 沒辦法合併它' },
+};
+
 export const conversation = {
   // ---- how a session began ------------------------------------------------------------------------------------
   'conversation.started.discussion': message({ name: 'string' }, {
@@ -96,6 +124,66 @@ export const conversation = {
     en: (p) => `smurg merged the main workspace into this worktree: ${p.count} ${p.count === 1 ? 'file has' : 'files have'} conflicts`,
     'zh-TW': (p) => `smurg 已把主工作區合併進這個 worktree：${p.count} 個檔案有衝突`,
   }),
+
+  // ---- automatic merging (protocol 6) -------------------------------------------------------------------------
+  'conversation.merged.auto': message({}, {
+    en: () => "smurg merged this work item into the main workspace (automatic merging, the host's setting)",
+    'zh-TW': () => 'smurg 已把這個工作項目合併到主工作區（自動合併，主人的設定）',
+  }),
+  'conversation.update.auto': message({ count: 'number' }, {
+    en: (p) =>
+      p.count === 0
+        ? "smurg brought the main workspace's changes into this checkout without conflicts and asked Claude to verify again"
+        : `smurg brought the main workspace's changes into this checkout: ${p.count} ${p.count === 1 ? 'file has' : 'files have'} conflicts. It asked Claude to resolve them and verify again`,
+    'zh-TW': (p) =>
+      p.count === 0
+        ? 'smurg 把主工作區的變更帶進這個 checkout，沒有衝突，並請 Claude 再驗證一次'
+        : `smurg 把主工作區的變更帶進這個 checkout：${p.count} 個檔案有衝突。它請 Claude 解決衝突，再驗證一次`,
+  }),
+  'conversation.held': message({ reason: 'string' }, {
+    en: (p) => {
+      const phrase = HOLD_PHRASES[p.reason]?.en;
+      return phrase === undefined ? 'smurg did not merge this work item' : `smurg did not merge this work item: ${phrase}`;
+    },
+    'zh-TW': (p) => {
+      const phrase = HOLD_PHRASES[p.reason]?.['zh-TW'];
+      return phrase === undefined ? 'smurg 沒有合併這個工作項目' : `smurg 沒有合併這個工作項目：${phrase}`;
+    },
+  }),
+  'conversation.verifyAgain': message({}, {
+    en: () => 'smurg asked Claude to verify again: files changed after its report was last checked',
+    'zh-TW': () => 'smurg 請 Claude 再驗證一次：上次檢查報告之後有檔案改了',
+  }),
+  'conversation.released': message({ name: 'string' }, {
+    en: (p) => `${p.name} let this work item merge as it is`,
+    'zh-TW': (p) => `${p.name} 讓這個工作項目就這樣合併`,
+  }),
+  'conversation.removePathsRequested': message({ name: 'string' }, {
+    en: (p) => `${p.name} asked Claude to take out the changes only the host may merge`,
+    'zh-TW': (p) => `${p.name} 請 Claude 拿掉只有主人能合併的變更`,
+  }),
+
+  // ---- plans that go on by themselves (protocol 6) ----------------------------------------------------------------
+  'conversation.continued.restart': message({}, {
+    en: () => "smurg was restarted on the host's computer and asked Claude to continue",
+    'zh-TW': () => '主人電腦上的 smurg 重新啟動過，它請 Claude 繼續',
+  }),
+  'conversation.continued.usageLimit': message({}, {
+    en: () => "The host's usage limit has reset: smurg asked Claude to continue",
+    'zh-TW': () => '主人的用量限制已經重置：smurg 請 Claude 繼續',
+  }),
+  'conversation.continued.error': message({ count: 'number' }, {
+    en: (p) => `The last turn ended with an error: smurg asked Claude to continue (${p.count} of 2)`,
+    'zh-TW': (p) => `上一輪因錯誤結束：smurg 請 Claude 繼續（第 ${p.count} 次，最多 2 次）`,
+  }),
+  'conversation.continued.crash': message({}, {
+    en: () => "Claude's process stopped: smurg started it again once and asked it to continue",
+    'zh-TW': () => 'Claude 的程序停止了：smurg 重新啟動它一次，並請它繼續',
+  }),
+  'conversation.continued.snapshot': message({}, {
+    en: () => "smurg could not record this work item's changes: it asked Claude to continue and records them after that turn",
+    'zh-TW': () => 'smurg 沒能記下這個工作項目的變更：它請 Claude 繼續，那一輪結束後再記一次',
+  }),
   'conversation.fix.plan': message({}, {
     en: () => 'smurg asked Claude to fix the work items in PLAN.md',
     'zh-TW': () => 'smurg 請 Claude 修正 PLAN.md 裡的工作項目',
@@ -121,6 +209,18 @@ export const conversation = {
   'conversation.ended.reviewed': message({}, {
     en: () => 'The result was reviewed. This work item is complete',
     'zh-TW': () => '結果已經看過，這個工作項目完成了',
+  }),
+  'conversation.ended.checked': message({}, {
+    en: () => "The topic's result was checked. This work item is complete",
+    'zh-TW': () => '主題的成果已經驗收，這個工作項目完成了',
+  }),
+  'conversation.ended.leftOut': message({ name: 'string' }, {
+    en: (p) => `${p.name} left this work item out: its change is not merged`,
+    'zh-TW': (p) => `${p.name} 略過了這個工作項目：它的變更不會合併`,
+  }),
+  'conversation.ended.undone': message({ name: 'string' }, {
+    en: (p) => `${p.name} undid this work item: its change was taken back out of the main workspace`,
+    'zh-TW': (p) => `${p.name} 復原了這個工作項目：它的變更已經從主工作區拿掉了`,
   }),
   'conversation.direct.waits': message({}, {
     en: () => 'This message waits: another work item is working in the shared folder. It is sent when that one is done',

@@ -63,6 +63,7 @@ export const SETTINGS: HostSettings = {
   escalateAfterMs: 600_000,
   agentMcp: false,
   permissionMode: 'auto',
+  merging: 'auto',
 };
 
 export function makeAudit(index: number, overrides: Partial<AuditEntry> = {}): AuditEntry {

@@ -295,7 +295,7 @@ export class FakeDaemon implements FakeHost {
         platform: 'darwin',
         isGitRepo: false,
       },
-      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto' },
+      settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], permissionMode: 'auto', merging: 'auto' },
       serverTime: this.now(),
     };
     this.pendingAdmissions.set(toHex(ctx.handshakeHash), { logical, resumed, replayFrom, userId });

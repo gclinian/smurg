@@ -196,8 +196,8 @@ describe('the plan as a whole', () => {
     const now = 1_000_000;
     const plan = buildPlan({
       waitingFor: [
-        { user: IAN, questions: 1, permissions: 0, reports: 0, since: now - 6 * 60_000 },
-        { user: MEI, questions: 0, permissions: 2, reports: 1, since: now - 40_000 },
+        { user: IAN, questions: 1, permissions: 0, reports: 0, decisions: 0, since: now - 6 * 60_000 },
+        { user: MEI, questions: 0, permissions: 2, reports: 1, decisions: 0, since: now - 40_000 },
       ],
     });
     // The same age, in the same form, as the card, the status bar and the inbox row of that wait.

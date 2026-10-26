@@ -610,9 +610,24 @@ const WELCOME_V5 = (workspaceId: string): Record<string, unknown> => {
   const welcome = WELCOME_V4(workspaceId);
   return { ...welcome, settings: { ...(welcome['settings'] as object), permissionMode: 'auto' } };
 };
+/** The welcome of protocol 6 (smurg 0.7.0): every member learns how work items merge (DESIGN 0.7.0 D2, D3). */
+const WELCOME_V6 = (workspaceId: string): Record<string, unknown> => {
+  const welcome = WELCOME_V5(workspaceId);
+  return { ...welcome, settings: { ...(welcome['settings'] as object), merging: 'auto' } };
+};
 
 /** One welcome sample per protocol: what a daemon of that protocol puts in its attach answer. */
-const WELCOMES: Readonly<Record<number, (workspaceId: string) => Record<string, unknown>>> = { 4: WELCOME_V4, 5: WELCOME_V5 };
+const WELCOMES: Readonly<Record<number, (workspaceId: string) => Record<string, unknown>>> = { 4: WELCOME_V4, 5: WELCOME_V5, 6: WELCOME_V6 };
+/** The welcome of this smurg's own protocol: what a daemon of this version answers. */
+const welcomeHere = (workspaceId: string): Record<string, unknown> => {
+  const sample = WELCOMES[PROTOCOL_VERSION];
+  if (sample === undefined) throw new Error(`no welcome sample of protocol ${PROTOCOL_VERSION} here: add one beside WELCOME_V6`);
+  return sample(workspaceId);
+};
+/** The protocols of the published versions before this one, each with its welcome. */
+const OLDER_WELCOMES = Object.entries(WELCOMES)
+  .map(([protocol, sample]) => ({ protocol: Number(protocol), sample }))
+  .filter((entry) => entry.protocol < PROTOCOL_VERSION);
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
@@ -656,9 +671,10 @@ function sessionListOkOf040(id: string): Uint8Array {
 }
 
 describe('smurg attach on the host and a daemon of another version', () => {
-  it('the welcome samples: protocol 5\'s is the one today\'s protocol accepts, protocol 4\'s is not; the 0.4.0 session list is not either', () => {
-    expect(welcomeSchema.safeParse(WELCOME_V5('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
-    expect(welcomeSchema.safeParse(WELCOME_V4('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(false);
+  it('the welcome samples: the one of this smurg\'s protocol is the one today\'s protocol accepts, every older one is not; the 0.4.0 session list is not either', () => {
+    expect(welcomeSchema.safeParse(welcomeHere('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
+    expect(OLDER_WELCOMES.map((entry) => entry.protocol)).toEqual([4, 5]);
+    for (const { protocol, sample } of OLDER_WELCOMES) expect(welcomeSchema.safeParse(sample('ws_AAAAAAAAAAAAAAAAAAAAAA')).success, `protocol ${protocol}`).toBe(false);
     const decoded = decodeEnvelope(sessionListOkOf040('l123456-1'), { from: 'daemon', channel: 'interactive' });
     expect(decoded.ok).toBe(false);
   });
@@ -676,7 +692,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
     const { PROTOCOL_VERSION: protocolOfTag } = (await import(join(tree.src, 'constants.ts'))) as { PROTOCOL_VERSION: number };
     const ours = WELCOMES[PROTOCOL_VERSION];
     const theirs = WELCOMES[protocolOfTag];
-    if (ours === undefined || theirs === undefined) throw new Error(`no welcome sample of protocol ${ours === undefined ? PROTOCOL_VERSION : protocolOfTag} here: add one beside WELCOME_V5`);
+    if (ours === undefined || theirs === undefined) throw new Error(`no welcome sample of protocol ${ours === undefined ? PROTOCOL_VERSION : protocolOfTag} here: add one beside WELCOME_V6`);
     expect(protocolOfTag, 'a protocol version is only ever raised').toBeLessThanOrEqual(PROTOCOL_VERSION);
     // The tag reads the sample of its own protocol, and refuses the one before it (its settings lack a key).
     expect(welcomeOfTheTag.safeParse(theirs('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
@@ -691,11 +707,12 @@ describe('smurg attach on the host and a daemon of another version', () => {
     }
   });
 
-  it('a daemon of protocol 4 (0.4.0 to 0.5.2): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', async () => {
+  it.for(OLDER_WELCOMES.map((entry) => [entry.protocol, entry.protocol === 4 ? '0.4.0 to 0.5.2' : '0.6.0'] as const))('a daemon of protocol %s (%s): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', { timeout: 60_000 }, async ([protocol]) => {
     const { env } = await setup();
     const id = 'ws_other_attach_000';
+    const sample = WELCOMES[protocol] as (workspaceId: string) => Record<string, unknown>;
     const host = await standIn(env, id, (socket, request, self) => {
-      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V4(id) }));
+      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: sample(id) }));
       else answering(STATUS_050, {}, id)(socket, request, self);
     });
     for (const args of [[], ['--workspace', id]]) {
@@ -714,7 +731,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
       });
     }
     expect(host.requests.filter((request) => (request as { op?: unknown }).op === 'attach')).toHaveLength(2);
-  }, 60_000);
+  });
 
   it("a daemon whose welcome this smurg reads and whose first answer it cannot decode (0.4.0's session list): the command ends AT ONCE saying another version is sharing (it used to wait 30 s)", async () => {
     const { env } = await setup();
@@ -723,7 +740,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
       env,
       id,
       (socket, request, self) => {
-        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V5(id) }));
+        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: welcomeHere(id) }));
         else answering(STATUS_040, {}, id)(socket, request, self);
       },
       (socket, body) => {
@@ -763,7 +780,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
       env,
       id,
       (socket, request, self) => {
-        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: WELCOME_V5(id) }));
+        if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: welcomeHere(id) }));
         else answering(STATUS_050, {}, id)(socket, request, self);
       },
       (socket) => socket.write(new Uint8Array([0, 0, 0, 2, 0x09, 0x00])),
@@ -778,7 +795,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
     const other = 'ws_other_attach_003';
     const { env: env2 } = await setup();
     await standIn(env2, other, (socket, request, self) => {
-      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: { ...WELCOME_V5(other), features: ['x'] } }));
+      if (request.op === 'attach') socket.write(control({ ok: true, op: 'attach', welcome: { ...welcomeHere(other), features: ['x'] } }));
       else answering(STATUS_050, {}, other)(socket, request, self);
     });
     const welcome = await runAttach([], commandContext(testIo({ env: env2 }))).then(

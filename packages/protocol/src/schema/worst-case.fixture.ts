@@ -1,4 +1,4 @@
-// Test fixture: the LARGEST sample of every protocol 4 and 5 message, for worst-case.test.ts. A sample is built at the
+// Test fixture: the LARGEST sample of every protocol 4, 5 and 6 message, for worst-case.test.ts. A sample is built at the
 // schema's own maxima (arrays at their maximum length, character-limited strings at their maximum length in
 // three-byte characters, byte-limited strings at their byte limit), EXCEPT where the registry names a size rule: then
 // the daemon bounds the message and the sample is the largest one that rule lets through.
@@ -192,7 +192,7 @@ const reportSummary = {
   reviewers: many(L.REVIEWERS_MAX, () => user),
   escalatedAt: T,
   review: { by: user, at: T, version: 9e6, insteadOf: user },
-  checks: { passed: 9e6, notVerified: 9e6 },
+  checks: { passed: 9e6, notVerified: 9e6, failed: 9e6 },
   error: { ...wireText, line: 9e6 },
 };
 export const worstTopic = {
@@ -208,9 +208,26 @@ export const worstTopic = {
   discussion: 'lost',
   spec: { exists: true, changedAt: T, changedBy: actor, lastAgentChange: { sessionId: id('s'), seq: 9e6, at: T, askedBy: user } },
   handEdits: { spec: many(L.HAND_EDITS_MAX, () => ({ by: user, at: T })), plan: many(L.HAND_EDITS_MAX, () => ({ by: user, at: T })) },
-  plan: { exists: true, valid: false, error: { ...wireText, line: 9e6 }, generating: true, stale: true, mode: 'everyone', paused: true, changedAt: T, changedBy: actor, items: 80, started: 80, reviewed: 80, merged: 80 },
+  plan: { exists: true, valid: false, error: { ...wireText, line: 9e6 }, generating: true, stale: true, mode: 'everyone', paused: true, pausedBy: user, changedAt: T, changedBy: actor, items: 80, started: 80, reviewed: 80, merged: 80, leftOut: 80, undone: 80 },
   rules: many(L.REMEMBERED_RULES_MAX, rule),
   agent: { model: MODEL, permissionMode: 'ask-commands' },
+  checked: { by: user, at: T },
+};
+/**
+ * Protocol 6: the largest merge hold of one work item: a conflict with people's changes, every list at its maximum
+ * length, and the paths and the people's paths, ids and names filling AUTO_MERGE_TEXT_MAX_BYTES (each path 389 bytes,
+ * each of the 100 people 8: 40 × 389 + 100 × 8 = 16,360 of 16,384).
+ */
+const holdPath = (index: number): string => `${wide(129)}${String(index % 100).padStart(2, '0')}`;
+export const worstAutoMerge = {
+  state: 'held',
+  reason: 'conflict',
+  since: T,
+  tries: 9e6,
+  hostOnly: false,
+  escalated: true,
+  paths: many(L.AUTO_MERGE_PATHS_MAX, holdPath),
+  people: many(L.AUTO_MERGE_PATHS_MAX, (i) => ({ path: holdPath(i + 50), by: many(5, (j) => ({ userId: `dev:${String(i * 5 + j).padStart(3, '0')}`, displayName: 'P' })), outside: true })),
 };
 const workItem = (index: number): unknown => ({
   id: itemId(index),
@@ -235,6 +252,13 @@ const workItem = (index: number): unknown => ({
   changesAsked: { by: user, at: T },
   report: reportSummary,
   merge: { requestId: id('mr'), status: 'conflict', ready: true },
+  // protocol 6 (each key at its largest; the daemon never sends all of them together)
+  merging: 'auto',
+  autoMerge: worstAutoMerge,
+  merged: { at: T, by: user },
+  leftOut: { by: user, at: T },
+  undone: { by: user, at: T },
+  waiting: 'permission',
 });
 export const worstPlan = {
   topicId: id('tp'),
@@ -246,7 +270,7 @@ export const worstPlan = {
   items: many(L.PLAN_INFO_ITEMS_MAX, workItem),
   split: { source: 'agent', reason: wide(L.SPLIT_REASON_MAX_CHARS) },
   warnings: many(L.PLAN_WARNINGS_MAX, () => wireText),
-  waitingFor: many(L.PLAN_WAITING_FOR_MAX, () => ({ user, questions: 9e6, permissions: 9e6, reports: 9e6, since: T })),
+  waitingFor: many(L.PLAN_WAITING_FOR_MAX, () => ({ user, questions: 9e6, permissions: 9e6, reports: 9e6, decisions: 9e6, since: T })),
   slots: { inUse: 32, max: 32, waitingForPeople: 32 },
 };
 const followUp = { text: big(L.REPORT_FOLLOW_UP_TEXT_MAX_BYTES), truncated: true };
@@ -258,11 +282,11 @@ export const worstReport = {
   sections: {
     done: big(L.REPORT_SECTION_MAX_BYTES),
     why: big(L.REPORT_SECTION_MAX_BYTES),
-    verified: many(L.REPORT_CHECKS_MAX, () => ({ text: wide(L.REPORT_CHECK_TEXT_MAX_CHARS), passed: false, note: wide(L.REPORT_CHECK_TEXT_MAX_CHARS) })),
+    verified: many(L.REPORT_CHECKS_MAX, () => ({ text: wide(L.REPORT_CHECK_TEXT_MAX_CHARS), passed: false, note: wide(L.REPORT_CHECK_TEXT_MAX_CHARS), failed: true })),
     watchOut: big(L.REPORT_SECTION_MAX_BYTES),
     followUps: big(L.REPORT_SECTION_MAX_BYTES),
   },
-  changes: { requestId: id('mr'), files: 9e6, additions: 9e6, deletions: 9e6, byHand: many(L.REPORT_BY_HAND_MAX, () => ({ path: PATH, by: many(L.REVIEWERS_MAX, () => user) })) },
+  changes: { requestId: id('mr'), files: 9e6, additions: 9e6, deletions: 9e6, byHand: many(L.REPORT_BY_HAND_MAX, () => ({ path: PATH, by: many(L.REVIEWERS_MAX, () => user) })), byHandTruncated: true },
   noChanges: 'conflict-markers',
   questions: many(L.REPORT_FOLLOW_UPS_MAX, (i) => ({ ...followUp, id: id('m', i), from: user, at: T, answer: { ...followUp, at: T } })),
 };
@@ -293,10 +317,11 @@ export const worstPreflight = {
   agent: { model: MODEL, permissionMode: 'ask-commands', effective: 'ask-commands' },
   nestedRepos: [],
   cloudSynced: false,
+  merging: { workspace: 'auto', proposed: 'host', detached: true },
 };
 /** The other two variants of a Start dialog (protocol 5), at their own maxima. */
-export const worstSmurgPreflight = { ...worstPreflight, history: 'smurg', commit: null, nestedRepos: many(L.PREFLIGHT_NESTED_REPOS_MAX, () => PATH), cloudSynced: true };
-export const worstDirectPreflight = { ...worstPreflight, history: 'direct', commit: null, direct: { reason: wireText, hostOnly: true } };
+export const worstSmurgPreflight = { ...worstPreflight, history: 'smurg', commit: null, nestedRepos: many(L.PREFLIGHT_NESTED_REPOS_MAX, () => PATH), cloudSynced: true, merging: { workspace: 'auto', proposed: 'auto', detached: false } };
+export const worstDirectPreflight = { ...worstPreflight, history: 'direct', commit: null, direct: { reason: wireText, hostOnly: true }, merging: null };
 
 // ---- inbox ---------------------------------------------------------------------------------------------------------
 /** The kind with the most fields (INBOX_KIND_FIELDS): a question of a work item's session, escalated. */
@@ -322,7 +347,43 @@ export const worstInboxItem = (index: number): unknown => ({
   escalated: true,
   alsoFor: many(L.INBOX_ALSO_FOR_MAX, () => user),
   alsoForMore: 9e6,
+  unblocks: many(L.PLAN_ITEMS_MAX, () => 9e6),
 });
+/** Protocol 6: the largest decision (escalated, of a work item's session, with its report's facts) and a topic ready to check. */
+export const worstDecisionItem = {
+  key: `decision:${'k'.repeat(L.INBOX_KEY_MAX_CHARS - 9)}`,
+  kind: 'decision',
+  at: T,
+  unread: true,
+  waiting: true,
+  topicId: id('tp'),
+  sessionId: id('s'),
+  itemId: itemId(0),
+  item: { number: 9e6, title: wide(L.ITEM_TITLE_MAX_CHARS) },
+  target: { kind: 'report', topicId: id('tp'), itemId: itemId(0) },
+  excerpt: wide(L.INBOX_EXCERPT_MAX_CHARS),
+  reason: 'undo-interrupted',
+  unblocks: many(L.PLAN_ITEMS_MAX, () => 9e6),
+  outcome: 'partial',
+  checks: { passed: 9e6, notVerified: 9e6, failed: 9e6 },
+  waitsFor: user,
+  waitsForOffline: true,
+  escalated: true,
+  alsoFor: many(L.INBOX_ALSO_FOR_MAX, () => user),
+  alsoForMore: 9e6,
+};
+export const worstReadyItem = {
+  key: `ready:${'k'.repeat(L.INBOX_KEY_MAX_CHARS - 6)}`,
+  kind: 'ready',
+  at: T,
+  unread: true,
+  waiting: false,
+  topicId: id('tp'),
+  target: { kind: 'result', topicId: id('tp') },
+  excerpt: wide(L.INBOX_EXCERPT_MAX_CHARS),
+  tally: { items: 9e6, merged: 9e6, leftOut: 9e6, undone: 9e6 },
+  checks: { passed: 9e6, notVerified: 9e6, failed: 9e6 },
+};
 
 // ---- admin ---------------------------------------------------------------------------------------------------------
 const configFile = {

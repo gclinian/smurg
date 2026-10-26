@@ -6,7 +6,7 @@
 // Five people: the host, Mei and Ken (Agent access), Amy (Editor), Leo (Viewer). The sweep is switched off in every
 // test but the one about it, so that an item moves because of the event that moved it.
 import { afterEach, describe, expect, it } from 'vitest';
-import { INBOX_ITEMS_MAX, INBOX_NOTES_PER_MEMBER_MAX, decodeEnvelope, encodedSize, inboxItemSchema, type AgentSession, type InboxItem, type UserRef } from '@smurg/protocol';
+import { INBOX_ITEMS_MAX, INBOX_NOTES_PER_MEMBER_MAX, columnTargetSchema, decodeEnvelope, encodedSize, inboxItemSchema, type AgentSession, type ColumnTarget, type InboxItem, type UserRef } from '@smurg/protocol';
 import { attentionRef, renderEnglish } from '@smurg/protocol/i18n';
 import type { FeatureModule } from '../../src/core/context.ts';
 import type { AttentionFact, Principal } from '../../src/core/interfaces.ts';
@@ -16,6 +16,7 @@ import { SYSTEM_PRINCIPAL } from '../../src/core/permissions.ts';
 import { buildInboxItem, buildMergeRequest, buildPlan, buildSuggestion, buildTopic, buildWorkItem, fakesModule, fakesOf, type Fakes } from '../../src/core/fakes/index.ts';
 import { changePages } from '../../src/inbox/inbox-service.ts';
 import { createInboxModule, inboxModule } from '../../src/inbox/module.ts';
+import { storedNoteSchema } from '../../src/inbox/store.ts';
 import { createTempDir, createTempProject, createTempRunDir, createTestDaemon, removeTempDir, removeTempRunDir, settle, waitFor, type TestClient, type TestDaemon, type TestDaemonOptions } from '../../src/testing/index.ts';
 
 const HOST = 'dev:host';
@@ -522,6 +523,19 @@ describe('the inbox of every member', () => {
     // Somebody who is not a member has no inbox to fill.
     expect(service.addMention({ userId: 'dev:nobody', from, target: { kind: 'plan', topicId: 'tp_1' }, excerpt: 'x' })).toBe('stored');
     expect(service.itemsOf('dev:nobody')).toEqual([]);
+  });
+
+  it('0.7.0: a stored mention names one of the six columns of 0.6.0, never the Result column the wire gained, so inbox.json keeps 0.6.0\'s shape (DESIGN 0.7.0 D4)', async () => {
+    const note = { id: 'nt_1', kind: 'mention', at: 1, from: { kind: 'user', userId: HOST, displayName: 'Ian' }, target: { kind: 'plan', topicId: 'tp_1' }, excerpt: 'x' };
+    expect(storedNoteSchema.safeParse(note).success).toBe(true);
+    const result: ColumnTarget = { kind: 'result', topicId: 'tp_1' };
+    expect(columnTargetSchema.safeParse(result).success).toBe(true);
+    expect(storedNoteSchema.safeParse({ ...note, target: result }).success).toBe(false);
+    // The service stores no such note (nobody writes in the Result column; a caller that tried is a bug, logged).
+    const team = await setup({}, [HOST, LEO]);
+    const service = team.t.ctx.services.inbox;
+    service.addMention({ userId: LEO, from: principal(team, HOST).actor, target: result, excerpt: 'nothing to see' });
+    expect(inbox(team, LEO)).toEqual([]);
   });
 
   it('S13 the caps: 200 unopened notes per member, and one more is refused without pushing any out', async () => {

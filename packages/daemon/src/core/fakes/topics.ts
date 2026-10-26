@@ -353,6 +353,7 @@ export class FakePlanService implements PlanService {
       agent: { model: null, permissionMode: null, effective: effectivePermissionMode({ purpose: 'item', session: null, topic: null, workspace: this.env.settings?.get().permissionMode ?? 'auto' }) },
       nestedRepos: [],
       cloudSynced: false,
+      merging: ((workspace) => ({ workspace, proposed: workspace, detached: false }))(this.env.settings?.get().merging ?? 'auto'),
     };
   }
 

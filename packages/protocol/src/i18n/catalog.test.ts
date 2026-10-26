@@ -7,7 +7,7 @@ import { ERROR_CODES } from '../errors.ts';
 import { ROLES } from '../roles.ts';
 import { PERMISSION_MODES } from '../schema/entities.ts';
 import { ATTENTION_SUBJECTS } from '../schema/inbox.ts';
-import { REPORT_OUTCOMES } from '../schema/topics.ts';
+import { AUTO_MERGE_REASONS, REPORT_OUTCOMES } from '../schema/topics.ts';
 import {
   ADMIN_CHANGES,
   CONFLICT_RECOVERY_REASONS,
@@ -38,6 +38,9 @@ const CJK = /[　-〿㄀-ㄯ㐀-鿿豈-﫿＀-￯]/u;
 /** zh-TW texts that are deliberately identical to the English ones (proper names, loanwords). */
 const IDENTICAL_IN_BOTH: ReadonlySet<string> = new Set<string>(['session.title.agent', 'session.title.item']);
 
+/** The reasons a work item is held for (protocol 6): every reason but the waits nobody decides and `markers` (only ever resolving). */
+const HELD_REASONS: readonly string[] = AUTO_MERGE_REASONS.filter((reason) => !['queued', 'paused', 'busy', 'typing', 'behind', 'retry', 'markers'].includes(reason));
+
 /**
  * String parameters that are one of a fixed set of values (a nested table inside the form picks the words): every
  * value must render in both locales, and a value this version does not know must still give a sentence.
@@ -56,6 +59,7 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'conversation.mode.followed': { mode: PERMISSION_MODES },
   'conversation.mode.workspace': { mode: PERMISSION_MODES },
   'conversation.mode.topic': { mode: PERMISSION_MODES },
+  'conversation.held': { reason: HELD_REASONS },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {

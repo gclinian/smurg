@@ -1,9 +1,9 @@
 import type { ReactNode } from 'react';
 import { cx } from './cx.ts';
-import { IconAlertTriangle, IconAt, IconCheck, IconComment, IconGitMerge, IconLightbulb, IconQuestion, IconReport, IconShieldAlert, type IconProps } from './icons.tsx';
+import { IconAlertCircle, IconAlertTriangle, IconAt, IconCheck, IconComment, IconGitMerge, IconLightbulb, IconQuestion, IconReport, IconShieldAlert, type IconProps } from './icons.tsx';
 
 /** The kinds of things that wait for a person: the inbox item kinds, which are also the card kinds. */
-export const ITEM_KINDS = ['question', 'vote', 'permission', 'attention', 'suggestion', 'report', 'merge', 'mention', 'result'] as const;
+export const ITEM_KINDS = ['question', 'vote', 'permission', 'attention', 'suggestion', 'report', 'merge', 'mention', 'result', 'decision', 'ready'] as const;
 export type ItemKind = (typeof ITEM_KINDS)[number];
 
 const SHAPE: Record<ItemKind, (props: IconProps) => ReactNode> = {
@@ -16,6 +16,8 @@ const SHAPE: Record<ItemKind, (props: IconProps) => ReactNode> = {
   merge: IconGitMerge,
   mention: IconAt,
   result: IconComment,
+  decision: IconAlertCircle,
+  ready: IconCheck,
 };
 
 export interface KindIconProps {

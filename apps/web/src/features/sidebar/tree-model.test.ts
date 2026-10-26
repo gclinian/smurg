@@ -13,7 +13,7 @@ import { FREE_GROUP, buildArchivedGroups, buildSessionTree, runningTargets, topi
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
 const SINCE = 1_000;
-const plan = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 3, started: 2, reviewed: 1, merged: 0 } as const;
+const plan = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 3, started: 2, reviewed: 1, merged: 0, leftOut: 0, undone: 0 } as const;
 
 const topic = buildTopic({ id: 't1', name: 'Checkout redesign', phase: 'executing', discussionSessionId: 's_disc', spec: { exists: true, changedAt: 500 }, plan: { ...plan, changedAt: 500 }, createdAt: 10 });
 const discussion = buildAgentSession({ id: 's_disc', purpose: 'discussion', topicId: 't1', openedBy: IAN, createdAt: 1, noteworthyAt: 500 });

@@ -48,7 +48,11 @@ import { displayNameSchema, epochMsSchema, indexSchema, largeTextSchema, lineTex
 // The English rendering, the bounded message reference and the sentence the daemon originates (`fallbackTextSchema`,
 // `wireRefSchema`, `wireTextSchema`) are defined in entities.ts (protocol 5: the host's work state carries one).
 
-/** What smurg itself told the agent (`topics/prompts.ts` holds the fixed texts). */
+/**
+ * What smurg itself told the agent (`topics/prompts.ts` holds the fixed texts). `remove-paths` and `verify-again`
+ * (protocol 6): take out the changes only the host may merge; verify again after a change the report was not checked
+ * for.
+ */
 export const SMURG_PURPOSES = [
   'write-spec',
   'generate-plan',
@@ -62,6 +66,8 @@ export const SMURG_PURPOSES = [
   'resolve-conflict',
   'conversation-lost',
   'restart-discussion',
+  'remove-paths',
+  'verify-again',
 ] as const;
 export const smurgPurposeSchema = z.enum(SMURG_PURPOSES);
 export type SmurgPurpose = z.infer<typeof smurgPurposeSchema>;

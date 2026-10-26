@@ -67,7 +67,7 @@ export function phaseLabel(phase: TopicPhase): string {
   return tStores(`phase.${phase}`);
 }
 
-const PHASE_TONE: Readonly<Record<TopicPhase, Tone>> = { discussing: 'neutral', spec: 'neutral', plan: 'info', executing: 'info', complete: 'success' };
+const PHASE_TONE: Readonly<Record<TopicPhase, Tone>> = { discussing: 'neutral', spec: 'neutral', plan: 'info', executing: 'info', ready: 'info', complete: 'success' };
 export function phaseTone(phase: TopicPhase): Tone {
   return PHASE_TONE[phase];
 }

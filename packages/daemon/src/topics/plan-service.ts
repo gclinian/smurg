@@ -513,7 +513,7 @@ export class PlanServiceImpl implements PlanService {
    * in the folder with why, and `hostOnly` for anyone but the host), and the topic's agent settings with the mode its
    * items would run with.
    */
-  private startFacts(topic: StoredTopic, principal: Principal, main: MainState | null, folder: StartFolderFacts | null): Pick<StartPreflight, 'history' | 'direct' | 'agent' | 'nestedRepos' | 'cloudSynced'> {
+  private startFacts(topic: StoredTopic, principal: Principal, main: MainState | null, folder: StartFolderFacts | null): Pick<StartPreflight, 'history' | 'direct' | 'agent' | 'nestedRepos' | 'cloudSynced' | 'merging'> {
     const history = main?.history ?? 'folder';
     // Why git cannot be used: the `worktree.unavailable.git*` sentence (MainState names it with history `direct`).
     const reason = history === 'direct' ? wireText(main?.unavailable ?? msg('worktree.unavailable.gitCannotRun')) : null;
@@ -528,7 +528,22 @@ export class PlanServiceImpl implements PlanService {
       },
       nestedRepos: history === 'smurg' ? [...(folder?.nestedRepos ?? [])] : [],
       cloudSynced: history === 'smurg' && folder?.cloudSynced === true,
+      merging: this.mergingFacts(topic, history, main),
     };
+  }
+
+  /**
+   * How the items a Start starts now would reach the main workspace (protocol 6, DESIGN 0.7.0 D3): null without git
+   * (nothing to merge); else the workspace's setting, whether the folder's own git is on no branch (a detached HEAD:
+   * only the host merges), and what the dialog proposes: the host when the workspace says so, the HEAD is detached, or
+   * the topic's last Start chose it.
+   */
+  private mergingFacts(topic: StoredTopic, history: StartPreflight['history'], main: MainState | null): StartPreflight['merging'] {
+    if (history === 'direct') return null;
+    const workspace = this.ctx.settings.get().merging;
+    const detached = history === 'folder' && main !== null && main.isRepo && main.gitOk && main.hasCommit && main.branch === null;
+    const proposed = workspace === 'host' || detached || topic.plan.lastPin?.merging === 'host' ? 'host' : 'auto';
+    return { workspace, proposed, detached };
   }
 
   /**

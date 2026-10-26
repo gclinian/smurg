@@ -5,6 +5,10 @@
 // Also the host's notices (`state.json`'s `hostNotices`, DESIGN 0.6.0 D13): `agents-auto` is in the host's inbox (an
 // attention item that opens the console's settings) until the host has seen it (`admin.notice.seen`) or decided the
 // workspace's mode (`admin.settings.set` naming `permissionMode`).
+//
+// 0.7.0 (DESIGN 0.7.0 D3, D4): the setting `merging` is the host's like every other (the patch takes it, every member
+// receives it in the Welcome); nothing reads it yet. Its notice `auto-merge` is stored by the step from 0.6.0 and is
+// not an attention item yet (0.7.0 S6 makes it one).
 import { lstat, realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError, hostSettingsPatchSchema, hostSettingsSchema, isHostOnlyPath, type HostNotice, type HostSettings, type HostSettingsPatch, type PublicSettings } from '@smurg/protocol';
@@ -35,6 +39,7 @@ export function publicSettingsOf(settings: HostSettings): PublicSettings {
     uploadChunkSize: settings.uploadChunkSize,
     sharedDirs: [...settings.sharedDirs],
     permissionMode: settings.permissionMode,
+    merging: settings.merging,
   };
 }
 

@@ -90,8 +90,9 @@ describe('how work items run here (D5)', () => {
     expect(startPreflightSchema.safeParse({ ...preflight, history: 'smurg' }).success).toBe(false); // a commit with smurg's own history
     expect(startPreflightSchema.safeParse({ ...preflight, history: 'smurg', commit: null }).success).toBe(true);
     expect(startPreflightSchema.safeParse({ ...preflight, history: 'smurg', commit: null, nestedRepos: ['frontend', 'tools/vendor'], cloudSynced: true }).success).toBe(true);
-    expect(startPreflightSchema.safeParse({ ...preflight, history: 'direct', commit: null, direct: { reason: preflight.blockers[0], hostOnly: false } }).success).toBe(true);
-    expect(startPreflightSchema.safeParse({ ...preflight, history: 'direct', commit: null, direct: { reason: preflight.blockers[0] } }).success).toBe(false);
+    // (protocol 6: a direct Start says no merge policy, `merging: null`)
+    expect(startPreflightSchema.safeParse({ ...preflight, history: 'direct', commit: null, direct: { reason: preflight.blockers[0], hostOnly: false }, merging: null }).success).toBe(true);
+    expect(startPreflightSchema.safeParse({ ...preflight, history: 'direct', commit: null, direct: { reason: preflight.blockers[0] }, merging: null }).success).toBe(false);
     expect(startPreflightSchema.safeParse({ ...preflight, nestedRepos: ['/abs'], history: 'smurg', commit: null }).success).toBe(false);
   });
 
@@ -117,7 +118,7 @@ describe('a topic\'s agent settings (D3, D4)', () => {
 
 describe('the update\'s notice (D13)', () => {
   it('is an attention item of the host\'s that stops no work and opens the console\'s settings', () => {
-    expect([...HOST_NOTICES]).toEqual(['agents-auto']);
+    expect(HOST_NOTICES).toContain('agents-auto'); // protocol 6 adds 0.7.0's notice beside it (protocol6.test.ts)
     expect(ATTENTION_SUBJECTS).toContain('agents-auto');
     expect(inboxKindWaits('attention', 'agents-auto')).toBe(false);
     expect(inboxItemSchema.safeParse(agentsAutoItem).success).toBe(true);

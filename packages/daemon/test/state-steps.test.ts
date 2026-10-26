@@ -31,9 +31,10 @@ import {
   type StepEnv,
 } from '../src/core/state-store.ts';
 import { readWorkspaceFolder } from '../src/core/workspace-folder.ts';
-import { stateDocument, workspaceStateSchema, type WorkspaceState } from '../src/core/workspace-state.ts';
+import { STATE_VERSION, stateDocument, workspaceStateSchema, type WorkspaceState } from '../src/core/workspace-state.ts';
 import { stateShapeV040, suggestionsShapeV040 } from '../src/frozen/v0.4.0.ts';
 import { agentSessionsShapeV050, stateShapeV050 } from '../src/frozen/v0.5.0.ts';
+import { stateShapeV060 } from '../src/frozen/v0.6.0.ts';
 import { agentSessionsDocument, agentSessionsStepFromV050 } from '../src/sessions/agent/store.ts';
 import { suggestionsDocument, suggestionsDocumentSchema } from '../src/suggest/store.ts';
 import { createTempDir, removeTempDir } from '../src/testing/temp.ts';
@@ -58,6 +59,15 @@ function stateOfV050(): Record<string, unknown> {
   return { ...old, settings: { ...(old['settings'] as object), maxLiveAgents: 4, escalateAfterMs: 120_000, agentMcp: true } };
 }
 
+/**
+ * A state.json as smurg 0.6.0 wrote it: version 2, 0.5.0's nine settings and the workspace's permission mode (here one
+ * the host chose that asks before commands), and the notices the host had not seen. Hand-made.
+ */
+function stateOfV060(hostNotices: readonly string[] = []): Record<string, unknown> {
+  const old = stateOfV050();
+  return { ...old, version: 2, settings: { ...(old['settings'] as object), permissionMode: 'ask-commands' }, hostNotices: [...hostNotices] };
+}
+
 describe('state.json: the step from smurg 0.4.0', () => {
   const declaration = stateDocument(WS, defaultHostSettings(ENV.memoryBytes));
   const path = '/nowhere/state.json';
@@ -73,17 +83,18 @@ describe('state.json: the step from smurg 0.4.0', () => {
     expect(workspaceStateSchema.safeParse(old).success).toBe(false); // the refusal 0.5.0 published
     const loaded = loadDocumentValue(declaration, path, old, ENV);
     expect(loaded.upgradedFrom).toBe('0.4.0');
-    // Changed on purpose in 0.6.0: a 0.4.0 file runs both steps, 0.4.0's and then 0.5.0's (DESIGN 0.6.0 D6).
-    expect(loaded.ran.map((step) => step.from)).toEqual(['0.4.0', '0.5.0']);
+    // Changed on purpose in 0.6.0 and again in 0.7.0: a 0.4.0 file runs every step, 0.4.0's, then 0.5.0's, then 0.6.0's
+    // (DESIGN 0.6.0 D6, DESIGN 0.7.0 D4).
+    expect(loaded.ran.map((step) => step.from)).toEqual(['0.4.0', '0.5.0', '0.6.0']);
     const value = loaded.value as WorkspaceState;
     expect(workspaceStateSchema.safeParse(value).success).toBe(true);
     // Every member, device, invite and root, every kick, revocation and use count: untouched.
     const { settings: newSettings, version, hostNotices, ...rest } = value;
     const { settings: oldSettings, version: _oldVersion, ...oldRest } = old;
     expect(rest).toEqual(oldRest);
-    expect(newSettings).toEqual({ ...(oldSettings as object), maxLiveAgents: defaultMaxLiveAgents(ENV.memoryBytes), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto' });
-    expect(version).toBe(2);
-    expect(hostNotices).toEqual(['agents-auto']);
+    expect(newSettings).toEqual({ ...(oldSettings as object), maxLiveAgents: defaultMaxLiveAgents(ENV.memoryBytes), escalateAfterMs: 300_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' });
+    expect(version).toBe(3);
+    expect(hostNotices).toEqual(['agents-auto', 'auto-merge']);
   });
 
   it('the added values are constants of the step: agentMcp is closed whatever a NEW workspace would get; only maxLiveAgents follows the machine', () => {
@@ -98,15 +109,22 @@ describe('state.json: the step from smurg 0.4.0', () => {
     expect(new Set([4 * GiB, 16 * GiB, 64 * GiB].map(defaultMaxLiveAgents)).size).toBeGreaterThan(1);
   });
 
-  it('the two published shapes of version 1 and today\'s version 2 cannot be confused: none matches another', () => {
+  it('the two published shapes of version 1, 0.6.0\'s version 2 and today\'s version 3 cannot be confused: none matches another', () => {
     const today = declaration.init();
     expect(stateShapeV040.safeParse(today).success).toBe(false);
     expect(stateShapeV050.safeParse(today).success).toBe(false);
+    expect(stateShapeV060.safeParse(today).success).toBe(false);
     expect(workspaceStateSchema.safeParse(stateOfV040()).success).toBe(false);
     expect(stateShapeV050.safeParse(stateOfV040()).success).toBe(false);
+    expect(stateShapeV060.safeParse(stateOfV040()).success).toBe(false);
     expect(stateShapeV040.safeParse(stateOfV050()).success).toBe(false);
     expect(workspaceStateSchema.safeParse(stateOfV050()).success).toBe(false);
+    expect(stateShapeV060.safeParse(stateOfV050()).success).toBe(false);
     expect(stateShapeV050.safeParse(stateOfV050()).success).toBe(true);
+    expect(stateShapeV040.safeParse(stateOfV060()).success).toBe(false);
+    expect(stateShapeV050.safeParse(stateOfV060()).success).toBe(false);
+    expect(workspaceStateSchema.safeParse(stateOfV060()).success).toBe(false);
+    expect(stateShapeV060.safeParse(stateOfV060()).success).toBe(true);
   });
 
   it('a value 0.4.0 accepted and this smurg refuses (a path with more than 30 combining marks in a row) is refused naming the entry and the rule; nothing is dropped', () => {
@@ -150,8 +168,9 @@ describe('state.json: the step from smurg 0.4.0', () => {
 
   it('a version above the one this smurg expects is `newer`, never "damaged"; a lower or a non-number one is not', () => {
     const today = declaration.init();
-    // Version 2 is today's (0.6.0): one above it is newer.
-    expect(refusalOf(() => loadDocumentValue(declaration, path, { ...today, version: 3 }, ENV))).toMatchObject({ kind: 'newer', path });
+    // Version 3 is today's (0.7.0): one above it is newer.
+    expect(STATE_VERSION).toBe(3);
+    expect(refusalOf(() => loadDocumentValue(declaration, path, { ...today, version: 4 }, ENV))).toMatchObject({ kind: 'newer', path });
     expect(refusalOf(() => loadDocumentValue(declaration, path, { version: 7, somethingNew: [] }, ENV))).toMatchObject({ kind: 'newer' });
     expect(refusalOf(() => loadDocumentValue(declaration, path, { ...today, version: 0 }, ENV))).toMatchObject({ kind: 'unreadable', reason: 'no-known-shape' });
     expect(refusalOf(() => loadDocumentValue(declaration, path, { ...today, version: '2' }, ENV))).toMatchObject({ kind: 'unreadable', reason: 'no-known-shape' });
@@ -168,15 +187,24 @@ describe('state.json: the step from smurg 0.5.0 (what 0.5.0, 0.5.1 and 0.5.2 wro
     expect(stateShapeV050.safeParse(old).success).toBe(true);
     const loaded = loadDocumentValue(declaration, path, old, ENV);
     expect(loaded.upgradedFrom).toBe('0.5.0');
-    expect(loaded.ran.map((step) => step.from)).toEqual(['0.5.0']);
+    // Since 0.7.0 the step from 0.6.0 runs after it (DESIGN 0.7.0 D4): what it produces is 0.6.0's shape.
+    expect(loaded.ran.map((step) => step.from)).toEqual(['0.5.0', '0.6.0']);
     const value = loaded.value as WorkspaceState;
     const { settings, version, hostNotices, ...rest } = value;
     const { settings: oldSettings, version: _was, ...oldRest } = old;
     expect(rest).toEqual(oldRest);
-    // The settings the host chose (agentMcp on, a limit of 4) stand; the mode is the step's.
-    expect(settings).toEqual({ ...(oldSettings as object), permissionMode: 'auto' });
-    expect(version).toBe(2);
-    expect(hostNotices).toEqual(['agents-auto']);
+    // The settings the host chose (agentMcp on, a limit of 4) stand; the mode is the step's (and the merging the next one's).
+    expect(settings).toEqual({ ...(oldSettings as object), permissionMode: 'auto', merging: 'auto' });
+    expect(version).toBe(3);
+    expect(hostNotices).toEqual(['agents-auto', 'auto-merge']);
+  });
+
+  it('what the step produces is exactly 0.6.0\'s shape (src/frozen/v0.6.0.ts), which the next step reads', () => {
+    const steps = declaration.steps ?? [];
+    const fromV050 = steps.find((step) => step.from === '0.5.0');
+    const produced = fromV050?.upgrade(stateShapeV050.parse(stateOfV050()), ENV);
+    expect(stateShapeV060.safeParse(produced).success).toBe(true);
+    expect(workspaceStateSchema.safeParse(produced).success).toBe(false);
   });
 
   it('THE OWNER\'S DECISION: the mode is the step\'s own constant (auto), whatever a NEW workspace would get', () => {
@@ -187,7 +215,7 @@ describe('state.json: the step from smurg 0.5.0 (what 0.5.0, 0.5.1 and 0.5.2 wro
     const fresh = declaration.init();
     expect(fresh.settings.permissionMode).toBe('auto');
     expect(fresh.hostNotices).toEqual([]);
-    expect(fresh.version).toBe(2);
+    expect(fresh.version).toBe(STATE_VERSION);
   });
 
   it('a value 0.5.0 refused already (a path with more than 30 combining marks in a row) is refused, naming the entry and the rule', () => {
@@ -213,6 +241,62 @@ describe('state.json: the step from smurg 0.5.0 (what 0.5.0, 0.5.1 and 0.5.2 wro
     expect(reading.putBack).toBe(true);
     expect(reading.loaded.get('state')?.upgradedFrom).toBe('0.5.0');
     expect(reading.copies?.get('state')).toBe(keptCopyPath(dir, 'state', '0.5.0'));
+  });
+});
+
+describe('state.json: the step from smurg 0.6.0 (what 0.6.0 wrote; DESIGN 0.7.0 D4)', () => {
+  const declaration = stateDocument(WS, defaultHostSettings(ENV.memoryBytes));
+  const path = '/nowhere/state.json';
+
+  it('version 3: the workspace merges work items by itself and the host is told; every member, device, invite, root and setting is carried', () => {
+    const old = stateOfV060();
+    expect(stateShapeV060.safeParse(old).success).toBe(true);
+    const loaded = loadDocumentValue(declaration, path, old, ENV);
+    expect(loaded.upgradedFrom).toBe('0.6.0');
+    expect(loaded.ran.map((step) => step.from)).toEqual(['0.6.0']);
+    const value = loaded.value as WorkspaceState;
+    expect(workspaceStateSchema.safeParse(value).success).toBe(true);
+    const { settings, version, hostNotices, ...rest } = value;
+    const { settings: oldSettings, version: _was, hostNotices: _notices, ...oldRest } = old;
+    expect(rest).toEqual(oldRest);
+    // The settings the host chose stand (the mode that asks before commands too); merging is the step's.
+    expect(settings).toEqual({ ...(oldSettings as object), merging: 'auto' });
+    expect(version).toBe(3);
+    expect(hostNotices).toEqual(['auto-merge']);
+  });
+
+  it('the notice joins the ones the host had not seen, once: 0.6.0\'s `agents-auto` stays beside it', () => {
+    expect((loadDocumentValue(declaration, path, stateOfV060(['agents-auto']), ENV).value as WorkspaceState).hostNotices).toEqual(['agents-auto', 'auto-merge']);
+    expect((loadDocumentValue(declaration, path, stateOfV060([]), ENV).value as WorkspaceState).hostNotices).toEqual(['auto-merge']);
+    // 0.6.0 knew one notice: a file of its shape cannot hold 0.7.0's, so the step never sees it twice.
+    expect(stateShapeV060.safeParse(stateOfV060(['agents-auto', 'auto-merge'])).success).toBe(false);
+  });
+
+  it('THE OWNER\'S WORDS: automatic merging is the step\'s own constant, whatever a NEW workspace would get', () => {
+    const strict = stateDocument(WS, { ...defaultHostSettings(ENV.memoryBytes), merging: 'host' });
+    expect(strict.init().settings.merging).toBe('host');
+    expect((loadDocumentValue(strict, path, stateOfV060(), ENV).value as WorkspaceState).settings.merging).toBe('auto');
+    // A new workspace gets automatic merging by default and no notice: nothing changed for its host.
+    const fresh = declaration.init();
+    expect(fresh.settings.merging).toBe('auto');
+    expect(fresh.hostNotices).toEqual([]);
+  });
+
+  it('a 0.6.0 file put back into a folder a smurg of shapes 3 stamped is said to be put back; a stamp of shapes 2 (0.6.0) is the first upgrade, and its kept copy is named after 0.6.0', async () => {
+    const dir = join(base, 'ws');
+    await mkdir(dir, { mode: 0o700 });
+    await loadOrCreateDaemonIdentity(dir);
+    await writeFile(join(dir, 'state.json'), `${JSON.stringify(stateOfV060(['agents-auto']), null, 2)}\n`, { mode: 0o600 });
+    const read = (): ReturnType<typeof readWorkspaceFolder> => readWorkspaceFolder({ dir, log: silentLogger, documents: [declaration], env: ENV, smurg: '0.7.0' });
+    await writeStamp(dir, { smurg: '0.6.0', shapes: 2, at: 1 });
+    const first = await read();
+    expect(first.putBack).toBe(false);
+    expect(first.loaded.get('state')?.upgradedFrom).toBe('0.6.0');
+    expect(first.copies?.get('state')).toBe(keptCopyPath(dir, 'state', '0.6.0'));
+    await writeStamp(dir, { smurg: '0.7.0', shapes: 3, at: 2 });
+    const reading = await read();
+    expect(reading.putBack).toBe(true);
+    expect(reading.loaded.get('state')?.upgradedFrom).toBe('0.6.0');
   });
 });
 
@@ -407,11 +491,11 @@ describe('the stamp written-by.json', () => {
       process.umask(previous);
     }
     expect(await mode(join(dir, STAMP_FILE))).toBe('600');
-    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: '0.5.1', shapes: 2, at: 1_727_000_000_000 });
+    expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: '0.5.1', shapes: WORKSPACE_SHAPES, at: 1_727_000_000_000 });
     expect((await readdir(dir)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
-    expect(await readStamp(dir, silentLogger)).toEqual({ smurg: '0.5.1', shapes: 2, at: 1_727_000_000_000 });
-    // 2 since 0.6.0 (DESIGN 0.6.0 D6).
-    expect(WORKSPACE_SHAPES).toBe(2);
+    expect(await readStamp(dir, silentLogger)).toEqual({ smurg: '0.5.1', shapes: WORKSPACE_SHAPES, at: 1_727_000_000_000 });
+    // 2 since 0.6.0 (DESIGN 0.6.0 D6), 3 since 0.7.0 (DESIGN 0.7.0 D4).
+    expect(WORKSPACE_SHAPES).toBe(3);
   });
 
   it('no stamp: the writer is unknown, and nothing is logged', async () => {

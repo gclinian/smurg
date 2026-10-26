@@ -61,4 +61,8 @@ export const inbox = {
     en: () => 'Agents now run in auto mode',
     'zh-TW': () => 'agent 現在以自動模式執行',
   }),
+  'attention.autoMerge': message({}, {
+    en: () => 'Work items now merge by themselves',
+    'zh-TW': () => '工作項目現在會自動合併',
+  }),
 } as const;

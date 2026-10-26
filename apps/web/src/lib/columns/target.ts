@@ -8,8 +8,11 @@
 // from the session's kind (`columnKindOf`).
 import { columnTargetSchema, type ColumnTarget, type SessionInfo } from '@smurg/protocol';
 
-/** A thing a column can show. */
-export type ColumnRef = Exclude<ColumnTarget, { kind: 'console' }>;
+/**
+ * A thing a column can show. Not a topic's Result (protocol 6, `{ kind: 'result' }`) yet: until its column exists
+ * (0.7.0 S7) a target that names it opens the topic's plan (`columnRefOf`).
+ */
+export type ColumnRef = Exclude<ColumnTarget, { kind: 'console' } | { kind: 'result' }>;
 
 /** The component kinds a feature registers (lib/slots.ts): one per row of the table in DESIGN §5.4. */
 export const COLUMN_KINDS = ['conversation', 'terminal', 'spec', 'plan', 'report', 'changes'] as const;
@@ -35,7 +38,13 @@ export interface ColumnAnchor {
 }
 
 export function isColumnRef(target: ColumnTarget): target is ColumnRef {
-  return target.kind !== 'console';
+  return target.kind !== 'console' && target.kind !== 'result';
+}
+
+/** The column a target opens: itself, the topic's plan for its Result (until the Result column, 0.7.0 S7), or none (a console section). */
+export function columnRefOf(target: ColumnTarget): ColumnRef | null {
+  if (target.kind === 'result') return { kind: 'plan', topicId: target.topicId };
+  return isColumnRef(target) ? target : null;
 }
 
 export function columnId(target: ColumnRef): string {

@@ -36,9 +36,10 @@ export function documentsOfThisSmurg(): readonly DocumentDeclaration[] {
 /**
  * The first smurg that writes TODAY's shape of each document with a step (DESIGN 0.6.0 D6): from that version on a
  * file of the document is today's schema; before it, the shape of one of its steps. A document that gains a step in a
- * release is named here with that release's version in the same change (`state`, `agent-sessions`: 0.6.0).
+ * release is named here with that release's version in the same change (`agent-sessions`: 0.6.0; `state`: 0.7.0,
+ * DESIGN 0.7.0 D4: what 0.6.0 wrote is the frozen shape of the step from 0.6.0).
  */
-const TODAY_SINCE: Readonly<Record<string, string>> = { state: '0.6.0', 'agent-sessions': '0.6.0', suggestions: '0.5.0' };
+const TODAY_SINCE: Readonly<Record<string, string>> = { state: '0.7.0', 'agent-sessions': '0.6.0', suggestions: '0.5.0' };
 
 /**
  * The shape a file of `document` has when smurg `version` wrote it. A step's shape covers the versions from its `from`
@@ -132,7 +133,7 @@ const escape = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\
  * so the first that can leave its kept copy. A step of a number no published smurg has yet needs its line here when
  * that smurg is published (until then its kept copies are of no published version).
  */
-const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion | typeof NOT_PUBLISHED>> = { 1: '0.5.1', 2: '0.6.0' };
+const FIRST_OF_SHAPES: Readonly<Record<number, PublishedVersion | typeof NOT_PUBLISHED>> = { 1: '0.5.1', 2: '0.6.0', 3: NOT_PUBLISHED };
 const firstOfShapes = (shapes: number, what: string): PublishedVersion | typeof NOT_PUBLISHED => {
   const version = FIRST_OF_SHAPES[shapes];
   if (version === undefined) throw new Error(`no published smurg has shapes ${shapes} yet: say in test/upgrade/persisted.ts (FIRST_OF_SHAPES) since when ${what} is written`);

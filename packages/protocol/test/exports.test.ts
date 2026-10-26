@@ -41,7 +41,7 @@ describe('@smurg/protocol exports map', () => {
 
   it('re-exports the constants from the barrel', async () => {
     const barrel = await import('../src/index.ts');
-    expect(barrel.PROTOCOL_VERSION).toBe(5);
+    expect(barrel.PROTOCOL_VERSION).toBe(6);
     expect(barrel.MAX_RELAY_FRAME).toBe(8 * 1024 * 1024 + 64 * 1024);
   });
 

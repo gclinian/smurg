@@ -1,5 +1,5 @@
 : #1 object strict
-version: literal 2
+version: literal 3
 workspaceId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{16,64}$/]
 members: array
 members[]: #2 object strict
@@ -55,6 +55,7 @@ settings.sharedDirs[]: pipe
 settings.sharedDirs[]|in: string [max_length maximum=16384]
 settings.sharedDirs[]|out: transform
 settings.permissionMode: enum "auto"|"ask-commands"|"ask-all"|"ask-nothing"
+settings.merging: enum "auto"|"host"
 settings.diskReserveBytes: number format=safeint [greater_than value=0 inclusive=true]
 settings.diskReservePercent: number [greater_than value=0 inclusive=true] [less_than value=100 inclusive=true]
 settings.maxLiveAgents: number format=safeint [greater_than value=2 inclusive=true] [less_than value=32 inclusive=true]
@@ -80,5 +81,5 @@ worktreeRoots[].item: #8 object strict
 worktreeRoots[].item.topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 worktreeRoots[].item.topicSlug: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,47}$/]
 worktreeRoots[].item.itemId: string [string_format format=regex pattern=^[a-z0-9][a-z0-9-]{0,39}$/]
-hostNotices: array [max_length maximum=1]
-hostNotices[]: enum "agents-auto"
+hostNotices: array [max_length maximum=2]
+hostNotices[]: enum "agents-auto"|"auto-merge"

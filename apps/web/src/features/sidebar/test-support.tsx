@@ -12,7 +12,7 @@ import { Sidebar, type SidebarSection } from './Sidebar.tsx';
 
 export const IAN = { userId: 'dev:host', displayName: 'Ian' };
 export const MEI = { userId: 'dev:mei', displayName: 'Mei' };
-const PLAN = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 6, started: 2, reviewed: 0, merged: 0 } as const;
+const PLAN = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 6, started: 2, reviewed: 0, merged: 0, leftOut: 0, undone: 0 } as const;
 export const TOPIC = buildTopic({ id: 'tp_1', name: 'Checkout redesign', phase: 'executing', discussionSessionId: 's_disc', spec: { exists: true }, plan: PLAN, createdAt: 20 });
 export const SEARCH = buildTopic({ id: 'tp_2', name: 'Search filters', phase: 'discussing', createdAt: 10 });
 export const DISCUSSION = buildAgentSession({ id: 's_disc', purpose: 'discussion', topicId: 'tp_1', topicName: 'Checkout redesign', openedBy: IAN, createdAt: 1 });

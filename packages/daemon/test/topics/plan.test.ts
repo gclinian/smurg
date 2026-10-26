@@ -572,6 +572,27 @@ describe('a topic\'s agent settings (topic.agent.set, plan.start `agent`)', () =
     expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.agent).toEqual({ model: null, permissionMode: 'ask-all', effective: 'ask-all' });
   });
 
+  it('protocol 6: the Start dialog says how its items reach the main workspace: the workspace\'s setting, only the host on a detached HEAD, nothing without git (DESIGN 0.7.0 D3)', async () => {
+    test = await setupTopics();
+    const { topic } = await topicWithPlan(test, THREE);
+    const preflight = async () => (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
+    expect((await preflight()).merging).toEqual({ workspace: 'auto', proposed: 'auto', detached: false });
+    // The host merges each item: nobody is offered smurg's merge.
+    await test.host.conn.request('admin.settings.set', { merging: 'host' });
+    expect((await preflight()).merging).toEqual({ workspace: 'host', proposed: 'host', detached: false });
+    await test.host.conn.request('admin.settings.set', { merging: 'auto' });
+    // The folder's own git on no branch: only the host merges what this Start starts.
+    test.fakes.worktrees.main = { isRepo: true, hasCommit: true, gitOk: true, branch: null, busy: false, free: 64 };
+    const detached = await preflight();
+    expect(startPreflightSchema.safeParse(detached).success).toBe(true);
+    expect(detached.merging).toEqual({ workspace: 'auto', proposed: 'host', detached: true });
+    // Without a usable git the items run in the folder itself: there is nothing to merge.
+    test.fakes.worktrees.main = { isRepo: true, hasCommit: false, gitOk: false, branch: null, busy: false, free: 64, unavailable: msg('worktree.unavailable.gitTooOld', { version: '2.39.5', minVersion: '2.42.0' }) };
+    const direct = await preflight();
+    expect(startPreflightSchema.safeParse(direct).success).toBe(true);
+    expect(direct).toMatchObject({ history: 'direct', merging: null });
+  });
+
   it('plan.start `agent` changes the topic in the update that arms the items; a Start refused at the checkpoint leaves the topic\'s agent settings unchanged', async () => {
     test = await setupTopics();
     const { topic } = await topicWithPlan(test, THREE);

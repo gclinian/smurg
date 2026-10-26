@@ -39,7 +39,8 @@ describe('admin.settings.set', () => {
     for (const list of seen.values()) {
       expect(list[0]?.humanLockIdleMs).toBe(45_000);
       // ARCHITECTURE §11 D-15: no guest switches any more. Protocol 5: every member knows the workspace's mode.
-      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
+      // Protocol 6: and how work items merge.
+      expect(Object.keys(list[0] ?? {}).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'merging', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
     }
     // An editor cannot change them (router capability check), and nothing is broadcast then.
     await expect(eddie.conn.request('admin.settings.set', { humanLockIdleMs: 1_000 })).rejects.toMatchObject({ code: 'forbidden' });
@@ -56,7 +57,7 @@ describe('no guest switches (ARCHITECTURE §11 D-15)', () => {
       await expect(host.conn.request('admin.settings.set', removed as never)).rejects.toMatchObject({ code: 'bad_request' });
     }
     const { settings } = await host.conn.request('admin.settings.get', {});
-    expect(Object.keys(settings).sort()).toEqual(['agentLockTimeoutMs', 'agentMcp', 'diskReserveBytes', 'diskReservePercent', 'escalateAfterMs', 'humanLockIdleMs', 'maxLiveAgents', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
+    expect(Object.keys(settings).sort()).toEqual(['agentLockTimeoutMs', 'agentMcp', 'diskReserveBytes', 'diskReservePercent', 'escalateAfterMs', 'humanLockIdleMs', 'maxLiveAgents', 'merging', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
   });
 });
 
@@ -99,7 +100,7 @@ describe('the agent settings of protocol 4 (host-only)', () => {
     expect(t.ctx.settings.get().maxLiveAgents).toBe(4);
     // The change is audited; what members get (PublicSettings) carries none of the three.
     await waitFor(() => pushed.length >= 1, { what: 'channel.settingsUpdated' });
-    for (const settingsSeen of pushed) expect(Object.keys(settingsSeen).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
+    for (const settingsSeen of pushed) expect(Object.keys(settingsSeen).sort()).toEqual(['agentLockTimeoutMs', 'humanLockIdleMs', 'merging', 'permissionMode', 'sharedDirs', 'uploadChunkSize']);
     await t.ctx.audit.flush();
     const changes = (await t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'settings.change');
     expect(changes.length).toBeGreaterThanOrEqual(1);
@@ -208,13 +209,16 @@ describe('the update\'s notice `agents-auto` (DESIGN 0.6.0 D13)', () => {
       // What 0.5.2 left: state.json version 1 with nine settings, and its stamp (shapes 1).
       const today = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState;
       const { hostNotices: _notices, ...rest } = today;
-      const { permissionMode: _mode, ...nine } = today.settings;
+      const { permissionMode: _mode, merging: _merging, ...nine } = today.settings;
       await writeFile(join(dir, 'state.json'), serializeDocument({ ...rest, version: 1, settings: nine }), { mode: 0o600 });
       await writeFile(join(dir, STAMP_FILE), serializeDocument({ smurg: '0.5.2', shapes: 1, at: 1 }), { mode: 0o600 });
 
       t = await createTestDaemon({ stateDir, root, workspaceId: WS });
       expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.5.0', copy: keptCopyPath(dir, 'state', '0.5.0'), writer: '0.5.2' }]);
       expect(t.ctx.settings.get().permissionMode).toBe('auto');
+      // Since 0.7.0 the step from 0.6.0 runs after it: automatic merging, with its own notice (DESIGN 0.7.0 D4).
+      expect(t.ctx.settings.get().merging).toBe('auto');
+      expect(t.ctx.settings.notices()).toEqual(['agents-auto', 'auto-merge']);
       const host = await t.connectHost();
       const eddie = await t.connect({ userId: 'dev:eddie', role: 'editor' });
       const KEY = 'attention:agents-auto:workspace';
@@ -226,7 +230,8 @@ describe('the update\'s notice `agents-auto` (DESIGN 0.6.0 D13)', () => {
       await waitFor(async () => !(await host.conn.request('inbox.list', {})).items.some((item) => item.key === KEY), { what: 'the notice gone' });
       await t.cleanup();
       t = null;
-      expect((JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState).hostNotices).toEqual([]);
+      // 0.7.0's notice is another one: seeing `agents-auto` leaves it (it is the host's inbox item from 0.7.0 S6 on).
+      expect((JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState).hostNotices).toEqual(['auto-merge']);
     } finally {
       await t?.cleanup();
       t = null;

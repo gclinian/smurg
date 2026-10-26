@@ -50,7 +50,7 @@ function preflight(overrides: Partial<StartPreflight> = {}): StartPreflight {
     sharedDirs: [],
     blockers: [],
     // protocol 5: the folder's own git; the topic's agent settings (none chosen) and the mode its items would run with
-    history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false,
+    history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     ...overrides,
   };
 }
@@ -120,7 +120,7 @@ describe('the Start dialog: how the items run (DESIGN 0.6.0 D14, D15, D18)', () 
 
   it('without the git program, for the host: what that means, and Start only after the tick, with direct: true', async () => {
     const { conn, answer } = await setup({ role: 'host' });
-    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: false } }));
+    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: false }, merging: null }));
     const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
     expect(within(dialog).getByText('Without git: work items change the folder directly')).toBeTruthy();
     expect(
@@ -145,7 +145,7 @@ describe('the Start dialog: how the items run (DESIGN 0.6.0 D14, D15, D18)', () 
 
   it('without the git program, for a member with agent access: only the host can start them, and there is no Start button', async () => {
     const { answer } = await setup({ role: 'agent' });
-    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: true } }));
+    await answer(preflight({ history: 'direct', commit: null, direct: { reason: DIRECT_REASON, hostOnly: true }, merging: null }));
     const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
     expect(within(dialog).getByText('Without git: work items change the folder directly')).toBeTruthy();
     expect(within(dialog).getByText('Without git, only the host can start work items: they run directly in the shared folder.')).toBeTruthy();

@@ -70,14 +70,18 @@ const sha256 = (bytes: string | Uint8Array): string => createHash('sha256').upda
  * The number the pins below were taken at. Raised together with WORKSPACE_SHAPES, or not at all. 2 since 0.6.0 (the
  * question was answered: YES, it changes what stored files accept: state.json version 2 and agent-sessions.json, each
  * with a step from 0.5.0 that reads src/frozen/v0.5.0.ts; optional keys in topics.json and worktrees.json; wider enums
- * in reports.json, cards.json, transcripts and the audit; DESIGN 0.6.0 D6).
+ * in reports.json, cards.json, transcripts and the audit; DESIGN 0.6.0 D6). 3 since 0.7.0 (answered again: YES:
+ * state.json version 3 with the setting `merging` and the notice `auto-merge`, by a step from 0.6.0 that reads
+ * src/frozen/v0.6.0.ts; optional keys in topics.json, reports.json and worktrees.json; wider enums in the audit, the
+ * transcripts and the inbox's derived kinds; inbox.json unchanged through its own column target; DESIGN 0.7.0 D4).
  */
-const PINNED_AT_SHAPES = 2;
+const PINNED_AT_SHAPES = 3;
 
 /** src/frozen/<file>: what a published smurg accepted. NEVER changes; a new file is added with the step that reads it. */
 const FROZEN: Readonly<Record<string, string>> = {
   'v0.4.0.ts': '4084b3352d4938af13ec617ab2ab09570004f3cb65611125034453d590612f3c',
   'v0.5.0.ts': 'cb5ecec470ec5187ce040f5f6d7bec09dbdf4ff2109ada562c76e9a67271f474',
+  'v0.6.0.ts': '5fb735a380f2c1b404d8f9b4279887710277775c6ce175568f44ed100a934e70',
 };
 
 /**
@@ -88,10 +92,10 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'conversation/cards-store.ts': 'dd4d4571457ea824abcad95178254af2a33ad38e91806947b222ed5121261cb2',
   'core/audit-text.ts': '0b2e0d943504846ef14182f96517ee0bdf9211c954e9d702265043ae955089fd',
   'core/audit.ts': '9bd9267c2855afaea489e9b4f52e8688e02faccc829b70f4fe9af604e510227c',
-  'core/workspace-state.ts': '7c783a6d89d01f69bf5371f13a33772545b58a30292e22fb68a6e5b0c99b2b1c',
+  'core/workspace-state.ts': '5b5663c5dca308b62d30739f3056c5e9578bbf3b37d69530bdc6c2e7a204f158',
   'docs/conflicts.ts': 'dd9624cf4cc4f3f39f33efba03f02d94fdf61fdb853c02b2f8b9f1d98fa4e42d',
   'files/upload-store.ts': '65fa65d9bf0cbee656df6297dc1e473bb85228084fed32826ea1cb497bb574d2',
-  'inbox/store.ts': 'fc38d2189ca8f97082e265db571f8f508f88de95809fc36a27adff544612aa5a',
+  'inbox/store.ts': '287e6ecc3e5604139847832d1bcb5ad803cef72812e91c1b79fa6ae97514b2f1',
   'locks/activity-log.ts': '85817194e1a6430fc4671a5e2a6361cf1d51f0e90a777314fffad6ed6ac2fd46',
   'sessions/agent/host-rules.ts': '8589139325f1f56eb73898d6b456ab36f85850e37e427b12a0ef1369eaee034e',
   'sessions/agent/project-settings.ts': 'f78365de979f27c4f678a6f4bc0df7544b3225c530a12acbad2b9f713c38b0af',
@@ -99,8 +103,8 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
   'sessions/session-manager.ts': '8a2bbeb0680450666c80d80926e2366fbb8c50686835e1adb4334e9170786d6f',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
-  'topics/store.ts': 'fe58c04f8c4702a5400bf16a5c7a836d376d6e93aa0e89848911b51ce4d70905',
-  'worktree/store.ts': 'a874b9817f4b0abfb9672182fdfcea32f18a47189f0a9db9395adb3ed84d8393',
+  'topics/store.ts': '04ed46353379e52b828b1fa91c7da974118b4f131886814a9b424327ef0ab6c5',
+  'worktree/store.ts': '8b34200008b0ae9280e70b950240a4c172dd4c413bb8ccbd4fcdbef82ddbe615',
 };
 
 /**
@@ -111,13 +115,18 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * Taken again for 0.6.0 (protocol 5, DESIGN D6): YES, what stored files accept changed (the four permission modes and
  * the workspace's in state.json's settings, the topic's agent settings, wider enums, smurg's own history), with the
  * steps from 0.5.0 and the points of NOT_PUBLISHED_YET; tools.ts left the walk (no schema file imports from it now).
+ * Taken again for 0.7.0 (protocol 6, DESIGN 0.7.0 D4): YES, what stored files accept changed (the setting `merging` and
+ * the notice `auto-merge` in state.json, by the step from 0.6.0; optional keys of topics.json, reports.json and
+ * worktrees.json, with refines over those keys only; wider enums of the audit and of smurg's purposes; inbox.json kept
+ * 0.6.0's shape through its own column target), with the points of NOT_PUBLISHED_YET. constants.ts and routing.ts
+ * changed with no stored rule in them (PROTOCOL_VERSION; decisionRecipients).
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
   'bytes.ts': '7fc163368b2d2a82d5ce3d834922c96611f20331e61bff91b5ad22276391fa1c',
   'channel/identity-binding.ts': '57e7cbac993b088e66a8193dfca6054b5d6a8cfb5d95175c9eaf4d42c786e6dd',
   'codec.ts': '377cf872871c2185149f8b9cead0cf36bb19d0e7e3cf966c2b92988e5a25422a',
-  'constants.ts': 'cd78047e1a4767a37a33a6daa8bcb4801b95e5090d2fb61b31a298110ef8afac',
+  'constants.ts': '25b8b52967ac2697e7736f45240755f370d0d57690f663ac98b27abbf57d8eff',
   'errors.ts': '0f2a058bb5226b4aad03f32560712ba9ca35838eb999e73ea2bd8e9611fddbf4',
   'i18n/define.ts': 'e6d7dd5a5ea9a26cbdf32dc3e2b118d8d8e13998360301089d4d17e81f4f4188',
   'mask.ts': '3bd5168fc9d394dbb72b0cc76d1e44e8867f16b07ee2fa139eb50abd57fbf48e',
@@ -128,15 +137,15 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'relay/frames.ts': '6cc87c1c2bf9aeec18facc53d8b78ed8c75dd2c2698f0ae73e0bb5babe136901',
   'relay/routes.ts': '223fb92a4cf5f0456e6f4e27f8860db2fddfe23ff06c5b133cc51fa5feb26ec5',
   'roles.ts': 'aefbcc4c97c5d783c99a6a3c5b1e9cb15668796446f5b3927c0655bcd23b6da2',
-  'routing.ts': '56c564a2d69a5a46d93fadd30eb509ff820fe36622e7af37a1bc81cb01879973',
+  'routing.ts': '8b327b339a75a19f0db5add172286f4cf6debfca080b75fd43fd408d898adafc',
   'schema/awareness.ts': '15f7202e552ced9496fb7ff62ccb1702eb4d1a808be278acf09e78999cdc768a',
-  'schema/conversation.ts': '0d60ca9c7cdc02eb7b018b7d1bb0bf9416f3dde22adf036bd639039aaf448d86',
-  'schema/entities.ts': 'e1238b4f319efc04d0e83d30cb8be659db6f73eee93c086ae8a1052074713b6e',
+  'schema/conversation.ts': '46239fc902c8df5659ab091009d163692a1bb85dece38e928a91df649c2963c4',
+  'schema/entities.ts': '99f96cd2853c9d650afcbdc32f09085c99c70742e91ff71aad52c3e2cdd84231',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '31915fe6680b6a0c7c593eb4e338c7e8e571cda0aeef84b45d280f9aa255ab68',
-  'schema/inbox.ts': '55fc4965bc4e89cf358c92f2697afc4fbca4875dd9afce7a38f4673b45603ad5',
+  'schema/inbox.ts': '70daff0b7104b78d44957e645af70f731a63e8530b905a3b1300f3113e6d83df',
   'schema/index.ts': 'df8271d00f6e162c550c0a42e99d02e489f3c526342bff8208b3a99d10419f88',
-  'schema/limits.ts': '2292eb507485d7a4e612f3087c207cc4c2b4bfb6e00b9c280a01242803c9e549',
+  'schema/limits.ts': 'de9db30e6472cb5adad1bebeebc80f07a51f34b63fe93e8b350342231031dcac',
   'schema/message-ref.ts': 'ee4c2d08adecc61772f0da565141c2af9adf9fc32a7eb157ac8f9bf37d3a3019',
   'schema/messages/admin.ts': '100c58a4a888c409c34cef41786480d2dbf078b27d270422a96cf61ff9899dbb',
   'schema/messages/channel.ts': '5652ac0034cf595cb6148c863713352672eb4e669630a269048eff1e07e1275c',
@@ -154,7 +163,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
   'schema/registry.ts': '33e909dac94820a8cd8a8a1d7990791f0047a63f08fe9d3085271fbc905be3ca',
-  'schema/topics.ts': '09397b1d877d7b247aea25f8c87466600d7c4395e134832439d81909280facab',
+  'schema/topics.ts': '1abc4b0afa49ab233ae98364d9653963a8545a6ffbca3beff4a6a535ae0abf0c',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
 
@@ -349,7 +358,7 @@ describe('the pin of everything smurg persists', () => {
 
     it('every step reads a frozen shape, the one of the version it is named after; none is derived from today\'s schema', async () => {
       const steps = documentsOfThisSmurg().flatMap((document) => (document.steps ?? []).map((step) => ({ document: document.name, step })));
-      expect(steps.map((entry) => `${entry.document} from ${entry.step.from}`)).toEqual(['state from 0.4.0', 'state from 0.5.0', 'agent-sessions from 0.5.0', 'suggestions from 0.4.0']);
+      expect(steps.map((entry) => `${entry.document} from ${entry.step.from}`)).toEqual(['state from 0.4.0', 'state from 0.5.0', 'state from 0.6.0', 'agent-sessions from 0.5.0', 'suggestions from 0.4.0']);
       for (const { document, step } of steps) {
         expect(files, `the step of ${document} from ${step.from}`).toContain(`v${step.from}.ts`);
         const frozen = (await import(join(dir, `v${step.from}.ts`))) as Record<string, unknown>;

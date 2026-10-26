@@ -241,6 +241,24 @@ describe('worktrees.json', () => {
     expect(worktreesDocumentSchema.safeParse({ version: 1, worktrees: [worktree], merges: [merge] }).success).toBe(true);
     expect(worktreesDocumentSchema.safeParse({ version: 2, worktrees: [], merges: [] }).success).toBe(false);
   });
+
+  it('0.7.0 (DESIGN 0.7.0 D4): a merge smurg made and one the host undid are said on the wire; the record of an undo under way is stored, and both only as they can be', () => {
+    const IAN = { userId: 'dev:ian', displayName: 'Ian' };
+    const UNDO = 'd'.repeat(40);
+    const auto = toMergeRequest(storedMergeSchema.parse({ ...merge, status: 'merged', decidedAt: 3, mergeCommit: COMMIT, auto: true, undone: { commit: UNDO, at: 4, by: IAN } }));
+    expect(mergeRequestSchema.safeParse(auto).success).toBe(true);
+    expect(auto).toMatchObject({ status: 'merged', auto: true, undone: { commit: UNDO, at: 4, by: IAN } });
+    expect(toMergeRequest(storedMergeSchema.parse({ ...merge, status: 'merged', decidedAt: 3 }))).not.toHaveProperty('auto');
+    // Only a merged request was merged by smurg, or undone.
+    expect(storedMergeSchema.safeParse({ ...merge, auto: true }).success).toBe(false);
+    expect(storedMergeSchema.safeParse({ ...merge, undone: { commit: UNDO, at: 4, by: IAN } }).success).toBe(false);
+    expect(storedMergeSchema.safeParse({ ...merge, status: 'merged', auto: false }).success).toBe(false);
+    const undo = { requestIds: [merge.id], pre: COMMIT, target: UNDO, at: 5 };
+    expect(worktreesDocumentSchema.safeParse({ version: 1, worktrees: [], merges: [], undo }).success).toBe(true);
+    expect(worktreesDocumentSchema.safeParse({ version: 1, worktrees: [], merges: [], undo: { ...undo, repo: 'smurg' } }).success).toBe(true);
+    expect(worktreesDocumentSchema.safeParse({ version: 1, worktrees: [], merges: [], undo: { ...undo, requestIds: [] } }).success).toBe(false);
+    expect(worktreesDocumentSchema.safeParse({ version: 1, worktrees: [], merges: [], undo: { ...undo, target: 'HEAD' } }).success).toBe(false);
+  });
 });
 
 describe('a staged commit with a second parent', { timeout: 60_000 }, () => {

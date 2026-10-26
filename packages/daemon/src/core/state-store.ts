@@ -385,10 +385,11 @@ export const STAMP_FILE = 'written-by.json';
  * ONE integer for everything persisted under the workspace folder (store documents or not: per-session cards.json,
  * upload manifests with their parts, transcript segments, the lines of audit.jsonl and activity.jsonl). 0.5.1 writes
  * 1; 0.6.0 writes 2 (state.json version 2, agent sessions with a mode choice and a model, and optional keys in other
- * documents). RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the whole
- * folder as `newer` before it reads a document.
+ * documents); 0.7.0 writes 3 (state.json version 3 with the setting `merging`, and optional keys and wider enums in
+ * other documents). RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the
+ * whole folder as `newer` before it reads a document.
  */
-export const WORKSPACE_SHAPES = 2;
+export const WORKSPACE_SHAPES = 3;
 /** More than this is not a stamp. */
 const STAMP_MAX_BYTES = 4096;
 const COPY_MARK = '.json.before-upgrade-from-';

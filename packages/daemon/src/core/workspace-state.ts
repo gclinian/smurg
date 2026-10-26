@@ -1,7 +1,7 @@
 // Schema of `state.json` (ARCHITECTURE §7.1): members, devices, invites (PSK-derived keys, never the secret),
 // settings, the registered worktree roots with their read-only shared links (PathGuard trusts only these), and the
-// notices the host has not seen yet (0.6.0). Owned by the core; feature modules keep their own documents
-// (StateStore.document).
+// notices the host has not seen yet (0.6.0; 0.7.0's `auto-merge` beside `agents-auto`). Owned by the core; feature
+// modules keep their own documents (StateStore.document).
 import { z } from 'zod';
 import {
   avatarUrlSchema,
@@ -24,6 +24,7 @@ import {
 
 import { stateShapeV040, type StateV040 } from '../frozen/v0.4.0.ts';
 import { stateShapeV050, type StateV050 } from '../frozen/v0.5.0.ts';
+import { stateShapeV060, type StateV060 } from '../frozen/v0.6.0.ts';
 import { defaultMaxLiveAgents } from './config.ts';
 import { declareDocument, defineStep, type DocumentDeclaration, type DocumentStep } from './state-store.ts';
 
@@ -31,9 +32,10 @@ export const STATE_DOCUMENT = 'state';
 /**
  * Version 1 has TWO published shapes, told apart by the shape, this once: 0.4.0's (six settings, src/frozen/v0.4.0.ts)
  * and 0.5.0's (nine, written by 0.5.0, 0.5.1 and 0.5.2: src/frozen/v0.5.0.ts). Version 2 is 0.6.0's (the workspace's
- * permission mode, the host's notices). Every later change of what this document accepts is a new number and a step.
+ * permission mode, the host's notices: src/frozen/v0.6.0.ts). Version 3 is 0.7.0's (the workspace setting `merging`,
+ * the notice `auto-merge`). Every later change of what this document accepts is a new number and a step.
  */
-export const STATE_VERSION = 2;
+export const STATE_VERSION = 3;
 
 const hexSchema = (bytes: number) => z.string().regex(new RegExp(`^[0-9a-f]{${bytes * 2}}$`), `not ${bytes} bytes of hex`);
 
@@ -101,13 +103,19 @@ export const workspaceStateSchema = z.strictObject({
   invites: z.array(inviteRecordSchema),
   settings: hostSettingsSchema,
   worktreeRoots: z.array(worktreeRootRecordSchema),
-  /** Notices the host has not seen yet (`agents-auto`: the 0.6.0 update switched the workspace to auto mode). */
+  /**
+   * Notices the host has not seen yet (`agents-auto`: the 0.6.0 update switched the workspace to auto mode;
+   * `auto-merge`: the 0.7.0 update switched it to automatic merging).
+   */
   hostNotices: z.array(hostNoticeSchema).max(HOST_NOTICES.length),
 });
 
 export type WorkspaceState = z.infer<typeof workspaceStateSchema>;
 
-/** A new workspace: the caller's settings (their `permissionMode` is auto unless the caller says otherwise) and no notice. */
+/**
+ * A new workspace: the caller's settings (their `permissionMode` is auto and their `merging` is auto unless the caller
+ * says otherwise) and no notice.
+ */
 export function initialWorkspaceState(workspaceId: string, settings: HostSettings): WorkspaceState {
   return { version: STATE_VERSION, workspaceId, members: [], devices: [], invites: [], settings, worktreeRoots: [], hostNotices: [] };
 }
@@ -134,7 +142,8 @@ export const stateStepFromV040: DocumentStep = defineStep({
 });
 
 /**
- * state.json of smurg 0.5.0, 0.5.1, 0.5.2 → 0.6.0. THE OWNER'S DECISION (2026-10-20, DECISIONS.md 2): the workspace
+ * state.json of smurg 0.5.0, 0.5.1, 0.5.2 → 0.6.0's (src/frozen/v0.6.0.ts; the next step takes it on). THE OWNER'S
+ * DECISION (2026-10-20, DECISIONS.md 2): the workspace
  * switches to auto mode at the update, and the host is told (`hostNotices: ['agents-auto']`: `smurg host`'s line, the
  * inbox and the console's banner, until the host has seen it). This is the one step that sets a security-relevant
  * value to the OPEN side (ARCHITECTURE §0 rule 8 names the exception); the value is the step's own constant and never
@@ -152,7 +161,27 @@ export const stateStepFromV050: DocumentStep = defineStep({
   }),
 });
 
+/**
+ * state.json of smurg 0.6.0 → today's. THE OWNER'S WORDS (2026-10-26, the lead's frame of 0.7.0): existing workspaces
+ * merge work items by themselves after the update, and the host is told (`auto-merge` joins `hostNotices`: `smurg
+ * host`'s line, the inbox and the console's banner, until the host has seen it or set `merging`). The second step
+ * that sets a security-relevant value to the OPEN side, after 0.6.0's auto mode (ARCHITECTURE §0 rule 8 names both);
+ * the value is the step's own constant and never today's default for a new workspace. Work items a 0.6.0 Start armed
+ * keep the host's merge: their pins say nothing of `merging` (DESIGN 0.7.0 D3). Everything else is carried as it is.
+ */
+export const stateStepFromV060: DocumentStep = defineStep({
+  from: '0.6.0',
+  sinceShapes: 3,
+  shape: stateShapeV060,
+  upgrade: (old: StateV060) => ({
+    ...old,
+    version: 3,
+    settings: { ...old.settings, merging: 'auto' },
+    hostNotices: [...new Set([...old.hostNotices, 'auto-merge'])],
+  }),
+});
+
 /** The core's document of one workspace (`init`: what a new workspace gets on this machine). */
 export function stateDocument(workspaceId: string, settings: HostSettings): DocumentDeclaration<typeof workspaceStateSchema> {
-  return declareDocument({ name: STATE_DOCUMENT, schema: workspaceStateSchema, init: () => initialWorkspaceState(workspaceId, settings), steps: [stateStepFromV040, stateStepFromV050] });
+  return declareDocument({ name: STATE_DOCUMENT, schema: workspaceStateSchema, init: () => initialWorkspaceState(workspaceId, settings), steps: [stateStepFromV040, stateStepFromV050, stateStepFromV060] });
 }

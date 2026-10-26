@@ -17,6 +17,7 @@ import { toHex } from '@smurg/protocol';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
 import { afterEach, describe, expect, it } from 'vitest';
 import { defaultMaxLiveAgents } from '../../src/core/config.ts';
+import { WORKSPACE_SHAPES } from '../../src/core/state-store.ts';
 import { DAEMON_VERSION } from '../../src/daemon.ts';
 import type { TestDaemon } from '../../src/testing/index.ts';
 import { deviceKeyOf, freshKey, inviteIdHexOfLink, knock, publicKeyIn, startOn } from './daemon-on.ts';
@@ -65,8 +66,9 @@ function loadedOf(t: TestDaemon): ReadonlyMap<string, { readonly value: unknown;
 // What each fixture's files must become. The shapes that differ from today's: 0.4.0's state.json and suggestions.json
 // (DESIGN A3, A4), and the state.json and agent-sessions.json of 0.5.0, 0.5.1 and 0.5.2 (DESIGN 0.6.0 D6); everything
 // else every published smurg wrote is today's shape as it is (0.5.1 and 0.5.2 wrote what 0.5.0 wrote, and stamped the
-// folder; 0.6.0 only added optional keys to the other documents). What 0.6.0 wrote is today's shape everywhere: it
-// opens with no step (DESIGN 0.7.0 D1).
+// folder; 0.6.0 only added optional keys to the other documents). What 0.6.0 wrote is today's shape everywhere but in
+// state.json, whose step from 0.6.0 sets automatic merging and its notice (DESIGN 0.7.0 D4); every published state.json
+// therefore ends with that step too.
 // =====================================================================================================================
 
 /** The values the step from 0.4.0 adds to the settings: constants of the step (the closed side), and this machine's default. */
@@ -77,11 +79,30 @@ const SETTINGS_ADDED_FROM_V040 = { maxLiveAgents: defaultMaxLiveAgents(totalmem(
  */
 const SETTINGS_ADDED_FROM_V050 = { permissionMode: 'auto' } as const;
 const NOTICES_FROM_V050 = ['agents-auto'] as const;
+/**
+ * What the step from 0.6.0 adds (the owner's words of 2026-10-26, DESIGN 0.7.0 D4): existing workspaces merge work
+ * items by themselves after the update, and the host is told until they have seen it.
+ */
+const SETTINGS_ADDED_FROM_V060 = { merging: 'auto' } as const;
+const NOTICE_FROM_V060 = 'auto-merge';
 
-/** state.json of any published version as 0.6.0 reads it: version 2, auto mode, the host's notice; nothing else changes. */
-function stateAsRead(stored: unknown, from: '0.4.0' | '0.5.0'): unknown {
-  const state = stored as { settings: Record<string, unknown> };
-  return { ...state, version: 2, settings: { ...state.settings, ...(from === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...SETTINGS_ADDED_FROM_V050 }, hostNotices: [...NOTICES_FROM_V050] };
+/** The notices once every step ran: the ones the file held (0.6.0's own) or the step from 0.5.0 gave, and 0.7.0's, once each. */
+function noticesAfter(from: '0.4.0' | '0.5.0' | '0.6.0', held: readonly string[]): string[] {
+  return [...new Set([...(from === '0.6.0' ? held : NOTICES_FROM_V050), NOTICE_FROM_V060])];
+}
+
+/**
+ * state.json of any published version as 0.7.0 reads it: version 3, auto mode (the step from 0.5.0), automatic merging
+ * (the step from 0.6.0), the host's notices; nothing else changes.
+ */
+function stateAsRead(stored: unknown, from: '0.4.0' | '0.5.0' | '0.6.0'): unknown {
+  const state = stored as { settings: Record<string, unknown>; hostNotices?: string[] };
+  return {
+    ...state,
+    version: 3,
+    settings: { ...state.settings, ...(from === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...(from === '0.6.0' ? {} : SETTINGS_ADDED_FROM_V050), ...SETTINGS_ADDED_FROM_V060 },
+    hostNotices: noticesAfter(from, state.hostNotices ?? []),
+  };
 }
 
 /**
@@ -130,10 +151,13 @@ const UPGRADES: Readonly<Record<PublishedVersion, Upgrades>> = {
   '0.5.0': FROM_V050,
   '0.5.1': FROM_V050,
   '0.5.2': FROM_V050,
-  '0.6.0': { from: {}, expected: (_name, stored) => stored },
+  '0.6.0': { from: { state: '0.6.0' }, expected: (name, stored) => (name === 'state' ? stateAsRead(stored, '0.6.0') : stored) },
 };
-/** The notices the host has not seen yet once a fixture is open: the step from 0.5.0 adds `agents-auto`; 0.6.0's own are kept. */
-const noticesOf = (version: PublishedVersion, stored: StoredState): readonly string[] => (version === '0.6.0' ? (stored.hostNotices ?? []) : NOTICES_FROM_V050);
+/**
+ * The notices the host has not seen yet once a fixture is open: the step from 0.5.0 adds `agents-auto`, 0.6.0's own are
+ * kept, and the step from 0.6.0 adds `auto-merge` to each.
+ */
+const noticesOf = (version: PublishedVersion, stored: StoredState): readonly string[] => noticesAfter(version === '0.6.0' ? '0.6.0' : '0.5.0', stored.hostNotices ?? []);
 /** The `shapes` of the stamp a version writes (0.5.1 and 0.5.2: 1; 0.6.0: 2). */
 const shapesOf = (version: PublishedVersion): number => (version === '0.6.0' ? 2 : 1);
 /** 0.5.1 is the first published smurg that stamps a folder: the host is told the version that last wrote it. */
@@ -289,8 +313,9 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     for (const home of pins) expect(toHex((await readPinnedDaemonKey(home, copy.workspaceId)) as Uint8Array), `the pin in ${home}`).toBe(toHex(t.daemon.daemonPublicKey));
     // Every setting the host chose is the one in force; what the step from 0.4.0 adds is closed (agents get no MCP
     // servers of the host's); the step from 0.5.0 switches the workspace to auto mode (the owner's decision); a
-    // workspace of 0.6.0 is in auto mode already (its default).
-    expect(t.ctx.settings.get()).toEqual({ ...(version === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...before.settings, ...SETTINGS_ADDED_FROM_V050 });
+    // workspace of 0.6.0 is in auto mode already (its default); the step from 0.6.0 switches every one of them to
+    // automatic merging (the owner's words of 2026-10-26).
+    expect(t.ctx.settings.get()).toEqual({ ...(version === '0.4.0' ? SETTINGS_ADDED_FROM_V040 : {}), ...before.settings, ...SETTINGS_ADDED_FROM_V050, ...SETTINGS_ADDED_FROM_V060 });
     if (version === '0.4.0') expect(t.ctx.settings.get().agentMcp).toBe(false);
     expect(t.ctx.settings.notices()).toEqual(noticesOf(version, before));
     // Every member with their role and status, removed ones included.
@@ -444,7 +469,7 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
       // The document itself is in today's shape on disk now, in this start (not at its next change).
       expect(await readJson(join(copy.workspaceDir, `${document}.json`)), `${document}.json on disk`).not.toEqual(stored.get(document)?.value);
     }
-    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: 2, at: expect.any(Number) });
+    expect(await readJson(join(copy.workspaceDir, STAMP_NAME))).toEqual({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES, at: expect.any(Number) });
     expect((await stat(join(copy.workspaceDir, STAMP_NAME))).mode & 0o777).toBe(0o600);
     expect(Math.abs((await readJson<{ at: number }>(join(copy.workspaceDir, STAMP_NAME))).at - copy.at)).toBeLessThan(60_000);
     // What the start read: the stamp the published smurg wrote (`smurg`, its `shapes`, `at`), or none.
@@ -468,7 +493,7 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     expect([...loadedOf(again).entries()].filter(([, document]) => document.upgradedFrom !== null).map(([name]) => name)).toEqual([]);
     // What the first start wrote is what the second one read: today's shapes, file for file.
     for (const [name, file] of onDisk) expect(loadedOf(again).get(name)?.value, `${name}.json`).toEqual(file.value);
-    expect(again.daemon.internals.folder.stamp).toMatchObject({ smurg: DAEMON_VERSION, shapes: 2 });
+    expect(again.daemon.internals.folder.stamp).toMatchObject({ smurg: DAEMON_VERSION, shapes: WORKSPACE_SHAPES });
     await stop();
 
     expect((await readdir(copy.workspaceDir)).sort()).toEqual(names);

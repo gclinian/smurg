@@ -428,6 +428,9 @@ export class TopicsCore {
         started: inPlan.filter((item) => isStarted(item)).length,
         reviewed: inPlan.filter((item) => this.isReviewed(topic, item)).length,
         merged: inPlan.filter((item) => item.merged).length,
+        // protocol 6 (DESIGN 0.7.0 D13): what "Leave it out" and the host's undo took out of the plan (none before 0.7.0 S4, S5)
+        leftOut: inPlan.filter((item) => item.leftOut !== undefined).length,
+        undone: inPlan.filter((item) => item.undone !== undefined).length,
       },
       rules: topic.rules,
       agent: { model: topic.agent?.model ?? null, permissionMode: topic.agent?.permissionMode ?? null },
@@ -487,9 +490,10 @@ export class TopicsCore {
   private waitingFor(topic: StoredTopic): PlanInfo['waitingFor'] {
     const bySession = new Map<string, StoredItem>();
     for (const item of topic.items) if (item.sessionId !== undefined) bySession.set(item.sessionId, item);
-    const waits = new Map<UserId, { questions: number; permissions: number; reports: number; since: number }>();
+    // `decisions` (protocol 6): the work items' decisions in each person's inbox (none before 0.7.0 S4).
+    const waits = new Map<UserId, { questions: number; permissions: number; reports: number; decisions: number; since: number }>();
     const add = (userId: UserId, what: 'questions' | 'permissions' | 'reports', since: number): void => {
-      const entry = waits.get(userId) ?? { questions: 0, permissions: 0, reports: 0, since };
+      const entry = waits.get(userId) ?? { questions: 0, permissions: 0, reports: 0, decisions: 0, since };
       entry[what] += 1;
       entry.since = Math.min(entry.since, since);
       waits.set(userId, entry);

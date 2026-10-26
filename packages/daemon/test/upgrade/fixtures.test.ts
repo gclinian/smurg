@@ -26,8 +26,37 @@ import { COVERAGE_PARTS, declare, newCoverage, report, visit, type CoverageRepor
  * Adding a point here goes together with a step or a raised WORKSPACE_SHAPES (test/upgrade/pin.test.ts says when).
  */
 const NOT_PUBLISHED_YET: Readonly<Record<string, readonly string[]>> = {
-  // Empty since the fixture of 0.6.0 is in the tree (DESIGN 0.7.0 D1): it visits every point 0.6.0 added (the twelve of
-  // topics.json, the four of worktrees.json) or lists it with a reason.
+  // 0.7.0 (DESIGN 0.7.0 D4), while it is being built: the optional keys its shapes 3 add. Emptied by 0.7.0's own
+  // fixture after its release (docs/RELEASING.md §4.5). inbox.json has none: its stored mention target is 0.6.0's.
+  'topics.json': [
+    'topics[].checked',
+    'topics[].plan.pausedBy',
+    'topics[].plan.lastPin.merging',
+    'topics[].plan.lastPin.branch',
+    'topics[].items[].pin.merging',
+    'topics[].items[].pin.branch',
+    'topics[].items[].autoMerge',
+    'topics[].items[].autoMerge.paths',
+    'topics[].items[].autoMerge.branch',
+    'topics[].items[].autoMerge.escalatedAt',
+    'topics[].items[].autoMerge.requestId',
+    'topics[].items[].autoMerge.people',
+    'topics[].items[].autoMerge.people[].by',
+    'topics[].items[].mergeTries',
+    'topics[].items[].turns',
+    'topics[].items[].checked[].turn',
+    'topics[].items[].lastTurn',
+    'topics[].items[].mergedAs',
+    'topics[].items[].mergedAs.requestId',
+    'topics[].items[].mergedAs.commit',
+    'topics[].items[].mergedAs.by<0:"smurg">',
+    'topics[].items[].mergedAs.by<1:object{userId,displayName}>',
+    'topics[].items[].leftOut',
+    'topics[].items[].undone',
+    'topics[].items[].autoContinue',
+  ],
+  'reports.json': ['reports[].sections.verified[].failed', 'reports[].checks.failed', 'reports[].checkedInTurn', 'reports[].changes.byHandTruncated'],
+  'worktrees.json': ['merges[].auto', 'merges[].undone', 'undo', 'undo.repo', 'undo.requestIds'],
 };
 
 const NEWEST = PUBLISHED_VERSIONS[PUBLISHED_VERSIONS.length - 1] as PublishedVersion;

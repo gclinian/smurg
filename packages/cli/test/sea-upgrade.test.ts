@@ -33,7 +33,10 @@
 //      names the file and the one chmod, never "move", and the file is as it was.
 // 0.6.0 (DESIGN D6, D13): every published smurg's state.json needs the step to 0.6.0 (workspaces switch to auto mode,
 // the owner's decision), so for each of them the upgrade line AND the line about auto mode are printed, the old file
-// is kept, and the stamp names shapes 2.
+// is kept, and the stamp names shapes 2. 0.7.0 (DESIGN 0.7.0 D4): every published state.json, 0.6.0's included, needs
+// the step from 0.6.0 too (automatic merging, the owner's words of 2026-10-26): the old file is kept under the name of
+// the first step that ran, and the stamp names shapes 3. (The line 0.7.0's `smurg host` prints about it, D18, is
+// 0.7.0 S6's; the lines this test expects are completed with it, BUILD-PLAN S9.)
 // The relay is the fake relay of these tests (the relay never reads a frame, and its own source did not change between
 // 0.4.0 and 0.5.0): logins and the workspace claim are its HTTP API; the NEW host's relay links are tunnelled to an
 // in-memory relay so that the test can reach it as the host's console does. Only processes this test started are ever
@@ -96,7 +99,8 @@ const AGENTS_AUTO = /^Agents now run in auto mode: .*Guide: https:\/\/smurg\.ai\
 /**
  * What each published smurg says of a folder 0.6.0 wrote (recorded with the published executables, 2026-10-20): 0.5.1
  * and later read the stamp (`shapes` 2) and say it is a newer smurg's; 0.4.0 and 0.5.0 have no stamp reader, and their
- * strict schema refuses state.json version 2 with their one refusal text.
+ * strict schema refuses state.json version 2 with their one refusal text. A folder 0.7.0 wrote (stamp `shapes` 3,
+ * state.json version 3) meets the same words, 0.6.0's executable among those that read the stamp (DESIGN 0.7.0 D2).
  */
 function refusalWords(version: string): readonly string[] {
   if (/^0\.(4\.|5\.0$)/.test(version)) return ["This workspace's state files were written by another smurg version", 'the daemon refused to start'];
@@ -267,17 +271,17 @@ describe.runIf(PLAN.kind === 'run')('the upgrade with real executables: what eac
       channel.close();
 
       // What the daemon's part of the upgrade left (DESIGN A5, A9; 0.6.0 D6): the old state.json kept byte for byte,
-      // named after the first step that ran (0.4.0 for what 0.4.0 wrote, else 0.5.0: the step to 0.6.0), and the
+      // named after the first step that ran (0.4.0 for what 0.4.0 wrote, 0.6.0 for what 0.6.0 wrote, else 0.5.0), and the
       // stamp of the smurg that wrote the folder last, with today's shapes.
       const copies = (await readdir(stateDir)).filter((name) => name.includes('.before-upgrade-from-')).sort();
-      const from = (oldVersion as string).startsWith('0.4.') ? '0.4.0' : '0.5.0';
+      const from = (oldVersion as string).startsWith('0.4.') ? '0.4.0' : (oldVersion as string).startsWith('0.6.') ? '0.6.0' : '0.5.0';
       expect(copies).toContain(`state.json.before-upgrade-from-${from}`);
       expect((await readFile(join(stateDir, `state.json.before-upgrade-from-${from}`))).equals(oldState)).toBe(true);
       expect((await lstat(join(stateDir, `state.json.before-upgrade-from-${from}`))).mode & 0o777).toBe(0o600);
       const stamp = JSON.parse(await readFile(join(stateDir, 'written-by.json'), 'utf8')) as { smurg: unknown; shapes: unknown };
-      expect(stamp.shapes).toBe(2);
+      expect(stamp.shapes).toBe(3);
       expect(typeof stamp.smurg).toBe('string');
-      expect((JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8')) as { version: unknown; settings: { permissionMode: unknown } })).toMatchObject({ version: 2, settings: { permissionMode: 'auto' } });
+      expect((JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8')) as { version: unknown; settings: { permissionMode: unknown; merging: unknown } })).toMatchObject({ version: 3, settings: { permissionMode: 'auto', merging: 'auto' } });
 
       // The command's part (DESIGN A7, C; step K3B; 0.6.0 D13): the upgrade in ONE line, naming the smurg that last
       // wrote the folder, then ONE line about auto mode, then the start as always.

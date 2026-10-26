@@ -469,7 +469,7 @@ const REFUSALS: Readonly<Record<string, Refusal>> = {
   },
   'newer, by a document\'s version, in a folder without a stamp': {
     fixture: '0.4.0',
-    damage: (copy) => editJson(join(copy.workspaceDir, 'state.json'), (state) => void (state['version'] = 3)), // today's is 2 (0.6.0)
+    damage: (copy) => editJson(join(copy.workspaceDir, 'state.json'), (state) => void (state['version'] = 4)), // today's is 3 (0.7.0)
     logged: ['kind=newer'],
     lastResort: false,
     says: (copy, lang) =>

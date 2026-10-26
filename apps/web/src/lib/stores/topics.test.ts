@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { answerLoads, setupStores } from '../../testing/stores.ts';
 import { reportKey, selectArchivedTopics, selectPausedTopics, selectPlan, selectReport, selectTopic, selectTopicList, topicNoticeKind } from './topics.ts';
 
-const plan = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 3, started: 0, reviewed: 0, merged: 0 } as const;
+const plan = { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 3, started: 0, reviewed: 0, merged: 0, leftOut: 0, undone: 0 } as const;
 
 async function ready(topics = [buildTopic()]) {
   const ctx = setupStores({ role: 'host' });

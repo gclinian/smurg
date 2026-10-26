@@ -5,12 +5,17 @@
 // 0.6.0 (DESIGN D6, D14): records say which repository they belong to (`repo: 'smurg'`: smurg's own history in
 // `.smurg/git` of a folder without `.git`; absent: the folder's own `.git`, which is what every 0.5.x record means),
 // and the document records smurg's own history (`hidden`). Optional keys only: a 0.5.x file passes as it is.
+//
+// 0.7.0 (DESIGN 0.7.0 D4, D7, D14): a merge says that smurg merged it (`auto`) and that the host undid it (`undone`),
+// and the document keeps the record an undo writes before it touches the folder (`undo`). Optional keys only again: a
+// 0.6.0 file passes as it is. Nothing writes them yet (0.7.0 S2, S5).
 import { z } from 'zod';
 import { declareDocument } from '../core/state-store.ts';
 import {
   MERGE_FILES_MAX,
   MERGE_REQUEST_STATUSES,
   REVIEWERS_MAX,
+  UNDO_ITEMS_MAX,
   displayNameSchema,
   entryPathSchema,
   epochMsSchema,
@@ -106,8 +111,14 @@ export const storedMergeSchema = z.strictObject({
   repo: z.literal('smurg').optional(),
   /** With `repo: 'smurg'`: the merge base the review showed (every diff view and the approval check it again). */
   base: gitCommitSchema.optional(),
+  /** 0.7.0: smurg merged it on the host's standing consent (automatic merging). Absent: the host did, or nobody yet. */
+  auto: z.literal(true).optional(),
+  /** 0.7.0: the host took the merge back out of the main workspace with this commit. */
+  undone: z.strictObject({ commit: gitCommitSchema, at: epochMsSchema, by: userRefSchema }).optional(),
 })
-  .refine((merge) => merge.base === undefined || merge.repo === 'smurg', 'a recorded merge base only for smurg\'s own history');
+  .refine((merge) => merge.base === undefined || merge.repo === 'smurg', 'a recorded merge base only for smurg\'s own history')
+  .refine((merge) => merge.auto === undefined || merge.status === 'merged', 'only a merged request was merged by smurg')
+  .refine((merge) => merge.undone === undefined || merge.status === 'merged', 'only a merged request is undone');
 export type StoredMerge = z.infer<typeof storedMergeSchema>;
 
 /**
@@ -118,11 +129,29 @@ export type StoredMerge = z.infer<typeof storedMergeSchema>;
 export const storedHiddenRepoSchema = z.strictObject({ createdAt: epochMsSchema, configHash: sha256HexSchema, headHash: sha256HexSchema });
 export type StoredHiddenRepo = z.infer<typeof storedHiddenRepoSchema>;
 
+/**
+ * 0.7.0 (DESIGN 0.7.0 D14): the record an undo writes BEFORE it touches the main workspace: the merge requests it
+ * takes back, the head it started from (`pre`) and the tree the folder becomes (`target`, a git tree id), so that a
+ * crash before its commit can be told from one after it; `repo: 'smurg'`: of smurg's own history. It goes once the
+ * undo is recorded on its requests.
+ */
+export const storedUndoSchema = z.strictObject({
+  requestIds: z.array(opaqueIdSchema.regex(MERGE_ID_PATTERN)).min(1).max(UNDO_ITEMS_MAX),
+  pre: gitCommitSchema,
+  /** A git tree id (the same form as a commit id). */
+  target: gitCommitSchema,
+  repo: z.literal('smurg').optional(),
+  at: epochMsSchema,
+});
+export type StoredUndo = z.infer<typeof storedUndoSchema>;
+
 export const worktreesDocumentSchema = z.strictObject({
   version: z.literal(WORKTREES_VERSION),
   worktrees: z.array(storedWorktreeSchema).max(256),
   merges: z.array(storedMergeSchema).max(1_000),
   hidden: storedHiddenRepoSchema.optional(),
+  /** An undo under way (0.7.0); absent: none. */
+  undo: storedUndoSchema.optional(),
 });
 export type WorktreesDocument = z.infer<typeof worktreesDocumentSchema>;
 
@@ -162,6 +191,8 @@ export function toMergeRequest(record: StoredMerge): MergeRequest {
     ...(record.conflictFiles !== undefined ? { conflictFiles: [...record.conflictFiles] } : {}),
     ...(record.decidedAt !== undefined ? { decidedAt: record.decidedAt } : {}),
     ...(record.rejectReason !== undefined ? { rejectReason: record.rejectReason } : {}),
+    ...(record.auto === true ? { auto: true as const } : {}),
+    ...(record.undone !== undefined ? { undone: { commit: record.undone.commit, at: record.undone.at, by: { ...record.undone.by } } } : {}),
   };
   return mergeRequestSchema.parse(request);
 }

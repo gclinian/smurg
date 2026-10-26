@@ -94,7 +94,7 @@ sessions[].pending[].turn.from: the same as #5
 sessions[].pending[].turn.by: optional
 sessions[].pending[].turn.by: the same as #5
 sessions[].pending[].turn.purpose: optional
-sessions[].pending[].turn.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"
+sessions[].pending[].turn.purpose: enum "write-spec"|"generate-plan"|"update-plan"|"start-item"|"continue-item"|"retry-item"|"fix-plan"|"fix-report"|"nudge-report"|"resolve-conflict"|"conversation-lost"|"restart-discussion"|"remove-paths"|"verify-again"
 sessions[].pending[].turn.suggestionId: optional
 sessions[].pending[].turn.suggestionId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
 sessions[].pending[].fromUserId: nullable

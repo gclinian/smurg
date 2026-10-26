@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { Role } from './roles.ts';
 import {
   agentAccessMembers,
+  decisionRecipients,
   deciderOf,
   hostOf,
   mayAllowForTopic,
@@ -120,6 +121,22 @@ describe('permission requests and suggestions', () => {
     expect(suggestionRecipients({ responsible: MEI }, MEMBERS)).toEqual([MEI]);
     expect(suggestionRecipients({ responsible: AMY }, MEMBERS)).toEqual([IAN, MEI]);
     expect(suggestionRecipients({ responsible: null }, MEMBERS)).toEqual([IAN, MEI]);
+  });
+
+  it('a work item\'s decision (protocol 6) is routed exactly like a permission request: a host hold to the host, else the responsible person with agent access until it escalates', () => {
+    const cases = [
+      [true, MEI, false, [IAN]],
+      [true, null, true, [IAN]],
+      [false, MEI, false, [MEI]],
+      [false, MEI, true, [IAN, MEI]],
+      [false, AMY, false, [IAN, MEI]],
+      [false, null, false, [IAN, MEI]],
+      [false, GONE, true, [IAN, MEI]],
+    ] as const;
+    for (const [hostOnly, responsible, escalated, expected] of cases) {
+      expect(decisionRecipients({ hostOnly, escalated }, { responsible }, MEMBERS), `${String(hostOnly)} ${String(responsible)} ${String(escalated)}`).toEqual(expected);
+      expect(decisionRecipients({ hostOnly, escalated }, { responsible }, MEMBERS)).toEqual(permissionRecipients({ hostOnly, escalated }, { responsible }, MEMBERS));
+    }
   });
 
   it('who may answer: members with agent access; a host-only request the host', () => {

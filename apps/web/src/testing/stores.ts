@@ -57,7 +57,7 @@ export const EMPTY_LOADS = {
   'admin.member.list': { members: [] },
   'admin.invite.list': { invites: [] },
   'admin.settings.get': {
-    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false, permissionMode: 'auto' },
+    settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' },
   },
   'admin.audit.query': { entries: [] },
 } as const;

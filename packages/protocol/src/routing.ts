@@ -86,6 +86,20 @@ export function permissionRecipients(
   return agentAccessMembers(members);
 }
 
+/**
+ * Whose inbox holds a work item's decision (protocol 6, an item that smurg merges by itself and that waits for a
+ * person): as a permission request. The host for a hold only the host can settle (`hostOnly`, HOST_HOLDS); the
+ * responsible person while they hold `session.drive` and it has not escalated; else the host and every member with
+ * agent access. So a row, a refusal and the plan say the same about who decides.
+ */
+export function decisionRecipients(
+  decision: { readonly hostOnly: boolean; readonly escalated: boolean },
+  session: Pick<SessionRouting, 'responsible'>,
+  members: RoutingMembers,
+): string[] {
+  return permissionRecipients(decision, session, members);
+}
+
 /** A suggestion is routed like a permission request that is not host-only. */
 export function suggestionRecipients(session: Pick<SessionRouting, 'responsible'>, members: RoutingMembers): string[] {
   return permissionRecipients({ hostOnly: false, escalated: false }, session, members);

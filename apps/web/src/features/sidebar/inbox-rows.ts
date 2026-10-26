@@ -132,6 +132,8 @@ function attention(item: InboxItem, ctx: InboxRowContext, where: string): InboxR
       return { title: renderWireText(msg('attention.storage'), 'Conversations use more disk space than the limit'), where };
     case 'agents-auto':
       return { title: renderWireText(msg('attention.agentsAuto'), 'Agents now run in auto mode'), where };
+    case 'auto-merge':
+      return { title: renderWireText(msg('attention.autoMerge'), 'Work items now merge by themselves'), where };
     case undefined:
       return { title: kindLabel('attention'), where };
   }
@@ -198,6 +200,15 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
       };
     case 'attention':
       return attention(item, ctx, where);
+    // Protocol 6 (DESIGN 0.7.0 D9, D13): the kind's name as the title until the rows of 0.7.0 S7 say more.
+    case 'decision': {
+      const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
+      return { title: kindLabel('decision'), where: facts(topicName, item.item === undefined ? null : itemLabel(item.item)) };
+    }
+    case 'ready': {
+      const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
+      return { title: kindLabel('ready'), where: topicName ?? item.excerpt };
+    }
   }
 }
 

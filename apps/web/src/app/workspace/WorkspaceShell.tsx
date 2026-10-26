@@ -9,7 +9,7 @@
 import type { Topic } from '@smurg/protocol';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { lazyChunk } from '../../lib/chunks.ts';
-import { columnId, isColumnRef } from '../../lib/columns/target.ts';
+import { columnId, columnRefOf, isColumnRef, type ColumnRef } from '../../lib/columns/target.ts';
 import type { WorkspaceMode } from '../../lib/commands.ts';
 import { routePath } from '../../lib/router.ts';
 import { useStore } from '../../lib/store.ts';
@@ -72,12 +72,13 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
 
   useCommandHandler('setMode', ({ mode: next }) => goTo(next));
 
-  useCommandHandler('openColumn', ({ target, side, from, anchor, inPlaceOf }) => {
-    if (!isColumnRef(target)) {
+  useCommandHandler('openColumn', ({ target: given, side, from, anchor, inPlaceOf }) => {
+    if (given.kind === 'console') {
       // A section of the host console is a page of its own.
-      router.navigate(routePath({ name: 'console', workspaceId, section: target.section }));
+      router.navigate(routePath({ name: 'console', workspaceId, section: given.section }));
       return;
     }
+    const target = columnRefOf(given) as ColumnRef;
     if (inPlaceOf !== undefined) {
       // The column stays where it is and shows the other thing; a column that was closed meanwhile is not brought back.
       if (isColumnRef(inPlaceOf)) stores.columns.replace(columnId(inPlaceOf), target, anchor === undefined ? {} : { anchor });
