@@ -224,6 +224,32 @@ describe('the topic screens in zh-TW', () => {
     expect(screen.getByText('這個項目沒有變更任何檔案。')).toBeTruthy();
   });
 
+  it('0.7.0 D5: a report with a failed check, in Traditional Chinese', async () => {
+    const executing = { ...TOPIC, phase: 'executing' as const };
+    const world = { role: 'host' as const, topics: [executing], plans: { tp_1: buildPlan({ items: [buildWorkItem({ state: 'done', attempt: 1, report: buildReportSummary({ outcome: 'partial', reviewers: [IAN] }) })] }) } };
+    const conn = topicConnection(world);
+    conn.handle('report.get', () => ({
+      report: buildReport({
+        outcome: 'partial',
+        reviewers: [IAN],
+        checks: { passed: 2, notVerified: 1, failed: 1 },
+        sections: {
+          done: 'The cart endpoints.',
+          why: 'As decided.',
+          verified: [{ text: 'pnpm test', passed: true }, { text: 'pnpm build', passed: true }, { text: 'pnpm lint', passed: false, failed: true, note: '2 errors' }, { text: 'Browser', passed: false, note: 'no browser' }],
+          watchOut: 'Nothing.',
+        },
+      }),
+    }));
+    renderInColumn(<ReportColumn topicId="tp_1" itemId="cart-api" />, { target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle(4);
+    expect(screen.getByText('2 項通過 · 1 項失敗 · 1 項沒有驗證')).toBeTruthy();
+    const row = screen.getByText('pnpm lint').closest('li') as HTMLElement;
+    expect(within(row).getByText('失敗')).toBeTruthy();
+    expect(within(row).getByText('2 errors')).toBeTruthy();
+  });
+
   it('the New topic dialog: a Chinese name keeps its name and gets a Latin folder', async () => {
     const world = { role: 'agent' as const, topics: [] };
     const conn = topicConnection(world);

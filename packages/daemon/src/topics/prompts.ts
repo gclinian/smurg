@@ -66,6 +66,7 @@ ${REPORT_TITLE_PREFIX} <the title of your work item>
 ## ${REPORT_SECTIONS[2]}
 - [x] <a check that passed, with the command and its result>
 - [ ] <a check you could not do>: not verified: <why>
+- [!] <a check that failed>: failed: <what happened>
 
 ## ${REPORT_SECTIONS[3]}
 <What a reviewer should look at; what is missing when the outcome is partial or blocked.>
@@ -75,7 +76,8 @@ ${REPORT_TITLE_PREFIX} <the title of your work item>
 
 The headings are fixed and in this order; the first four sections must not be empty. outcome is complete when the
 item is done as described, partial when something is missing, blocked when you could not do it. List at least one
-check; a check that did not pass must say why after "not verified:".`;
+check; a check that did not pass must say why after "not verified:". A check you ran that did not pass is a failed
+check, not "not verified"; when a check failed, the outcome is partial.`;
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Role prompts (one per session, for its whole life)

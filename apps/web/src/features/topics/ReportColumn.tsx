@@ -29,7 +29,7 @@ import { selectPlan, selectReport } from '../../lib/stores/topics.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Avatar, Badge, Banner, Button, Spinner, useToast, type Tone } from '../../ui/index.ts';
-import { IconAgent, IconAlertTriangle, IconCheck, IconCheckCircle, IconComment, IconGitBranch, IconGitMerge, IconLightbulb, IconShield } from '../../ui/icons.tsx';
+import { IconAgent, IconAlertTriangle, IconCheck, IconCheckCircle, IconComment, IconGitBranch, IconGitMerge, IconLightbulb, IconShield, IconXCircle } from '../../ui/icons.tsx';
 import { Markdown } from '../markdown/index.ts';
 import { ChangedFiles } from '../worktree/index.tsx';
 import { AskBox } from './AskBox.tsx';
@@ -131,7 +131,11 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
         <div className="report col-measure">
           <div className="report__facts">
             <StateBadge report={report} selfUserId={member?.userId ?? null} />
-            <span className="report__checks">{t('report.checks', { passed: report.checks.passed, notVerified: report.checks.notVerified })}</span>
+            <span className="report__checks">
+              {(report.checks.failed ?? 0) > 0
+                ? t('report.checks.line', { passed: report.checks.passed, failed: report.checks.failed ?? 0, notVerified: report.checks.notVerified })
+                : t('report.checks', { passed: report.checks.passed, notVerified: report.checks.notVerified })}
+            </span>
             <span>
               <IconAgent size={14} />
               {report.version > 1 ? t('report.writtenVersion', { time: formatClock(report.writtenAt), version: report.version }) : t('report.written', { time: formatClock(report.writtenAt) })}
@@ -166,10 +170,16 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
             ) : (
               <ul className="report-checks">
                 {report.sections.verified.map((check, index) => (
-                  <li key={index} data-passed={check.passed}>
-                    {check.passed ? <IconCheck size={14} /> : <IconAlertTriangle size={14} />}
+                  // A check that failed (DESIGN 0.7.0 D5) says so before its text and what happened: it is not a check
+                  // that was left out.
+                  <li key={index} data-passed={check.passed} {...(check.failed === true ? { 'data-failed': true } : {})}>
+                    {check.passed ? <IconCheck size={14} /> : check.failed === true ? <IconXCircle size={14} /> : <IconAlertTriangle size={14} />}
                     <div>
-                      <span className="ui-visually-hidden">{check.passed ? t('report.check.passed') : t('report.check.notVerified')} </span>
+                      {check.failed === true ? (
+                        <span className="report-checks__failed">{t('report.check.failed')} </span>
+                      ) : (
+                        <span className="ui-visually-hidden">{check.passed ? t('report.check.passed') : t('report.check.notVerified')} </span>
+                      )}
                       <Markdown text={check.text} headingBase={4} />
                       {check.note !== undefined ? <Markdown className="report-checks__note" text={check.note} headingBase={4} /> : null}
                     </div>

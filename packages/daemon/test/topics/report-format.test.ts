@@ -1,6 +1,6 @@
 // A result report file → its sections (design Appendix B.2). Pure: a string in, a result out.
 import { describe, expect, it } from 'vitest';
-import { REPORT_SECTION_MAX_BYTES, wireTextSchema } from '@smurg/protocol';
+import { REPORT_SECTION_MAX_BYTES, reportChecksSchema, wireTextSchema } from '@smurg/protocol';
 import { render } from '@smurg/protocol/i18n';
 import { REPORT_ERROR_SENTENCES, parseReport, reportMarker, type ReportErrorKind } from '../../src/topics/report-format.ts';
 
@@ -90,6 +90,62 @@ describe('the result report format', () => {
     expect(kindsOf(CART_REPORT.replace(': not verified: no browser in this session', ''))).toEqual([{ kind: 'verified-why', line: 14, id: 'report.error.format' }]);
     expect(kindsOf(CART_REPORT.replace(': not verified: no browser in this session', ': not verified:'))).toEqual([{ kind: 'verified-why', line: 14, id: 'report.error.format' }]);
     expect(kindsOf(CART_REPORT.replace(/- \[x\].*\n- \[ \].*\n/, 'Everything was checked by hand.\n'))).toEqual([{ kind: 'verified-none', line: 12, id: 'report.error.format' }]);
+  });
+
+  it('0.7.0 D5: a check that failed is "- [!] <what>: failed: <what happened>", counted apart from the ones not verified', () => {
+    const failed = CART_REPORT.replace('- outcome: complete', '- outcome: partial').replace(
+      '- [ ] Manual check in the browser: not verified: no browser in this session',
+      '- [ ] Manual check in the browser: not verified: no browser in this session\n- [!] `pnpm lint`: failed: 2 errors in src/cart.ts\n* [!] Load test : FAILED : timed out after 30 s',
+    );
+    const parse = parseReport(failed, 'cart-api');
+    expect(parse.ok).toBe(true);
+    if (!parse.ok) return;
+    expect(parse.report.outcome).toBe('partial');
+    expect(parse.report.sections.verified).toEqual([
+      { text: '`pnpm test cart`: 14 tests passed', passed: true },
+      { text: 'Manual check in the browser', passed: false, note: 'no browser in this session' },
+      { text: '`pnpm lint`', passed: false, failed: true, note: '2 errors in src/cart.ts' },
+      { text: 'Load test', passed: false, failed: true, note: 'timed out after 30 s' },
+    ]);
+    expect(parse.report.checks).toEqual({ passed: 1, notVerified: 1, failed: 2 });
+    // What the wire carries: the protocol's own schema of a report's checks takes it.
+    expect(reportChecksSchema.safeParse(parse.report.checks).success).toBe(true);
+    // Blocked with a failed check is a report too.
+    expect(parseReport(failed.replace('- outcome: partial', '- outcome: blocked'), 'cart-api')).toMatchObject({ ok: true, report: { outcome: 'blocked', checks: { failed: 2 } } });
+    // Only failed checks: there is no check that passed, but the report reads (whether it merges is not the parser's).
+    const onlyFailed = CART_REPORT.replace('- outcome: complete', '- outcome: partial').replace(/- \[x\].*\n- \[ \].*\n/, '- [!] tests: failed: 3 of 14 failed\n');
+    expect(parseReport(onlyFailed, 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 0, notVerified: 0, failed: 1 } } });
+  });
+
+  it('0.7.0 D5: a failed check must say what happened; with a failed check the outcome cannot be complete (the error is at the outcome line)', () => {
+    const line = (check: string): string => CART_REPORT.replace('- outcome: complete', '- outcome: partial').replace('- [ ] Manual check in the browser: not verified: no browser in this session', check);
+    for (const check of ['- [!] `pnpm lint`', '- [!] `pnpm lint`: failed:', '- [!] : failed: 2 errors', '- [!] `pnpm lint`: not verified: no linter', '- [!] `pnpm lint` failed with 2 errors']) {
+      expect(kindsOf(line(check)), check).toEqual([{ kind: 'verified-failed-why', line: 14, id: 'report.error.format' }]);
+    }
+    const complete = CART_REPORT.replace('- [ ] Manual check in the browser: not verified: no browser in this session', '- [!] `pnpm lint`: failed: 2 errors in src/cart.ts');
+    expect(kindsOf(complete)).toEqual([{ kind: 'outcome-failed', line: 4, id: 'report.error.outcome' }]);
+    const parse = parseReport(complete, 'cart-api');
+    if (parse.ok) throw new Error('a complete report with a failed check');
+    expect(parse.errors[0]?.model).toBe('A report with a failed check is not complete: set the outcome line to partial, or make the check pass and mark it "- [x]".');
+    expect(REPORT_ERROR_SENTENCES['verified-failed-why']).toBe('A check that failed is written "- [!] <what>: failed: <what happened>" and must say what happened.');
+    expect(REPORT_ERROR_SENTENCES['verified-none']).toBe(
+      'Under "How it was verified" list at least one check as "- [x] <what passed>", "- [ ] <what>: not verified: <why>" or "- [!] <what>: failed: <what happened>".',
+    );
+    // A failed check without its words is not "no check at all": one error, the one to fix.
+    expect(kindsOf(CART_REPORT.replace(/- \[x\].*\n- \[ \].*\n/, '- [!] lint\n'))).toEqual([{ kind: 'verified-failed-why', line: 13, id: 'report.error.format' }]);
+    // Fixed: partial, or the check passed.
+    expect(parseReport(complete.replace('- outcome: complete', '- outcome: partial'), 'cart-api').ok).toBe(true);
+    expect(parseReport(complete.replace('- [!] `pnpm lint`: failed: 2 errors in src/cart.ts', '- [x] `pnpm lint`: no errors'), 'cart-api').ok).toBe(true);
+  });
+
+  it('0.7.0 D5: a report of 0.6.0 parses to exactly what it did (no `failed` key without a failed check)', () => {
+    const parse = parseReport(CART_REPORT, 'cart-api');
+    expect(parse.ok && parse.report.checks).toEqual({ passed: 1, notVerified: 1 });
+    expect(parse.ok && Object.keys(parse.report.checks)).toEqual(['passed', 'notVerified']);
+    expect(parse.ok && parse.report.sections.verified.some((check) => 'failed' in check)).toBe(false);
+    // `[x]`, `[X]` and `[ ]` read as before; "failed" in a passed check's words is the agent's own text.
+    const passedWithWord = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [X] `pnpm test cart`: failed: 0');
+    expect(parseReport(passedWithWord, 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 1, notVerified: 1 } } });
   });
 
   it('the sections must come in the fixed order, each once', () => {

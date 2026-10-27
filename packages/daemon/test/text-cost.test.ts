@@ -625,7 +625,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'topics/plan-format.ts': 10,
   'topics/plan-service.ts': 6,
   'topics/prompts.ts': 1,
-  'topics/report-format.ts': 8,
+  // (0.7.0 D5: the failed check's line, `- [!] <what>: failed: <what happened>`, read like the line not verified)
+  'topics/report-format.ts': 9,
   'topics/store.ts': 1,
   'topics/text.ts': 7,
   'workspace/fs-util.ts': 2,

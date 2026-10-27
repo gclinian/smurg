@@ -74,6 +74,29 @@ describe('the report column: what the agent wrote', () => {
     expect(openColumn).toHaveBeenCalledWith({ target: { kind: 'session', sessionId: 'sess_i' }, side: true });
   });
 
+  it('0.7.0 D5: a check that failed says "Failed" before its text and what happened, and the counts name it', async () => {
+    const failed: ReportInfo = {
+      ...REPORT,
+      outcome: 'partial',
+      checks: { passed: 1, notVerified: 1, failed: 1 },
+      sections: { ...REPORT.sections, verified: [...REPORT.sections.verified, { text: '`pnpm lint`', passed: false, failed: true, note: '2 errors in src/cart.ts' }] },
+    };
+    await setup({ report: failed });
+    expect(screen.getByText('1 passed · 1 failed · 1 not verified')).toBeTruthy();
+    const row = screen.getByText('pnpm lint').closest('li') as HTMLElement;
+    expect(row.getAttribute('data-passed')).toBe('false');
+    expect(row.getAttribute('data-failed')).toBe('true');
+    expect(within(row).getByText('Failed')).toBeTruthy();
+    expect(within(row).queryByText('Not verified:')).toBeNull();
+    expect(within(row).getByText('2 errors in src/cart.ts')).toBeTruthy();
+    // The check that was not verified is still that, not a failure.
+    const notVerified = screen.getByText('Real delivery').closest('li') as HTMLElement;
+    expect(notVerified.getAttribute('data-failed')).toBeNull();
+    expect(within(notVerified).getByText('Not verified:')).toBeTruthy();
+    // A report without a failed check keeps 0.6.0's line (no "0 failed").
+    expect(screen.queryByText('1 passed · 1 not verified')).toBeNull();
+  });
+
   it('the changes come from the report’s merge request, say who edited by hand, and open in code mode on the worktree', async () => {
     const { conn, openInCodeMode } = await setup();
     expect(conn.lastRequest('worktree.merge.diff')?.payload).toEqual({ requestId: 'mr_1' });

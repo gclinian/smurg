@@ -61,6 +61,11 @@ export interface GitRunOptions {
   readonly timeoutMs?: number;
   /** Author and committer of commits this command writes. */
   readonly identity?: GitIdentity;
+  /**
+   * The committer when it is not the author (DESIGN 0.7.0 D7: smurg's automatic merge is authored by the host, whose
+   * standing consent it is, and committed by smurg, `SMURG_COMMITTER`). Without it the author commits.
+   */
+  readonly committer?: GitIdentity;
   /** Read .gitattributes from this tree-ish instead of the working tree (a trusted commit of the main workspace). */
   readonly attrSource?: string;
   /** Written to stdin (then closed). */
@@ -233,6 +238,10 @@ export class GitRunner {
       env['GIT_AUTHOR_EMAIL'] = options.identity.email;
       env['GIT_COMMITTER_NAME'] = options.identity.name;
       env['GIT_COMMITTER_EMAIL'] = options.identity.email;
+    }
+    if (options.committer) {
+      env['GIT_COMMITTER_NAME'] = options.committer.name;
+      env['GIT_COMMITTER_EMAIL'] = options.committer.email;
     }
     return this.exec(args, {
       cwd: options.workTree ?? options.gitDir,

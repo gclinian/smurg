@@ -12,11 +12,17 @@
 //   ## How it was verified
 //   - [x] `pnpm test cart`: 14 tests passed
 //   - [ ] Manual check in the browser: not verified: no browser in this session
+//   - [!] `pnpm lint`: failed: 2 errors in cart.ts            (0.7.0: a check that failed)
 //   ## What to watch out for
 //   ## Follow-ups                (optional)
 //
 // As in plan-format.ts every finding exists twice: `text` for people (a catalog reference), `model` for the agent
 // (one fixed English sentence per kind). Sections are Markdown people read: they pass `mask()` and the size limit.
+//
+// 0.7.0 (DESIGN 0.7.0 D5): a third check line, `- [!] <what>: failed: <what happened>`, still format v1 (every report
+// of 0.6.0 parses to the same result as before). A report whose outcome is `complete` and that lists a failed check is
+// refused at the outcome line (`outcome-failed`): "complete and verified" is a complete outcome, at least one check that
+// passed and none that failed, and smurg merges by itself only what its report says is that.
 import { ITEM_ID_PATTERN, REPORT_CHECKS_MAX, REPORT_CHECK_TEXT_MAX_CHARS, REPORT_SECTION_MAX_BYTES, mask, type ReportOutcome } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import { utf8Bytes, wireLarge, wireMultiline } from './text.ts';
@@ -40,7 +46,9 @@ export type ReportErrorKind =
   | 'section-too-long'
   | 'verified-none'
   | 'verified-why'
-  | 'verified-too-many';
+  | 'verified-failed-why'
+  | 'verified-too-many'
+  | 'outcome-failed';
 
 export interface ReportError {
   readonly kind: ReportErrorKind;
@@ -54,6 +62,8 @@ export interface ReportError {
 export interface ReportCheck {
   readonly text: string;
   readonly passed: boolean;
+  /** A check that ran and did not pass (`- [!]`): never `passed`, always with its `note` (what happened). */
+  readonly failed?: true;
   readonly note?: string;
 }
 
@@ -66,7 +76,8 @@ export interface ParsedReport {
     readonly watchOut: string;
     readonly followUps?: string;
   };
-  readonly checks: { readonly passed: number; readonly notVerified: number };
+  /** `failed` only when a check failed (absent: none, as every report of 0.6.0). */
+  readonly checks: { readonly passed: number; readonly notVerified: number; readonly failed?: number };
 }
 
 export type ReportParse = { readonly ok: true; readonly report: ParsedReport } | { readonly ok: false; readonly errors: readonly ReportError[] };
@@ -81,9 +92,11 @@ export const REPORT_ERROR_SENTENCES: Readonly<Record<ReportErrorKind, string>> =
   'section-order': `The sections are in the wrong order or one appears twice. The order is "${REPORT_SECTIONS.join('", "')}", then the optional "${REPORT_OPTIONAL_SECTION}".`,
   'section-empty': 'This section is empty. Every section needs at least one sentence.',
   'section-too-long': 'This section is longer than 64 KiB. Shorten it.',
-  'verified-none': 'Under "How it was verified" list at least one check as "- [x] <what passed>" or "- [ ] <what>: not verified: <why>".',
+  'verified-none': 'Under "How it was verified" list at least one check as "- [x] <what passed>", "- [ ] <what>: not verified: <why>" or "- [!] <what>: failed: <what happened>".',
   'verified-why': 'A check that did not pass is written "- [ ] <what>: not verified: <why>" and must say why.',
+  'verified-failed-why': 'A check that failed is written "- [!] <what>: failed: <what happened>" and must say what happened.',
   'verified-too-many': `Under "How it was verified" list at most ${REPORT_CHECKS_MAX} checks.`,
+  'outcome-failed': 'A report with a failed check is not complete: set the outcome line to partial, or make the check pass and mark it "- [x]".',
 });
 
 const LINE_SEPARATOR = /[\u2028\u2029]/;
@@ -112,18 +125,21 @@ function sectionHeading(line: string): string | null {
 const OTHER_TOP_HEADING = /^#(?:[ \t]|$)/;
 const FENCE = /^ {0,3}(`{3,}|~{3,})/;
 const OUTCOME_LINE = /^-[ \t]+outcome[ \t]*:[ \t]*(.*)$/i;
-const CHECK_LINE = /^[-*][ \t]+\[([ xX])\][ \t]+(.*)$/;
+const CHECK_LINE = /^[-*][ \t]+\[([ xX!])\][ \t]+(.*)$/;
 const NOT_VERIFIED = /^(.*?):[ \t]*not verified[ \t]*:[ \t]*(.*)$/i;
+const FAILED = /^(.*?):[ \t]*failed[ \t]*:[ \t]*(.*)$/i;
 /**
  * The characters `.` does not match. A line is cut at line feeds only, so one can hold the others; an expression
  * that ends in `(.*)$` then fails at such a character and tries the run of blanks in front of it again from every
- * blank (the square of the run). Such a line never matched the three expressions above: it is not asked.
+ * blank (the square of the run). Such a line never matched the expressions above: it is not asked.
  */
 const DOT_REFUSES = /[\n\r\u2028\u2029]/;
 const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => (DOT_REFUSES.test(line) ? null : expression.exec(line));
 
 function error(kind: ReportErrorKind, line: number): ReportError {
-  return { kind, line, text: kind === 'outcome' ? msg('report.error.outcome', { line }) : msg('report.error.format', { line }), model: REPORT_ERROR_SENTENCES[kind] };
+  // People read both outcome errors as "the outcome line" (`report.error.outcome`); the model reads which one.
+  const outcomeLine = kind === 'outcome' || kind === 'outcome-failed';
+  return { kind, line, text: outcomeLine ? msg('report.error.outcome', { line }) : msg('report.error.format', { line }), model: REPORT_ERROR_SENTENCES[kind] };
 }
 
 function sectionText(lines: readonly string[]): string {
@@ -155,6 +171,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
 
   skipBlank();
   let outcome: ReportOutcome | null = null;
+  const outcomeLine = Math.min(index + 1, Math.max(lines.length, 1));
   const outcomeMatch = lineMatch(OUTCOME_LINE, lines[index] ?? '');
   const outcomeValue = outcomeMatch === null ? '' : (outcomeMatch[1] as string).trim().toLowerCase();
   if (outcomeValue === 'complete' || outcomeValue === 'partial' || outcomeValue === 'blocked') {
@@ -246,6 +263,17 @@ export function parseReport(source: string, itemId: string): ReportParse {
       const check = lineMatch(CHECK_LINE, raw);
       if (check === null) return; // prose between the checks is allowed and not part of a check
       const body = mask((check[2] as string).trim());
+      if (check[1] === '!') {
+        const failed = lineMatch(FAILED, body);
+        const what = failed === null ? '' : (failed[1] as string).trim();
+        const happened = failed === null ? '' : (failed[2] as string).trim();
+        if (what.length === 0 || happened.length === 0) {
+          errors.push(error('verified-failed-why', lineNo));
+          return;
+        }
+        verified.push({ text: wireMultiline(what, REPORT_CHECK_TEXT_MAX_CHARS), passed: false, failed: true, note: wireMultiline(happened, REPORT_CHECK_TEXT_MAX_CHARS) });
+        return;
+      }
       if (check[1] !== ' ') {
         verified.push({ text: wireMultiline(body, REPORT_CHECK_TEXT_MAX_CHARS), passed: true });
         return;
@@ -259,9 +287,12 @@ export function parseReport(source: string, itemId: string): ReportParse {
       }
       verified.push({ text: wireMultiline(what, REPORT_CHECK_TEXT_MAX_CHARS), passed: false, note: wireMultiline(whyNot, REPORT_CHECK_TEXT_MAX_CHARS) });
     });
-    if (verified.length === 0 && !errors.some((entry) => entry.kind === 'verified-why')) errors.push(error('verified-none', verifiedSection.line));
+    if (verified.length === 0 && !errors.some((entry) => entry.kind === 'verified-why' || entry.kind === 'verified-failed-why')) errors.push(error('verified-none', verifiedSection.line));
     if (verified.length > REPORT_CHECKS_MAX) errors.push(error('verified-too-many', verifiedSection.line));
   }
+  // A failed check and a complete outcome cannot both stand: the outcome line is what the agent fixes.
+  const failed = verified.filter((check) => check.failed === true).length;
+  if (outcome === 'complete' && failed > 0) errors.push(error('outcome-failed', outcomeLine));
 
   if (errors.length > 0 || outcome === null || done === undefined || why === undefined || watchOut === undefined) {
     return { ok: false, errors: errors.sort((a, b) => a.line - b.line) };
@@ -272,7 +303,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
     report: {
       outcome,
       sections: { done, why, verified, watchOut, ...(followUps === undefined ? {} : { followUps }) },
-      checks: { passed, notVerified: verified.length - passed },
+      checks: { passed, notVerified: verified.length - passed - failed, ...(failed > 0 ? { failed } : {}) },
     },
   };
 }

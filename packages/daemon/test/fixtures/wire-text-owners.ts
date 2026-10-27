@@ -9,8 +9,6 @@
 import type { MessageId } from '@smurg/protocol/i18n';
 
 const BY_PACKAGE: Readonly<Record<string, readonly MessageId[]>> = {
-  // 0.7.0 S2, the merge itself (DESIGN D7): a staged index refuses the host's merge; smurg's merge in the activity feed.
-  'S2 the merge itself': ['merge.staged', 'activity.mergeAuto'],
   // 0.7.0 S3, the merge queue (DESIGN D8): merged, brought up to date, held, asked to verify again.
   'S3 the merge queue': ['conversation.merged.auto', 'conversation.update.auto', 'conversation.held', 'conversation.verifyAgain'],
   // 0.7.0 S4, decisions and the end (DESIGN D9, D10, D11, D13).

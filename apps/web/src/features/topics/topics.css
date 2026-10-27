@@ -621,6 +621,13 @@
 .report-checks [data-passed='false'] > svg {
   color: var(--color-warning);
 }
+.report-checks [data-failed='true'] > svg {
+  color: var(--color-danger);
+}
+.report-checks__failed {
+  color: var(--color-danger);
+  font-weight: var(--weight-semibold);
+}
 .report-checks__note {
   color: var(--color-text-muted);
   font-size: var(--text-sm);

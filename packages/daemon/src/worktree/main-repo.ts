@@ -2,13 +2,15 @@
 //  - the checkpoint commit of a topic's SPEC.md and PLAN.md (exactly the paths it is given, never `--all`: the
 //    hardened runner ignores the host's global ignore file, so `--all` would take whatever else lies in the folder);
 //  - the blob ids of files at HEAD (the scheduler's pin check);
-//  - the diff of such files as they are now against HEAD or against the blobs a Start pinned ("Show the changes").
+//  - the diff of such files as they are now against HEAD or against the blobs a Start pinned ("Show the changes");
+//  - (0.7.0, DESIGN 0.7.0 D7) what an automatic merge reads first: the branch HEAD is on (or the commit of a detached
+//    one), whether a commit is an ancestor of HEAD, whether anything is staged, and a merge smurg itself left behind.
 // All of it with the hardened runner of git.ts: no hooks, no host config, attributes from the host's own HEAD.
 //
 // Nothing here follows a symbolic link: the working-tree side of a diff is read by the daemon itself (a plain file,
 // O_NOFOLLOW, every directory on the way a plain directory) and hashed into a daemon-private object store, never into
 // the host's repository; the checkpoint takes regular files only.
-import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { SmurgError, checkRelPath, isHostOnlyPath, isSmurgDirName, relPathSegments } from '@smurg/protocol';
 import { msg, type GitStep } from '@smurg/protocol/i18n';
@@ -41,6 +43,82 @@ export async function currentBranch(repo: MainRepo): Promise<string | null> {
   if (result === null || result.code !== 0) return null;
   const branch = firstLine(result);
   return branch.length > 0 && branch.length <= 200 ? branch : null;
+}
+
+/**
+ * Where HEAD is, as the branch guard of an automatic merge reads it (DESIGN 0.7.0 D7 step 2): `refs/heads/<name>` gives
+ * `branch` (the name after `refs/heads/`); a detached HEAD, or a symbolic ref elsewhere, gives `branch: null` and
+ * `current`, what the host is told it is on now (the short commit, or the ref). Throws when git cannot say.
+ */
+export async function headPlace(repo: MainRepo): Promise<{ readonly branch: string | null; readonly current: string }> {
+  const ref = await repo.git.run({ gitDir: repo.gitDir, args: ['symbolic-ref', '--quiet', 'HEAD'], readOnly: true, maxStdoutBytes: 4096 });
+  if (ref.code === 0) {
+    const full = firstLine(ref);
+    if (full.startsWith('refs/heads/') && full.length > 'refs/heads/'.length && full.length <= 211) return { branch: full.slice('refs/heads/'.length), current: full.slice('refs/heads/'.length) };
+    return { branch: null, current: full.slice(0, 200) };
+  }
+  // Exit 1: HEAD is detached. Its commit, short, is what the host sees in `git status`.
+  if (ref.code !== 1) requireOk(ref, 'readCommit');
+  const head = await repo.git.run({ gitDir: repo.gitDir, args: ['rev-parse', '--verify', '--quiet', '--short', 'HEAD^{commit}'], readOnly: true, maxStdoutBytes: 1024 });
+  return { branch: null, current: head.code === 0 ? firstLine(head).slice(0, 64) : 'HEAD' };
+}
+
+/** `git merge-base --is-ancestor <ancestor> <commit>`: false when it is not, or when either is unknown. */
+export async function isAncestor(repo: MainRepo, ancestor: string, commit: string): Promise<boolean> {
+  if (!OID.test(ancestor) || !OID.test(commit)) return false;
+  const result = await repo.git.run({ gitDir: repo.gitDir, args: ['merge-base', '--is-ancestor', ancestor, commit], readOnly: true, maxStdoutBytes: 1024 });
+  if (result.code === 0) return true;
+  if (result.code === 1 || result.code === 128) return false;
+  requireOk(result, 'mergeBase');
+  return false;
+}
+
+/**
+ * Whether the index differs from HEAD (`git diff --cached --quiet HEAD`, objects only: the working tree is not read).
+ * git's merge (`ort`) refuses ANY staged change, also in a file the merge does not touch (U2 A8): DESIGN 0.7.0 D7 step 4
+ * says so before a merge is tried, instead of 0.6.0's "the merge failed".
+ */
+export async function hasStagedChanges(repo: MainRepo, head: string): Promise<boolean> {
+  if (!OID.test(head)) throw new SmurgError('internal', msg('git.stepFailed', { step: 'checkMain' }), { reason: 'git-failed', step: 'checkMain' });
+  const result = await repo.git.run({ gitDir: repo.gitDir, args: ['diff', '--cached', '--quiet', '--no-ext-diff', head], readOnly: true, maxStdoutBytes: 1024 });
+  if (result.code === 0) return false;
+  if (result.code === 1) return true;
+  requireOk(result, 'checkMain');
+  return true;
+}
+
+/** At most this much of MERGE_HEAD and MERGE_MSG is read (a merge message is a few lines; the rest is not smurg's). */
+const MERGE_STATE_READ_MAX = 64 * 1024;
+
+/** A small regular file of the git directory, never through a link (null: none, or not a plain file). */
+async function readGitFile(path: string): Promise<string | null> {
+  const st = await lstat(path).catch(() => null);
+  if (st === null || !st.isFile()) return null;
+  const handle = await open(path, 'r').catch(() => null);
+  if (handle === null) return null;
+  try {
+    const buffer = Buffer.alloc(Math.min(st.size, MERGE_STATE_READ_MAX));
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    return buffer.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The merge git is in the middle of in the main repository, when smurg's own message says smurg made it (DESIGN 0.7.0
+ * D7 step 3, R-SAFE S22): `MERGE_HEAD` names one commit and `MERGE_MSG` holds `trailer` as a line of its own. A merge
+ * the host began has no such line. Null: no merge under way, or not one of smurg's. Only reads: smurg never touches the
+ * state of the folder's own `.git`.
+ */
+export async function smurgMergeLeftover(repo: MainRepo, trailer: string): Promise<{ readonly commit: string } | null> {
+  const head = await readGitFile(join(repo.gitDir, 'MERGE_HEAD'));
+  if (head === null) return null;
+  const heads = head.split('\n').map((line) => line.trim()).filter((line) => line.length > 0);
+  if (heads.length !== 1 || !OID.test(heads[0] as string)) return null;
+  const message = await readGitFile(join(repo.gitDir, 'MERGE_MSG'));
+  if (message === null || !message.split('\n').some((line) => line.trim() === trailer)) return null;
+  return { commit: heads[0] as string };
 }
 
 /** How many paths one call may name (a topic has two; the bound keeps a command line short). */

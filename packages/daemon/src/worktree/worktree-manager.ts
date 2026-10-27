@@ -55,20 +55,33 @@
 //
 // Without a usable git program (0.6.0, DESIGN D15) work items run directly in the shared folder (the topics module):
 // `workState()` says `direct` with the reason, and worktrees are refused with it as in 0.5.2.
+//
+// smurg merges by itself (0.7.0, DESIGN 0.7.0 D7): `autoMerge` decides a work item's draft (or a conflict nobody
+// requested) with the same body as the host's `approve` (`decide`, on the `main` queue), on the host's standing consent:
+// only into the branch the item's Start committed on while it still holds the checkpoint, never over a staged index
+// (which `approve` now names too), with the policy of a member's request, after a look at the locks of the request's own
+// files before any snapshot, and "still in order" asked by the topics module at entry and just before `git merge`. The
+// commit's author is the host, its committer smurg (SMURG_COMMITTER), its message ends with smurg's trailer, the audit
+// entry is `worktree.merge.auto`. Waits and holds are outcomes; a conflict says who changed the other side
+// (people-changes.ts). What a crash left in smurg's own history (a merge or revert under way) is aborted before the first
+// command of a run on it; in the folder's own `.git` such a state is the host's and only named.
 import { lstat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import {
+  AUTO_MERGE_PATHS_MAX,
   ITEM_ID_PATTERN,
   LIST_MAX_ITEMS,
   MAIN_ROOT,
   MERGE_FILES_MAX,
+  PAGE_LIMIT_MAX,
   PREFLIGHT_NESTED_REPOS_MAX,
   REPORT_BY_HAND_MAX,
   REVIEWERS_MAX,
   SmurgError,
   TOPIC_SLUG_PATTERN,
   foldRelPath,
+  gitCommitSchema,
   isInTopicDir,
   isRelPathWithin,
   isSessionOver,
@@ -86,9 +99,24 @@ import {
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import type { DaemonEvents, HistoryState, MainState, MemberRecord, PersistentDocument, Principal, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../core/interfaces.ts';
+import type {
+  AutoMergeInput,
+  AutoMergeOutcome,
+  DaemonEvents,
+  HistoryState,
+  MainState,
+  MemberRecord,
+  PeopleChange,
+  PersistentDocument,
+  Principal,
+  RootInfo,
+  SnapshotResult,
+  StartFolderFacts,
+  WorktreeHandle,
+  WorktreeManager,
+} from '../core/interfaces.ts';
 import { diskReport, nodeStatfs, type StatfsFunction } from '../files/disk.ts';
-import { SYSTEM_ACTOR, isHostPrincipal, principalCan, userActor } from '../core/permissions.ts';
+import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal, principalCan, userActor } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { excludeSmurgDir, isRepositoryFolder, observeGit, sameGitObservation, type GitObservation } from '../workspace/share.ts';
 import { ensureWorktreesDir, filesWithConflictMarkers, linkSharedDirs, plainFileKind, removeEntryBelow, removeWorktreeDir, sweepRemovals, untrackedInTheWay, writeExclude } from './fs-ops.ts';
@@ -116,10 +144,12 @@ import {
   type HiddenRun,
 } from './hidden-repo.ts';
 import { pinnedHashes, verifyHiddenRepo, verifyWorktreeRepo } from './integrity.ts';
-import { blobsAt, busyMarker, checkpointMessage, commitMainPaths, currentBranch, diffMainPaths } from './main-repo.ts';
-import { MERGE_REF_PREFIX, gitIdentity, itemBranch, mergeRef, newMergeId, newWorktreeId, worktreeBranch } from './names.ts';
+import { blobsAt, busyMarker, checkpointMessage, commitMainPaths, currentBranch, diffMainPaths, hasStagedChanges, headPlace, isAncestor, smurgMergeLeftover } from './main-repo.ts';
+import { AUTO_MERGE_TRAILER, MERGE_REF_PREFIX, SMURG_COMMITTER, gitIdentity, itemBranch, mergeRef, newMergeId, newWorktreeId, worktreeBranch } from './names.ts';
+import { PEOPLE_PER_PATH_MAX, peopleChanges } from './people-changes.ts';
 import {
   DEFAULT_REVIEW_LIMITS,
+  changedNames,
   checkMergePolicy,
   commitExists,
   isWithheldFile,
@@ -310,11 +340,30 @@ interface TreeState {
 
 type Committed = { readonly commit: string; readonly created: boolean } | { readonly markers: string[] };
 
-/** The host deciding a request, and `whose` work the activity feed then names. */
+/**
+ * Who decides a merge request (DESIGN 0.7.0 D7): the host's own `approve`, or smurg's `autoMerge` on the host's
+ * standing consent (`host`: the host's member record, the merge commit's author).
+ */
+type How = { readonly kind: 'host'; readonly principal: Principal } | { readonly kind: 'auto'; readonly host: MemberRecord; readonly input: AutoMergeInput };
+
+/** Who decides a request, and `whose` work the activity feed and the merge commit then name. */
 interface Decider {
-  readonly principal: Principal;
+  readonly how: How;
   readonly whose: string;
 }
+
+/**
+ * What deciding a request did: for the host the request as the decision left it (merged, or marked as a conflict; every
+ * refusal is thrown, as in 0.6.0); for smurg's own try an outcome (DESIGN 0.7.0 D7: waits and holds are never errors).
+ */
+type Decided = { readonly kind: 'decided'; readonly merge: StoredMerge } | AutoMergeOutcome;
+
+const GONE: AutoMergeOutcome = Object.freeze({ kind: 'gone' });
+
+/** Activity kinds that wrote a file (who changed a path of smurg's own history, DESIGN 0.7.0 D7). */
+const WRITE_KINDS: ReadonlySet<string> = new Set(['agent.edit', 'human.edit', 'file.create', 'file.delete', 'file.rename', 'file.upload', 'external.change']);
+/** Pages of the activity log read back for one snapshot's writers. */
+const WRITERS_PAGES_MAX = 20;
 
 export class WorktreeManagerImpl implements WorktreeManager {
   private readonly ctx: DaemonContext;
@@ -358,6 +407,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private readonly treeChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private inspection: Promise<void> = Promise.resolve();
   private stopped = false;
+  /** What a crash left in smurg's own history was looked at in this run (DESIGN 0.7.0 D7): once, before its first command. */
+  private hiddenSettled: Promise<void> | null = null;
 
   constructor(ctx: DaemonContext, options: WorktreeModuleOptions = {}) {
     this.ctx = ctx;
@@ -1579,111 +1630,414 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (!principalCan(principal, 'worktree.merge.decide') || principal.kind === 'system') throw new AuthorizationError(undefined, { reason: 'capability' });
     // The request's own repository (smurg's own history, or the folder's `.git`), looked at before the queue.
     const { git, repo } = await this.repoOf(this.requireMerge(input.requestId));
-    const hidden = repo.kind === 'smurg';
     return this.serial.run('main', async () => {
-      const found = this.requireMerge(input.requestId);
+      const decided = await this.decide(input.requestId, { kind: 'host', principal }, git, repo);
+      // The host's refusals are thrown (as in 0.6.0): what comes back is the request as the decision left it.
+      if (decided.kind !== 'decided') throw new SmurgError('internal', undefined, { reason: 'merge-decision' });
+      return toMergeRequest(decided.merge);
+    });
+  }
+
+  async autoMerge(input: AutoMergeInput): Promise<AutoMergeOutcome> {
+    // The host's standing consent, applied by smurg: anyone else named is the caller's mistake, never a merge.
+    const host = input.host.userId === this.ctx.members.hostUserId() ? this.ctx.members.active(input.host.userId) : null;
+    if (host === null) throw new AuthorizationError(undefined, { reason: 'not-the-host' });
+    const how: How = { kind: 'auto', host, input };
+    const known = this.doc?.get().merges.find((merge) => merge.id === input.requestId);
+    if (known === undefined || known.itemId === undefined) return GONE;
+    let source: { readonly git: GitRunner; readonly repo: MainRepo };
+    try {
+      source = await this.repoOf(known);
+    } catch (err) {
+      return this.autoFailed(err, how, known);
+    }
+    return this.serial.run('main', async () => {
+      try {
+        const decided = await this.decide(input.requestId, how, source.git, source.repo);
+        if (decided.kind === 'decided') throw new SmurgError('internal', undefined, { reason: 'merge-decision' });
+        return decided;
+      } catch (err) {
+        return this.autoFailed(err, how, this.doc?.get().merges.find((merge) => merge.id === input.requestId) ?? known);
+      }
+    });
+  }
+
+  pendingMergeParent(worktreeId: string): string | null {
+    return this.record(worktreeId)?.merge?.parent ?? null;
+  }
+
+  /**
+   * An automatic try that ended in an error (DESIGN 0.7.0 D7, D8): audited as `worktree.merge.auto` with outcome
+   * `error`. smurg's own history changed or gone is the host's to see (`history-changed`); anything else is tried again
+   * by the queue's next pass (`retry`; a second one in a row the queue holds as `merge-failed`). The daemon stopping
+   * ends the pass.
+   */
+  private autoFailed(err: unknown, how: How, merge: StoredMerge): AutoMergeOutcome {
+    if (err instanceof SmurgError && err.detail?.['reason'] === 'stopping') throw err;
+    const reason = err instanceof SmurgError ? String(err.detail?.['reason'] ?? err.code) : 'failed';
+    if (!(err instanceof SmurgError)) this.ctx.log.error('an automatic merge failed', { module: 'worktree', request: merge.id, error: err instanceof Error ? err.name : 'unknown' });
+    this.auditDecision(how, merge, 'error', { reason });
+    return reason.startsWith('hidden-repo-') ? { kind: 'hold', reason: 'history-changed' } : { kind: 'wait', reason: 'retry' };
+  }
+
+  /**
+   * The one body of a merge decision (DESIGN 0.7.0 D7), on the `main` queue, for the host's `approve` and smurg's
+   * `autoMerge`: every check of 0.6.0's approval runs in both, and `how` says what differs (which requests, the branch
+   * guard, the cheap look at the locks, the policy without the host's waiver, the audit's action and actor, waits and
+   * holds as outcomes instead of refusals, "still in order" asked at entry and just before `git merge`, the commit's
+   * committer and trailer). In this order:
+   *  1. what may be decided; the commit exists; 2. the branch guard (automatic, folder git); 3. no git operation under
+   *  way, no undo left unsettled (automatic); 4. nothing staged (folder git); 4b. the locks of the request's own files
+   *  (automatic, before any snapshot); 5. what the merge is made against (smurg's own history: a snapshot) and the
+   *  recorded base; 6. the policy; 7. the trial (a conflict marks the request, and says who changed the other side);
+   *  8. the locks of every file the merge touches; 9. local changes and entries in the way; 9b. (automatic) the branch
+   *  and the head again, then "still in order", then 10. `git merge` with nothing awaited in between; 11. the record.
+   */
+  private async decide(requestId: string, how: How, git: GitRunner, repo: MainRepo): Promise<Decided> {
+    const auto = how.kind === 'auto' ? how.input : null;
+    const hidden = repo.kind === 'smurg';
+    const share = this.ctx.roots.main.realPath;
+    const host = how.kind === 'auto' ? how.host : this.memberOf(how.principal);
+
+    // 1. What may be decided: the host decides any open request (0.6.0); smurg only a draft, or a conflict nobody
+    //    requested (a request somebody made is the host's row, R-SAFE S12), and only while it is still in order.
+    let found: StoredMerge;
+    if (auto !== null) {
+      const current = this.doc?.get().merges.find((merge) => merge.id === requestId);
+      if (current === undefined || current.itemId === undefined || !(current.status === 'draft' || (current.status === 'conflict' && current.requestedBy === undefined))) return GONE;
+      if (!auto.stillInOrder()) return GONE;
+      found = current;
+    } else {
+      found = this.requireMerge(requestId);
       if (found.status !== 'pending' && found.status !== 'conflict' && found.status !== 'draft') throw new SmurgError('conflict', msg('merge.notPending'), { reason: 'not-pending', status: found.status });
-      if (hidden) {
-        await this.verifyHidden();
-        await removeStaleLock(repo.gitDir, this.ctx.log);
+    }
+    if (hidden) {
+      await this.verifyHidden();
+      await removeStaleLock(repo.gitDir, this.ctx.log);
+    }
+    if (!(await commitExists(repo, found.commit))) {
+      if (auto === null) throw new SmurgError('conflict', msg('merge.commitGone'), { reason: 'commit-gone' });
+      this.auditDecision(how, found, 'error', { reason: 'commit-gone' });
+      return { kind: 'hold', reason: 'merge-failed' };
+    }
+
+    // 2. The branch guard (folder git, automatic only; U1 M12): only into the branch the Start committed on, while it
+    //    still holds the Start's checkpoint. The host's own approve merges where the host is, as in 0.6.0.
+    if (auto !== null && !hidden) {
+      const guard = await this.branchGuard(repo, auto.pin);
+      if (guard !== null) return { kind: 'hold', reason: 'branch', ...guard };
+    }
+
+    // 3. Another git operation under way: the host's, or a merge smurg itself began and did not finish (its message
+    //    carries smurg's trailer: named, never touched). An undo the start could not settle holds every automatic merge.
+    const marker = await busyMarker(repo);
+    if (marker !== null) {
+      if (auto === null) throw new SmurgError('conflict', msg('merge.mainBusy'), { reason: 'main-busy', marker });
+      const leftover = !hidden && marker === 'MERGE_HEAD' ? await smurgMergeLeftover(repo, AUTO_MERGE_TRAILER) : null;
+      const of = leftover === null ? undefined : this.requireDoc().get().merges.find((merge) => merge.commit === leftover.commit);
+      return {
+        kind: 'wait',
+        reason: 'git-busy',
+        marker,
+        ...(leftover === null ? {} : { smurgMerge: { commit: leftover.commit, ...(of === undefined ? {} : { requestId: of.id, ...(of.topicId !== undefined && of.itemId !== undefined ? { topicId: of.topicId, itemId: of.itemId } : {}) }) } }),
+      };
+    }
+    if (auto !== null && this.requireDoc().get().undo !== undefined) return { kind: 'hold', reason: 'undo-interrupted' };
+
+    // 4. Nothing staged (folder git): git's merge refuses any staged change, also in a file it does not touch (U2 A8).
+    if (!hidden) {
+      const head = await mainHead(repo);
+      if (head !== null && (await hasStagedChanges(repo, head))) {
+        if (auto === null) throw new SmurgError('conflict', msg('merge.staged'), { reason: 'staged' });
+        return { kind: 'hold', reason: 'staged' };
       }
-      if (!(await commitExists(repo, found.commit))) throw new SmurgError('conflict', msg('merge.commitGone'), { reason: 'commit-gone' });
-      const share = this.ctx.roots.main.realPath;
-      await this.assertMainIdle(repo);
-      let pre: string | null;
-      if (hidden) {
-        // smurg's own history (DESIGN 0.6.0 D14): the folder as it is now is what the merge is made against; a person's
-        // edit since the item's base is a change on that side (a conflict is named, the folder untouched).
-        const docs = this.ctx.services.docs;
-        if (!isStubService(docs)) await docs.flushAll();
-        const host = this.memberOf(principal);
-        pre = (await this.snapshotHidden(git, { message: hiddenMergeMessage(this.branchOf(found)), identity: gitIdentity(host.userId, host.displayName) })).head;
-      } else pre = await mainHead(repo);
-      if (pre === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
-      const base = await reviewBase(repo, pre, found.commit);
-      // ...and against the base the review recorded: a history changed since makes the merge differ from what was
-      // reviewed. Unless the request's commit is in the history already (its base is the commit itself): smurg
-      // stopped after `git merge` and before it recorded the request merged. The merge below is then "Already up to
-      // date" and only records it, as with the folder's own repository (0.6.0's review).
-      if (hidden && found.base !== undefined && base !== found.base && base !== found.commit) throw hiddenChanged('merge-base');
-      const files = await reviewFiles(repo, base, found.commit);
-      // Policy again: the requester's role may have changed since the request. A draft nobody asked for is held to
-      // what a member's request is held to, whoever approves it.
-      const requesterIsHost = found.requestedBy !== undefined && this.ctx.members.roleOf(found.requestedBy.userId) === 'host';
-      const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(found.topicSlug !== undefined ? { topicSlug: found.topicSlug } : {}), recorded: this.recordedScripts(found.worktreeId), timeoutMs: this.limits.gitTimeoutMs });
-      if (violation) {
-        this.auditDecision(principal, found, 'denied', { reason: violation.reason, paths: violation.paths.slice(0, 20) });
-        throw policyError(violation);
-      }
-      const host = this.memberOf(principal);
-      const merge = found;
-      // Whose work the activity feed and the merge commit name: who asked, or for a draft the worktree's owner.
-      const whose = merge.requestedBy?.displayName ?? this.ownerNameOf(merge);
-      const decider: Decider = { principal, whose };
+    }
+
+    // 4b. The cheap look first (automatic, R-ENG E8): the request's own files against the locks of the main workspace,
+    //     before any snapshot, trial or `git status`. Someone typing makes no hidden commit and no trial per retry.
+    if (auto !== null) {
+      const typing = await this.ownFilesLocked(repo, found);
+      if (typing !== null) return typing;
+    }
+
+    // 5. What the merge is made against. smurg's own history (DESIGN 0.6.0 D14): the folder as it is now, as the host;
+    //    a person's edit since the item's base is a change on that side (a conflict is named, the folder untouched).
+    let pre: string | null;
+    if (hidden) {
       const docs = this.ctx.services.docs;
       if (!isStubService(docs)) await docs.flushAll();
+      pre = (await this.snapshotHidden(git, { message: hiddenMergeMessage(this.branchOf(found)), identity: gitIdentity(host.userId, host.displayName) })).head;
+    } else pre = await mainHead(repo);
+    if (pre === null) throw new SmurgError('conflict', msg('merge.mainNoCommits'), { reason: 'no-commits' });
+    const base = await reviewBase(repo, pre, found.commit);
+    // ...and against the base the review recorded: a history changed since makes the merge differ from what was
+    // reviewed. Unless the request's commit is in the history already (its base is the commit itself): smurg
+    // stopped after `git merge` and before it recorded the request merged. The merge below is then "Already up to
+    // date" and only records it, as with the folder's own repository (0.6.0's review).
+    if (hidden && found.base !== undefined && base !== found.base && base !== found.commit) {
+      if (auto === null) throw hiddenChanged('merge-base');
+      this.auditDecision(how, found, 'error', { reason: 'hidden-repo-changed', problem: 'merge-base' });
+      return { kind: 'hold', reason: 'history-changed' };
+    }
+    const files = await reviewFiles(repo, base, found.commit);
 
-      // 1. Decide without touching the main workspace: merge-tree writes objects only.
-      const timeoutMs = this.limits.mergeTimeoutMs;
-      const trial = await git.run({
-        gitDir: repo.gitDir,
-        attrSource: pre,
-        // smurg's own history: exactly the base the review showed (git 2.40), not one derived from history again.
-        args: ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', ...(hidden ? ['--merge-base', base] : []), pre, merge.commit],
-        maxStdoutBytes: 64 * 1024 * 1024,
-        timeoutMs,
-      });
-      if (trial.truncated || (trial.code !== 0 && trial.code !== 1)) requireOk(trial, 'trialMerge');
-      const outcome = parseMergeTree(trial.stdout);
-      if (trial.code === 1) return this.markConflict(decider, merge, outcome.conflicted.map((path) => path.path), 'conflict');
+    // 6. Policy again: the requester's role may have changed since the request. A draft nobody asked for is held to
+    //    what a member's request is held to, whoever approves it; smurg never merges under the host-only waiver of the
+    //    host's own request (R-SAFE S12).
+    const requesterIsHost = auto === null && found.requestedBy !== undefined && this.ctx.members.roleOf(found.requestedBy.userId) === 'host';
+    const violation = await checkMergePolicy(repo, files, { requesterIsHost, ...(found.topicSlug !== undefined ? { topicSlug: found.topicSlug } : {}), recorded: this.recordedScripts(found.worktreeId), timeoutMs: this.limits.gitTimeoutMs });
+    if (violation) {
+      this.auditDecision(how, found, 'denied', { reason: violation.reason, paths: violation.paths.slice(0, 20) });
+      if (auto === null) throw policyError(violation);
+      return { kind: 'hold', reason: 'policy', paths: violation.paths.slice(0, AUTO_MERGE_PATHS_MAX) };
+    }
+    const merge = found;
+    // Whose work the activity feed and the merge commit name: who asked, or for a draft the worktree's owner.
+    const whose = merge.requestedBy?.displayName ?? this.ownerNameOf(merge);
+    const decider: Decider = { how, whose };
+    const docs = this.ctx.services.docs;
+    if (!isStubService(docs)) await docs.flushAll();
 
-      // 2. What the merge would change in the main working tree: nothing locked, nothing with local changes.
-      const changes = parseNameStatus(
-        requireOk(await git.run({ gitDir: repo.gitDir, args: ['diff', '--name-status', '-z', '--no-renames', '--no-ext-diff', pre, outcome.tree], readOnly: true, maxStdoutBytes: 64 * 1024 * 1024, timeoutMs }), 'listMergeChanges').stdout,
-      ).map((change) => ({ letter: change.letter, path: change.path.path }));
-      const touched = changes.map((change) => change.path);
-      this.assertNotLocked(principal, merge, touched);
-      // Uncommitted changes the merge would overwrite are the host's to handle first (git would refuse them too;
-      // this names them), and so are untracked or IGNORED entries where the merge adds something: git would overwrite
-      // an ignored file silently (SPEC goal 3: no silent overwrite). Names git cannot print as UTF-8 are left to git's
-      // own refusal (recoverFailedMerge).
-      const dirty = await this.dirtyPaths(repo, git, pre);
-      const inTheWay = new Set(touched.filter((path) => dirty.has(path)));
-      for (const path of await untrackedInTheWay(share, changes)) inTheWay.add(path);
-      if (inTheWay.size > 0) return this.markConflict(decider, merge, [...inTheWay], 'local-changes');
-
-      // 3. Merge exactly that commit. Attributes come from the host's own HEAD, never from the incoming commit: a
-      //    worktree's .gitattributes cannot pick a filter or merge driver of the host's config for the daemon to run.
-      const fileService = this.ctx.services.files;
-      if (!isStubService(fileService) && touched.length <= 5_000) for (const path of touched) fileService.expectChange({ root: MAIN_ROOT, path }, principal.actor);
-      const message = mergeCommitMessage(this.branchOf(merge), whose, merge.message);
-      const result = await git.run({
-        gitDir: repo.gitDir,
-        workTree: share,
-        attrSource: pre,
-        identity: gitIdentity(host.userId, host.displayName),
-        // --no-overwrite-ignore: the check above already names such files; this keeps git from overwriting one that
-        // appeared since.
-        args: ['merge', '--quiet', '--no-ff', '--no-edit', '--no-verify', '--no-stat', '--no-overwrite-ignore', '-m', message, merge.commit],
-        timeoutMs,
-        abortable: false,
-      });
-      if (result.code !== 0) return this.recoverFailedMerge(decider, merge, repo, git, pre);
-      const post = await mainHead(repo);
-      const updated = this.updateMerge(merge.id, (draft) => {
-        draft.status = 'merged';
-        // Approving a draft implies the request: once it is merged, the host is who asked.
-        draft.requestedBy ??= { userId: host.userId, displayName: host.displayName };
-        draft.decidedAt = this.ctx.clock.now();
-        delete draft.conflictFiles;
-        if (post !== null && post !== pre) draft.mergeCommit = post;
-      });
-      this.auditDecision(principal, updated, 'ok', { files: touched.length, ...(updated.mergeCommit !== undefined ? { mergeCommit: updated.mergeCommit } : {}) });
-      this.publishMerge(updated, principal, whose);
-      await this.persist();
-      await this.deleteRef(repo, mergeRef(merge.id));
-      return toMergeRequest(updated);
+    // 7. Decide without touching the main workspace: merge-tree writes objects only.
+    const timeoutMs = this.limits.mergeTimeoutMs;
+    const trial = await git.run({
+      gitDir: repo.gitDir,
+      attrSource: pre,
+      // smurg's own history: exactly the base the review showed (git 2.40), not one derived from history again.
+      args: ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', ...(hidden ? ['--merge-base', base] : []), pre, merge.commit],
+      maxStdoutBytes: 64 * 1024 * 1024,
+      timeoutMs,
     });
+    if (trial.truncated || (trial.code !== 0 && trial.code !== 1)) requireOk(trial, 'trialMerge');
+    const outcome = parseMergeTree(trial.stdout);
+    if (trial.code === 1) return this.conflicted(decider, merge, outcome.conflicted.map((path) => path.path), repo, base, pre);
+
+    // 8. What the merge would change in the main working tree: nothing locked, nothing with local changes.
+    const changes = parseNameStatus(
+      requireOk(await git.run({ gitDir: repo.gitDir, args: ['diff', '--name-status', '-z', '--no-renames', '--no-ext-diff', pre, outcome.tree], readOnly: true, maxStdoutBytes: 64 * 1024 * 1024, timeoutMs }), 'listMergeChanges').stdout,
+    ).map((change) => ({ letter: change.letter, path: change.path.path }));
+    const touched = changes.map((change) => change.path);
+    if (auto === null) this.assertNotLocked(how, merge, touched);
+    else {
+      const typing = this.lockedOf(touched);
+      // (no `denied` entry per attempt: the queue records the wait, DESIGN 0.7.0 D8)
+      if (typing !== null) return typing;
+    }
+    // 9. Uncommitted changes the merge would overwrite are the host's to handle first (git would refuse them too;
+    //    this names them), and so are untracked or IGNORED entries where the merge adds something: git would overwrite
+    //    an ignored file silently (SPEC goal 3: no silent overwrite). Names git cannot print as UTF-8 are left to git's
+    //    own refusal (recoverFailedMerge). Nothing is overwritten, whoever decides.
+    const dirty = await this.dirtyPaths(repo, git, pre);
+    const adds = await untrackedInTheWay(share, changes);
+    if (auto === null) {
+      const inTheWay = new Set(touched.filter((path) => dirty.has(path)));
+      for (const path of adds) inTheWay.add(path);
+      if (inTheWay.size > 0) return { kind: 'decided', merge: await this.markConflict(decider, merge, [...inTheWay], 'local-changes') };
+    } else {
+      const added = new Set(adds);
+      const local = touched.filter((path) => dirty.has(path) && !added.has(path));
+      // In smurg's own history the snapshot above recorded the folder: a change found now was saved after it, and the
+      // next try's snapshot records it (there is nothing for the host to commit). In the folder's own git it is the
+      // host's to commit or undo.
+      if (local.length > 0) return hidden ? { kind: 'wait', reason: 'retry' } : { kind: 'hold', reason: 'local-changes', paths: local.slice(0, AUTO_MERGE_PATHS_MAX) };
+      if (adds.length > 0) return { kind: 'hold', reason: 'in-the-way', paths: adds.slice(0, AUTO_MERGE_PATHS_MAX) };
+    }
+
+    // 9b. Just before the merge (automatic; R-SAFE S3, R-ENG E1): the branch guard again and the head as the trial saw
+    //     it, then "still in order", then `git merge` is spawned with nothing awaited in between. What is left is the
+    //     time `git merge` itself runs: a Pause or a setting that lands then finds the merge done.
+    if (auto !== null) {
+      if (!hidden && (await this.branchGuard(repo, auto.pin)) !== null) return { kind: 'wait', reason: 'retry' };
+      if ((await mainHead(repo)) !== pre) return { kind: 'wait', reason: 'retry' };
+      if (!auto.stillInOrder()) return GONE;
+    }
+
+    // 10. Merge exactly that commit. Attributes come from the host's own HEAD, never from the incoming commit: a
+    //     worktree's .gitattributes cannot pick a filter or merge driver of the host's config for the daemon to run.
+    //     smurg's merge is the host's standing consent applied by smurg: author the host, committer smurg, a trailer.
+    const actor = how.kind === 'auto' ? SYSTEM_ACTOR : how.principal.actor;
+    const fileService = this.ctx.services.files;
+    if (!isStubService(fileService) && touched.length <= 5_000) for (const path of touched) fileService.expectChange({ root: MAIN_ROOT, path }, actor);
+    const message = `${mergeCommitMessage(this.branchOf(merge), whose, merge.message)}${auto !== null ? `\n\n${AUTO_MERGE_TRAILER}` : ''}`;
+    const result = await git.run({
+      gitDir: repo.gitDir,
+      workTree: share,
+      attrSource: pre,
+      identity: gitIdentity(host.userId, host.displayName),
+      ...(auto !== null ? { committer: SMURG_COMMITTER } : {}),
+      // --no-overwrite-ignore: the check above already names such files; this keeps git from overwriting one that
+      // appeared since.
+      args: ['merge', '--quiet', '--no-ff', '--no-edit', '--no-verify', '--no-stat', '--no-overwrite-ignore', '-m', message, merge.commit],
+      timeoutMs,
+      abortable: false,
+    });
+    if (result.code !== 0) return this.recoverFailedMerge(decider, merge, repo, git, pre, base);
+
+    // 11. Recorded. "Already up to date" (smurg stopped after an earlier `git merge` and before its record): the merge
+    //     commit is the one whose second parent is the request's commit.
+    const post = await mainHead(repo);
+    const mergeCommit = post !== null && post !== pre ? post : await this.mergeCommitOf(repo, merge.commit, pre);
+    const updated = this.updateMerge(merge.id, (draft) => {
+      draft.status = 'merged';
+      draft.decidedAt = this.ctx.clock.now();
+      delete draft.conflictFiles;
+      if (mergeCommit !== null) draft.mergeCommit = mergeCommit;
+      // smurg merged it on the host's consent: nobody asked, and the record says so (`requestedBy` stays absent).
+      if (auto !== null) draft.auto = true;
+      // Approving a draft implies the request: once it is merged, the host is who asked.
+      else draft.requestedBy ??= { userId: host.userId, displayName: host.displayName };
+    });
+    const overlap = auto === null ? [] : await this.overlapOf(repo, merge, auto.pin.commit, pre).catch(() => []);
+    this.auditDecision(how, updated, 'ok', {
+      files: touched.length,
+      ...(updated.mergeCommit !== undefined ? { mergeCommit: updated.mergeCommit } : {}),
+      ...(auto !== null ? { overlap } : {}),
+    });
+    this.publishMerge(updated, how.kind === 'auto' ? SYSTEM_PRINCIPAL : how.principal, whose);
+    await this.persist();
+    await this.deleteRef(repo, mergeRef(merge.id));
+    if (auto === null) return { kind: 'decided', merge: updated };
+    return { kind: 'merged', request: toMergeRequest(updated), ...(updated.mergeCommit !== undefined ? { mergeCommit: updated.mergeCommit } : {}), files: touched.length, overlap };
+  }
+
+  /**
+   * DESIGN 0.7.0 D7 step 2: HEAD on `refs/heads/<pin.branch>` and the Start's checkpoint an ancestor of it (null), or
+   * what the host is told (the Start's branch and where HEAD is now: a branch, or the short commit of a detached HEAD).
+   */
+  private async branchGuard(repo: MainRepo, pin: AutoMergeInput['pin']): Promise<{ readonly expected?: string; readonly current: string } | null> {
+    const place = await headPlace(repo);
+    if (pin.branch === undefined) return { current: place.current };
+    if (place.branch !== pin.branch) return { expected: pin.branch, current: place.current };
+    const head = await mainHead(repo);
+    if (head === null || !(await isAncestor(repo, pin.commit, head))) return { expected: pin.branch, current: place.current };
+    return null;
+  }
+
+  /** DESIGN 0.7.0 D7 step 4b: a lock of the main workspace on one of the request's own files (git objects only). */
+  private async ownFilesLocked(repo: MainRepo, merge: StoredMerge): Promise<AutoMergeOutcome | null> {
+    const locks = this.ctx.services.locks;
+    if (isStubService(locks)) return null; // no lock manager composed: no lock can exist
+    let base = merge.base;
+    if (base === undefined) {
+      const head = await mainHead(repo);
+      if (head === null) return null;
+      base = await reviewBase(repo, head, merge.commit);
+    }
+    return this.lockedOf((await changedNames(repo, base, merge.commit)).paths);
+  }
+
+  /** `wait: typing` with the first lock, when a file of `paths` is locked in the main workspace (null: none is). */
+  private lockedOf(paths: readonly string[]): AutoMergeOutcome | null {
+    const locks = this.ctx.services.locks;
+    if (isStubService(locks)) return null;
+    const locked = paths.filter((path) => locks.get({ root: MAIN_ROOT, path }) !== null);
+    if (locked.length === 0) return null;
+    const first = locks.get({ root: MAIN_ROOT, path: locked[0] as string });
+    return { kind: 'wait', reason: 'typing', paths: locked.slice(0, AUTO_MERGE_PATHS_MAX), ...(first !== null ? { lock: first } : {}) };
+  }
+
+  /**
+   * The merge commit that carried `commit` into the main workspace when git found it already merged (a merge smurg made
+   * and did not get to record): the newest merge since `commit` whose second parent it is (null: none).
+   */
+  private async mergeCommitOf(repo: MainRepo, commit: string, head: string): Promise<string | null> {
+    const listed = await repo.git.run({ gitDir: repo.gitDir, args: ['rev-list', '--merges', '--parents', '--max-count=1000', head, `^${commit}`], readOnly: true, maxStdoutBytes: 1024 * 1024 }).catch(() => null);
+    if (listed === null || listed.code !== 0 || listed.truncated) return null;
+    for (const line of listed.stdout.toString('utf8').split('\n')) {
+      const [merge, , second] = line.trim().split(' ');
+      if (merge !== undefined && second === commit && gitCommitSchema.safeParse(merge).success) return merge;
+    }
+    return null;
+  }
+
+  /**
+   * DESIGN 0.7.0 D7 step 11 (U2 exp1 #3): the paths the item changed that the main workspace changed too since the item
+   * started, at most 20. Since the item's worktree was made (its base, which a Start's checkpoint is for the first
+   * items), not since the base an update from the main workspace moved: R-SAFE's resolve-over-person run shows that one
+   * gives nothing where a person's line was replaced. Recorded, never a reason to wait.
+   */
+  private async overlapOf(repo: MainRepo, merge: StoredMerge, startCommit: string, pre: string): Promise<string[]> {
+    const worktreeBase = this.record(merge.worktreeId)?.baseCommit;
+    const since = worktreeBase !== undefined && (await commitExists(repo, worktreeBase)) ? worktreeBase : startCommit;
+    if (!(await commitExists(repo, since))) return [];
+    const item = await changedNames(repo, since, merge.commit);
+    const main = new Set((await changedNames(repo, since, pre)).paths);
+    return item.paths.filter((path) => main.has(path)).slice(0, AUTO_MERGE_PATHS_MAX);
+  }
+
+  /**
+   * The trial did not merge: the request is marked `conflict` (0.6.0's markConflict, so the plan and the merge list say
+   * so). For smurg's own try (DESIGN 0.7.0 D7 step 7, R-SAFE S2) who changed the other side is looked at too.
+   */
+  private async conflicted(decider: Decider, merge: StoredMerge, paths: readonly string[], repo: MainRepo, base: string, pre: string): Promise<Decided> {
+    const marked = await this.markConflict(decider, merge, paths, 'conflict');
+    if (decider.how.kind !== 'auto') return { kind: 'decided', merge: marked };
+    const conflictedPaths = [...new Set(paths)];
+    let people: PeopleChange[];
+    try {
+      people = await this.peopleOf(repo, base, pre, conflictedPaths);
+    } catch (err) {
+      // Who changed it cannot be told: nothing shows the other side is only work items' merges, so a person decides.
+      this.ctx.log.warn('who changed the other side of a conflict could not be read; a person decides', { module: 'worktree', request: merge.id, error: err instanceof Error ? err.name : 'unknown' });
+      people = conflictedPaths.map((path) => ({ path, by: [], outside: true }));
+    }
+    return { kind: 'conflict', request: toMergeRequest(marked), paths: conflictedPaths, people };
+  }
+
+  /** people-changes.ts over this workspace: the work items' recorded merges, the members, the activity log. */
+  private peopleOf(repo: MainRepo, from: string, to: string, paths: readonly string[]): Promise<PeopleChange[]> {
+    const workItemMerges = new Set(
+      this.requireDoc()
+        .get()
+        .merges.filter((merge) => merge.status === 'merged' && merge.mergeCommit !== undefined && merge.itemId !== undefined)
+        .map((merge) => merge.mergeCommit as string),
+    );
+    const members = this.ctx.members.list({ includeKicked: true }).map((member) => ({ userId: member.userId, displayName: member.displayName }));
+    return peopleChanges({ repo, from, to, paths, workItemMerges, members, writers: (wanted, fromMs, toMs) => this.writersOf(wanted, fromMs, toMs), timeoutMs: this.limits.gitTimeoutMs });
+  }
+
+  /**
+   * Who wrote paths of the main workspace between two instants, from the activity log (smurg's own history, DESIGN 0.7.0
+   * D7): a person by name; an agent session's write by its responsible person (else its owner); a change of an
+   * outside program, or by nobody the log names, as `outside`. Paged backwards from `toMs`, at most WRITERS_PAGES_MAX
+   * pages: what lies further back is not named (and so counts as outside).
+   */
+  private async writersOf(paths: readonly string[], fromMs: number, toMs: number): Promise<Map<string, { by: UserRef[]; outside: boolean }>> {
+    const out = new Map<string, { by: UserRef[]; outside: boolean }>();
+    const activity = this.ctx.services.activity;
+    if (isStubService(activity)) return out;
+    const wanted = new Set(paths);
+    let before = toMs;
+    for (let page = 0; page < WRITERS_PAGES_MAX; page += 1) {
+      const { events } = await activity.list({ limit: PAGE_LIMIT_MAX, before }, SYSTEM_PRINCIPAL);
+      for (const event of events) {
+        if (event.at < fromMs) return out;
+        if (event.file === undefined || event.file.root.kind !== 'main' || !WRITE_KINDS.has(event.kind)) continue;
+        const touched = [event.file.path, ...(event.renamedFrom !== undefined ? [event.renamedFrom] : [])].filter((path) => wanted.has(path));
+        if (touched.length === 0) continue;
+        const who = event.kind === 'external.change' ? null : this.writerOf(event.actor);
+        for (const path of touched) {
+          let known = out.get(path);
+          if (known === undefined) out.set(path, (known = { by: [], outside: false }));
+          if (who === null) known.outside = true;
+          else if (known.by.length < PEOPLE_PER_PATH_MAX && !known.by.some((user) => user.userId === who.userId)) known.by.push(who);
+        }
+      }
+      const last = events.at(-1);
+      if (events.length < PAGE_LIMIT_MAX || last === undefined) return out;
+      before = last.at;
+    }
+    return out;
+  }
+
+  /** The person an activity entry's writer stands for (null: nobody smurg can name). */
+  private writerOf(actor: DaemonEvents['activity.recorded']['entry']['actor']): UserRef | null {
+    if (actor.kind === 'user') return { userId: actor.userId, displayName: actor.displayName };
+    if (actor.kind !== 'agent') return null;
+    const sessions = this.ctx.services.sessions;
+    const session = isStubService(sessions) ? null : sessions.get(actor.sessionId);
+    const responsible = session !== null && 'responsible' in session ? session.responsible : null;
+    return responsible !== null ? { userId: responsible.userId, displayName: responsible.displayName } : this.ctx.members.userRef(actor.ownerUserId);
   }
 
   async reject(input: PayloadOf<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest> {
@@ -1703,7 +2057,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
         draft.decidedAt = this.ctx.clock.now();
         if (input.reason !== undefined && input.reason.length > 0) draft.rejectReason = input.reason;
       });
-      this.auditDecision(principal, updated, 'ok', input.reason !== undefined ? { reason: input.reason } : {});
+      this.auditDecision({ kind: 'host', principal }, updated, 'ok', input.reason !== undefined ? { reason: input.reason } : {});
       this.publishMerge(updated, principal, whose);
       await this.persist();
       if (refRepo !== null) await this.deleteRef(refRepo, mergeRef(merge.id));
@@ -1788,18 +2142,13 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return { base, files: await reviewFiles(repo, base, merge.commit, DEFAULT_REVIEW_LIMITS) };
   }
 
-  private async assertMainIdle(repo: MainRepo): Promise<void> {
-    const marker = await busyMarker(repo);
-    if (marker !== null) throw new SmurgError('conflict', msg('merge.mainBusy'), { reason: 'main-busy', marker });
-  }
-
-  private assertNotLocked(principal: Principal, merge: StoredMerge, touched: readonly string[]): void {
+  private assertNotLocked(how: How, merge: StoredMerge, touched: readonly string[]): void {
     const locks = this.ctx.services.locks;
     if (isStubService(locks)) return; // no lock manager composed: no lock can exist
     const locked = touched.filter((path) => locks.get({ root: MAIN_ROOT, path }) !== null);
     if (locked.length === 0) return;
     const first = locks.get({ root: MAIN_ROOT, path: locked[0] as string });
-    this.auditDecision(principal, merge, 'denied', { reason: 'files-locked', paths: locked.slice(0, 20) });
+    this.auditDecision(how, merge, 'denied', { reason: 'files-locked', paths: locked.slice(0, 20) });
     throw new SmurgError('locked', msg('merge.lockedFiles', { paths: listedPaths(locked) }), {
       reason: 'files-locked',
       paths: locked.slice(0, 20),
@@ -1829,8 +2178,12 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return new Set(parseStatusPaths(result.stdout));
   }
 
-  /** `git merge` failed after merge-tree said it would not: a conflict that appeared meanwhile, or a refusal. */
-  private async recoverFailedMerge(decider: Decider, merge: StoredMerge, repo: MainRepo, git: GitRunner, pre: string): Promise<MergeRequest> {
+  /**
+   * `git merge` failed after merge-tree said it would not: a conflict that appeared meanwhile, or a refusal (a file
+   * someone saved since the trial). With a merge under way it is undone and named as a conflict; without, the host is
+   * told "merge failed" (0.6.0) and smurg's own try waits for the next pass (DESIGN 0.7.0 D7 step 10).
+   */
+  private async recoverFailedMerge(decider: Decider, merge: StoredMerge, repo: MainRepo, git: GitRunner, pre: string, base: string): Promise<Decided> {
     const head = await lstat(join(repo.gitDir, 'MERGE_HEAD')).catch(() => null);
     if (head !== null) {
       const workTree = this.ctx.roots.main.realPath;
@@ -1838,30 +2191,37 @@ export class WorktreeManagerImpl implements WorktreeManager {
       const conflicted = unmerged.code === 0 && !unmerged.truncated ? parseNameOnly(unmerged.stdout).map((path) => path.path) : [];
       // Our own merge created this state: undo it so the main workspace is as it was.
       await git.run({ gitDir: repo.gitDir, workTree, attrSource: pre, args: ['merge', '--abort'], timeoutMs: this.limits.mergeTimeoutMs, abortable: false });
-      return this.markConflict(decider, merge, conflicted, 'conflict');
+      return this.conflicted(decider, merge, conflicted, repo, base, pre);
     }
     const now = await mainHead(repo);
     this.ctx.log.error('merge failed', { module: 'worktree', request: merge.id, headMoved: now !== pre });
-    this.auditDecision(decider.principal, merge, 'error', { reason: 'merge-failed' });
+    this.auditDecision(decider.how, merge, 'error', { reason: 'merge-failed' });
+    if (decider.how.kind === 'auto') return { kind: 'wait', reason: 'retry' };
     throw new SmurgError('conflict', msg('merge.failed'), { reason: 'merge-failed' });
   }
 
-  private async markConflict(decider: Decider, merge: StoredMerge, paths: readonly string[], reason: 'conflict' | 'local-changes'): Promise<MergeRequest> {
+  private async markConflict(decider: Decider, merge: StoredMerge, paths: readonly string[], reason: 'conflict' | 'local-changes'): Promise<StoredMerge> {
     const updated = this.updateMerge(merge.id, (draft) => {
       draft.status = 'conflict';
       draft.decidedAt = this.ctx.clock.now();
       draft.conflictFiles = [...new Set(paths)].slice(0, MERGE_FILES_MAX);
     });
-    this.auditDecision(decider.principal, updated, 'error', { reason, conflictFiles: (updated.conflictFiles ?? []).slice(0, 50), count: updated.conflictFiles?.length ?? 0 });
-    this.publishMerge(updated, decider.principal, decider.whose);
+    this.auditDecision(decider.how, updated, 'error', { reason, conflictFiles: (updated.conflictFiles ?? []).slice(0, 50), count: updated.conflictFiles?.length ?? 0 });
+    this.publishMerge(updated, decider.how.kind === 'auto' ? SYSTEM_PRINCIPAL : decider.how.principal, decider.whose);
     await this.persist();
-    return toMergeRequest(updated);
+    return updated;
   }
 
-  private auditDecision(principal: Principal, merge: StoredMerge, outcome: 'ok' | 'denied' | 'error', detail: Record<string, unknown>): void {
-    const action = merge.status === 'rejected' ? 'worktree.merge.reject' : 'worktree.merge.approve';
+  /**
+   * One audit entry of a decision. The host's: `worktree.merge.approve` / `.reject`, as the host. smurg's own try
+   * (DESIGN 0.7.0 D7, R-ENG E12): `worktree.merge.auto` as the system, on behalf of the host, with the consent it
+   * applies, whatever its outcome (merged, a conflict, a denial, an error): never an `approve` entry.
+   */
+  private auditDecision(how: How, merge: StoredMerge, outcome: 'ok' | 'denied' | 'error', detail: Record<string, unknown>): void {
+    const auto = how.kind === 'auto';
+    const action = auto ? 'worktree.merge.auto' : merge.status === 'rejected' ? 'worktree.merge.reject' : 'worktree.merge.approve';
     this.ctx.audit.record({
-      actor: principal.actor,
+      actor: auto ? SYSTEM_ACTOR : how.principal.actor,
       action,
       outcome,
       target: merge.id,
@@ -1872,6 +2232,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
         status: merge.status,
         ...(merge.requestedBy !== undefined ? { requestedBy: merge.requestedBy.userId } : {}),
         ...(merge.itemId !== undefined ? { topicId: merge.topicId, itemId: merge.itemId } : {}),
+        ...(auto ? { consent: how.input.consent, onBehalfOf: how.host.userId } : {}),
         // (DESIGN 0.6.0 D14: what uses smurg's own history says so)
         ...(merge.repo === 'smurg' ? { history: 'smurg' } : {}),
         ...detail,
@@ -2219,6 +2580,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (record === undefined) throw hiddenGone();
     await verifyHiddenRepo(hiddenGitDir(share), record);
     await removeStaleLock(hiddenGitDir(share), this.ctx.log);
+    await this.settleHidden(git);
   }
 
   /** An existing history for what works on a record of it: checked, never made (gone: `worktree.hidden.gone`). */
@@ -2227,6 +2589,47 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const problem = await hiddenProblem(share, this.hiddenRecord(), true);
     if (problem !== null) throw problem;
     if ((await hiddenOnDisk(share)) === 'absent') throw hiddenGone();
+    if (this.runner !== null) await this.settleHidden(this.runner);
+  }
+
+  /**
+   * smurg's own history after a crash (DESIGN 0.7.0 D7, U4 (3)): a merge or a revert git is in the middle of in
+   * `.smurg/git` can only be smurg's own (no person and no agent runs git there: the deny rules of 0.6.0 D8a), left by a
+   * crash, and it would hold every merge with words the host cannot act on. Before the first command of a run on that
+   * history (smurg looks for git lazily there, so "at the start" is the first use), it is aborted (`merge --abort` /
+   * `revert --abort`, which keeps every file the half-done step did not touch), logged and audited: outcome `error`,
+   * reason `recovered-after-crash`, as `worktree.merge.auto` when the message carries smurg's trailer, else as the
+   * host's `worktree.merge.approve` (an interrupted revert as `worktree.merge.undo`). A `.git` of the folder is the
+   * host's and never touched (decide's step 3 names smurg's own leftover there).
+   */
+  private settleHidden(git: GitRunner): Promise<void> {
+    if (this.stopped) return Promise.resolve();
+    this.hiddenSettled ??= this.abortHiddenLeftovers(git).catch((err: unknown) => {
+      this.ctx.log.error("what a crash left in smurg's own history could not be undone", { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' });
+    });
+    return this.hiddenSettled;
+  }
+
+  private async abortHiddenLeftovers(git: GitRunner): Promise<void> {
+    const share = this.ctx.roots.main.realPath;
+    const repo: MainRepo = { git, gitDir: hiddenGitDir(share), kind: 'smurg' };
+    for (const step of ['merge', 'revert'] as const) {
+      const marker = step === 'merge' ? 'MERGE_HEAD' : 'REVERT_HEAD';
+      if ((await lstat(join(repo.gitDir, marker)).catch(() => null)) === null) continue;
+      const automatic = step === 'merge' && (await smurgMergeLeftover(repo, AUTO_MERGE_TRAILER)) !== null;
+      const head = await mainHead(repo).catch(() => null);
+      const result = await git.run({ gitDir: repo.gitDir, workTree: share, ...(head !== null ? { attrSource: head } : {}), args: [step, '--abort'], timeoutMs: this.limits.mergeTimeoutMs, abortable: false });
+      const aborted = result.code === 0;
+      if (aborted) this.ctx.log.warn(`smurg's own history held a ${step} a crash had left; it was undone`, { module: 'worktree', marker });
+      else this.ctx.log.error(`smurg's own history holds a ${step} a crash left, and it could not be undone`, { module: 'worktree', marker });
+      this.ctx.audit.record({
+        actor: SYSTEM_ACTOR,
+        action: step === 'revert' ? 'worktree.merge.undo' : automatic ? 'worktree.merge.auto' : 'worktree.merge.approve',
+        outcome: 'error',
+        target: marker,
+        detail: { reason: 'recovered-after-crash', marker, aborted, history: 'smurg' },
+      });
+    }
   }
 
   /** A snapshot of the folder into smurg's own history (the caller holds the `main` queue and ran ensureHidden). */
@@ -2353,7 +2756,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
     const text =
       merge.status === 'pending'
         ? msg('activity.mergeRequested')
-        : merge.status === 'merged'
+        : merge.status === 'merged' && merge.auto === true
+          ? // smurg merged it by itself (DESIGN 0.7.0 D7): the entry is smurg's, and names whose work item it was.
+            msg('activity.mergeAuto', { item: merge.itemId ?? this.branchOf(merge), starter: requester })
+          : merge.status === 'merged'
           ? msg('activity.mergeMerged', { requester })
           : merge.status === 'rejected'
             ? msg('activity.mergeRejected', { requester })

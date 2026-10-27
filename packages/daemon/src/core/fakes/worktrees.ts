@@ -19,7 +19,7 @@ import {
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
-import type { HistoryState, MainState, Principal, Req, Res, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
+import type { AutoMergeInput, AutoMergeOutcome, HistoryState, MainState, PeopleChange, Principal, Req, Res, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
 import { buildMergeRequest, buildWorktree } from './build.ts';
 import { CallLog, fakeId, type FakeEnv } from './env.ts';
 
@@ -31,6 +31,12 @@ function userRef(principal: Principal): UserRef {
 function fakeCommit(seed: string): string {
   return createHash('sha1').update(seed).digest('hex');
 }
+
+/**
+ * What a test makes one `autoMerge` answer instead of merging (DESIGN 0.7.0 D7's outcomes): a wait, a hold, `gone`, or a
+ * conflict (the fake marks the request `conflict` with the paths, as the real module does).
+ */
+export type FakeAutoMergeStep = Exclude<AutoMergeOutcome, { kind: 'merged' | 'conflict' }> | { readonly kind: 'conflict'; readonly paths: readonly string[]; readonly people?: readonly PeopleChange[] };
 
 export class FakeWorktreeManager implements WorktreeManager {
   readonly log = new CallLog();
@@ -60,6 +66,15 @@ export class FakeWorktreeManager implements WorktreeManager {
   readonly mainDiffs = new Map<string, { diff: string; truncated?: boolean }>();
   /** Item worktrees that hold edits no snapshot has yet (`unmerged` then lists them without a request). */
   readonly unsavedEdits = new Set<string>();
+  /**
+   * What the next `autoMerge` calls of a request answer, one per call (FakeAutoMergeStep). Without one, a draft or a
+   * conflict nobody requested that is still in order is merged (`auto: true`).
+   */
+  readonly autoMergeSteps = new Map<string, FakeAutoMergeStep[]>();
+  /** The merge parent `updateFromMain` recorded per worktree, until the worktree's next snapshot (`pendingMergeParent`). */
+  readonly mergeParents = new Map<string, string>();
+  /** The `main` queue of the real module (one merge at a time): `autoMerge` waits in it, behind `holdMain` and each other. */
+  private mainTail: Promise<void> = Promise.resolve();
   private readonly env: FakeEnv;
   private readonly worktrees = new Map<string, WorktreeInfo>();
   private readonly roots = new Map<string, RootInfo>();
@@ -174,6 +189,53 @@ export class FakeWorktreeManager implements WorktreeManager {
     return this.putRequest({ ...request, status: 'merged', decidedAt: this.env.clock.now(), ...(request.requestedBy === undefined ? { requestedBy: userRef(principal) } : {}) });
   }
 
+  async autoMerge(input: AutoMergeInput): Promise<AutoMergeOutcome> {
+    this.log.record('autoMerge', { requestId: input.requestId, host: input.host, pin: input.pin, consent: input.consent });
+    return this.onMain(async (): Promise<AutoMergeOutcome> => {
+      // As the real module: only a draft or a conflict nobody requested, and "still in order" at entry...
+      const request = this.requests.get(input.requestId);
+      if (request === undefined || request.itemId === undefined || !(request.status === 'draft' || (request.status === 'conflict' && request.requestedBy === undefined))) return { kind: 'gone' };
+      if (!input.stillInOrder()) return { kind: 'gone' };
+      const step = this.autoMergeSteps.get(input.requestId)?.shift();
+      if (step?.kind === 'conflict') {
+        const marked = this.putRequest({ ...request, status: 'conflict', conflictFiles: [...step.paths], decidedAt: this.env.clock.now() });
+        return { kind: 'conflict', request: structuredClone(marked), paths: [...step.paths], people: structuredClone(step.people ?? []) };
+      }
+      if (step !== undefined) return structuredClone(step);
+      // ...and again just before the merge.
+      if (!input.stillInOrder()) return { kind: 'gone' };
+      const { conflictFiles: _conflict, ...rest } = request;
+      const merged = this.putRequest({ ...rest, status: 'merged', auto: true, decidedAt: this.env.clock.now() });
+      return { kind: 'merged', request: structuredClone(merged), mergeCommit: this.nextCommit('merge'), files: this.snapshotStats.files, overlap: [] };
+    });
+  }
+
+  pendingMergeParent(worktreeId: string): string | null {
+    return this.mergeParents.get(worktreeId) ?? null;
+  }
+
+  /**
+   * Holds the `main` queue as a slow checkpoint or snapshot of the real module would (DESIGN 0.7.0 D8's race tests):
+   * every `autoMerge` asked for afterwards waits until the returned function releases it.
+   */
+  holdMain(): () => void {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    this.mainTail = this.mainTail.then(() => held);
+    return release;
+  }
+
+  private onMain<T>(run: () => Promise<T>): Promise<T> {
+    const result = this.mainTail.then(run);
+    this.mainTail = result.then(
+      () => {},
+      () => {},
+    );
+    return result;
+  }
+
   async reject(input: Req<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest> {
     this.log.record('reject', input, principal);
     const request = this.needRequest(input.requestId);
@@ -209,7 +271,8 @@ export class FakeWorktreeManager implements WorktreeManager {
       this.refuseSnapshot.delete(worktree.id);
       return refusal;
     }
-    // A new version replaces the worktree's older draft.
+    // A new version replaces the worktree's older draft; its commit has the recorded merge parent now.
+    this.mergeParents.delete(worktree.id);
     for (const request of [...this.requests.values()]) if (request.worktreeId === worktree.id && request.status === 'draft') this.requests.delete(request.id);
     const request = this.putRequest(
       buildMergeRequest({ id: fakeId('mr'), worktreeId: worktree.id, requestedBy: undefined, message: input.message, commit: this.nextCommit(worktree.id), status: 'draft', topicId: worktree.topicId, itemId: worktree.itemId, createdAt: this.env.clock.now() }),
@@ -289,7 +352,9 @@ export class FakeWorktreeManager implements WorktreeManager {
   async updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {
     this.log.record('updateFromMain', worktreeId);
     this.needWorktree(worktreeId);
-    return { mergeParent: fakeCommit(`main:${this.commits}`), conflicted: [...this.conflictedFiles] };
+    const mergeParent = fakeCommit(`main:${this.commits}`);
+    this.mergeParents.set(worktreeId, mergeParent);
+    return { mergeParent, conflicted: [...this.conflictedFiles] };
   }
 
   async diffMainPaths(input: { readonly paths: readonly string[]; readonly against: 'head' | Readonly<Record<string, string | null>>; readonly maxBytes: number }): Promise<{ readonly path: string; readonly diff: string; readonly truncated: boolean }[]> {

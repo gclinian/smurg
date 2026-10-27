@@ -23,7 +23,7 @@ import {
 } from '@smurg/protocol';
 import { msg, type GitStep } from '@smurg/protocol/i18n';
 import { firstLine, listedPaths, requireOk, type GitRunner } from './git.ts';
-import { cutAtFileBoundary, diffText, parseNumstat, parseRawDiff, type GitPath, type RawDiffEntry } from './git-parse.ts';
+import { cutAtFileBoundary, diffText, parseNameOnly, parseNumstat, parseRawDiff, type GitPath, type RawDiffEntry } from './git-parse.ts';
 
 type MergeDiffFile = ResultInputOf<'worktree.merge.diff'>['files'][number];
 
@@ -117,6 +117,18 @@ export async function reviewFiles(repo: MainRepo, base: string, commit: string, 
     files.push({ file, path: entry.path, ...(entry.oldPath ? { oldPath: entry.oldPath } : {}), raw: entry });
   }
   return files;
+}
+
+/**
+ * Every name `from..to` changes (`git diff --name-only --no-renames`: a rename is its old and its new name), from git
+ * objects only. DESIGN 0.7.0 D7: the paths of an automatic merge's own request looked up in the locks before anything
+ * else (step 4b), and the overlap with what the main workspace changed since the item's Start. `truncated`: more than
+ * the bound; the list is then a part of the names.
+ */
+export async function changedNames(repo: MainRepo, from: string, to: string, limits: ReviewLimits = DEFAULT_REVIEW_LIMITS): Promise<{ readonly paths: string[]; readonly truncated: boolean }> {
+  const result = await repo.git.run({ gitDir: repo.gitDir, args: ['diff', '--name-only', '-z', '--no-renames', '--no-ext-diff', from, to], readOnly: true, maxStdoutBytes: limits.listOutputBytes, timeoutMs: limits.timeoutMs });
+  if (!result.truncated) requireOk(result, 'listChanges');
+  return { paths: parseNameOnly(result.stdout).map((path) => path.path), truncated: result.truncated };
 }
 
 const DIFF_ARGS = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M'] as const;

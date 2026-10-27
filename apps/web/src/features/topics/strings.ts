@@ -366,8 +366,11 @@ export const t = defineStrings(
     'report.section.followUps': 'Follow-ups the agent suggests',
     'report.section.questions': 'Asked about this result',
     'report.checks': '{passed} passed · {notVerified} not verified',
+    // (0.7.0 D5: a report with a failed check counts it; one without keeps the line above)
+    'report.checks.line': '{passed} passed · {failed} failed · {notVerified} not verified',
     'report.check.passed': 'Passed:',
     'report.check.notVerified': 'Not verified:',
+    'report.check.failed': 'Failed',
     'report.verified.none': 'The report lists no checks.',
     'report.written': 'Written by Claude, {time}',
     'report.writtenVersion': 'Written by Claude, {time} (version {version})',

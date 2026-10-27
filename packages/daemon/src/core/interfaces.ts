@@ -2220,6 +2220,64 @@ export interface StartFolderFacts {
 export type HistoryState = 'usable' | 'changed' | 'unknown';
 
 /**
+ * A path the main workspace's side changed outside this plan's work items (worktree/people-changes.ts, DESIGN 0.7.0 D7;
+ * D14's `changedSince`): the members who did (at most 5), and whether someone outside smurg did (or nobody can be named).
+ */
+export interface PeopleChange {
+  readonly path: string;
+  readonly by: readonly UserRef[];
+  readonly outside: boolean;
+}
+
+/** What an automatic merge waits for: nobody is needed, smurg tries again by itself (DESIGN 0.7.0 D7, D8). */
+export type AutoMergeWaitReason = 'typing' | 'git-busy' | 'retry';
+/** Why an automatic merge was not made and the host decides (DESIGN 0.7.0 D7; D9's HOST_HOLDS; some clear by themselves). */
+export type AutoMergeHoldReason = 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch' | 'history-changed' | 'merge-failed' | 'undo-interrupted';
+
+/** WorktreeManager.autoMerge (DESIGN 0.7.0 D7). */
+export interface AutoMergeInput {
+  readonly requestId: string;
+  /** The host whose standing consent this is (the commit's author, the audit's `onBehalfOf`). */
+  readonly host: UserRef;
+  /**
+   * What the item's Start pinned: the branch and the checkpoint commit. `branch` with the folder's own git (a Start on a
+   * detached HEAD pins the host's merge, so it never comes here); absent for smurg's own history.
+   */
+  readonly pin: { readonly branch?: string; readonly commit: string };
+  /** `host-setting`, or `update-default` while the host has not seen the 0.7.0 notice (DESIGN 0.7.0 D4). */
+  readonly consent: 'host-setting' | 'update-default';
+  /**
+   * DESIGN 0.7.0 D6: whether the item is still in order for THIS request. Synchronous; asked inside the merge queue at
+   * entry and again just before `git merge` is spawned, with no `await` in between.
+   */
+  readonly stillInOrder: () => boolean;
+}
+
+export type AutoMergeOutcome =
+  /** Merged into the main workspace (`mergeCommit` absent: it was already up to date). `overlap`: paths the main workspace changed too since the item's Start (at most 20). */
+  | { readonly kind: 'merged'; readonly request: MergeRequest; readonly mergeCommit?: string; readonly files: number; readonly overlap: readonly string[] }
+  /** The trial does not merge cleanly: the request is marked `conflict`; `people`: the paths whose other side is not only work items' merges. */
+  | { readonly kind: 'conflict'; readonly request: MergeRequest; readonly paths: readonly string[]; readonly people: readonly PeopleChange[] }
+  /**
+   * Not now; smurg tries again by itself. `typing`: someone edits files of it (`lock`, the first one). `git-busy`: a git
+   * operation is under way in the main workspace (`marker`); `smurgMerge` when it is a merge smurg itself began and did
+   * not finish (its message carries smurg's trailer), with the request it was. `retry`: the main workspace moved between
+   * the trial and the merge, or `git merge` refused without starting.
+   */
+  | {
+      readonly kind: 'wait';
+      readonly reason: AutoMergeWaitReason;
+      readonly paths?: readonly string[];
+      readonly lock?: LockInfo;
+      readonly marker?: string;
+      readonly smurgMerge?: { readonly commit: string; readonly requestId?: string; readonly topicId?: string; readonly itemId?: string };
+    }
+  /** Not merged; the host decides (`branch`: `expected` the Start's branch, `current` where HEAD is). */
+  | { readonly kind: 'hold'; readonly reason: AutoMergeHoldReason; readonly paths?: readonly string[]; readonly expected?: string; readonly current?: string }
+  /** Not smurg's to merge any more: no longer a draft or an unrequested conflict, replaced, or no longer in order. Nothing was marked. */
+  | { readonly kind: 'gone' };
+
+/**
  * Worktrees (R9, deviation D-2: `git clone --shared`). Module: src/worktree/. Registers every worktree with the
  * RootRegistry (with its shared read-only links) BEFORE any session or client uses it, and unregisters on removal.
  */
@@ -2249,8 +2307,22 @@ export interface WorktreeManager {
   diff(input: Req<'worktree.merge.diff'>, principal: Principal): Promise<Res<'worktree.merge.diff'>>;
   /** `file.read`. One file of `diff().files` (refused for any other path; `git … -- <path>`). */
   fileDiff(input: Req<'worktree.merge.fileDiff'>, principal: Principal): Promise<Res<'worktree.merge.fileDiff'>>;
-  /** A `pending` request, or a `draft` directly (it implies the request). */
+  /**
+   * A `pending` request, or a `draft` directly (it implies the request). 0.7.0 (DESIGN D7): refused with `merge.staged`
+   * while something is staged in the folder's own git (git would refuse it anyway).
+   */
   approve(input: Req<'worktree.merge.approve'>, principal: Principal): Promise<MergeRequest>;
+  /**
+   * DESIGN 0.7.0 D7: smurg merges a work item's request by itself, on the host's standing consent: the same checks as
+   * `approve` (one shared body, on the same queue), and the branch guard (only into the Start's branch while it still
+   * holds the checkpoint), nothing staged, a cheap look at the locks of the request's own files first, the policy as
+   * for a member's request, "still in order" asked at entry and just before `git merge`. Only a `draft` or a `conflict`
+   * nobody requested. The commit's author is the host, its committer smurg, its message carries smurg's trailer; the
+   * audit's entry is `worktree.merge.auto` (never `worktree.merge.approve`). Waits and holds are outcomes, never errors.
+   */
+  autoMerge(input: AutoMergeInput): Promise<AutoMergeOutcome>;
+  /** The merge parent `updateFromMain` recorded in this worktree and no snapshot has committed yet (DESIGN 0.7.0 D8), else null. */
+  pendingMergeParent(worktreeId: string): string | null;
   reject(input: Req<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest>;
 
   // ---- work items (daemon-internal: no wire request reaches these directly) ----

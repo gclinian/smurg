@@ -68,12 +68,34 @@ export function mergeRef(requestId: string): string {
 // refused ("name consists only of disallowed characters"), and the commit with it.
 const NOT_GIT_CRUD = /[^\u0000-\u0020.,:;<>"\\']/;
 
+/** The domain of the e-mail addresses smurg gives members in commits it writes (`<owner slug>@users.smurg.invalid`). */
+const MEMBER_EMAIL_DOMAIN = '@users.smurg.invalid';
+
 /** Author / committer of commits the daemon writes for a member (git refuses `<`, `>` and newlines in names). */
 export function gitIdentity(userId: string, displayName: string): GitIdentity {
   const cleaned = displayName.replace(/[<>\n\r]/g, ' ').trim();
   const name = NOT_GIT_CRUD.test(cleaned) ? cleaned : ownerSlug(userId);
-  return { name, email: `${ownerSlug(userId)}@users.smurg.invalid` };
+  return { name, email: `${ownerSlug(userId)}${MEMBER_EMAIL_DOMAIN}` };
 }
+
+/**
+ * The owner slug of an e-mail address of smurg's member form (`gitIdentity`), or null for any other address: a commit
+ * smurg wrote for a member (people-changes.ts names its author by it; anything else was made outside smurg).
+ */
+export function memberSlugOfEmail(email: string): string | null {
+  if (!email.endsWith(MEMBER_EMAIL_DOMAIN)) return null;
+  const slug = email.slice(0, -MEMBER_EMAIL_DOMAIN.length);
+  return slug.length > 0 && slug === ownerSlug(slug) ? slug : null;
+}
+
+/**
+ * The committer of smurg's automatic merges (DESIGN 0.7.0 D7): their author is the host, whose standing consent the
+ * merge applies; the committer says that smurg made it.
+ */
+export const SMURG_COMMITTER: GitIdentity = Object.freeze({ name: 'smurg', email: 'daemon@smurg.invalid' });
+
+/** The trailer of the message of every merge smurg makes by itself (and how its leftover after a crash is told apart). */
+export const AUTO_MERGE_TRAILER = "Merged-by: smurg (automatic merging, the host's setting)";
 
 /** An anchored .git/info/exclude pattern that matches exactly `path` (a symlink: no trailing slash). */
 export function excludePattern(path: string): string {

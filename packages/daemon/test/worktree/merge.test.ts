@@ -412,6 +412,26 @@ describe('R9 merge decisions', { timeout: 60_000 }, () => {
     expect(await lstat(join(s.t.root, '.git', 'MERGE_HEAD')).catch(() => null)).toBeNull();
   });
 
+  it('0.7.0 D7: something staged in the main workspace refuses the merge with words the host can act on (0.6.0 said "the merge failed"); nothing changes', async () => {
+    stack = await startWorktreeStack();
+    const s = stack;
+    const { amy, worktreeId, dir } = await amyWorktree(s);
+    await writeFile(join(dir, 'src', 'app.ts'), 'export const answer = 43;\n');
+    const { request } = await amy.conn.request('worktree.merge.request', { worktreeId });
+    // The host staged an edit of a file the merge does not even touch: git's merge refuses any staged change.
+    await writeFile(join(s.t.root, 'README.md'), '# demo, staged by the host\n');
+    await s.git(['add', 'README.md']);
+    const head = (await s.git(['rev-parse', 'HEAD'])).trim();
+    expect(await settleError(s.host.conn.request('worktree.merge.approve', { requestId: request.id }))).toMatchObject({ code: 'conflict', reason: 'staged', text: { id: 'merge.staged' } });
+    expect((await s.git(['rev-parse', 'HEAD'])).trim()).toBe(head);
+    expect((await s.git(['status', '--porcelain'])).trim()).toBe('M  README.md');
+    expect(s.manager.listMerges(s.principal('dev:host'))[0]?.status).toBe('pending');
+    // Committed (or unstaged): the same request merges.
+    await s.git(['commit', '-qm', 'the host commits what was staged']);
+    expect((await s.host.conn.request('worktree.merge.approve', { requestId: request.id })).request.status).toBe('merged');
+    expect(await readFile(join(s.t.root, 'src', 'app.ts'), 'utf8')).toBe('export const answer = 43;\n');
+  });
+
   it('an IGNORED host file where the merge adds one is not overwritten silently: listed as a conflict, kept byte for byte', async () => {
     stack = await startWorktreeStack();
     const s = stack;

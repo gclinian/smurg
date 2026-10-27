@@ -689,6 +689,49 @@ describe('FakeTopicService, FakePlanService and FakeReportService', () => {
     expect(fakes.worktrees.get(later.worktree.id)).toMatchObject({ ownerUserId: 'dev:host', ownerName: 'Host' });
   });
 
+  it('0.7.0 D7: autoMerge waits in the fake\'s main queue behind what a test holds, asks "still in order" at entry and before the merge, and plays scripted outcomes; the merge parent until a snapshot', async () => {
+    const { fakes, payloads } = bare();
+    const handle = await fakes.worktrees.acquireForItem({ topic: { id: 'tp_1', slug: 'checkout' }, itemId: 'api', owner: mei });
+    const draft = await fakes.worktrees.snapshot({ worktreeId: handle.worktree.id, message: 'item api' });
+    if (!draft.ok) throw new Error('no draft');
+    const input = { requestId: draft.request.id, host: { userId: 'dev:host', displayName: 'Host' }, pin: { branch: 'main', commit: 'c'.repeat(40) }, consent: 'host-setting' as const };
+    // Held: the merge waits; what changed meanwhile wins.
+    const release = fakes.worktrees.holdMain();
+    let inOrder = true;
+    const asked: boolean[] = [];
+    const queued = fakes.worktrees.autoMerge({ ...input, stillInOrder: () => (asked.push(inOrder), inOrder) });
+    await Promise.resolve();
+    expect(asked).toEqual([]);
+    inOrder = false;
+    release();
+    expect(await queued).toEqual({ kind: 'gone' });
+    expect(asked).toEqual([false]);
+    expect(fakes.worktrees.listMerges(host).find((request) => request.id === draft.request.id)?.status).toBe('draft');
+    // Scripted: a wait, then a conflict (the request is marked), then merged by smurg.
+    fakes.worktrees.autoMergeSteps.set(draft.request.id, [{ kind: 'wait', reason: 'typing', paths: ['src/a.ts'] }, { kind: 'conflict', paths: ['src/a.ts'], people: [{ path: 'src/a.ts', by: [{ userId: 'dev:mei', displayName: 'Mei' }], outside: false }] }]);
+    expect(await fakes.worktrees.autoMerge({ ...input, stillInOrder: () => true })).toEqual({ kind: 'wait', reason: 'typing', paths: ['src/a.ts'] });
+    const conflict = await fakes.worktrees.autoMerge({ ...input, stillInOrder: () => true });
+    expect(conflict).toMatchObject({ kind: 'conflict', paths: ['src/a.ts'], people: [{ path: 'src/a.ts', by: [{ userId: 'dev:mei' }], outside: false }], request: { status: 'conflict', conflictFiles: ['src/a.ts'] } });
+    let calls = 0;
+    // In order at entry, not any more just before the merge.
+    expect(await fakes.worktrees.autoMerge({ ...input, stillInOrder: () => (calls += 1) < 2 })).toEqual({ kind: 'gone' });
+    const merged = await fakes.worktrees.autoMerge({ ...input, stillInOrder: () => true });
+    expect(merged).toMatchObject({ kind: 'merged', request: { status: 'merged', auto: true }, overlap: [] });
+    if (merged.kind === 'merged') {
+      valid(mergeRequestSchema, merged.request);
+      expect(merged.request.requestedBy).toBeUndefined();
+      expect(merged.request.conflictFiles).toBeUndefined();
+    }
+    expect(payloads['merge.changed']?.at(-1)?.request).toMatchObject({ id: draft.request.id, status: 'merged', auto: true });
+    expect(await fakes.worktrees.autoMerge({ ...input, stillInOrder: () => true })).toEqual({ kind: 'gone' });
+    expect(fakes.worktrees.log.of('autoMerge')).toHaveLength(6);
+    // The merge parent of an update from the main workspace, until the next snapshot.
+    const update = await fakes.worktrees.updateFromMain(handle.worktree.id);
+    expect(fakes.worktrees.pendingMergeParent(handle.worktree.id)).toBe(update.mergeParent);
+    await fakes.worktrees.snapshot({ worktreeId: handle.worktree.id, message: 'resolved' });
+    expect(fakes.worktrees.pendingMergeParent(handle.worktree.id)).toBeNull();
+  });
+
   it('"Show the changes": what a test put is what `plan.changes` and the worktree module\'s diff answer', async () => {
     const { fakes } = bare();
     expect(await fakes.plans.changes({ topicId: 'tp_1' }, mei)).toEqual({ files: [] });

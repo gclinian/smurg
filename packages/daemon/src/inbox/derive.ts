@@ -377,7 +377,8 @@ function deriveReports(world: InboxWorld, boxes: Boxes): void {
           ...(escalated ? { escalated: true } : {}),
           ...othersOf(world, recipients, userId),
           outcome: report.outcome,
-          checks: { passed: report.checks.passed, notVerified: report.checks.notVerified },
+          // (0.7.0 D5: a failed check is counted when there is one; absent: none, as in 0.6.0)
+          checks: { passed: report.checks.passed, notVerified: report.checks.notVerified, ...((report.checks.failed ?? 0) > 0 ? { failed: report.checks.failed } : {}) },
         },
         `${report.version}:${report.state}`,
       );
