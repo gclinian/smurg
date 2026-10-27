@@ -213,7 +213,10 @@ describe('the Start dialog', () => {
     expect(within(dialog).getByText('2 items start now: 1 · Cart API and 2 · Payment form.')).toBeTruthy();
     expect(within(dialog).getByText(/^3 · Checkout page starts by itself when 1 · Cart API and 2 · Payment form are merged/)).toBeTruthy();
     expect(within(dialog).getByText('Responsible: Ian 1 · Mei 2.')).toBeTruthy();
-    expect(within(dialog).getByText("smurg commits SPEC.md and PLAN.md to the branch main of the host's folder, as you.")).toBeTruthy();
+    // 0.7.0 (on purpose, DESIGN D19): under automatic merging the commit line names the branch smurg merges into.
+    expect(
+      within(dialog).getByText("smurg commits SPEC.md and PLAN.md to the branch main of the host's folder, as you. smurg merges each item into main; while the main workspace is on another branch, the merges wait for the host."),
+    ).toBeTruthy();
     expect(within(dialog).getByText("The folder's Claude Code project settings are confirmed: agents read CLAUDE.md.")).toBeTruthy();
     // What the topic always allows is part of the list and can be changed here. 0.6.0 on purpose: the items run in
     // auto mode (the default), where what is not allowed goes through Claude Code's check (DESIGN D18).
@@ -525,5 +528,54 @@ describe('the Start dialog', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Shared directories' }));
     expect(onClose).toHaveBeenCalled();
     expect(openColumn).toHaveBeenCalledWith({ target: { kind: 'console', section: 'settings' } });
+  });
+});
+
+describe('the Start dialog: how the items are merged (protocol 6, DESIGN 0.7.0 D3, D19)', () => {
+  it('the choice beside model and mode: smurg merges what its report says is complete and verified, or the host; the stricter one is sent', async () => {
+    const { conn, answer } = await setup();
+    await answer(preflight());
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    const choice = within(dialog).getByRole('combobox', { name: 'How its items are merged' }) as HTMLSelectElement;
+    expect(choice.value).toBe('auto');
+    expect([...choice.options].map((option) => option.textContent)).toEqual(['smurg merges what its report says is complete and verified (workspace setting)', 'The host merges each item']);
+    expect(within(dialog).getByText(/^smurg merges each item into the main workspace for Ian when its report says complete/)).toBeTruthy();
+    expect(within(dialog).getByText(/^The run stops where a person must decide/)).toBeTruthy();
+    expect(within(dialog).getByText(/^When every item is merged, every member's inbox says the topic is ready to check/)).toBeTruthy();
+    expect(within(dialog).getByText("You can close this page: the work goes on while smurg host runs on Ian's computer, also after it was restarted.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload).not.toHaveProperty('merging');
+    await act(async () => {
+      conn.fail('plan.start', new SmurgError('conflict', 'busy'));
+    });
+    fireEvent.change(choice, { target: { value: 'host' } });
+    expect(within(dialog).getByText("Each item's change waits for Ian to read its diff and merge it. The items that depend on it start after that merge.")).toBeTruthy();
+    expect(within(dialog).queryByText(/^The run stops where a person must decide/)).toBeNull();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload).toMatchObject({ merging: 'host' });
+  });
+
+  it('the topic\'s last Start chose the host: proposed first; the host reads "your computer"', async () => {
+    const { answer } = await setup({ role: 'host' });
+    await answer(preflight({ merging: { workspace: 'auto', proposed: 'host', detached: false } }));
+    const dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect((within(dialog).getByRole('combobox', { name: 'How its items are merged' }) as HTMLSelectElement).value).toBe('host');
+    expect(within(dialog).getByText('You can close this page: the work goes on while smurg host runs on your computer, also after it was restarted.')).toBeTruthy();
+  });
+
+  it('no choice when the workspace says the host merges, or on a detached HEAD (said why)', async () => {
+    const { conn, answer, unmount } = await setup();
+    await answer(preflight({ merging: { workspace: 'host', proposed: 'host', detached: false } }));
+    let dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect(within(dialog).queryByRole('combobox', { name: 'How its items are merged' })).toBeNull();
+    expect(within(dialog).getByText("Each item's change waits for Ian to read its diff and merge it. The items that depend on it start after that merge.")).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
+    expect(conn.lastRequest('plan.start')?.payload).not.toHaveProperty('merging');
+    unmount();
+    const detached = await setup();
+    await detached.answer(preflight({ merging: { workspace: 'auto', proposed: 'host', detached: true } }));
+    dialog = screen.getByRole('dialog', { name: 'Start 2 items' });
+    expect(within(dialog).queryByRole('combobox', { name: 'How its items are merged' })).toBeNull();
+    expect(within(dialog).getByText('The main workspace is not on a branch (a detached HEAD), so the host merges each item of this Start.')).toBeTruthy();
   });
 });

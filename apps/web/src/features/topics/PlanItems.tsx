@@ -1,8 +1,10 @@
 // The work items of a plan as rows (DESIGN §5.12 item 20): number, title, the one badge, the description, who is
 // responsible (a chip that opens the menu for members with agent access), the size, what it comes after, and what a
 // person can do from here: open its session or its report, start it, try again, continue, ask the agent to resolve a
-// merge conflict. The daemon decides what may happen; a refusal is a toast.
-import { type AgentSession, type PlanInfo, type PresenceMember, type Topic, type WorkItem } from '@smurg/protocol';
+// merge conflict; since 0.7.0 "Leave it out…" (agent access) and, once merged, the host's "Undo…". The daemon decides
+// what may happen; a refusal is a toast.
+import { MAIN_ROOT, fileRefKey, type AgentSession, type PlanInfo, type PresenceMember, type Topic, type WorkItem } from '@smurg/protocol';
+import { useCallback } from 'react';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
@@ -41,10 +43,24 @@ function PlanItem({ topic, plan, item, members, session }: { topic: Topic; plan:
   const openSide = useOpenSide();
   const canDrive = useCan('session.drive');
   const canStart = useCan('session.create');
+  const isHost = useCan('worktree.merge.decide');
   const live = !topic.archived;
   // Without the git program the items run one at a time in the shared folder (DESIGN 0.6.0 D15).
   const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
-  const badge = itemBadge(item, plan, session, { direct });
+  const locks = useStore(stores.locks, (state) => state.locks);
+  // Who is typing in the files a merge waits for (their edit locks in the main workspace).
+  const editing = useCallback(
+    (paths: readonly string[]): string[] => {
+      const names = new Set<string>();
+      for (const path of paths) {
+        const lock = locks.get(fileRefKey({ root: MAIN_ROOT, path }));
+        if (lock?.kind === 'human') for (const holder of lock.holders) names.add(holder.displayName);
+      }
+      return [...names];
+    },
+    [locks],
+  );
+  const badge = itemBadge(item, plan, session, { direct, editing });
   const actions = itemActions(item, plan);
   const failed = (reason: string): string => t('item.failed', { item: itemLabel(item), reason });
   const responsibleRole = item.responsible === null ? undefined : members.find((member) => member.userId === item.responsible?.userId)?.role;
@@ -97,6 +113,16 @@ function PlanItem({ topic, plan, item, members, session }: { topic: Topic; plan:
           {actions.resolve && canDrive && live ? (
             <LinkButton className="plan-item__link" onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>
               {t('item.resolve')}
+            </LinkButton>
+          ) : null}
+          {actions.leaveOut && canDrive && live ? (
+            <LinkButton className="plan-item__link" onClick={() => topicDialogs(stores).open({ kind: 'leaveOut', topicId: topic.id, itemId: item.id })}>
+              {t('decision.leaveOut')}
+            </LinkButton>
+          ) : null}
+          {actions.undo && isHost && live ? (
+            <LinkButton className="plan-item__link" onClick={() => topicDialogs(stores).open({ kind: 'undo', topicId: topic.id, itemIds: [item.id] })}>
+              {t('undo.action')}
             </LinkButton>
           ) : null}
           {(actions.start || actions.startAgain) && canStart && live && topic.plan.valid ? (

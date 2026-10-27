@@ -5,6 +5,7 @@
 import {
   MAIN_ROOT,
   can,
+  decisionRecipients,
   topicPlanPath,
   topicSpecPath,
   type AgentSession,
@@ -23,6 +24,7 @@ import { intlTag } from '@smurg/protocol/locale';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatAge, formatAnd, formatDateTime, formatRole } from '../../lib/format.ts';
+import { holdText } from '../../lib/hold-words.ts';
 import { getLocale } from '../../lib/locale.ts';
 import type { Tone } from '../../ui/index.ts';
 import { t } from './strings.ts';
@@ -124,7 +126,18 @@ export function itemNames(plan: Pick<PlanInfo, 'items'>, ids: readonly string[])
   return formatAnd(ids.map((id) => items.get(id)).filter((item): item is WorkItem => item !== undefined).map((item) => itemLabel(item)));
 }
 
-export const isMerged = (item: Pick<WorkItem, 'merge'>): boolean => item.merge?.status === 'merged';
+/**
+ * Its change is in the main workspace: its request was merged (by the host, or by smurg: protocol 6 says who in
+ * `merged`), and the host did not undo it since. An item that ran directly in the folder counts as merged once its
+ * plan says it no longer holds anything back (`waitsFor` of its dependents), which this cannot see.
+ */
+export const isMerged = (item: Pick<WorkItem, 'merge' | 'merged' | 'undone'>): boolean => item.undone === undefined && (item.merge?.status === 'merged' || item.merged !== undefined);
+/** smurg merges this started item by itself (protocol 6): its Start and the workspace's setting both say so. */
+export const mergesAuto = (item: Pick<WorkItem, 'merging'>): boolean => item.merging === 'auto';
+/** A person must decide about it before smurg goes on with it (DESIGN 0.7.0 D9): its merge is held. */
+export const isHeld = (item: Pick<WorkItem, 'autoMerge'>): boolean => item.autoMerge?.state === 'held';
+/** Left out, undone, or merged: nothing of the plan waits for it any more. */
+export const isSettledItem = (item: Pick<WorkItem, 'merge' | 'merged' | 'undone' | 'leftOut'>): boolean => item.leftOut !== undefined || item.undone !== undefined || isMerged(item);
 /**
  * The item's review stands: it was reviewed and its report still is. A report that changed after its review, or can no
  * longer be read, asks for the review again while the item keeps the state `reviewed`: the host's smurg counts
@@ -186,26 +199,83 @@ export function outcomeLabel(outcome: ReportSummary['outcome']): string {
  * the host's computer, `HostState.work.history` 'direct': DESIGN 0.6.0 D15): one at a time, and an item waits for
  * the others to finish, never for a merge.
  */
-export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'>, session?: Pick<AgentSession, 'status'>, options: { readonly direct?: boolean } = {}): ItemBadge {
+export interface ItemBadgeOptions {
+  readonly direct?: boolean;
+  /** Who is typing in these files of the main workspace now (their edit locks): an item that waits to merge names them. */
+  readonly editing?: (paths: readonly string[]) => readonly string[];
+}
+
+/** "Waits for 1" / "Waits for a decision on 1" / 0.6.0's "Waits for the host to merge 1" for an item that waits for others. */
+function waitsBadge(plan: Pick<PlanInfo, 'items'>, waits: readonly string[]): ItemBadge {
+  const items = byId(plan);
+  const dependencies = waits.map((id) => items.get(id)).filter((dependency): dependency is WorkItem => dependency !== undefined);
+  const held = dependencies.filter(isHeld);
+  if (held.length > 0) return { text: t('badge.waitsDecision', { items: itemNumbers(plan, held.map((dependency) => dependency.id)) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
+  // Only the host's merge is missing: everything it waits for was reviewed, and the host merges each of them (an item
+  // smurg merges can be reviewed and still wait, be held or bring its work up to date: R-SAFE S17).
+  const onlyMerge = waits.length > 0 && dependencies.length === waits.length && dependencies.every((dependency) => reviewStands(dependency) && dependency.merging === 'host');
+  return { text: t(onlyMerge ? 'badge.waitsMerge' : 'badge.waits', { items: itemNumbers(plan, [...waits]) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
+}
+
+/**
+ * The badge of an item smurg merges by itself, or of one that ran directly in the folder and is held (DESIGN 0.7.0
+ * D9, D10, D19): what its merge waits for, the decision it is held for, or that it is merged. Null: the item is at a
+ * step before its merge (running, queued, stopped…), which 0.6.0's badges say.
+ */
+function autoMergeBadge(item: WorkItem, options: ItemBadgeOptions): ItemBadge | null {
+  const auto = item.autoMerge;
+  if (auto !== undefined) {
+    if (auto.state === 'held') return { text: t('badge.held', { reason: holdText(auto.reason, auto) }), tone: 'warning', bar: 'wait', waitsForPerson: true };
+    if (auto.state === 'resolving') return { text: t(auto.reason === 'stale-report' ? 'badge.verifying' : 'badge.resolving'), tone: 'info', bar: 'running', waitsForPerson: false };
+    switch (auto.reason) {
+      case 'typing': {
+        const names = options.editing?.(auto.paths ?? []) ?? [];
+        return { text: names.length === 0 ? t('badge.waitsToMerge.someone') : t('badge.waitsToMerge', { name: formatAnd([...names]) }), tone: 'neutral', bar: 'report', waitsForPerson: false };
+      }
+      case 'git-busy':
+        return { text: t('badge.waitsToMerge.busy'), tone: 'neutral', bar: 'report', waitsForPerson: false };
+      case 'paused':
+        return { text: t('badge.waitsToMerge.paused'), tone: 'neutral', bar: 'report', waitsForPerson: false };
+      case 'asked': {
+        const by = auto.asked ?? item.changesAsked?.by;
+        if (by !== undefined) return { text: t('badge.changesAsked', { name: by.displayName }), tone: 'info', bar: 'running', waitsForPerson: false };
+        return { text: t('badge.running'), tone: 'info', bar: 'running', waitsForPerson: false };
+      }
+      // Its agent is at work (a turn, a message on its way, a continue that is due): it merges after that.
+      case 'busy':
+        return { text: t('badge.running'), tone: 'info', bar: 'running', waitsForPerson: false };
+      default:
+        return { text: t('badge.merging'), tone: 'info', bar: 'report', waitsForPerson: false };
+    }
+  }
+  if (!mergesAuto(item)) return null;
+  if (isMerged(item)) return { text: t(reviewStands(item) ? 'badge.mergedReviewed' : 'badge.mergedAuto'), tone: 'success', bar: 'reviewed', waitsForPerson: false };
+  // A report and nothing in its way: the merge queue takes it next.
+  if (item.state === 'done' || item.state === 'reviewed') return { text: t('badge.merging'), tone: 'info', bar: 'report', waitsForPerson: false };
+  return null;
+}
+
+export function itemBadge(item: WorkItem, plan: Pick<PlanInfo, 'items' | 'slots'>, session?: Pick<AgentSession, 'status'>, options: ItemBadgeOptions = {}): ItemBadge {
   const waits = unmergedDependencies(plan, item);
   const direct = options.direct === true;
+  // Protocol 6: left out, undone, and a session that waits for a person whatever step the item is at.
+  if (item.leftOut !== undefined) return { text: t('badge.leftOut'), tone: 'neutral', bar: 'none', waitsForPerson: false };
+  if (item.undone !== undefined) return { text: t('badge.undone'), tone: 'neutral', bar: 'none', waitsForPerson: false };
+  if (item.waiting === 'question') return { text: t('badge.question'), tone: 'warning', bar: 'wait', waitsForPerson: true };
+  if (item.waiting === 'permission') return { text: t('badge.permission'), tone: 'warning', bar: 'wait', waitsForPerson: true };
+  const automatic = autoMergeBadge(item, options);
+  if (automatic !== null) return automatic;
   switch (item.state) {
     case 'not-started': {
       if (item.disarmed === 'plan-changed') return { text: t('badge.planChanged'), tone: 'warning', bar: 'wait', waitsForPerson: true };
       if (item.disarmed === 'starter-removed') return { text: t('badge.starterRemoved'), tone: 'warning', bar: 'wait', waitsForPerson: true };
       if (item.disarmed === 'start-failed') return { text: t('badge.startFailed'), tone: 'danger', bar: 'failed', waitsForPerson: true };
-      if (waits.length > 0) return { text: t(direct ? 'plan.item.waitsDirect' : 'badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
+      if (waits.length > 0) return direct ? { text: t('plan.item.waitsDirect', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false } : waitsBadge(plan, waits);
       return { text: t('badge.ready'), tone: 'neutral', bar: 'none', waitsForPerson: false };
     }
     case 'waiting': {
       if (direct) return { text: t('plan.item.waitsDirect', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
-      const items = byId(plan);
-      // Everything it waits for was reviewed: only the host's merge is missing.
-      const onlyMerge = waits.length > 0 && waits.every((id) => {
-        const dependency = items.get(id);
-        return dependency !== undefined && reviewStands(dependency);
-      });
-      return { text: t(onlyMerge ? 'badge.waitsMerge' : 'badge.waits', { items: itemNumbers(plan, waits) }), tone: 'neutral', bar: 'none', waitsForPerson: false };
+      return waitsBadge(plan, waits);
     }
     case 'queued':
       if (direct) return { text: t('plan.item.queuedDirect'), tone: 'neutral', bar: 'none', waitsForPerson: false };
@@ -255,6 +325,10 @@ export interface ItemActions {
   readonly startAgain: boolean;
   /** "Ask the agent to resolve": the merge stopped on a conflict (`plan.item.resolve`). */
   readonly resolve: boolean;
+  /** "Leave it out…" (protocol 6, `plan.item.leaveOut`): started or armed, not merged, not left out or undone. */
+  readonly leaveOut: boolean;
+  /** The host's "Undo…" (protocol 6, `topic.undo`): merged where smurg keeps history (not an item that ran directly in the folder). */
+  readonly undo: boolean;
 }
 
 export function itemActions(item: WorkItem, plan: Pick<PlanInfo, 'items'>): ItemActions {
@@ -267,7 +341,44 @@ export function itemActions(item: WorkItem, plan: Pick<PlanInfo, 'items'>): Item
     start: notStarted && item.disarmed === undefined && !item.armed && unmergedDependencies(plan, item).length === 0,
     startAgain: notStarted && item.disarmed !== undefined,
     resolve: item.merge?.status === 'conflict',
+    leaveOut: item.inPlan && !isMerged(item) && item.leftOut === undefined && item.undone === undefined && (wasStarted(item) || item.armed),
+    undo: isMerged(item) && item.merging !== undefined,
   };
+}
+
+/**
+ * Who decides about a held item, as one phrase: whose inbox holds its decision (`decisionRecipients`, the routing of a
+ * permission request): the host for a hold only the host can settle; the responsible person with agent access until it
+ * escalates; else the host and every member with agent access.
+ */
+export function decidersOf(item: Pick<WorkItem, 'autoMerge' | 'responsible'>, members: readonly Person[]): string {
+  const auto = item.autoMerge;
+  const routing = members.map((member) => ({ userId: member.userId, role: member.role }));
+  const ids = decisionRecipients({ hostOnly: auto?.hostOnly ?? false, escalated: auto?.escalated ?? false }, { responsible: item.responsible?.userId ?? null }, routing);
+  const names = ids.map((id) => members.find((member) => member.userId === id)?.displayName).filter((name): name is string => name !== undefined);
+  return names.length === 0 ? t('people.host') : formatAnd(names);
+}
+
+/** The items of the plan that wait for this one, transitively (in plan order): what a decision about it holds up. */
+export function dependentsOf(plan: Pick<PlanInfo, 'items'>, itemId: string): WorkItem[] {
+  const out = new Set<string>();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const item of plan.items) {
+      if (out.has(item.id) || item.id === itemId) continue;
+      if (item.dependsOn.some((id) => id === itemId || out.has(id))) {
+        out.add(item.id);
+        grew = true;
+      }
+    }
+  }
+  return plan.items.filter((item) => out.has(item.id));
+}
+
+/** The first item of the plan held for a decision: the one the plan's banner names. */
+export function firstHeld(plan: Pick<PlanInfo, 'items'>): WorkItem | undefined {
+  return plan.items.find((item) => item.inPlan && isHeld(item));
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -286,12 +397,19 @@ export interface PlanSummary {
   /** Ids of the items a Start without ids would arm: in the plan, not started, not armed. */
   readonly startable: readonly string[];
   readonly reviewed: number;
+  /** Items whose change is in the main workspace, whoever merged it. */
   readonly merged: number;
+  /** Some item of the plan is merged by smurg (protocol 6): the plan counts merges, not reviews. */
+  readonly auto: boolean;
+  /** Items held for a person's decision (DESIGN 0.7.0 D9). */
+  readonly decisions: number;
+  readonly leftOut: number;
+  readonly undone: number;
   readonly toReview: number;
   readonly waitPerson: number;
   readonly running: number;
   readonly notStarted: number;
-  /** Items whose review stands and whose change the host has not merged. */
+  /** Items the host merges whose review stands and whose change the host has not merged. */
   readonly reviewedNotMerged: readonly WorkItem[];
 }
 
@@ -301,6 +419,9 @@ export function planSummary(plan: Pick<PlanInfo, 'items' | 'slots'>, sessionOf: 
   let waitsOthers = 0;
   let reviewed = 0;
   let merged = 0;
+  let decisions = 0;
+  let leftOut = 0;
+  let undone = 0;
   let toReview = 0;
   let waitPerson = 0;
   let running = 0;
@@ -314,27 +435,56 @@ export function planSummary(plan: Pick<PlanInfo, 'items' | 'slots'>, sessionOf: 
       if (unmergedDependencies(plan, item).length === 0) canStart += 1;
       else waitsOthers += 1;
     }
-    if (item.state === 'not-started' || item.state === 'waiting' || item.state === 'queued') notStarted += 1;
+    const out = item.leftOut !== undefined || item.undone !== undefined;
+    if (item.leftOut !== undefined) leftOut += 1;
+    if (item.undone !== undefined) undone += 1;
+    if (!out && (item.state === 'not-started' || item.state === 'waiting' || item.state === 'queued')) notStarted += 1;
+    if (isMerged(item)) merged += 1;
     if (reviewStands(item)) {
       reviewed += 1;
-      if (isMerged(item)) merged += 1;
-      else if (item.merge !== undefined) reviewedNotMerged.push(item);
+      if (!isMerged(item) && item.merge !== undefined && !mergesAuto(item)) reviewedNotMerged.push(item);
     }
-    if (item.state === 'done' || (item.state === 'reviewed' && item.report?.state === 'changed-after-review')) toReview += 1;
-    if (badge.waitsForPerson && item.state !== 'not-started') waitPerson += 1;
+    // A report of an item smurg merges is not waited for: it is read at the end (DESIGN 0.7.0 D12).
+    if (!mergesAuto(item) && (item.state === 'done' || (item.state === 'reviewed' && item.report?.state === 'changed-after-review')) && !isHeld(item)) toReview += 1;
+    if (isHeld(item)) decisions += 1;
+    else if (badge.waitsForPerson && item.state !== 'not-started') waitPerson += 1;
     else if (item.state === 'running') running += 1;
   }
-  return { total: items.length, started: items.some(wasStarted), canStart, waitsOthers, startable, reviewed, merged, toReview, waitPerson, running, notStarted, reviewedNotMerged };
+  return {
+    total: items.length,
+    started: items.some(wasStarted),
+    canStart,
+    waitsOthers,
+    startable,
+    reviewed,
+    merged,
+    auto: items.some(mergesAuto),
+    decisions,
+    leftOut,
+    undone,
+    toReview,
+    waitPerson,
+    running,
+    notStarted,
+    reviewedNotMerged,
+  };
+}
+
+/** The headline of a started plan: "2 of 3 merged" when smurg merges its items, else 0.6.0's "2 of 3 reviewed". */
+export function planHeadline(summary: PlanSummary): string {
+  return summary.auto ? t('summary.merged', { merged: summary.merged, total: summary.total }) : t('summary.reviewed', { reviewed: summary.reviewed, total: summary.total });
 }
 
 /** "1 report to review · 3 wait for a person · 1 running · 1 not started": what is going on, zero parts left out. */
 export function progressLine(summary: PlanSummary): string {
   const parts: string[] = [];
+  if (summary.decisions > 0) parts.push(t('progress.decisions', { count: summary.decisions }));
   if (summary.toReview > 0) parts.push(t('summary.toReview', { count: summary.toReview }));
   if (summary.waitPerson > 0) parts.push(t('summary.waitPerson', { count: summary.waitPerson }));
   if (summary.running > 0) parts.push(t('summary.running', { count: summary.running }));
   if (summary.notStarted > 0) parts.push(t('summary.notStarted', { count: summary.notStarted }));
-  if (summary.merged > 0) parts.push(t('summary.merged', { count: summary.merged }));
+  // The headline counts the merges of a plan smurg merges.
+  if (summary.merged > 0 && !summary.auto) parts.push(t('summary.mergedCount', { count: summary.merged }));
   return parts.join(t('sep'));
 }
 
@@ -349,6 +499,7 @@ export function waitingForLine(plan: Pick<PlanInfo, 'waitingFor'>, now: number):
       if (entry.questions > 0) what.push(t('waiting.questions', { count: entry.questions }));
       if (entry.permissions > 0) what.push(t('waiting.permissions', { count: entry.permissions }));
       if (entry.reports > 0) what.push(t('waiting.reports', { count: entry.reports }));
+      if (entry.decisions > 0) what.push(t('waiting.decisions', { count: entry.decisions }));
       return t('waiting.person', { name: entry.user.displayName, what: formatAnd(what), time: formatAge(entry.since, now) });
     })
     .join(t('sep'));

@@ -2,21 +2,37 @@
 // plan, a result report. The words and the buttons are smurg's own, from facts; never the model's prose. Only the
 // newest pointer of its kind offers the step; an older one is a quiet line that still opens the thing.
 import { memo } from 'react';
-import type { ColumnTarget, ConversationEventOf } from '@smurg/protocol';
+import { decisionRecipients, type ColumnTarget, type ConversationEventOf, type WorkItem } from '@smurg/protocol';
 import { formatAnd } from '../../lib/format.ts';
+import { holdText } from '../../lib/hold-words.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectPlan, selectTopic } from '../../lib/stores/topics.ts';
 import { useCapabilities, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { Button } from '../../ui/index.ts';
 import { IconFileText, IconPlan, IconReport } from '../../ui/icons.tsx';
 import { useAction, useConversationEnv } from './env.tsx';
-import { withAgentAccess } from './people.ts';
+import { withAgentAccess, type Person } from './people.ts';
 import { t } from './strings.ts';
 
 export interface NextStepCardProps {
   readonly event: ConversationEventOf<'pointer'>;
   /** The newest pointer of this target in the conversation: the one that offers the next step. */
   readonly latest: boolean;
+}
+
+/**
+ * What became of the change of an item smurg merges by itself (protocol 6, DESIGN 0.7.0 D19): merged, or held for a
+ * decision and who decides it (the routing of a permission request). Null for any other item: 0.6.0's words.
+ */
+export function reportNextText(item: Pick<WorkItem, 'merging' | 'merged' | 'undone' | 'autoMerge' | 'responsible'>, people: readonly Person[]): string | null {
+  const auto = item.autoMerge;
+  if (auto?.state === 'held') {
+    const ids = decisionRecipients({ hostOnly: auto.hostOnly, escalated: auto.escalated }, { responsible: item.responsible?.userId ?? null }, people);
+    const names = ids.map((id) => people.find((person) => person.userId === id)?.displayName).filter((name): name is string => name !== undefined);
+    return t('next.report.held', { reason: holdText(auto.reason, auto), names: formatAnd(names) });
+  }
+  if (item.merging === 'auto' && item.merged !== undefined && item.undone === undefined && auto === undefined) return t('next.report.mergedAuto');
+  return null;
 }
 
 export const NextStepCard = memo(function NextStepCard({ event, latest }: NextStepCardProps) {
@@ -75,11 +91,11 @@ export const NextStepCard = memo(function NextStepCard({ event, latest }: NextSt
   } else {
     icon = <IconReport size={14} />;
     const reviewers = item?.report?.reviewers ?? [];
-    text = item === undefined ? t('next.report') : t('next.report.item', { item: `${item.number} · ${item.title}` });
+    text = (latest && item !== undefined ? reportNextText(item, people) : null) ?? (item === undefined ? t('next.report') : t('next.report.item', { item: `${item.number} · ${item.title}` }));
     actions = (
       <>
         {/* "Mei reviews it." only while it waits for a review: a reviewed report needs nobody. */}
-        {latest && item?.report !== undefined && (item.report.state === 'to-review' || item.report.state === 'changed-after-review') ? (
+        {latest && item?.report !== undefined && item.merging !== 'auto' && (item.report.state === 'to-review' || item.report.state === 'changed-after-review') ? (
           <span className="conv-next__who">{reviewers.length > 0 ? t('next.report.reviewers', { names: formatAnd(reviewers.map((reviewer) => reviewer.displayName)) }) : t('next.report.anyone')}</span>
         ) : null}
         {itemId !== undefined ? (

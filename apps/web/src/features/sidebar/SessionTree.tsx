@@ -14,7 +14,7 @@ import type { ColumnRef } from '../../lib/columns/target.ts';
 import { useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { useSlotEnv, useSlots } from '../../lib/workspace/slots.tsx';
 import { Avatar, Badge, ContextMenu, StatusGlyph, Tree, cx, useToast, type MenuItem, type TreeNode } from '../../ui/index.ts';
-import { IconChevronDown, IconFileText, IconMore, IconOpenSide, IconPlan, IconReport, IconTerminal, IconUsers } from '../../ui/icons.tsx';
+import { IconCheckCircle, IconChevronDown, IconFileText, IconMore, IconOpenSide, IconPlan, IconReport, IconTerminal, IconUsers } from '../../ui/icons.tsx';
 import { t } from './strings.ts';
 import { FREE_GROUP, buildArchivedGroups, buildSessionTree, runningTargets, type TreeGroup, type TreeRow } from './tree-model.ts';
 
@@ -39,7 +39,9 @@ function groupLabel(group: TreeGroup, archived: boolean): string {
   if (archived) return t('group.archived', { name: group.name });
   if (group.topic === undefined) return group.name;
   const phase = phaseLabel(group.topic.phase);
-  return !group.open && group.waiting > 0 ? t('group.label.waiting', { name: group.name, phase, count: group.waiting }) : t('group.label', { name: group.name, phase });
+  if (!group.open && group.waiting > 0) return t('group.label.waiting', { name: group.name, phase, count: group.waiting });
+  // A topic whose items are all settled: "Checkout, ready to check" (protocol 6).
+  return group.topic.phase === 'ready' ? t('group.phase.ready', { name: group.name }) : t('group.label', { name: group.name, phase });
 }
 
 export interface SessionTreeProps {
@@ -120,7 +122,9 @@ export function SessionTree({ showArchived }: SessionTreeProps) {
       {row.glyph !== null ? (
         <StatusGlyph status={row.glyph} label={statusLabel(row.glyph)} />
       ) : (
-        <span className="srow__icon">{row.kind === 'spec' ? <IconFileText size={14} /> : row.kind === 'plan' ? <IconPlan size={14} /> : <IconTerminal size={14} />}</span>
+        <span className="srow__icon">
+          {row.kind === 'spec' ? <IconFileText size={14} /> : row.kind === 'plan' ? <IconPlan size={14} /> : row.kind === 'result' ? <IconCheckCircle size={14} /> : <IconTerminal size={14} />}
+        </span>
       )}
       <span className="srow__title">{row.title}</span>
       {row.meta !== undefined ? <span className="srow__meta">{row.meta}</span> : null}

@@ -12,7 +12,7 @@ import type { ColumnAnchorRequest } from '../../lib/columns/context.tsx';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { useSlots } from '../../lib/workspace/slots.tsx';
 import { Button, EmptyState, IconButton, Menu, SlotBoundary, Spinner, StatusGlyph, cx, type MenuItem } from '../../ui/index.ts';
-import { IconClose, IconFileText, IconGitMerge, IconMore, IconPin, IconPlan, IconReport, IconSessions, IconTerminal } from '../../ui/icons.tsx';
+import { IconCheckCircle, IconClose, IconFileText, IconGitMerge, IconMore, IconPin, IconPlan, IconReport, IconSessions, IconTerminal } from '../../ui/icons.tsx';
 import { t } from './strings.ts';
 
 /** The stores a column's name is read from, as one value that changes only when one of them does. */
@@ -38,6 +38,8 @@ export function ColumnPictureIcon({ picture, size = 16 }: { picture: ColumnPictu
       return <IconReport size={size} />;
     case 'changes':
       return <IconGitMerge size={size} />;
+    case 'result':
+      return <IconCheckCircle size={size} />;
     case 'unknown':
       return <IconSessions size={size} />;
   }
@@ -49,7 +51,7 @@ export function ColumnPictureIcon({ picture, size = 16 }: { picture: ColumnPictu
  * report) is named with its topic, "Plan · Checkout redesign": two of them side by side have different names.
  */
 export function columnName(description: ColumnDescription): string {
-  const perTopic = description.discussion || description.kind === 'spec' || description.kind === 'plan' || description.kind === 'report';
+  const perTopic = description.discussion || description.kind === 'spec' || description.kind === 'plan' || description.kind === 'report' || description.kind === 'result';
   return perTopic && description.topicName !== undefined ? t('title.topic', { title: description.title, topic: description.topicName }) : description.title;
 }
 

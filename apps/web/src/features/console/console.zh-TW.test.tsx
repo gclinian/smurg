@@ -212,3 +212,16 @@ describe('host console in zh-TW: what agents may do without asking', () => {
     expect(within(warning).getByRole('button', { name: '什麼都不問' })).toBeTruthy();
   });
 });
+
+describe('host console in zh-TW: merging work items (protocol 6)', () => {
+  it('the setting, its two choices and the banner of the 0.7.0 update', async () => {
+    const fixture = defaultFixture();
+    fixture.inbox = [{ ...AGENTS_AUTO, key: 'attention:auto-merge:workspace', subject: 'auto-merge' }];
+    renderConsole({ section: 'settings', fixture });
+    const settings = (await screen.findByRole('heading', { level: 2, name: '設定' })).closest('section') as HTMLElement;
+    const select = (await within(settings).findByRole('combobox', { name: '合併工作項目' })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['報告寫著完成且驗證過的，由 smurg 合併', '每個項目都由我自己合併']);
+    expect(await within(settings).findByText(/^從 smurg 0\.7\.0 起，工作項目會自動合併/)).toBeTruthy();
+    expect(within(settings).getByRole('button', { name: '知道了' })).toBeTruthy();
+  });
+});

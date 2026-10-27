@@ -10,6 +10,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatActor, formatAge, formatAnd, formatNumber } from '../../lib/format.ts';
+import { holdText } from '../../lib/hold-words.ts';
 import { kindLabel } from '../../lib/session-status.ts';
 import type { InboxRowAction, InboxRowView } from '../../lib/slots.ts';
 import { selectSession, sessionTitle, type SessionsState, type SessionsStore } from '../../lib/stores/sessions.ts';
@@ -61,6 +62,18 @@ function waitsForFact(item: InboxItem, ctx: InboxRowContext, kind: 'answer' | 'r
 
 const facts = (...parts: readonly (string | null | undefined)[]): string => parts.filter((part): part is string => typeof part === 'string' && part !== '').join(' · ');
 
+/** "2 passed · 1 not verified", with the failed ones when a check failed (DESIGN 0.7.0 D5). */
+function checksFact(checks: InboxItem['checks']): string | null {
+  if (checks === undefined) return null;
+  return (checks.failed ?? 0) > 0 ? t('fact.checks.failed', { passed: checks.passed, failed: checks.failed ?? 0, notVerified: checks.notVerified }) : t('fact.checks', { passed: checks.passed, notVerified: checks.notVerified });
+}
+
+/** "items 3 and 4 wait for it": the items of the plan held up by this one. */
+function unblocksFact(item: InboxItem): string | null {
+  const waiting = item.unblocks ?? [];
+  return waiting.length === 0 ? null : t(waiting.length === 1 ? 'fact.unblocks.one' : 'fact.unblocks.many', { items: formatAnd(waiting.map((n) => formatNumber(n))) });
+}
+
 function attention(item: InboxItem, ctx: InboxRowContext, where: string): InboxRowView {
   const name = item.item === undefined ? null : itemLabel(item.item);
   const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
@@ -100,12 +113,20 @@ function attention(item: InboxItem, ctx: InboxRowContext, where: string): InboxR
         title: name === null ? renderWireText(msg('attention.itemNotStarted'), 'Did not start') : t('title.attention.itemNotStarted', { item: name }),
         where: topicName ?? where,
       };
-    case 'plan-paused':
+    case 'plan-paused': {
+      // A person's "Pause" (protocol 6) names who paused it; a pause of smurg's is a restart's.
+      const pausedBy = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.plan.pausedBy;
       return {
-        title: item.count === undefined ? renderWireText(msg('attention.planPaused'), 'smurg was restarted: the plan is paused') : t('title.attention.planPaused', { count: item.count }),
+        title:
+          pausedBy !== undefined
+            ? t('title.attention.planPausedBy', { name: pausedBy.displayName })
+            : item.count === undefined
+              ? renderWireText(msg('attention.planPaused'), 'smurg was restarted: the plan is paused')
+              : t('title.attention.planPaused', { count: item.count }),
         where: topicName ?? item.excerpt,
         ...(topicId !== undefined ? { action: action('continue-all', t('action.continueAll'), () => ctx.stores.topics.resume(topicId)) } : {}),
       };
+    }
     case 'discussion-lost': {
       const topic = topicName ?? item.excerpt;
       return {
@@ -177,7 +198,7 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
     case 'report': {
       const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
       const outcome = item.outcome === undefined ? null : renderWireText(outcomeRef[item.outcome], outcomeEnglish[item.outcome]);
-      const checks = item.checks === undefined ? null : t('fact.checks', { passed: item.checks.passed, notVerified: item.checks.notVerified });
+      const checks = checksFact(item.checks);
       return {
         title: item.item === undefined ? kindLabel('report') : t('title.report', { item: itemLabel(item.item) }),
         where: facts(topicName, outcome, checks, waitsForFact(item, ctx, 'review'), othersFact(item)),
@@ -186,10 +207,8 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
     case 'merge': {
       const what = item.item === undefined ? t('title.merge.changes') : itemLabel(item.item);
       const title = item.ready === true ? t('title.merge.ready', { what }) : from !== null ? t('title.merge.asks', { name: from, what }) : t('title.merge.pending', { what });
-      const waiting = item.unblocks ?? [];
-      const unblocks = waiting.length === 0 ? null : t(waiting.length === 1 ? 'fact.unblocks.one' : 'fact.unblocks.many', { items: formatAnd(waiting.map((n) => formatNumber(n))) });
       const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
-      return { title, where: facts(topicName, item.conflict === true ? t('fact.conflict') : null, unblocks, item.excerpt) };
+      return { title, where: facts(topicName, item.conflict === true ? t('fact.conflict') : null, unblocksFact(item), item.excerpt) };
     }
     case 'mention':
       return { title: t('title.mention', { name: from ?? kindLabel('mention'), text: item.excerpt }), where };
@@ -200,14 +219,25 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
       };
     case 'attention':
       return attention(item, ctx, where);
-    // Protocol 6 (DESIGN 0.7.0 D9, D13): the kind's name as the title until the rows of 0.7.0 S7 say more.
+    // Protocol 6 (DESIGN 0.7.0 D9): a work item held for a decision, "1 · Cart API was not merged: not complete
+    // (partial)". The plan, when it is loaded, names who wrote to the agent or whose change a conflict is against.
     case 'decision': {
       const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
-      return { title: kindLabel('decision'), where: facts(topicName, item.item === undefined ? null : itemLabel(item.item)) };
+      const planItem = item.topicId === undefined || item.itemId === undefined ? undefined : selectPlan(ctx.topics, item.topicId)?.items.find((entry) => entry.id === item.itemId);
+      const hold = planItem?.autoMerge?.state === 'held' && planItem.autoMerge.reason === item.reason ? planItem.autoMerge : {};
+      const reason = item.reason === undefined ? '' : holdText(item.reason, hold);
+      const who = item.waitsFor;
+      const waits = who === undefined || who.userId === ctx.selfUserId ? null : item.escalated === true ? t('fact.notDecided', { name: who.displayName, time: formatAge(item.at, ctx.now) }) : t('fact.decides', { name: who.displayName });
+      return {
+        title: item.item === undefined ? kindLabel('decision') : t('title.decision', { item: itemLabel(item.item), reason }),
+        where: facts(topicName, checksFact(item.checks), unblocksFact(item), waits, item.waitsForOffline === true && who !== undefined ? t('fact.offline', { name: who.displayName }) : null, othersFact(item)),
+      };
     }
+    // Every item of the topic is settled (DESIGN 0.7.0 D13): everyone's inbox, Viewers included.
     case 'ready': {
       const topicName = item.topicId === undefined ? undefined : selectTopic(ctx.topics, item.topicId)?.name;
-      return { title: kindLabel('ready'), where: topicName ?? item.excerpt };
+      const tally = item.tally === undefined ? null : t('fact.tally', { merged: item.tally.merged, total: item.tally.items });
+      return { title: t('title.ready', { topic: topicName ?? item.excerpt }), where: facts(tally, checksFact(item.checks)) };
     }
   }
 }
@@ -260,11 +290,12 @@ export function reportsToLoad(items: Iterable<InboxItem>, topics: TopicsState): 
   return [...wanted.values()];
 }
 
-/** The topics whose plans the rows read and the store does not hold yet: why an item stopped. */
+/** The topics whose plans the rows read and the store does not hold yet: why an item stopped, what a decision is about. */
 export function plansToLoad(items: Iterable<InboxItem>, topics: TopicsState): string[] {
   const wanted = new Set<string>();
   for (const item of items) {
-    if (item.kind === 'attention' && item.subject === 'item-stalled' && item.itemId !== undefined && item.topicId !== undefined && selectPlan(topics, item.topicId) === undefined) wanted.add(item.topicId);
+    const readsPlan = (item.kind === 'attention' && item.subject === 'item-stalled') || item.kind === 'decision';
+    if (readsPlan && item.itemId !== undefined && item.topicId !== undefined && selectPlan(topics, item.topicId) === undefined) wanted.add(item.topicId);
   }
   return [...wanted];
 }

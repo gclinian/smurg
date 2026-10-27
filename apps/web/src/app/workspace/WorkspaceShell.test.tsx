@@ -434,7 +434,9 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     await open({ sessions: [], topics: [], slots: [{ feature: 'dialogs', overlays: [Dialogs] }] });
     const main = screen.getByRole('main', { name: 'Open columns' });
     expect(within(main).getByRole('heading', { level: 2, name: 'Start with a topic' })).toBeTruthy();
-    expect(within(main).getAllByRole('listitem').map((step) => step.querySelector('.app-steps__t')?.textContent)).toEqual(['Discuss', 'Spec', 'Plan', 'Execute and review']);
+    // 0.7.0 (on purpose, DESIGN D19): the last step says that smurg merges by itself, the workspace's setting.
+    expect(within(main).getAllByRole('listitem').map((step) => step.querySelector('.app-steps__t')?.textContent)).toEqual(['Discuss', 'Spec', 'Plan', 'Run and check']);
+    expect(within(main).getByText('One session per item; smurg merges what its report says is complete and verified. Check the result at the end.')).toBeTruthy();
     await userEvent.click(within(main).getByRole('button', { name: 'New topic' }));
     await userEvent.click(within(main).getByRole('button', { name: 'or open a single session without a topic' }));
     expect(asked).toEqual(['topic', 'agent']);
@@ -471,11 +473,23 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     expect(screen.queryByText('A new topic was started: Mine')).toBeNull();
   });
 
+  it('protocol 6: a topic ready to check, and its checked result, are toasts whose "Open" shows the Result', async () => {
+    const { conn } = await open();
+    act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'executing' } }));
+    act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'ready' } }));
+    const toast = (await screen.findByText('Checkout redesign: every item is merged. Ready to check.')).closest('.ui-toast') as HTMLElement;
+    await userEvent.click(within(toast).getByRole('button', { name: 'Open' }));
+    expect(columnNames()).toContain('Result · Checkout redesign');
+    act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'complete', checked: { by: { userId: 'dev:mei', displayName: 'Mei' }, at: 1 } } }));
+    expect(await screen.findByText('Checkout redesign: the result was checked. The topic is complete.')).toBeTruthy();
+  });
+
   it('"Open" on a topic\'s notice shows its discussion, its spec or its plan', () => {
     expect(topicNoticeTarget({ kind: 'started', topicId: 't1' }, 's_disc')).toEqual({ kind: 'session', sessionId: 's_disc' });
     expect(topicNoticeTarget({ kind: 'started', topicId: 't1' }, undefined)).toEqual({ kind: 'spec', topicId: 't1' });
     expect(topicNoticeTarget({ kind: 'spec-ready', topicId: 't1' }, 's_disc')).toEqual({ kind: 'spec', topicId: 't1' });
     for (const kind of ['plan-ready', 'plan-updated', 'complete'] as const) expect(topicNoticeTarget({ kind, topicId: 't1' }, 's_disc')).toEqual({ kind: 'plan', topicId: 't1' });
+    for (const kind of ['ready', 'checked'] as const) expect(topicNoticeTarget({ kind, topicId: 't1' }, 's_disc')).toEqual({ kind: 'result', topicId: 't1' });
   });
 
   it('the banners of the sessions view are above its columns', async () => {

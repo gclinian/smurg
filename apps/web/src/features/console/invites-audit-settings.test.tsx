@@ -278,7 +278,7 @@ describe('host console: settings', () => {
     const wait = within(settings).getByLabelText('Waiting time before others are asked (minutes)') as HTMLInputElement;
     expect(wait.value).toBe('10');
     expect(
-      within(settings).getByText('A question or a permission request that has waited this long also reaches you and the members with agent access. A result report does after 6 times as long. Default: 5 minutes.'),
+      within(settings).getByText('A question, a permission request or a decision on a work item that has waited this long also reaches you and the members with agent access. A result report of a work item you merge yourself does after 6 times as long. Default: 5 minutes.'),
     ).toBeTruthy();
     // Off unless the host turns it on, with the consequence in words (DESIGN §2.11).
     const mcp = within(settings).getByRole('checkbox', { name: "Agents may use my own and this project's MCP servers" }) as HTMLInputElement;

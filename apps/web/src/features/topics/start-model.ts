@@ -3,7 +3,7 @@
 // folder in its own history: DESIGN 0.6.0 D14), what changed since someone last looked, what agents may do, and what
 // stops the start. The dialog (StartDialog.tsx) adds the icons, the two inline actions, the block of items that run
 // directly in the folder (no git program: D15) and the topic's agent settings.
-import type { PlanInfo, SessionModeChoice, StartPreflight, UserRef } from '@smurg/protocol';
+import type { MergePolicy, PlanInfo, SessionModeChoice, StartPreflight, UserRef } from '@smurg/protocol';
 import { renderWireText } from '../../lib/errors.ts';
 import { formatAnd, formatList, joinSentences } from '../../lib/format.ts';
 import { handEditsLine, itemNames, oneOrMany } from './model.ts';
@@ -28,6 +28,8 @@ export type StartLineId =
   | 'specOpenQuestions'
   | 'settings'
   | 'shared'
+  | 'merge'
+  | 'leave'
   | 'blocker';
 
 export interface StartLine {
@@ -63,7 +65,32 @@ export function startedNotice(preflight: Pick<StartPreflight, 'startsNow' | 'wai
   return { title: t('start.done', { count: now }), ...(later > 0 ? { description: t('start.done.later', { count: later }) } : {}) };
 }
 
-export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'items'>, selfUserId: string | null): StartLine[] {
+/** Who the Start dialog's words about the merges name, and what it chose (DESIGN 0.7.0 D3, D19). */
+export interface StartMergeContext {
+  /** The choice on screen: `auto` (smurg merges what its report says is complete and verified) or `host`. */
+  readonly merging: MergePolicy;
+  /** The host's name; null when the viewer is the host ("your computer"). */
+  readonly host: string | null;
+}
+
+/** What the dialog selects first: the preflight's `proposed`; `host` whenever only the host can merge. */
+export function initialMerging(preflight: Pick<StartPreflight, 'merging'>): MergePolicy {
+  const merging = preflight.merging;
+  if (merging === null) return 'host';
+  return merging.workspace === 'auto' && !merging.detached ? merging.proposed : 'host';
+}
+
+/** The choice "How its items are merged" is offered: the workspace merges automatically and HEAD is on a branch. */
+export function offersMergeChoice(preflight: Pick<StartPreflight, 'merging'>): boolean {
+  return preflight.merging !== null && preflight.merging.workspace === 'auto' && !preflight.merging.detached;
+}
+
+/** What `plan.start` sends for the choice: `merging: 'host'` when the host merges although the workspace merges by itself. */
+export function startMergingPatch(preflight: Pick<StartPreflight, 'merging'>, chosen: MergePolicy): { merging: 'host' } | undefined {
+  return offersMergeChoice(preflight) && chosen === 'host' ? { merging: 'host' } : undefined;
+}
+
+export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'items'>, selfUserId: string | null, context: StartMergeContext = { merging: initialMerging(preflight), host: null }): StartLine[] {
   const lines: StartLine[] = [];
   const push = (id: StartLineId, text: string, tone: StartLine['tone'] = 'plain'): void => {
     lines.push({ id, tone, text });
@@ -83,6 +110,23 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
   }
   if (preflight.waits.length > START_WAITS_SHOWN) push('waits', t('start.waitsMore', { count: preflight.waits.length - START_WAITS_SHOWN }));
   if (preflight.alreadyStarted.length > 0) push('already', t('start.already', { items: itemNames(plan, preflight.alreadyStarted) }));
+
+  // How the items reach the main workspace, what stops the run, and that nobody has to stay (protocol 6). Items that
+  // run directly in the folder have nothing to merge: their block says so (0.6.0's words).
+  const merging = preflight.merging;
+  const host = context.host ?? t('people.host');
+  const leave = context.host === null ? t('start.leave.host') : t('start.leave', { host });
+  if (merging !== null) {
+    if (context.merging === 'auto' && offersMergeChoice(preflight)) {
+      push('merge', t('start.merge.auto', { host }));
+      push('merge', t('start.merge.stops'));
+      push('merge', t('start.merge.end'));
+    } else {
+      if (merging.detached) push('merge', t('start.merge.detached'), 'warn');
+      push('merge', t('start.merge.host', { host }));
+    }
+    push('leave', leave);
+  }
 
   // Who is responsible, by load; offline people are named (their items start and wait for them).
   const starting = new Set([...preflight.startsNow, ...preflight.waits.map((wait) => wait.itemId)]);
@@ -109,6 +153,8 @@ export function startLines(preflight: StartPreflight, plan: Pick<PlanInfo, 'item
           ? t('start.commit.you', { branch: commit.branch })
           : t('start.commit', { branch: commit.branch, name: commit.as.displayName }),
     ];
+    // smurg merges only into the branch the Start used (DESIGN 0.7.0 §3 point 3).
+    if (merging !== null && context.merging === 'auto' && offersMergeChoice(preflight) && commit.branch !== '') parts.push(t('start.commit.branch', { branch: commit.branch }));
     if (commit.alsoInFolder.length > 0) parts.push(t('start.commit.also', { files: formatList([...commit.alsoInFolder]) }));
     push('commit', joinSentences(parts));
   }

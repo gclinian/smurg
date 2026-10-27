@@ -320,6 +320,8 @@ export const zhTW = {
   'next.report.reviewers': '由 {names} 負責看。',
   'next.report.anyone': '除了「旁觀」的成員，任何人都可以看。',
   'next.report.open': '開啟報告',
+  'next.report.mergedAuto': '結果報告寫好了。smurg 已把變更合併到主工作區。',
+  'next.report.held': '結果報告寫好了。它沒有合併：{reason}。由 {names} 決定。',
 
   // ---- status bar
   'status.starting': 'Claude 正在啟動…',

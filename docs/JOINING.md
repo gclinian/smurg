@@ -155,7 +155,7 @@ What you should know about it:
   for the host and the members with agent access, who can act in that person's place. A result report does the same
   after six times that long (30 minutes by default). A suggestion stays in the inbox it went to; the host and every
   member with agent access can still accept it on its card.
-- A Viewer gets only mentions: "Nothing is waiting for you. As a viewer you get only mentions here."
+- A Viewer gets mentions and topics ready to check: "Nothing is waiting for you. As a viewer you get mentions and topics ready to check here."
 - A new item in "Agents are waiting" also shows a short notice with "Open" when its session is not on your screen.
 
 **The session list** (below the inbox) is grouped by topic. A topic's rows are fixed: "Discussion" (the session

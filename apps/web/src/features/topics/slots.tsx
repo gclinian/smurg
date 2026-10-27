@@ -1,6 +1,6 @@
 // What the topics feature contributes to the workspace shell (lib/slots.ts; P7/FOR-FEATURES.md):
 //
-//   columns.spec / plan / report / changes   the bodies of the topic columns, each loaded when first shown (the spec and
+//   columns.spec / plan / report / changes / result   the bodies of the topic columns, each loaded when first shown (the spec and
 //                                            plan columns bring the editor, so Monaco never loads with the page);
 //   overlays                                 the feature's dialogs and the handler of the command `newTopic`;
 //   menus.topic                              "Rename", "Restart discussion", "Archive topic" / "Restore topic",
@@ -45,6 +45,7 @@ export const slots = defineSlots({
     plan: lazyChunk(() => import('./PlanColumn.tsx')),
     report: lazyChunk(() => import('./ReportColumn.tsx')),
     changes: lazyChunk(() => import('./ChangesColumn.tsx')),
+    result: lazyChunk(() => import('./ResultColumn.tsx')),
   },
   overlays: [TopicsOverlay],
   menus: {

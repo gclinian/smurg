@@ -26,7 +26,11 @@ export type TopicDialog =
   /** "Restart discussion" (a lost discussion, or a fresh conversation for a long one). */
   | { readonly kind: 'restart'; readonly topicId: string }
   /** The host's "Merge…" of a result report's changes: the complete diff review. */
-  | { readonly kind: 'merge'; readonly requestId: string };
+  | { readonly kind: 'merge'; readonly requestId: string }
+  /** "Leave it out…" (protocol 6): the item and what depends on it, said before anything changes. */
+  | { readonly kind: 'leaveOut'; readonly topicId: string; readonly itemId: string }
+  /** The host's "Undo…" of items (protocol 6); `itemIds` null: "Undo the whole topic…". */
+  | { readonly kind: 'undo'; readonly topicId: string; readonly itemIds: readonly string[] | null };
 
 export interface TopicDialogs extends ReadableStore<TopicDialog | null> {
   open(dialog: TopicDialog): void;

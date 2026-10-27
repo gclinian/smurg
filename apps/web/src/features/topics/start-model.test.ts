@@ -3,7 +3,7 @@ import { buildPlan, buildWorkItem, FAKE_HASH } from '@smurg/protocol/testing';
 import { msg } from '@smurg/protocol/i18n';
 import type { StartPreflight } from '@smurg/protocol';
 import { describe, expect, it } from 'vitest';
-import { START_WAITS_SHOWN, startCount, startHeadCount, startLines, startedNotice } from './start-model.ts';
+import { START_WAITS_SHOWN, initialMerging, offersMergeChoice, startCount, startHeadCount, startLines, startMergingPatch, startedNotice } from './start-model.ts';
 
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
@@ -72,13 +72,20 @@ describe('the Start dialog’s lines', () => {
     expect(startedNotice(waiting)).toEqual({ title: '2 items start by themselves later.' });
   });
 
-  it('names the commit, as "you" for the caller, and what in the folder is NOT committed', () => {
+  it('names the commit, as "you" for the caller, the branch smurg merges into, and what in the folder is NOT committed', () => {
+    // 0.7.0 (on purpose, DESIGN D19): under automatic merging the line also says that smurg merges into that branch only.
     expect(textOf(startLines(preflight(), plan, MEI.userId), 'commit')).toEqual([
+      "smurg commits SPEC.md and PLAN.md to the branch main of the host's folder, as you. smurg merges each item into main; while the main workspace is on another branch, the merges wait for the host. Also in the folder and NOT committed: specs/checkout/notes.txt.",
+    ]);
+    expect(textOf(startLines(preflight(), plan, MEI.userId, { merging: 'host', host: 'Ian' }), 'commit')).toEqual([
       "smurg commits SPEC.md and PLAN.md to the branch main of the host's folder, as you. Also in the folder and NOT committed: specs/checkout/notes.txt.",
     ]);
     expect(textOf(startLines(preflight(), plan, IAN.userId), 'commit')[0]).toContain('as Mei.');
     const clean = preflight({ commit: { needed: false, branch: 'main', as: MEI, files: [], alsoInFolder: [] } });
-    expect(textOf(startLines(clean, plan, MEI.userId), 'commit')).toEqual(['SPEC.md and PLAN.md are already committed on the branch main: nothing new is committed.']);
+    expect(textOf(startLines(clean, plan, MEI.userId, { merging: 'host', host: 'Ian' }), 'commit')).toEqual(['SPEC.md and PLAN.md are already committed on the branch main: nothing new is committed.']);
+    expect(textOf(startLines(clean, plan, MEI.userId), 'commit')).toEqual([
+      'SPEC.md and PLAN.md are already committed on the branch main: nothing new is committed. smurg merges each item into main; while the main workspace is on another branch, the merges wait for the host.',
+    ]);
     expect(textOf(startLines(preflight({ commit: null }), plan, MEI.userId), 'commit')).toEqual([]);
   });
 
@@ -153,5 +160,46 @@ describe('the Start dialog’s lines', () => {
     expect(textOf(lines, 'waits')).toHaveLength(START_WAITS_SHOWN + 1);
     expect(textOf(lines, 'waits').at(-1)).toBe('2 more items wait for others.');
     expect(textOf(lines, 'waits')[0]).toBe('2 · T1 starts by itself when 1 · T0 is merged, if the spec and the plan are still what you see now.');
+  });
+});
+
+describe('how the items of a Start reach the main workspace (protocol 6, DESIGN 0.7.0 D3, D19)', () => {
+  it('automatic merging: what smurg merges, what stops the run, the end, and that nobody has to stay', () => {
+    const lines = startLines(preflight(), plan, MEI.userId, { merging: 'auto', host: 'Ian' });
+    expect(textOf(lines, 'merge')).toEqual([
+      "smurg merges each item into the main workspace for Ian when its report says complete, at least one check passed and none failed (the host's setting). What waits for it then starts from the merged workspace.",
+      "The run stops where a person must decide: a question, a request its mode asks, a report that is not complete and verified, work a person stopped or wrote to the agent about, files only the host may merge, the host's folder in the way, or a merge smurg cannot make cleanly by itself. Everything that does not depend on it goes on.",
+      "When every item is merged, every member's inbox says the topic is ready to check: each report, the combined change and what the agents say they verified, with a way to undo an item.",
+    ]);
+    expect(textOf(lines, 'leave')).toEqual(["You can close this page: the work goes on while smurg host runs on Ian's computer, also after it was restarted."]);
+    expect(textOf(startLines(preflight(), plan, IAN.userId, { merging: 'auto', host: null }), 'leave')).toEqual(['You can close this page: the work goes on while smurg host runs on your computer, also after it was restarted.']);
+  });
+
+  it('the host merges: chosen, the workspace\'s setting, or a detached HEAD (said first)', () => {
+    expect(textOf(startLines(preflight(), plan, MEI.userId, { merging: 'host', host: 'Ian' }), 'merge')).toEqual(['Each item\'s change waits for Ian to read its diff and merge it. The items that depend on it start after that merge.']);
+    const workspace = preflight({ merging: { workspace: 'host', proposed: 'host', detached: false } });
+    expect(offersMergeChoice(workspace)).toBe(false);
+    expect(initialMerging(workspace)).toBe('host');
+    expect(textOf(startLines(workspace, plan, MEI.userId, { merging: 'auto', host: 'Ian' }), 'merge')).toEqual(['Each item\'s change waits for Ian to read its diff and merge it. The items that depend on it start after that merge.']);
+    const detached = preflight({ merging: { workspace: 'auto', proposed: 'host', detached: true } });
+    const lines = startLines(detached, plan, MEI.userId, { merging: 'host', host: 'Ian' });
+    expect(textOf(lines, 'merge')[0]).toBe('The main workspace is not on a branch (a detached HEAD), so the host merges each item of this Start.');
+    expect(lines.find((line) => line.id === 'merge')?.tone).toBe('warn');
+    expect(offersMergeChoice(detached)).toBe(false);
+  });
+
+  it('what is chosen first and what plan.start sends: merging host only for the stricter choice', () => {
+    expect(initialMerging(preflight())).toBe('auto');
+    expect(initialMerging(preflight({ merging: { workspace: 'auto', proposed: 'host', detached: false } }))).toBe('host');
+    expect(startMergingPatch(preflight(), 'auto')).toBeUndefined();
+    expect(startMergingPatch(preflight(), 'host')).toEqual({ merging: 'host' });
+    expect(startMergingPatch(preflight({ merging: { workspace: 'host', proposed: 'host', detached: false } }), 'host')).toBeUndefined();
+  });
+
+  it('items that run directly in the folder have nothing to merge: no merge lines', () => {
+    const direct = preflight({ history: 'direct', direct: { reason: { text: msg('worktree.unavailable.gitNotFound', { minVersion: '2.42.0' }), fallback: 'no git' }, hostOnly: false }, merging: null, commit: null });
+    const lines = startLines(direct, plan, IAN.userId, { merging: 'host', host: null });
+    expect(textOf(lines, 'merge')).toEqual([]);
+    expect(textOf(lines, 'leave')).toEqual([]);
   });
 });

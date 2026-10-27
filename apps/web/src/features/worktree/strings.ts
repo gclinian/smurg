@@ -31,7 +31,7 @@ export const t = defineStrings(
     'list.empty': "No merge requests yet. The host and members with agent access can ask the host to merge a worktree's changes into the main workspace.",
     'list.pendingTitle': 'Waiting for review ({count})',
     'list.decidedTitle': 'Decided',
-    'list.draftsTitle': 'Work items nobody reviewed yet',
+    'list.draftsTitle': 'Work items not merged yet',
     'item.title': 'Merge request from {name}',
     'item.titleDraft': 'Changes of a work item',
     'item.branch': 'Branch {branch}',
@@ -46,6 +46,8 @@ export const t = defineStrings(
     'status.conflict': 'Merge conflict',
     'detail.pendingRequester': 'The host is reviewing it. Changes made in the worktree after the request are not part of it.',
     'detail.merged': 'Merged into the main workspace {time}.',
+    // A merge smurg made on the host's standing consent (protocol 6, DESIGN 0.7.0 D7).
+    'merge.byAuto': 'Merged by smurg for {host}',
     'detail.rejected': 'The host rejected this request; the worktree is unchanged. Reason: {reason}',
     'detail.rejectedNoReason': 'The host rejected this request; the worktree is unchanged.',
     'detail.conflict': 'The merge was aborted and the main workspace is unchanged. Files in conflict:',

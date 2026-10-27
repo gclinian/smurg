@@ -616,7 +616,7 @@ export const slots = defineSlots({
 |---|---|---|
 | `columns.conversation` `{ sessionId }` | an agent session's conversation | `conversation` |
 | `columns.terminal` `{ sessionId }` | a plain terminal | `agents` |
-| `columns.spec` `{ topicId }`, `columns.plan` `{ topicId }`, `columns.report` `{ topicId, itemId }`, `columns.changes` `{ requestId }` | a topic's spec, its plan, a work item's result report, a merge request without a report | `topics` |
+| `columns.spec` `{ topicId }`, `columns.plan` `{ topicId }`, `columns.report` `{ topicId, itemId }`, `columns.changes` `{ requestId }`, `columns.result` `{ topicId }` | a topic's spec, its plan, a work item's result report, a merge request without a report, a topic's Result (0.7.0) | `topics` |
 | `overlays` | components mounted once in the shell for as long as the workspace is open, in both views (not in the console page): dialogs, toasts, command handlers. Each in its own silent error boundary and `Suspense` | `agents` (New session), `conversation`, `topics` (New topic, the Start dialog), `console` (the handlers of `reviewProjectSettings`, `showHostRules` and `redactEvent`, and their three dialogs), `worktree` |
 | `menus.session(session, env)` | extra items of a session row's context menu, after the shell's "Open" and "Open to the side" | `conversation` (an agent session: rename, end), `agents` (a terminal: attach, end, terminate) |
 | `menus.topic(topic, env)` | a topic's "More actions", after the shell's "Watch its running sessions side by side" | `topics` (rename, restart the discussion, archive, restore, delete) |
@@ -885,7 +885,8 @@ contract they are built to (DESIGN §5.5 and §5.12 items 10 to 17).
     (`docs/ARCHITECTURE.md` §5.2).
 - **Next-step cards.** Their text and buttons are the web's, from facts, never the model's prose: after the spec
   draft "Generate plan" for members with agent access and who can do it for the others; after the plan "Open plan";
-  after a report "Open report" and who reviews it.
+  after a report "Open report" and who reviews it, or, for a work item smurg merges by itself (0.7.0), that smurg
+  merged the change, or why it did not and who decides.
 - **Composer.** `session.message.send` for the host and members with agent access; `suggest.create` for an Editor
   (the same box, with the line that says where the suggestion goes); no box for a Viewer. Enter sends, never while an
   input method is composing (`event.isComposing`). `@` opens the member picker and fills `mentions`. The placeholder
@@ -942,7 +943,9 @@ three changes.
   tab: a merge request is an inbox item and a report or Changes column. A merge row of the host's inbox opens the
   item's RESULT REPORT when that report is about the row's request (`inboxTarget` in `features/sidebar/inbox-rows.ts`:
   the report's `changes.requestId` is the row's): the outcome, the checks and "Merge…" are there, and after a
-  conflict "Ask the agent to resolve" in the report's foot. Any other request opens the Changes column of that
+  conflict "Ask the agent to resolve" in the report's foot. A work item smurg merges by itself has no merge row (0.7.0):
+  when its merge needs a person, a decision row leads to its report, whose foot says why and what each person may do.
+  Any other request opens the Changes column of that
   request: a free session's worktree, a work item nobody reported on, an archived topic, and a request somebody
   made after the report (a hand edit in the item's worktree, then "Request merge"). The report must be in the
   store to know, so the inbox asks about it when the row appears (`reportsToLoad`, `knowReport`: once per item,
@@ -1278,7 +1281,9 @@ screen is built to.
 - **The inbox** is derived by the daemon and is the member's own (`inbox.list` answers the caller's items). Kinds:
   a question to decide, an open vote, a permission request, work that stopped and needs someone ("attention": an
   agent that stopped without a report, a failed or unstarted item, plans paused by a restart, the host's account), a
-  suggestion, a report to review, a merge (the host), a mention, a result. An item opens its `target` in a column and
+  suggestion, a report to review, a merge (the host), a mention, a result; since 0.7.0 a decision (a work item smurg
+  did not merge by itself, for the person who decides: why, and what waits for it) and a topic ready to check (for
+  every member, Viewers included, with the tally; it opens the topic's Result). An item opens its `target` in a column and
   scrolls to its `anchor`; a console target navigates to the console's section. Rows are composed by
   `features/sidebar/inbox-rows.ts`; a feature overrides a kind through `inboxRows` only where it knows better.
 - **Topics.** A topic has one discussion session, the files `specs/<slug>/SPEC.md` and `PLAN.md` in the project, and
@@ -1429,8 +1434,8 @@ column standing". Three cross the features:
 
 | File | What it walks through |
 |---|---|
-| `flow.smoke.test.ts` | The owner's whole flow as ONE story in 23 tests, four browser contexts: Ian (Host), Mei (Agent access, on a zh-TW page), Amy (Editor), Leo (Viewer). New topic with the folder's project settings confirmed in the dialog; a question in two parts with votes, a comment, a mention, a tie and the submit; the spec, edited by two people while the agent waits its turn; a revision asked for as a suggestion; Generate plan, the proposed split, the Start dialog and its commit; three sessions side by side (T4.3); a spec edit that disarms an item; permission cards (once, never-always, always in this topic); a question nobody answers until the host submits for its decider; an agent that stops without a report; a partial report, a follow-up and "I've reviewed this"; the merge from the host's inbox, a merge conflict the agent resolves; the topic complete; the mode switch (T7.1); one more work item; a restart of the host's smurg with "Continue all"; a killed agent process and "Try again"; and at the end what the Viewer could not do, and what the flow sent through the relay. About 114 s |
-| `flow.zh-TW.smoke.test.ts` | The short path of the flow by a host on a zh-TW page, with a topic named in Chinese, and an Editor on an English page (T8.2): at every stop the Chinese page holds no label nobody translated (`untranslatedTexts`), the English page no Chinese besides what people and the agent wrote (`cjkTexts`) |
+| `flow.smoke.test.ts` | The owner's whole flow as ONE story in 26 tests, four browser contexts: Ian (Host), Mei (Agent access, on a zh-TW page), Amy (Editor), Leo (Viewer). New topic with the folder's project settings confirmed in the dialog; a question in two parts with votes, a comment, a mention, a tie and the submit; the spec, edited by two people while the agent waits its turn; a revision asked for as a suggestion; Generate plan, the proposed split, the Start dialog and its commit; three sessions side by side (T4.3); a spec edit that disarms an item; permission cards (once, never-always, always in this topic); a question nobody answers until the host submits for its decider; an agent that stops without a report; a partial report, a follow-up and "I've reviewed this"; the merge from the host's inbox, a merge conflict the agent resolves; the topic complete; the mode switch (T7.1); one more work item; Ian's "Pause" and a restart of the host's smurg with "Continue all"; a killed agent process and "Try again"; all of it under "I merge each item myself" (the host's flow). Then automatic merging (0.7.0): Ian turns it on in the host console, a second topic runs to "Ready to check" with nobody pressing review or merge, the item whose report says partial is a decision Mei leaves out, the topic is in every inbox (Leo's too), its Result, and Amy's "I've checked the result"; and at the end what the Viewer could not do, and what the flow sent through the relay. About 120 s |
+| `flow.zh-TW.smoke.test.ts` | The short path of the flow by a host on a zh-TW page, with a topic named in Chinese, and an Editor on an English page (T8.2): the first item started with "The host merges each item" (review, then the host's merge), the second with the workspace's automatic merging (merged by smurg, ready to check, the Result, "I've checked the result"); at every stop the Chinese page holds no label nobody translated (`untranslatedTexts`), the English page no Chinese besides what people and the agent wrote (`cjkTexts`) |
 | `flow.claude.smoke.test.ts` | Layer 3 above |
 
 `e2e/smoke/flow-env.ts` is the flow's own stack: the same parts as `startSmoke`, but the daemon can restart in the

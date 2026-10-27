@@ -408,10 +408,11 @@ describe('the plan column: executing', () => {
   });
 
   it('the host gets "Open the next one to merge"; a merge conflict offers the agent', async () => {
+    // (0.7.0, on purpose: "Waits for the host to merge" only for items the host merges, R-SAFE S17.)
     const reviewed = buildPlan({
       items: [
-        buildWorkItem({ id: 'a', number: 1, title: 'Cart API', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_1', status: 'conflict', ready: true } }),
-        buildWorkItem({ id: 'b', number: 2, title: 'Payment form', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'draft', ready: true } }),
+        buildWorkItem({ id: 'a', number: 1, title: 'Cart API', state: 'reviewed', attempt: 1, merging: 'host', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_1', status: 'conflict', ready: true } }),
+        buildWorkItem({ id: 'b', number: 2, title: 'Payment form', state: 'reviewed', attempt: 1, merging: 'host', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'draft', ready: true } }),
         buildWorkItem({ id: 'c', number: 3, title: 'Checkout page', state: 'waiting', armed: true, dependsOn: ['a', 'b'] }),
       ],
     });
@@ -440,18 +441,19 @@ describe('the plan column: executing', () => {
 });
 
 describe('the plan column: topic complete', () => {
+  // 0.7.0 (on purpose, DESIGN D13): a complete topic has no unmerged item any more ("Not merged yet …" is gone).
   const DONE: PlanInfo = buildPlan({
     items: [
-      buildWorkItem({ id: 'a', number: 1, title: 'Cart API', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
-      buildWorkItem({ id: 'b', number: 2, title: 'Checkout page', state: 'reviewed', attempt: 1, report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'draft', ready: true } }),
+      buildWorkItem({ id: 'a', number: 1, title: 'Cart API', state: 'reviewed', attempt: 1, merging: 'host', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
+      buildWorkItem({ id: 'b', number: 2, title: 'Checkout page', state: 'reviewed', attempt: 1, merging: 'host', report: buildReportSummary({ state: 'reviewed' }), merge: { requestId: 'mr_2', status: 'merged', ready: false } }),
     ],
   });
-  const COMPLETE: Topic = { ...TOPIC, phase: 'complete', plan: planOf({ items: 2, started: 2, reviewed: 2, merged: 1 }) };
+  const COMPLETE: Topic = { ...TOPIC, phase: 'complete', plan: planOf({ items: 2, started: 2, reviewed: 2, merged: 2 }) };
 
-  it('says what is still not merged and offers to archive the topic', async () => {
+  it('says that every report was reviewed and offers to archive the topic', async () => {
     const { dialog } = await setup({ topic: COMPLETE, plan: DONE });
     expect(screen.getByText('Topic complete')).toBeTruthy();
-    expect(screen.getByText("Every result report has been reviewed. Not merged yet: 2 · Checkout page (in the host's inbox).")).toBeTruthy();
+    expect(screen.getByText('Every result report has been reviewed.')).toBeTruthy();
     expect(screen.getByText('2 of 2 reviewed')).toBeTruthy();
     expect(screen.queryByText('Who is responsible')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ask the agent to revise' })).toBeNull();
@@ -459,9 +461,83 @@ describe('the plan column: topic complete', () => {
     expect(dialog()).toEqual({ kind: 'archive', topicId: 'tp_1' });
   });
 
+  it('a topic whose result was checked says who checked it', async () => {
+    await setup({ topic: { ...COMPLETE, checked: { by: AMY, at: T0 } }, plan: DONE });
+    expect(screen.getByText(/^Checked by Amy at .+\.$/)).toBeTruthy();
+  });
+
   it('an archived topic is read-only', async () => {
     await setup({ topic: { ...COMPLETE, archived: true }, plan: DONE });
     expect(screen.getAllByText('This topic is archived. Restore it to continue.').length).toBeGreaterThan(0);
     expect(screen.queryByRole('button', { name: 'Archive topic' })).toBeNull();
+  });
+});
+
+describe('the plan column: work items smurg merges by itself (protocol 6, DESIGN 0.7.0 D19)', () => {
+  const held = { state: 'held' as const, reason: 'partial' as const, since: T0, tries: 0, hostOnly: false, escalated: false };
+  const AUTO: PlanInfo = buildPlan({
+    items: [
+      item('cart-api', 1, { state: 'done', attempt: 1, merging: 'auto', merged: { at: T0, by: 'smurg' }, report: buildReportSummary(), merge: { requestId: 'mr_1', status: 'merged', ready: false }, responsible: { ...IAN, source: 'agent' } }),
+      item('payment-form', 2, { state: 'done', attempt: 1, merging: 'auto', autoMerge: held, report: buildReportSummary({ outcome: 'partial' }), responsible: { ...MEI, source: 'agent' } }),
+      item('checkout-page', 3, { state: 'waiting', armed: true, dependsOn: ['cart-api', 'payment-form'], waitsFor: ['payment-form'], responsible: { ...MEI, source: 'smurg' } }),
+    ],
+    waitingFor: [{ user: MEI, questions: 0, permissions: 0, reports: 0, decisions: 1, since: T0 }],
+  });
+  const RUNNING_AUTO: Topic = { ...TOPIC, phase: 'executing', plan: planOf({ started: 2, merged: 1 }) };
+
+  it('counts merges, says that it runs by itself, names the decision and who decides, and what waits for it', async () => {
+    const { openColumn } = await setup({ topic: RUNNING_AUTO, plan: AUTO });
+    expect(screen.getByText('1 of 3 merged')).toBeTruthy();
+    expect(screen.getByText('1 waits for a decision · 1 not started')).toBeTruthy();
+    expect(screen.getByText(/Mei 1 decision/)).toBeTruthy();
+    expect(screen.getByText('Running by itself: smurg merges each item whose report says complete and verified, and starts what waits for it.')).toBeTruthy();
+    expect(screen.getByText('2 · Payment form was not merged: not complete (partial). Mei decides. The items that do not depend on it go on.')).toBeTruthy();
+    expect(within(row('Cart API')).getByText('Merged')).toBeTruthy();
+    expect(within(row('Payment form')).getByText('Not merged: not complete (partial)')).toBeTruthy();
+    expect(within(row('Checkout page')).getByText('Waits for a decision on 2')).toBeTruthy();
+    expect(screen.getByText(/^Each item whose report says complete and verified is merged by smurg; the work stops only for a decision\./)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Open' }));
+    expect(openColumn).toHaveBeenLastCalledWith({ target: { kind: 'report', topicId: 'tp_1', itemId: 'payment-form' }, side: true });
+  });
+
+  it('"Pause" for agent access, and a person\'s pause says who paused it, with "Continue all"', async () => {
+    const { conn, dialog } = await setup({ topic: RUNNING_AUTO, plan: AUTO });
+    fireEvent.click(screen.getByRole('button', { name: 'Pause' }));
+    expect(conn.lastRequest('plan.pause')?.payload).toEqual({ topicId: 'tp_1' });
+    fireEvent.click(within(row('Payment form')).getByRole('button', { name: 'Leave it out…' }));
+    expect(dialog()).toEqual({ kind: 'leaveOut', topicId: 'tp_1', itemId: 'payment-form' });
+    const paused = await setup({ topic: { ...RUNNING_AUTO, plan: planOf({ started: 2, merged: 1, paused: true, pausedBy: AMY }) }, plan: { ...AUTO, paused: true } });
+    expect(within(paused.container).getByText('Amy paused this plan: nothing starts, merges or continues by itself until someone continues it (a merge already under way finishes).')).toBeTruthy();
+    expect(within(paused.container).queryByText("smurg was restarted on the host's computer")).toBeNull();
+    expect(within(paused.container).queryByRole('button', { name: 'Pause' })).toBeNull();
+    fireEvent.click(within(paused.container).getByRole('button', { name: 'Continue all' }));
+    expect(paused.conn.lastRequest('plan.resume')?.payload).toEqual({ topicId: 'tp_1' });
+  });
+
+  it('an editor has no Pause and no Leave it out; the host undoes a merged item', async () => {
+    await setup({ role: 'editor', topic: RUNNING_AUTO, plan: AUTO });
+    expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Undo…' })).toBeNull();
+    const host = await setup({ role: 'host', topic: RUNNING_AUTO, plan: AUTO });
+    fireEvent.click(within(host.container).getAllByRole('button', { name: 'Undo…' })[0] as HTMLElement);
+    expect(host.dialog()).toEqual({ kind: 'undo', topicId: 'tp_1', itemIds: ['cart-api'] });
+  });
+
+  it('ready to check: the banner leads to the Result', async () => {
+    const settled = buildPlan({
+      items: [
+        item('cart-api', 1, { state: 'reviewed', attempt: 1, merging: 'auto', merged: { at: T0, by: 'smurg' }, report: buildReportSummary({ state: 'reviewed', review: { by: IAN, at: T0, version: 1 } }), merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
+        item('payment-form', 2, { state: 'stopped', attempt: 1, merging: 'auto', leftOut: { by: MEI, at: T0 } }),
+      ],
+    });
+    const { openColumn } = await setup({ topic: { ...TOPIC, phase: 'ready', plan: planOf({ items: 2, started: 2, merged: 1, leftOut: 1 }) }, plan: settled });
+    expect(screen.getByText('Ready to check')).toBeTruthy();
+    expect(screen.getByText('Every item is merged into the main workspace. Look at the result: the reports, the combined change and what the agents say they verified.')).toBeTruthy();
+    expect(within(row('Cart API')).getByText('Merged · reviewed')).toBeTruthy();
+    expect(within(row('Payment form')).getByText('Left out')).toBeTruthy();
+    expect(screen.queryByText('Who is responsible')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Open the result' }));
+    expect(openColumn).toHaveBeenLastCalledWith({ target: { kind: 'result', topicId: 'tp_1' }, side: true });
   });
 });

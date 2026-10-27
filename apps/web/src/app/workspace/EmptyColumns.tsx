@@ -3,6 +3,7 @@
 import { NoCommandHandlerError } from '../../lib/commands.ts';
 import { describeError } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectSettings } from '../../lib/stores/workspace.ts';
 import { useCan, useCommands, useStores } from '../../lib/workspace/context.tsx';
 import { tWorkbench } from '../../strings/workbench.ts';
 import { Button, useToast } from '../../ui/index.ts';
@@ -19,6 +20,8 @@ export function EmptyColumns() {
   const noTopics = useStore(stores.topics, (state) => state.status === 'ready' && state.topics.size === 0);
   const noSessions = useStore(stores.sessions, (state) => state.status === 'ready' && state.sessions.size === 0);
   const firstRun = noTopics && noSessions;
+  // The last step says who merges: smurg (the workspace's setting, 0.7.0) or the host.
+  const hostMerges = useStore(stores.workspace, (state) => selectSettings(state)?.merging === 'host');
 
   const start = (what: 'topic' | 'session'): void => {
     const done = what === 'topic' ? commands.dispatch('newTopic', {}) : commands.dispatch('newSession', { kind: 'agent' });
@@ -34,8 +37,8 @@ export function EmptyColumns() {
           {STEPS.map((step, index) => (
             <li key={step}>
               <span className="app-steps__n">{tWorkbench('empty.first.step', { number: index + 1 })}</span>
-              <span className="app-steps__t">{tWorkbench(`empty.first.${step}`)}</span>
-              <span>{tWorkbench(`empty.first.${step}.body`)}</span>
+              <span className="app-steps__t">{step === 'execute' && hostMerges ? tWorkbench('empty.first.execute.host') : tWorkbench(`empty.first.${step}`)}</span>
+              <span>{step === 'execute' && hostMerges ? tWorkbench('empty.first.execute.body.host') : tWorkbench(`empty.first.${step}.body`)}</span>
             </li>
           ))}
         </ol>

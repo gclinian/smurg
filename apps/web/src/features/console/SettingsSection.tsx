@@ -10,8 +10,23 @@
 // warning's own button, and never while smurg runs as root. Under it: what auto mode costs, what the host's Claude
 // Code turned off, and which live sessions run on a model that may bill usage credits. After the 0.6.0 update a banner
 // says that agents now run in auto mode, until the host presses "Got it".
+//
+// How work items reach the shared folder (protocol 6, DESIGN 0.7.0 D3, D18): "Merging work items", smurg merges what
+// its report says is complete and verified, or the host merges each item. It applies as soon as it is chosen; after
+// the 0.7.0 update a banner says that work items now merge by themselves, until the host presses "Got it".
 import { useEffect, useId, useRef, useState } from 'react';
-import { ESCALATE_AFTER_MS_DEFAULT, MAX_LIVE_AGENTS_RANGE, PERMISSION_MODES, REPORT_ESCALATION_FACTOR, isSessionOver, type HostSettings, type PermissionMode } from '@smurg/protocol';
+import {
+  ESCALATE_AFTER_MS_DEFAULT,
+  MAX_LIVE_AGENTS_RANGE,
+  MERGE_POLICIES,
+  PERMISSION_MODES,
+  REPORT_ESCALATION_FACTOR,
+  isSessionOver,
+  type HostNotice,
+  type HostSettings,
+  type MergePolicy,
+  type PermissionMode,
+} from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
 import { formatList } from '../../lib/format.ts';
 import { useStore } from '../../lib/store.ts';
@@ -40,23 +55,27 @@ export function SettingsSection() {
   }
   return (
     <>
-      <AgentsAutoBanner />
+      <NoticeBanner notice="agents-auto" text={t('settings.agentsAuto.banner')} />
+      <NoticeBanner notice="auto-merge" text={t('settings.mergesAuto.banner')} />
       <SettingsForm settings={settings} />
     </>
   );
 }
 
-/** "Since smurg 0.6.0, agents run in auto mode…": while the host's inbox holds that notice (`agents-auto`). */
-function AgentsAutoBanner() {
+/**
+ * "Since smurg 0.6.0, agents run in auto mode…" (`agents-auto`) and "Since smurg 0.7.0, work items merge by
+ * themselves…" (`auto-merge`): each while the host's inbox holds that notice, until "Got it".
+ */
+function NoticeBanner({ notice, text }: { notice: HostNotice; text: string }) {
   const stores = useStores();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const shown = useStore(stores.inbox, (state) => [...state.items.values()].some((item) => item.kind === 'attention' && item.subject === 'agents-auto'));
+  const shown = useStore(stores.inbox, (state) => [...state.items.values()].some((item) => item.kind === 'attention' && item.subject === notice));
   if (!shown) return null;
   const dismiss = (): void => {
     setBusy(true);
     stores.admin
-      .seeNotice('agents-auto')
+      .seeNotice(notice)
       .catch((error: unknown) => toast.show({ tone: 'danger', title: t('settings.saveFailed', { message: describeError(error) }) }))
       .finally(() => setBusy(false));
   };
@@ -71,8 +90,45 @@ function AgentsAutoBanner() {
         </Button>
       }
     >
-      {t('settings.agentsAuto.banner')}
+      {text}
     </Banner>
+  );
+}
+
+/** "Merging work items": applies when chosen (turning it off gives every started item to the host at once). */
+function Merging({ settings }: { settings: HostSettings }) {
+  const stores = useStores();
+  const toast = useToast();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const choose = (next: MergePolicy): void => {
+    if (next === settings.merging) return;
+    setBusy(true);
+    setError(null);
+    stores.admin
+      .setSettings({ merging: next })
+      .then(
+        () => toast.show({ tone: 'success', title: t('settings.saved') }),
+        (failure: unknown) => setError(t('settings.saveFailed', { message: describeError(failure) })),
+      )
+      .finally(() => setBusy(false));
+  };
+  return (
+    <div className="console-settings__mode">
+      <Select<MergePolicy>
+        label={t('settings.merging')}
+        hint={t('settings.mergingHint')}
+        value={settings.merging}
+        disabled={busy}
+        options={MERGE_POLICIES.map((value) => ({ value, label: t(`settings.merging.${value}`) }))}
+        onChange={choose}
+      />
+      {error !== null ? (
+        <Banner tone="danger" live="alert">
+          {error}
+        </Banner>
+      ) : null}
+    </div>
   );
 }
 
@@ -290,6 +346,7 @@ function SettingsForm({ settings }: { settings: HostSettings }) {
       </div>
       <h3 className="console-settings__group">{t('settings.agents')}</h3>
       <AgentMode settings={settings} />
+      <Merging settings={settings} />
       <div className="console-settings__grid">
         <Input
           label={t('settings.maxLiveAgents')}

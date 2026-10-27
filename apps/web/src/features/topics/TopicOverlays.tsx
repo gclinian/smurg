@@ -9,7 +9,7 @@ import { topicDialogs } from './dialogs.ts';
 import { NewTopicDialog } from './NewTopicDialog.tsx';
 import { PlanChangesDialog } from './PlanChanges.tsx';
 import { StartDialog } from './StartDialog.tsx';
-import { ArchiveTopicDialog, DeleteTopicDialog, RenameTopicDialog, RestartDiscussionDialog, RestoreTopic } from './TopicDialogs.tsx';
+import { ArchiveTopicDialog, DeleteTopicDialog, LeaveOutDialog, RenameTopicDialog, RestartDiscussionDialog, RestoreTopic, UndoDialog } from './TopicDialogs.tsx';
 import './topics.css';
 
 export default function TopicOverlays() {
@@ -39,5 +39,9 @@ export default function TopicOverlays() {
       return <RestartDiscussionDialog key={dialog.topicId} topicId={dialog.topicId} onClose={close} />;
     case 'merge':
       return <MergeReviewDialog requestId={dialog.requestId} onClose={close} />;
+    case 'leaveOut':
+      return <LeaveOutDialog key={`${dialog.topicId}:${dialog.itemId}`} topicId={dialog.topicId} itemId={dialog.itemId} onClose={close} />;
+    case 'undo':
+      return <UndoDialog key={`${dialog.topicId}:${dialog.itemIds?.join(',') ?? '*'}`} topicId={dialog.topicId} itemIds={dialog.itemIds} onClose={close} />;
   }
 }

@@ -282,7 +282,7 @@ describe('the inbox', () => {
     expect(inboxSection().textContent).not.toContain('As a viewer');
     document.body.innerHTML = '';
     await mountSidebar({ role: 'viewer' });
-    expect(inboxSection().textContent).toContain('Nothing is waiting for you. As a viewer you get only mentions here.');
+    expect(inboxSection().textContent).toContain('Nothing is waiting for you. As a viewer you get mentions and topics ready to check here.');
   });
 
   it('the preview of the empty right side: the first things that wait, with "Open"', async () => {

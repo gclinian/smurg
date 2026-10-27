@@ -1,6 +1,6 @@
 // The topic's dialogs as the shell mounts them (overlays), the items the feature adds to a topic's menu, and the
 // inbox row it knows better.
-import { SmurgError, unmergedError, type Role, type Topic } from '@smurg/protocol';
+import { SmurgError, unmergedError, type PlanInfo, type Role, type Topic, type UndoPreview } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildAgentSession, buildInboxItem, buildMergeRequest, buildPlan, buildReportSummary, buildTopic, buildWorkItem, buildWorktree } from '@smurg/protocol/testing';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
@@ -24,9 +24,9 @@ const PLAN = buildPlan({
   ],
 });
 
-async function setup(options: { role?: Role; topic?: Topic } = {}) {
+async function setup(options: { role?: Role; topic?: Topic; plan?: PlanInfo } = {}) {
   const topic = options.topic ?? TOPIC;
-  const world = { role: options.role ?? ('agent' as Role), topics: topic.archived ? [] : [topic], plans: { [topic.id]: PLAN }, worktrees: [buildWorktree()], requests: [buildMergeRequest()] };
+  const world = { role: options.role ?? ('agent' as Role), topics: topic.archived ? [] : [topic], plans: { [topic.id]: options.plan ?? PLAN }, worktrees: [buildWorktree()], requests: [buildMergeRequest()] };
   const conn = topicConnection(world);
   if (topic.archived) conn.handle('topic.list', (payload) => ({ topics: payload.archived === true ? [topic] : [], hasMore: false }));
   const context = createTestWorkspace({ conn, admit: false });
@@ -246,5 +246,122 @@ describe('what the topics feature registers with the shell', () => {
     expect(slots.inboxRows?.attention?.(item, base, env('editor'))).toBe(base);
     const stalled = buildInboxItem('attention', { subject: 'item-stalled', topicId: 'tp_1', itemId: 'payment-form', item: { number: 2, title: 'Payment form' } });
     expect(slots.inboxRows?.attention?.(stalled, base, agent)).toBe(base);
+  });
+});
+
+describe('the topic overlays: Leave it out and Undo (protocol 6, DESIGN 0.7.0 D11, D14)', () => {
+  const EXECUTING: Topic = { ...TOPIC, phase: 'executing' };
+  const RUNNING = buildPlan({
+    items: [
+      buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', attempt: 1, merging: 'auto', merged: { at: 1, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }),
+      buildWorkItem({ id: 'payment-form', number: 2, title: 'Payment form', state: 'done', attempt: 1, merging: 'auto' }),
+      buildWorkItem({ id: 'checkout-page', number: 3, title: 'Checkout page', state: 'waiting', armed: true, dependsOn: ['payment-form'] }),
+      buildWorkItem({ id: 'receipt', number: 4, title: 'Receipt', state: 'not-started', armed: true, dependsOn: ['checkout-page'] }),
+    ],
+  });
+  const ref = (itemId: string, number: number, title: string, topic = { topicId: 'tp_1', topicName: 'Checkout' }) => ({ ...topic, itemId, number, title });
+  const preview = (overrides: Partial<UndoPreview> = {}): UndoPreview => ({
+    token: 'a'.repeat(64),
+    history: 'folder',
+    undone: [{ ...ref('cart-api', 1, 'Cart API'), why: 'asked' }],
+    leftOut: [],
+    blockers: { running: [], changedSince: [], typing: [], uncommitted: [], staged: false, busy: false, branch: null, unavailable: null },
+    ok: true,
+    ...overrides,
+  });
+
+  it('"Leave out {item}?" names what depends on it before anything changes', async () => {
+    const { conn, open, dialogs } = await setup({ topic: EXECUTING, plan: RUNNING });
+    open({ kind: 'leaveOut', topicId: 'tp_1', itemId: 'payment-form' });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Leave out 2 · Payment form?' });
+    expect(within(dialog).getByText('Its change is not merged. 3 · Checkout page and 4 · Receipt depend on it and are left out too.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Leave out' }));
+    expect(conn.lastRequest('plan.item.leaveOut')?.payload).toEqual({ topicId: 'tp_1', itemId: 'payment-form' });
+    await act(async () => {
+      conn.respond('plan.item.leaveOut', { plan: RUNNING });
+    });
+    expect(dialogs.getState()).toBeNull();
+    open({ kind: 'leaveOut', topicId: 'tp_1', itemId: 'receipt' });
+    expect(within(await screen.findByRole('alertdialog', { name: 'Leave out 4 · Receipt?' })).getByText('Its change is not merged. Its session ends; its worktree is kept.')).toBeTruthy();
+  });
+
+  it('Undo: the preview first, what goes with it (items of another topic named with their topic), then one press with its token', async () => {
+    const { conn, open, dialogs } = await setup({ role: 'host', topic: EXECUTING, plan: RUNNING });
+    open({ kind: 'undo', topicId: 'tp_1', itemIds: ['cart-api'] });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Undo 1 · Cart API?' });
+    expect(within(dialog).getByText('Looking at what the undo would do…')).toBeTruthy();
+    expect(conn.lastRequest('topic.undo.preview')?.payload).toEqual({ topicId: 'tp_1', itemIds: ['cart-api'] });
+    expect(conn.lastRequest('topic.undo.preview')?.options).toEqual({ timeoutMs: 300_000 });
+    await act(async () => {
+      conn.respond('topic.undo.preview', {
+        preview: preview({
+          undone: [{ ...ref('cart-api', 1, 'Cart API'), why: 'asked' }, { ...ref('search', 2, 'Search', { topicId: 'tp_2', topicName: 'Search page' }), why: 'same-lines' }],
+          leftOut: [ref('checkout-page', 3, 'Checkout page')],
+        }),
+      });
+    });
+    expect(within(dialog).getByText(/^smurg takes the change back out of the main workspace with one new commit\. The reports and conversations stay\./)).toBeTruthy();
+    expect(within(dialog).getByText('Undone with it, because they changed the same lines later: 2 · Search of Search page.')).toBeTruthy();
+    expect(within(dialog).getByText('Left out, because they wait for it: 3 · Checkout page.')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Undo' }));
+    expect(conn.lastRequest('topic.undo')?.payload).toEqual({ topicId: 'tp_1', itemIds: ['cart-api'], token: 'a'.repeat(64) });
+    await act(async () => {
+      conn.respond('topic.undo', { plan: RUNNING });
+    });
+    expect(dialogs.getState()).toBeNull();
+  });
+
+  it('Undo is disabled while something stops it, each blocker named; the whole topic in smurg\'s own history', async () => {
+    const { conn, open } = await setup({ role: 'host', topic: EXECUTING, plan: RUNNING });
+    open({ kind: 'undo', topicId: 'tp_1', itemIds: null });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Undo every item of Checkout?' });
+    expect(conn.lastRequest('topic.undo.preview')?.payload).toEqual({ topicId: 'tp_1', itemIds: null });
+    await act(async () => {
+      conn.respond('topic.undo.preview', {
+        preview: preview({
+          history: 'smurg',
+          ok: false,
+          blockers: {
+            running: [ref('checkout-page', 3, 'Checkout page')],
+            changedSince: [{ path: 'src/cart.ts', by: [{ userId: 'dev:amy', displayName: 'Amy' }], outside: false }, { path: 'README.md', by: [], outside: true }],
+            typing: [{ path: 'src/a.ts', names: [{ userId: 'dev:mei', displayName: 'Mei' }] }],
+            uncommitted: ['src/b.ts'],
+            staged: true,
+            busy: true,
+            branch: { expected: 'main', current: 'experiment' },
+            unavailable: null,
+          },
+        }),
+      });
+    });
+    expect(within(dialog).getByText(/^smurg takes the change back out of the shared folder with one new change in its own history\./)).toBeTruthy();
+    expect(within(dialog).getByText('smurg cannot undo it now:')).toBeTruthy();
+    for (const line of [
+      '3 · Checkout page depend on it and are running: wait for them, or stop them.',
+      'src/cart.ts was changed on the same lines later by Amy.',
+      'README.md was changed on the same lines later, outside smurg.',
+      'Mei is typing in src/a.ts.',
+      'Uncommitted edits in the main workspace are in the way: src/b.ts.',
+      'Changes are staged in the main workspace.',
+      'A git operation is in progress in the main workspace.',
+      'The main workspace is on experiment, not on main.',
+    ])
+      expect(within(dialog).getByText(line)).toBeTruthy();
+    expect((within(dialog).getByRole('button', { name: 'Undo' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('what the undo does changed since the look: the daemon says so and the dialog looks again', async () => {
+    const { conn, open } = await setup({ role: 'host', topic: EXECUTING, plan: RUNNING });
+    open({ kind: 'undo', topicId: 'tp_1', itemIds: ['cart-api'] });
+    const dialog = await screen.findByRole('alertdialog', { name: 'Undo 1 · Cart API?' });
+    await act(async () => {
+      conn.respond('topic.undo.preview', { preview: preview() });
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Undo' }));
+    await act(async () => {
+      conn.fail('topic.undo', new SmurgError('conflict', msg('undo.changed'), { reason: 'changed' }));
+    });
+    expect(within(dialog).getByText('Something changed since you looked. Look at what the undo does again.')).toBeTruthy();
+    expect(conn.requestsOf('topic.undo.preview')).toHaveLength(2);
   });
 });

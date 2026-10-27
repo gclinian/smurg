@@ -27,6 +27,8 @@ describe('column targets', () => {
     expect(columnId({ kind: 'plan', topicId: 't1' })).toBe('plan:t1');
     expect(columnId({ kind: 'report', topicId: 't1', itemId: 'cart-api' })).toBe('report:t1:cart-api');
     expect(columnId({ kind: 'changes', requestId: 'mr_1' })).toBe('changes:mr_1');
+    // protocol 6: a topic's Result is a column of its own (0.7.0 D13).
+    expect(columnId({ kind: 'result', topicId: 't1' })).toBe('result:t1');
     expect(sameColumn({ kind: 'plan', topicId: 't1' }, { kind: 'plan', topicId: 't1' })).toBe(true);
     expect(sameColumn({ kind: 'plan', topicId: 't1' }, { kind: 'spec', topicId: 't1' })).toBe(false);
   });
@@ -38,6 +40,8 @@ describe('column targets', () => {
     expect(parseColumnRef({ kind: 'plan', topicId: 't1' })).toEqual({ kind: 'plan', topicId: 't1' });
     expect(parseColumnRef({ kind: 'plan', topicId: 't1', extra: 1 })).toBeNull();
     expect(parseColumnRef('plan:t1')).toBeNull();
+    expect(isColumnRef({ kind: 'result', topicId: 't1' })).toBe(true);
+    expect(parseColumnRef({ kind: 'result', topicId: 't1' })).toEqual({ kind: 'result', topicId: 't1' });
   });
 
   it('a session column is a conversation or a terminal, once the session is known', () => {
@@ -54,6 +58,9 @@ describe('column targets', () => {
     expect(columnBodyProps('report', { kind: 'report', topicId: 't1', itemId: 'i1' })).toEqual({ topicId: 't1', itemId: 'i1' });
     expect(columnBodyProps('changes', { kind: 'changes', requestId: 'mr_1' })).toEqual({ requestId: 'mr_1' });
     expect(topicIdOfTarget({ kind: 'report', topicId: 't1', itemId: 'i1' })).toBe('t1');
+    expect(columnBodyProps('result', { kind: 'result', topicId: 't1' })).toEqual({ topicId: 't1' });
+    expect(topicIdOfTarget({ kind: 'result', topicId: 't1' })).toBe('t1');
+    expect(columnKindOf({ kind: 'result', topicId: 't1' }, undefined)).toBe('result');
     expect(topicIdOfTarget({ kind: 'session', sessionId: 's1' })).toBeUndefined();
   });
 });
@@ -93,6 +100,7 @@ describe('the name of a column', () => {
     const state = { sessions: sessions(), topics: topics([topic], [plan]) };
     expect(describeColumn({ kind: 'spec', topicId: 't1' }, state)).toMatchObject({ title: 'Spec', topicName: 'Checkout redesign', kind: 'spec', picture: { kind: 'spec' }, gone: false });
     expect(describeColumn({ kind: 'plan', topicId: 't1' }, state)).toMatchObject({ title: 'Plan', kind: 'plan' });
+    expect(describeColumn({ kind: 'result', topicId: 't1' }, state)).toMatchObject({ title: 'Result', topicName: 'Checkout redesign', kind: 'result', picture: { kind: 'result' } });
     expect(describeColumn({ kind: 'report', topicId: 't1', itemId: 'receipt' }, state)).toMatchObject({ title: 'Result report: 3 · Receipt email', kind: 'report' });
     // Without the plan the item's own session names it; without either the report is just a report.
     const fromSession = { sessions: sessions(buildAgentSession({ id: 's', purpose: 'item', topicId: 't1', itemId: 'receipt', item: { number: 3, title: 'Receipt email' } })), topics: topics([topic]) };

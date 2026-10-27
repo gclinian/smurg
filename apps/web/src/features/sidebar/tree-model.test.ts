@@ -222,3 +222,21 @@ describe('the session list: more', () => {
     applyLocale('en');
   });
 });
+
+describe('the session list: protocol 6 (DESIGN 0.7.0 D13, D19)', () => {
+  it('a plan whose items smurg merges counts merges; a topic ready to check, or complete, has its Result after the Plan', () => {
+    const auto = buildPlan({ topicId: 't1', items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', merging: 'auto', merged: { at: 1, by: 'smurg' } })] });
+    const running = { ...topic, plan: { ...plan, merged: 1, changedAt: 500 } };
+    expect(titles(groupOf(buildSessionTree(input({ topics: [running], plans: [auto], sessions: [discussion] })), 'topic:t1')).slice(0, 3)).toEqual(['Discussion', 'Spec', 'Plan (1 of 3 merged)']);
+    const ready = { ...running, phase: 'ready' as const };
+    const group = groupOf(buildSessionTree(input({ topics: [ready], plans: [auto], sessions: [discussion] })), 'topic:t1');
+    expect(titles(group).slice(0, 4)).toEqual(['Discussion', 'Spec', 'Plan (1 of 3 merged)', 'Result']);
+    expect(group?.rows[3]).toMatchObject({ kind: 'result', target: { kind: 'result', topicId: 't1' }, glyph: null, quiet: false });
+    // The Result is not a session: the filters "Mine" and "Waiting" leave it out, as they leave out Spec and Plan.
+    const mine = groupOf(buildSessionTree(input({ topics: [ready], plans: [auto], sessions: [discussion], columns: { filter: 'mine' } })), 'topic:t1');
+    expect(titles(mine)).not.toContain('Result');
+    const complete = groupOf(buildSessionTree(input({ topics: [{ ...ready, phase: 'complete' }], sessions: [discussion] })), 'topic:t1');
+    expect(complete?.rows.find((row) => row.kind === 'result')).toMatchObject({ quiet: true });
+    expect(groupOf(buildSessionTree(input({ sessions: [discussion] })), 'topic:t1')?.rows.some((row) => row.kind === 'result')).toBe(false);
+  });
+});

@@ -3,19 +3,17 @@
 //
 //   columnId({ kind: 'session', sessionId: 's1' })                  → 'session:s1'
 //   columnId({ kind: 'report', topicId: 't1', itemId: 'cart-api' }) → 'report:t1:cart-api'
+//   columnId({ kind: 'result', topicId: 't1' })                     → 'result:t1'   (protocol 6: a topic's Result)
 //
 // A session column is a conversation (an agent session) or a terminal: which one is decided when it is rendered,
 // from the session's kind (`columnKindOf`).
 import { columnTargetSchema, type ColumnTarget, type SessionInfo } from '@smurg/protocol';
 
-/**
- * A thing a column can show. Not a topic's Result (protocol 6, `{ kind: 'result' }`) yet: until its column exists
- * (0.7.0 S7) a target that names it opens the topic's plan (`columnRefOf`).
- */
-export type ColumnRef = Exclude<ColumnTarget, { kind: 'console' } | { kind: 'result' }>;
+/** A thing a column can show: every target but a section of the host console. */
+export type ColumnRef = Exclude<ColumnTarget, { kind: 'console' }>;
 
-/** The component kinds a feature registers (lib/slots.ts): one per row of the table in DESIGN §5.4. */
-export const COLUMN_KINDS = ['conversation', 'terminal', 'spec', 'plan', 'report', 'changes'] as const;
+/** The component kinds a feature registers (lib/slots.ts): one per row of the table in DESIGN §5.4, and a topic's Result (0.7.0 D13). */
+export const COLUMN_KINDS = ['conversation', 'terminal', 'spec', 'plan', 'report', 'changes', 'result'] as const;
 export type ColumnKind = (typeof COLUMN_KINDS)[number];
 
 /** The props of each kind's component. */
@@ -29,6 +27,8 @@ export interface ColumnBodyProps {
   readonly report: { readonly topicId: string; readonly itemId: string };
   /** A merge request without a report (a free session's worktree). */
   readonly changes: { readonly requestId: string };
+  /** A topic's Result: every report, the combined change and the end ("I've checked the result"). */
+  readonly result: { readonly topicId: string };
 }
 
 /** Where an inbox item or a link leads inside a column: a card, or an event of the conversation. */
@@ -38,12 +38,11 @@ export interface ColumnAnchor {
 }
 
 export function isColumnRef(target: ColumnTarget): target is ColumnRef {
-  return target.kind !== 'console' && target.kind !== 'result';
+  return target.kind !== 'console';
 }
 
-/** The column a target opens: itself, the topic's plan for its Result (until the Result column, 0.7.0 S7), or none (a console section). */
+/** The column a target opens: itself, or none (a console section). */
 export function columnRefOf(target: ColumnTarget): ColumnRef | null {
-  if (target.kind === 'result') return { kind: 'plan', topicId: target.topicId };
   return isColumnRef(target) ? target : null;
 }
 
@@ -59,6 +58,8 @@ export function columnId(target: ColumnRef): string {
       return `report:${target.topicId}:${target.itemId}`;
     case 'changes':
       return `changes:${target.requestId}`;
+    case 'result':
+      return `result:${target.topicId}`;
   }
 }
 
@@ -98,5 +99,5 @@ export function columnBodyProps<K extends ColumnKind>(kind: K, target: ColumnRef
 
 /** The topic a target belongs to, when the target itself says so (a session's topic is on the session). */
 export function topicIdOfTarget(target: ColumnRef): string | undefined {
-  return target.kind === 'spec' || target.kind === 'plan' || target.kind === 'report' ? target.topicId : undefined;
+  return target.kind === 'spec' || target.kind === 'plan' || target.kind === 'report' || target.kind === 'result' ? target.topicId : undefined;
 }

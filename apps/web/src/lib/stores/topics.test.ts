@@ -129,8 +129,8 @@ describe('topics store: the list', () => {
     expect(stores.errors.getState().at(-1)).toMatchObject({ area: 'topics' });
   });
 
-  it('paused plans are what the banner of the sessions view counts', async () => {
-    const { stores } = await ready([buildTopic({ id: 'a', plan: { ...plan, paused: true } }), buildTopic({ id: 'b', plan })]);
+  it('paused plans are what the banner of the sessions view counts: smurg\'s pauses, not a person\'s (protocol 6)', async () => {
+    const { stores } = await ready([buildTopic({ id: 'a', plan: { ...plan, paused: true } }), buildTopic({ id: 'b', plan }), buildTopic({ id: 'c', plan: { ...plan, paused: true, pausedBy: { userId: 'dev:amy', displayName: 'Amy' } } })]);
     expect(selectPausedTopics(stores.topics.getState()).map((topic) => topic.id)).toEqual(['a']);
   });
 });
@@ -186,6 +186,12 @@ describe('topics store: plans', () => {
       ['plan.suggest', () => stores.topics.suggestSplit('tp_1'), { topicId: 'tp_1' }],
       ['plan.resume', () => stores.topics.resume('tp_1'), { topicId: 'tp_1' }],
       ['plan.item.retry', () => stores.topics.retryItem('tp_1', 'cart-api'), { topicId: 'tp_1', itemId: 'cart-api' }],
+      // protocol 6 (DESIGN 0.7.0 D9-D11, D14, D15)
+      ['plan.pause', () => stores.topics.pause('tp_1'), { topicId: 'tp_1' }],
+      ['plan.item.leaveOut', () => stores.topics.leaveOut('tp_1', 'cart-api'), { topicId: 'tp_1', itemId: 'cart-api' }],
+      ['plan.item.accept', () => stores.topics.accept({ topicId: 'tp_1', itemId: 'cart-api', version: 2 }), { topicId: 'tp_1', itemId: 'cart-api', version: 2 }],
+      ['plan.item.release', () => stores.topics.release({ topicId: 'tp_1', itemId: 'cart-api', version: 2 }), { topicId: 'tp_1', itemId: 'cart-api', version: 2 }],
+      ['topic.undo', () => stores.topics.undo('tp_1', null, 'a'.repeat(64)), { topicId: 'tp_1', itemIds: null, token: 'a'.repeat(64) }],
       ['plan.start', () => stores.topics.start({ topicId: 'tp_1', planRevision: 1, specHash: 'a'.repeat(64), planHash: 'a'.repeat(64) }), { topicId: 'tp_1', planRevision: 1, specHash: 'a'.repeat(64), planHash: 'a'.repeat(64) }],
     ] as const;
     let revision = 10;
@@ -216,6 +222,15 @@ describe('topics store: plans', () => {
     expect(conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
     expect(conn.lastRequest('topic.spec.request')?.payload).toEqual({ topicId: 'tp_1' });
     expect(conn.lastRequest('topic.delete')?.payload).toEqual({ topicId: 'tp_1' });
+
+    conn.handle('plan.item.removePaths', () => ({}));
+    await stores.topics.removePaths('tp_1', 'cart-api');
+    expect(conn.lastRequest('plan.item.removePaths')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    const checking = stores.topics.check('tp_1');
+    expect(conn.lastRequest('topic.check')?.payload).toEqual({ topicId: 'tp_1' });
+    conn.respond('topic.check', { topic: buildTopic({ phase: 'complete' }) });
+    expect((await checking).phase).toBe('complete');
+    expect(selectTopic(stores.topics.getState(), 'tp_1')?.phase).toBe('complete');
 
     const preflight = stores.topics.preflight('tp_1', ['cart-api']);
     expect(conn.lastRequest('plan.preflight')?.payload).toEqual({ topicId: 'tp_1', itemIds: ['cart-api'] });
@@ -420,6 +435,9 @@ describe('topics store: what a change of a topic tells everyone', () => {
     expect(topicNoticeKind(discussing, withPlan)).toBe('plan-ready');
     expect(topicNoticeKind(withPlan, buildTopic({ phase: 'executing', plan }))).toBeNull();
     expect(topicNoticeKind(buildTopic({ phase: 'executing', plan }), buildTopic({ phase: 'complete', plan }))).toBe('complete');
+    // protocol 6 (DESIGN 0.7.0 D13): every item settled, then "I've checked the result".
+    expect(topicNoticeKind(buildTopic({ phase: 'executing', plan }), buildTopic({ phase: 'ready', plan }))).toBe('ready');
+    expect(topicNoticeKind(buildTopic({ phase: 'ready', plan }), buildTopic({ phase: 'complete', plan, checked: { by: { userId: 'dev:amy', displayName: 'Amy' }, at: 1 } }))).toBe('checked');
     // The same phase: the agent finished writing the plan again.
     expect(topicNoticeKind(buildTopic({ phase: 'plan', plan: { ...plan, generating: true } }), withPlan)).toBe('plan-updated');
     expect(topicNoticeKind(buildTopic({ phase: 'plan', plan: { ...plan, generating: true } }), buildTopic({ phase: 'plan', plan: { ...plan, valid: false } }))).toBeNull();

@@ -7,7 +7,12 @@
 // when the host's computer cannot run git: a warning the host must tick before Start, and for anyone else the sentence
 // that only the host can start them, with no Start button. The topic's model and the mode its items run with are
 // chosen here too, and sent with the Start (`plan.start.agent`) when changed.
-import { isSmurgError, knownErrorReasonOf, type SessionModeChoice, type StartPreflight } from '@smurg/protocol';
+//
+// Protocol 6 (DESIGN 0.7.0 D3, D19): how the items reach the main workspace. While the workspace merges by itself and
+// HEAD is on a branch, the dialog offers "How its items are merged" (smurg merges what its report says is complete and
+// verified, or the host merges each item); the lines say what runs by itself, what stops the run and that nobody has to
+// stay. A Start that chose the host sends `merging: 'host'`.
+import { isSmurgError, knownErrorReasonOf, type MergePolicy, type SessionModeChoice, type StartPreflight } from '@smurg/protocol';
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { gapAfter } from '../../lib/format.ts';
@@ -16,7 +21,7 @@ import { selectWork } from '../../lib/stores/host.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
-import { Banner, Button, Dialog, Spinner, useToast } from '../../ui/index.ts';
+import { Banner, Button, Dialog, Select, Spinner, useToast } from '../../ui/index.ts';
 import {
   IconAgent,
   IconAlertCircle,
@@ -26,6 +31,7 @@ import {
   IconEdit,
   IconFolder,
   IconGitBranch,
+  IconGitMerge,
   IconHistory,
   IconPlay,
   IconQuestion,
@@ -36,8 +42,20 @@ import { ModelPicker } from '../agents/ModelPicker.tsx';
 import { ModePicker } from '../agents/ModePicker.tsx';
 import { resultingMode } from '../agents/agent-choice.ts';
 import { PlanChanges } from './PlanChanges.tsx';
-import { LinkButton, useAction, useTopic } from './shared.tsx';
-import { directAllows, startAgentPatch, startCount, startHeadCount, startLines, startedNotice, type StartLine, type StartLineId } from './start-model.ts';
+import { LinkButton, useAction, useMembers, useTopic } from './shared.tsx';
+import {
+  directAllows,
+  initialMerging,
+  offersMergeChoice,
+  startAgentPatch,
+  startCount,
+  startHeadCount,
+  startLines,
+  startMergingPatch,
+  startedNotice,
+  type StartLine,
+  type StartLineId,
+} from './start-model.ts';
 import { t } from './strings.ts';
 import { TopicRules, useWorkspaceMode } from './TopicRules.tsx';
 
@@ -62,6 +80,8 @@ const ICON: Readonly<Record<StartLineId, ReactNode>> = {
   specOpenQuestions: <IconQuestion size={14} />,
   settings: <IconShield size={14} />,
   shared: <IconFolder size={14} />,
+  merge: <IconGitMerge size={14} />,
+  leave: <IconCheck size={14} />,
   blocker: <IconAlertCircle size={14} />,
 };
 
@@ -89,6 +109,9 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   /** The topic's model and its items' mode as the dialog shows them; null: as the topic has them. */
   const [agentDraft, setAgentDraft] = useState<{ model: string | null; permissionMode: SessionModeChoice | null } | null>(null);
   const workspaceMode = useWorkspaceMode();
+  /** "How its items are merged" as the dialog shows it; null: what the preflight proposes. */
+  const [mergingDraft, setMergingDraft] = useState<MergePolicy | null>(null);
+  const members = useMembers();
   const idsKey = itemIds?.join(',') ?? '';
 
   useEffect(() => stores.topics.ensurePlan(topicId), [stores, topicId]);
@@ -157,6 +180,8 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
   const itemsMode = resultingMode(agent.permissionMode, workspaceMode);
   /** A member's dialog for items that run directly: only the host can start them, so there is no Start button. */
   const directHostOnly = preflight?.history === 'direct' && preflight.direct?.hostOnly === true;
+  const merging: MergePolicy = mergingDraft ?? (preflight === null ? 'host' : initialMerging(preflight));
+  const mergeChoice = preflight !== null && offersMergeChoice(preflight);
 
   const start = async (): Promise<void> => {
     if (preflight === null || !startable) return;
@@ -164,6 +189,7 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
     setFailure(null);
     try {
       const agentPatch = startAgentPatch(topicAgent, agent);
+      const mergingPatch = startMergingPatch(preflight, merging);
       await stores.topics.start({
         topicId,
         ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }),
@@ -171,6 +197,7 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
         specHash: preflight.specHash,
         planHash: preflight.planHash,
         ...(agentPatch === undefined ? {} : { agent: agentPatch }),
+        ...(mergingPatch ?? {}),
         ...(preflight.history === 'direct' ? { direct: true as const } : {}),
       });
       toast.show({ tone: 'success', ...startedNotice(preflight) });
@@ -217,7 +244,8 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
     return null;
   };
 
-  const lines = preflight === null || !plan ? [] : startLines(preflight, plan, member?.userId ?? null);
+  const hostName = members.find((person) => person.role === 'host')?.displayName ?? null;
+  const lines = preflight === null || !plan ? [] : startLines(preflight, plan, member?.userId ?? null, { merging, host: isHost ? null : hostName });
   // "Show the changes" stands once, under the first line that offers it.
   const changesAfter = lines.find((line) => line.id === 'handEdits' || line.id === 'invisible');
 
@@ -301,6 +329,18 @@ export function StartDialog({ topicId, itemIds, onClose }: { topicId: string; it
                       disabled={busy || directHostOnly}
                       onChange={(permissionMode) => setAgentDraft({ ...agent, permissionMode })}
                     />
+                    {mergeChoice ? (
+                      <Select<MergePolicy>
+                        label={t('start.agent.merge')}
+                        value={merging}
+                        disabled={busy}
+                        options={[
+                          { value: 'auto', label: t('start.merge.option.auto') },
+                          { value: 'host', label: t('start.merge.option.host') },
+                        ]}
+                        onChange={setMergingDraft}
+                      />
+                    ) : null}
                   </div>
                   <span className="start-line__note">{t('start.agent.note')}</span>
                 </div>

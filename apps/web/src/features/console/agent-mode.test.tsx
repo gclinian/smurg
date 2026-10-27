@@ -110,3 +110,38 @@ describe('host console: what agents may do without asking', () => {
     expect(within(settings).queryByText(/^Since smurg 0\.6\.0/)).toBeNull();
   });
 });
+
+describe('host console: merging work items (protocol 6, DESIGN 0.7.0 D3, D18)', () => {
+  it('"Merging work items": smurg merges what its report says is complete and verified, or I merge each item myself; it applies at once', async () => {
+    const view = renderConsole({ section: 'settings' });
+    const settings = await section('Settings');
+    const select = (await within(settings).findByRole('combobox', { name: 'Merging work items' })) as HTMLSelectElement;
+    expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['smurg merges what its report says is complete and verified', 'I merge each item myself']);
+    expect(select.value).toBe('auto');
+    expect(within(settings).getByText(/^smurg merges a work item for you, without anyone reading its diff first, when its report says complete/)).toBeTruthy();
+    expect(within(settings).getByText(/The checks are what the agent reports: smurg does not run them\. You can undo a merged item\./)).toBeTruthy();
+    fireEvent.change(select, { target: { value: 'host' } });
+    expect(view.conn.lastRequest('admin.settings.set')?.payload).toEqual({ merging: 'host' });
+    await act(async () => {
+      view.conn.respond('admin.settings.set', { settings: { ...SETTINGS, merging: 'host' } });
+    });
+    expect(screen.getByText('Settings saved and applied.')).toBeTruthy();
+    expect(select.value).toBe('host');
+  });
+
+  it('after the 0.7.0 update: the banner until the host presses "Got it"', async () => {
+    const fixture = defaultFixture();
+    fixture.inbox = [{ ...AGENTS_AUTO, key: 'attention:auto-merge:workspace', subject: 'auto-merge' }];
+    const view = renderConsole({ section: 'settings', fixture });
+    const settings = await section('Settings');
+    expect(await within(settings).findByText(/^Since smurg 0\.7\.0, work items merge by themselves: when a work item's report says complete, at least one check passed and none failed/)).toBeTruthy();
+    expect(within(settings).queryByText(/^Since smurg 0\.6\.0/)).toBeNull();
+    fireEvent.click(within(settings).getByRole('button', { name: 'Got it' }));
+    expect(view.conn.lastRequest('admin.notice.seen')?.payload).toEqual({ notice: 'auto-merge' });
+    await act(async () => {
+      view.conn.respond('admin.notice.seen', {});
+      view.conn.emit('inbox.changed', { upsert: [], remove: ['attention:auto-merge:workspace'] });
+    });
+    expect(within(settings).queryByText(/^Since smurg 0\.7\.0/)).toBeNull();
+  });
+});

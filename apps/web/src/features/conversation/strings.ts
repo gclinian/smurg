@@ -330,6 +330,9 @@ export const t = defineStrings(
     'next.report.reviewers': '{names} reviews it.',
     'next.report.anyone': 'Anyone but a viewer can review it.',
     'next.report.open': 'Open report',
+    // An item smurg merges by itself (protocol 6): merged, or held for a decision.
+    'next.report.mergedAuto': 'The result report is written. smurg merged the change into the main workspace.',
+    'next.report.held': 'The result report is written. It was not merged: {reason}. {names} decides.',
 
     // ---- status bar
     'status.starting': 'Claude is starting…',

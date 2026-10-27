@@ -18,6 +18,12 @@
 // on another model shows what auto mode does by itself (a command without a card, a command Claude Code's check
 // stops), and what a session switched to "Asks before commands" asks.
 //
+// How work items reach the main workspace (DESIGN 0.7.0 D3, D22): the story of the topic "Checkout" runs under "I
+// merge each item myself" (the host's flow of 0.6.0: a review, then the host's merge, for every item). Then Ian turns
+// automatic merging on in the host console, and a second topic, "Search", runs to "Ready to check" with nobody pressing
+// review or merge: the item whose report says partial is a decision of its responsible member, who leaves it out; the
+// topic is in everyone's inbox, Leo's too; its Result; "I've checked the result".
+//
 // With SMURG_SMOKE_SHOTS=<folder> every step writes one numbered picture per person (`NN-step--person.png`).
 //
 // The SCENARIO below is the whole "model": a turn is chosen by a pattern on the message smurg (or a person) sent.
@@ -279,6 +285,69 @@ const SCENARIO: FakeClaudeScenario = {
   ],
 };
 
+/** The second topic, whose items smurg merges by itself (DESIGN 0.7.0 D22). */
+const SEARCH = 'Search';
+const SEARCH_SLUG = 'search';
+const SEARCH_FIRST = 'Search the books by author and title.';
+const SEARCH_SPEC = ['# Search', '', '## Goal', 'Find a book by its author or its title.', '', '## Open questions', 'None.', ''].join('\n');
+const SEARCH_PLAN = [
+  '# Plan: Search',
+  '',
+  '<!-- smurg:plan v1 -->',
+  '',
+  '### 1. Author index',
+  '- id: author-index',
+  '- size: s',
+  '- touches: src/search/index.ts',
+  '',
+  'Index the books by author.',
+  '',
+  '### 2. Fuzzy match',
+  '- id: fuzzy-match',
+  '- size: m',
+  '- touches: src/search/fuzzy.ts',
+  '',
+  'Find titles with a typo in them.',
+  '',
+  '### 3. Search page',
+  '- id: search-page',
+  '- depends on: author-index',
+  '- size: s',
+  '- touches: src/search/page.ts',
+  '',
+  'One box that searches both.',
+  '',
+  '<!-- smurg:plan end -->',
+  '',
+].join('\n');
+const searchReportPath = (itemId: string): string => `specs/${SEARCH_SLUG}/reports/${itemId}.md`;
+/** One turn of a Search item: its file, its report, the check of the report, done. */
+const searchItem = (itemId: string, title: string, file: string, outcome: 'complete' | 'partial') => [
+  { tool: 'Write', input: { file_path: file, content: `export const ${itemId.replace('-', '')} = true;\n` } },
+  { tool: 'Write', input: { file_path: searchReportPath(itemId), content: report(itemId, title, outcome) } },
+  { tool: 'mcp__smurg__check_report', input: {} },
+  { text: `${title} is done.` },
+];
+const SCENARIO_SEARCH: FakeClaudeScenario = {
+  turns: [
+    {
+      match: 'books by author and title',
+      once: true,
+      steps: [
+        { tool: 'Write', input: { file_path: `specs/${SEARCH_SLUG}/SPEC.md`, content: SEARCH_SPEC } },
+        { tool: 'Write', input: { file_path: `specs/${SEARCH_SLUG}/PLAN.md`, content: SEARCH_PLAN } },
+        { tool: 'mcp__smurg__check_plan', input: {} },
+        { tool: 'mcp__smurg__propose_split', input: { items: [{ id: 'author-index', person: 'Ian' }, { id: 'fuzzy-match', person: 'Mei' }, { id: 'search-page', person: 'Ian' }], reason: 'Mei knows the matching code.' } },
+        { text: 'The plan for search has three work items.' },
+      ],
+    },
+    { match: 'Start work item 1 ', steps: searchItem('author-index', 'Author index', 'src/search/index.ts', 'complete') },
+    { match: 'Start work item 2 ', steps: searchItem('fuzzy-match', 'Fuzzy match', 'src/search/fuzzy.ts', 'partial') },
+    { match: 'Start work item 3 ', steps: searchItem('search-page', 'Search page', 'src/search/page.ts', 'complete') },
+    { steps: [{ text: 'Noted.' }] },
+  ],
+};
+
 /** A session without a topic in auto mode (DESIGN 0.6.0 D18): a command auto mode lets run, one its check stops. */
 const AUTO_TITLE = 'Auto check';
 const AUTO_FIRST = 'Run the tests in auto mode.';
@@ -345,7 +414,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       // The shortest waiting time a host can set: a question nobody answers reaches the others after one minute.
       // People who typed in a file keep it for ten minutes: only "Let the agent go first" hands it over in this story.
       // The workspace's permission mode is the default, auto mode (0.6.0): the topic's items are set to ask at Start.
-      // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
+      // "I merge each item myself" (the host's flow, 0.6.0's) for the first topic; Ian turns automatic merging on for
+      // the second (DESIGN 0.7.0 D22).
       settings: { escalateAfterMs: 60_000, humanLockIdleMs: 600_000, merging: 'host' },
     });
     startedAt = Date.now();
@@ -436,7 +506,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     // Before anything: the folder's project settings wait for the host, and only for the host.
     await inbox(ian, 'attention').filter({ hasText: 'Claude Code project settings wait for the host' }).waitFor({ timeout: STEP_MS });
     await mei.locator('aside.sidebar [data-inbox-empty]').waitFor({ timeout: STEP_MS });
-    await leo.getByText('Nothing is waiting for you. As a viewer you get only mentions here.').waitFor({ timeout: STEP_MS });
+    await leo.getByText('Nothing is waiting for you. As a viewer you get mentions and topics ready to check here.').waitFor({ timeout: STEP_MS });
 
     // Who can start a topic: an Editor and a Viewer are told why not.
     for (const [person, sentence] of [
@@ -1541,24 +1611,24 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await openRow(leo, `session:${cartId}`, { side: true });
     await env.setScenario(SCENARIO_AFTER_RESTART);
 
-    // (0.7.0 S6, DESIGN D15: a restart no longer pauses a plan by itself. Ian pauses it first, the brake that stays
-    // across a restart; the web's Pause button and its words are S7's, so the smoke presses it through the daemon.)
-    const daemon = env.stack.daemon;
-    const ianAsHost = daemon.ctx.members.principalOf(daemon.ctx.members.hostUserId());
-    if (ianAsHost === null) throw new Error('no host principal');
-    await daemon.ctx.services.plans.pause({ topicId }, ianAsHost);
+    // (0.7.0, DESIGN D15: a restart no longer pauses a plan by itself. Ian presses "Pause" first, the brake that stays
+    // across a restart; everyone reads who paused it.)
+    const pausedByIan = 'Ian paused this plan: nothing starts, merges or continues by itself until someone continues it (a merge already under way finishes).';
+    await plan(ian).getByRole('button', { name: 'Pause', exact: true }).click();
+    for (const page of [ian, amy, leo]) await plan(page).getByText(pausedByIan).waitFor({ timeout: STEP_MS });
+    await plan(mei).getByText('Ian 暫停了這個計畫：在有人按繼續之前，不會有項目自己開始、合併或繼續（已經在進行的合併會做完）。').waitFor({ timeout: STEP_MS });
     await env.restartDaemon();
 
-    // Every browser finds the host again by itself, and says what happened and who can go on.
-    await restartBanner(ian).getByText("smurg was restarted on the host's computer. 1 item is paused.").waitFor({ timeout: 120_000 });
-    await restartBanner(mei).getByText('主人電腦上的 smurg 重新啟動了。1 個項目已暫停。').waitFor({ timeout: 120_000 });
+    // Every browser finds the host again by itself. The plan stays paused, a person's pause: no banner of smurg's own
+    // restart pause, and only who may continue it can.
+    for (const page of [ian, amy, leo]) await item(page, 'gift-receipt').getByText('Paused: smurg was restarted').waitFor({ timeout: 120_000 });
     for (const page of [amy, leo]) {
-      await expect.poll(() => restartBanner(page).textContent(), { timeout: 120_000 }).toMatch(/^smurg was restarted on the host's computer\. .+ paused\. The host or a member with agent access can continue them\.$/);
       expect(await page.getByRole('button', { name: 'Continue all' }).count()).toBe(0);
+      expect(await restartBanner(page).count()).toBe(0);
     }
     // The plan is paused: nothing in it runs, and its item says why it stopped.
     for (const page of [ian, amy, leo]) {
-      await plan(page).getByText("smurg was restarted on the host's computer").waitFor({ timeout: STEP_MS });
+      await plan(page).getByText(pausedByIan).waitFor({ timeout: STEP_MS });
       await item(page, 'gift-receipt').getByText('Paused: smurg was restarted').waitFor({ timeout: STEP_MS });
       // The conversation is there as it was; the card nobody answered says what became of it.
       const log = session(page, giftId).getByRole('log');
@@ -1574,7 +1644,6 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       expect(await build.locator('summary').textContent()).toContain('not finished');
       await session(page, giftId).getByRole('status').filter({ hasText: 'Paused: smurg was restarted.' }).waitFor({ timeout: STEP_MS });
     }
-    await plan(amy).getByText('Nothing in this plan runs until it is continued. Ian and Mei can continue it.').waitFor({ timeout: STEP_MS });
     // What was said and decided before the restart reads as before: the discussion with its answered question, an
     // ended item's conversation with its settled cards.
     await discussion(amy).getByRole('log').getByText(FIRST_MESSAGE).first().waitFor({ timeout: STEP_MS });
@@ -1583,7 +1652,7 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await session(leo, cartId).getByRole('log').getByText('I start with the total.').waitFor({ timeout: STEP_MS });
     await session(leo, cartId).getByText(/^Allowed once by Mei, /).first().waitFor({ timeout: STEP_MS });
     // It is in the inbox of the one who pressed Start, with the way on.
-    await inbox(ian, 'attention').filter({ hasText: 'smurg was restarted: 1 item is paused' }).waitFor({ timeout: STEP_MS });
+    await inbox(ian, 'attention').filter({ hasText: 'Ian paused the plan' }).waitFor({ timeout: STEP_MS });
     await shots('after-the-restart');
 
     // "Continue all": the session goes on in the same conversation and asks for its command again, on a new card.
@@ -1644,6 +1713,134 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     }
     expect(await env.git(['status', '--porcelain'])).toBe('');
     await shots('everything-done');
+  }, 400_000);
+
+  // =====================================================================================================================
+  // Automatic merging (DESIGN 0.7.0 D22): the host turns it on, and a topic runs to "Ready to check" by itself
+  // =====================================================================================================================
+
+  let searchId = '';
+  const searchPlan = (page: Page): Locator => column(page, `plan:${searchId}`);
+  const searchRow = (page: Page, itemId: string): Locator => searchPlan(page).locator(`.plan-item[data-item="${itemId}"]`);
+  const searchPhase = (page: Page): Locator => page.locator(`aside.sidebar .ui-tree__row[data-group$="${searchId}"] .topic__phase`);
+
+  it('the host turns automatic merging on in the host console: it applies to work items started from then on', async () => {
+    await env.setScenario(SCENARIO_SEARCH);
+    await ian.getByRole('link', { name: 'Host console' }).click();
+    const settings = ian.locator('section').filter({ has: ian.getByRole('heading', { level: 2, name: 'Settings' }) });
+    const merging = settings.getByRole('combobox', { name: 'Merging work items' });
+    await merging.waitFor({ timeout: STEP_MS });
+    expect(await merging.inputValue()).toBe('host');
+    await settings.getByText(/^smurg merges a work item for you, without anyone reading its diff first, when its report says complete/).waitFor({ timeout: STEP_MS });
+    const saved = toast(ian, 'Settings saved and applied.');
+    await merging.selectOption('auto');
+    await saved;
+    expect(env.stack.daemon.ctx.settings.get().merging).toBe('auto');
+    await shots('merging-by-itself', [{ name: 'Ian', page: ian }]);
+    await ian.goBack();
+    await ian.locator('.app-shell[data-mode="sessions"]').waitFor({ timeout: STEP_MS });
+    await dismissToasts(ian);
+  }, 300_000);
+
+  it('a topic whose items merge by themselves runs to "Ready to check" with nobody pressing review or merge; the partial item is a decision its responsible member leaves out', async () => {
+    // A new topic: its discussion writes the spec and the plan at once.
+    await ian.getByRole('button', { name: 'New', exact: true }).click();
+    await ian.getByRole('menuitem', { name: 'New topic' }).click();
+    const create = ian.getByRole('dialog', { name: 'New topic' });
+    await create.getByLabel('Name').fill(SEARCH);
+    await expect.poll(() => create.getByLabel(/^Folder for the spec and the plan/).inputValue(), { timeout: STEP_MS }).toBe(SEARCH_SLUG);
+    await create.getByLabel(/^What do you want to build/).fill(SEARCH_FIRST);
+    await create.getByRole('button', { name: 'Start discussion' }).click();
+    await create.waitFor({ state: 'detached', timeout: STEP_MS });
+    await waitUntil(() => (searchId = env.stack.daemon.ctx.services.topics.list({}).topics.find((one) => one.name === SEARCH)?.id ?? '') !== '', STEP_MS, 'the topic Search');
+    await waitUntil(async () => (await fileText(`specs/${SEARCH_SLUG}/PLAN.md`)) === SEARCH_PLAN, STEP_MS, 'the plan of Search');
+    for (const { page } of people) await dismissToasts(page);
+    for (const page of [ian, amy, leo]) {
+      await showOnly(page, [`plan:${searchId}`]);
+      await searchPlan(page).getByText('3 work items').waitFor({ timeout: STEP_MS });
+    }
+    await showOnly(mei, [`plan:${searchId}`]);
+
+    // Start: the dialog says how the items merge, what stops the run, and that nobody has to stay.
+    await searchPlan(ian).getByRole('button', { name: 'Start 2 items' }).click();
+    const dialog = ian.getByRole('dialog', { name: 'Start 2 items' });
+    const choice = dialog.getByRole('combobox', { name: 'How its items are merged' });
+    await expect.poll(() => choice.locator('option:checked').textContent(), { timeout: STEP_MS }).toBe('smurg merges what its report says is complete and verified (workspace setting)');
+    await dialog.getByText(/^smurg merges each item into the main workspace for the host when its report says complete, at least one check passed and none failed/).waitFor({ timeout: STEP_MS });
+    await dialog.getByText(/^The run stops where a person must decide: /).waitFor({ timeout: STEP_MS });
+    await dialog.getByText('You can close this page: the work goes on while smurg host runs on your computer, also after it was restarted.').waitFor({ timeout: STEP_MS });
+    await shots('start-dialog-merging-by-itself', [{ name: 'Ian', page: ian }]);
+    await dialog.getByRole('button', { name: 'Start', exact: true }).click();
+    await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+
+    // Item 1 merges by itself; item 3, which waited for it, starts from the merged workspace and merges by itself too.
+    // Item 2's report says partial: it is not merged, and only it waits, for its responsible member.
+    const held = 'Not merged: not complete (partial)';
+    for (const page of [ian, amy, leo]) {
+      await searchRow(page, 'author-index').getByText('Merged', { exact: true }).waitFor({ timeout: STEP_MS });
+      await searchRow(page, 'search-page').getByText('Merged', { exact: true }).waitFor({ timeout: STEP_MS });
+      await searchRow(page, 'fuzzy-match').getByText(held).waitFor({ timeout: STEP_MS });
+      await searchPlan(page).getByText('2 · Fuzzy match was not merged: not complete (partial). Mei decides. The items that do not depend on it go on.').waitFor({ timeout: STEP_MS });
+    }
+    await searchPlan(ian).getByText('2 of 3 merged').waitFor({ timeout: STEP_MS });
+    expect(await fileText('src/search/index.ts')).toContain('authorindex');
+    expect(await fileText('src/search/page.ts')).toContain('searchpage');
+    expect(await fileText('src/search/fuzzy.ts')).toBe('');
+    // smurg merged them on the host's standing consent: the host the author, smurg the committer, the trailer says why.
+    const merges = (await env.git(['log', '-2', '--merges', '--format=%an|%cn|%(trailers:key=Merged-by,valueonly)'])).split('\n').filter((line) => line !== '');
+    expect(merges).toEqual(['Ian|smurg|smurg (automatic merging, the host\'s setting)', 'Ian|smurg|smurg (automatic merging, the host\'s setting)']);
+    // Nobody was asked to review or to merge; the decision is in Mei's inbox only.
+    for (const { page } of people) {
+      expect(await inbox(page, 'report').count()).toBe(0);
+      expect(await inbox(page, 'merge').count()).toBe(0);
+    }
+    await inbox(mei, 'decision').filter({ hasText: '2 · Fuzzy match 沒有合併：沒有完成（部分完成）' }).waitFor({ timeout: STEP_MS });
+    for (const page of [ian, amy, leo]) expect(await inbox(page, 'decision').count()).toBe(0);
+    await shots('decision');
+
+    // Mei opens it: why, who decides, and what she may do. She leaves it out.
+    await inbox(mei, 'decision').locator('.inbox-item__main').click();
+    const report = column(mei, `report:${searchId}:fuzzy-match`);
+    await report.getByText('沒有合併：沒有完成（部分完成）。由 Mei 決定。').waitFor({ timeout: STEP_MS });
+    await dismissToasts(mei);
+    await report.getByRole('button', { name: '略過這個項目…' }).click();
+    const leave = mei.getByRole('alertdialog', { name: '要略過 2 · Fuzzy match 嗎？' });
+    await leave.getByText('它的變更不會合併。它的 session 會結束，worktree 會保留。').waitFor({ timeout: STEP_MS });
+    const told = people.map(({ page }) => toast(page, page === mei ? `${SEARCH}：所有項目都合併了，待驗收。` : `${SEARCH}: every item is merged. Ready to check.`));
+    await leave.getByRole('button', { name: '略過', exact: true }).click();
+    await leave.waitFor({ state: 'detached', timeout: STEP_MS });
+    await Promise.all(told);
+
+    // Ready to check, in everyone's inbox: Leo, a Viewer, too.
+    for (const page of [ian, amy, leo]) {
+      await searchPhase(page).getByText('Ready to check', { exact: true }).waitFor({ timeout: STEP_MS });
+      await inbox(page, 'ready').filter({ hasText: `Ready to check: ${SEARCH}` }).waitFor({ timeout: STEP_MS });
+      await searchRow(page, 'fuzzy-match').getByText('Left out').waitFor({ timeout: STEP_MS });
+    }
+    await inbox(mei, 'ready').filter({ hasText: `待驗收：${SEARCH}` }).waitFor({ timeout: STEP_MS });
+    for (const { page } of people) await dismissToasts(page);
+    await shots('ready-to-check');
+
+    // Leo reads the Result; he cannot check it.
+    await inbox(leo, 'ready').locator('.inbox-item__main').click();
+    const leoResult = column(leo, `result:${searchId}`);
+    await leoResult.getByText('2 of 3 merged · 2 passed · 0 failed · 0 not verified · 1 left out').waitFor({ timeout: STEP_MS });
+    for (const heading of ['Passed', 'What the items changed', 'What to watch out for', 'Work items', 'Left out and undone']) await leoResult.getByRole('heading', { level: 3, name: heading }).waitFor({ timeout: STEP_MS });
+    expect(await leoResult.getByRole('button', { name: "I've checked the result" }).count()).toBe(0);
+
+    // Amy (an Editor) checks it: the topic is complete, and it leaves everyone's inbox.
+    await inbox(amy, 'ready').locator('.inbox-item__main').click();
+    const amyResult = column(amy, `result:${searchId}`);
+    await amyResult.getByText(/^Press it when you have looked at the result\./).waitFor({ timeout: STEP_MS });
+    const done = people.map(({ page }) => toast(page, page === mei ? `${SEARCH}：成果已驗收，主題完成。` : `${SEARCH}: the result was checked. The topic is complete.`));
+    await dismissToasts(amy);
+    await amyResult.getByRole('button', { name: "I've checked the result" }).click();
+    await Promise.all(done);
+    await amyResult.getByText(/^Checked by Amy at \d\d:\d\d\./).waitFor({ timeout: STEP_MS });
+    for (const { page } of people) await expect.poll(() => inbox(page, 'ready').count(), { timeout: STEP_MS }).toBe(0);
+    for (const page of [ian, leo]) await searchPhase(page).getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });
+    await shots('result-checked');
+    for (const { page } of people) await dismissToasts(page);
   }, 400_000);
 
   // =====================================================================================================================

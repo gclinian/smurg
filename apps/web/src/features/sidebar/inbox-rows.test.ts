@@ -193,6 +193,35 @@ describe('inbox rows', () => {
     expect(row(buildInboxItem('result', { result: 'accepted-edited' })).title).toBe('Host accepted your suggestion with changes: Use the session store');
   });
 
+  it('protocol 6: a work item held for a decision says why, what waits for it, and who decides (DESIGN 0.7.0 D9)', () => {
+    expect(row(buildInboxItem('decision', { unblocks: [3] }))).toEqual({
+      title: '1 · Cart API was not merged: not complete (partial)',
+      where: 'Checkout redesign · 1 passed · 1 not verified · item 3 waits for it',
+    });
+    expect(row(buildInboxItem('decision', { reason: 'check-failed', outcome: undefined, checks: { passed: 1, notVerified: 0, failed: 1 } })).where).toBe('Checkout redesign · 1 passed · 1 failed · 0 not verified');
+    // The copy of the host and agent access after it escalated names whom it waited for.
+    expect(row(buildInboxItem('decision', { at: at(7), waitsFor: MEI, escalated: true, alsoFor: [IAN] })).where).toContain('Mei has not decided for 7 min · you or Ian');
+    // The loaded plan names the person whose change a conflict is against.
+    const plan = buildPlan({
+      items: [buildWorkItem({ state: 'done', merging: 'auto', autoMerge: { state: 'held', reason: 'conflict', since: NOW, tries: 3, hostOnly: false, escalated: false, people: [{ path: 'src/cart.ts', by: [KEN], outside: false }] } })],
+    });
+    const withPlan = { ...context(), topics: { ...context().topics, plans: new Map([['tp_1', plan]]) } };
+    expect(row(buildInboxItem('decision', { reason: 'conflict', outcome: undefined, checks: undefined }), withPlan).title).toBe("1 · Cart API was not merged: it conflicts with Ken's change of src/cart.ts");
+    expect(plansToLoad([buildInboxItem('decision')], context().topics)).toEqual(['tp_1']);
+  });
+
+  it('protocol 6: a topic ready to check, in everyone\'s inbox, with its tally (DESIGN 0.7.0 D13)', () => {
+    expect(row(buildInboxItem('ready', { tally: { items: 3, merged: 2, leftOut: 1, undone: 0 } }))).toEqual({ title: 'Ready to check: Checkout redesign', where: '2 of 3 merged · 1 passed · 0 not verified' });
+    expect(row(buildInboxItem('ready', { topicId: 'tp_unknown' })).title).toBe('Ready to check: Checkout');
+  });
+
+  it("protocol 6: a plan a person paused names who paused it", () => {
+    const paused = buildTopic({ id: 'tp_1', name: 'Checkout redesign', plan: { ...buildTopic().plan, paused: true, pausedBy: MEI } });
+    const ctx = { ...context(), topics: { ...context().topics, topics: new Map([[paused.id, paused]]) } };
+    expect(row(buildInboxItem('attention', { subject: 'plan-paused', topicId: 'tp_1', count: 2 }), ctx).title).toBe('Mei paused the plan');
+    expect(row(buildInboxItem('attention', { subject: 'plan-paused', topicId: 'tp_1', count: 2 })).title).toBe('smurg was restarted: 2 items are paused');
+  });
+
   it('only a mention and a result can be dismissed', () => {
     expect(INBOX_KINDS.filter((kind) => isDismissable(buildInboxItem(kind)))).toEqual(['mention', 'result']);
   });

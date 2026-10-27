@@ -437,6 +437,11 @@ export const IconPlay: IconComponent = (p) => (
     <path d="M5.25 3.25v9.5L12.5 8z" />
   </Svg>
 );
+export const IconPause: IconComponent = (p) => (
+  <Svg {...p}>
+    <path d="M5.5 3.5v9M10.5 3.5v9" />
+  </Svg>
+);
 export const IconArrowLeft: IconComponent = (p) => (
   <Svg {...p}>
     <path d="M13 8H3.5M7 4 3 8l4 4" />

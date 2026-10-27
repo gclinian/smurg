@@ -4,7 +4,8 @@
 // A topic's rows are fixed from its creation, as steps:
 //   Discussion              the topic's discussion session
 //   Spec                    "not written yet" until the file exists, "draft" until a plan exists
-//   Plan                    "no plan yet", then "n of m reviewed"
+//   Plan                    "no plan yet", then "n of m reviewed" (or "n of m merged" while smurg merges its items)
+//   Result                  once every item is settled (ready to check, complete: protocol 6)
 //   1 · Cart API …          one row per work item, in plan order, showing its newest attempt; an item without a
 //                           session yet shows its state (not started, waiting for another item) and opens the plan.
 //                           Before the plan is loaded the rows come from the item sessions themselves.
@@ -20,7 +21,7 @@ import { selectTopicList, type TopicsState } from '../../lib/stores/topics.ts';
 import type { GlyphStatus } from '../../ui/StatusGlyph.tsx';
 import { t } from './strings.ts';
 
-export type RowKind = 'session' | 'terminal' | 'spec' | 'plan' | 'item';
+export type RowKind = 'session' | 'terminal' | 'spec' | 'plan' | 'result' | 'item';
 
 export interface TreeRow {
   /** The tree node's id (stable across renders). */
@@ -80,7 +81,7 @@ function isMine(session: SessionInfo, selfUserId: string | null): boolean {
 
 function keep(row: TreeRow, filter: SessionFilter, selfUserId: string | null): boolean {
   if (filter === 'all') return true;
-  if (row.kind === 'spec' || row.kind === 'plan') return false;
+  if (row.kind === 'spec' || row.kind === 'plan' || row.kind === 'result') return false;
   if (filter === 'waiting') return waitsForPerson(row.glyph);
   if (row.session !== undefined) return isMine(row.session, selfUserId);
   return row.responsible !== undefined && row.responsible !== null && row.responsible.userId === selfUserId;
@@ -149,23 +150,35 @@ export function buildSessionTree(input: TreeInput): TreeGroup[] {
       quiet: !topic.spec.exists,
     });
     const planTarget: ColumnRef = { kind: 'plan', topicId: topic.id };
+    const loadedPlan: PlanInfo | null | undefined = topics.plans.get(topic.id);
+    // A plan whose items smurg merges counts merges (protocol 6), once the plan is loaded and says so.
+    const mergesAuto = loadedPlan?.items.some((item) => item.merging === 'auto') === true;
     rows.push({
       id: `plan:${topic.id}`,
       kind: 'plan',
       target: planTarget,
       title: t('row.plan'),
-      meta: topic.plan.exists ? t('row.plan.reviewed', { reviewed: topic.plan.reviewed, items: topic.plan.items }) : t('row.plan.missing'),
+      meta: !topic.plan.exists
+        ? t('row.plan.missing')
+        : mergesAuto
+          ? t('fact.tally', { merged: topic.plan.merged, total: topic.plan.items })
+          : t('row.plan.reviewed', { reviewed: topic.plan.reviewed, items: topic.plan.items }),
       glyph: null,
       unread: topic.plan.exists && isUnseen(marks, 'plan', topic.id, topic.plan.changedAt),
       ...place(planTarget),
       quiet: !topic.plan.exists,
     });
+    // ---- Result: what the team checks at the end.
+    if (topic.phase === 'ready' || topic.phase === 'complete') {
+      const resultTarget: ColumnRef = { kind: 'result', topicId: topic.id };
+      rows.push({ id: `result:${topic.id}`, kind: 'result', target: resultTarget, title: t('row.result'), glyph: null, unread: false, ...place(resultTarget), quiet: topic.phase === 'complete' });
+    }
 
     // ---- work items
     const itemSessions = own.filter((session) => session.purpose === 'item');
     const newestOf = (itemId: string): AgentSession | undefined =>
       itemSessions.filter((session) => session.itemId === itemId).sort((a, b) => (b.attempt ?? 0) - (a.attempt ?? 0) || b.createdAt - a.createdAt)[0];
-    const plan: PlanInfo | null | undefined = topics.plans.get(topic.id);
+    const plan = loadedPlan;
     if (plan) {
       for (const item of plan.items) {
         if (!item.inPlan && item.sessionId === undefined) continue;

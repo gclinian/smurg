@@ -7,20 +7,30 @@
 //                                                            work (partial, blocked) asks once
 //   then for the host "Merge…" (the complete diff review), for a member with agent access "Request merge" while
 //   nobody reviewed.
+//
+// Protocol 6 (DESIGN 0.7.0 D12, D19): an item smurg merges by itself says so ("Merged by smurg at 14:05"), and
+// "I've reviewed this" is a mark, not a gate. An item held for a decision has the decision's foot instead: why, who
+// decides, what waits for it, and what each person may do (D9's table, by the viewer's role); a hold that ends by
+// itself says what to do in the main workspace.
 import {
+  RELEASABLE_HOLDS,
+  SELF_CLEARING_HOLDS,
   isSessionOver,
   isSmurgError,
   knownErrorReasonOf,
   mayReview,
   type MergeRequest,
   type ReportInfo,
+  type AutoMergeInfo,
   type ReportOutcome,
   type Topic,
   type WorkItem,
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { useEffect, useState, type ReactNode } from 'react';
-import { formatAnd, joinSentences } from '../../lib/format.ts';
+import { itemLabel } from '../../lib/columns/describe.ts';
+import { formatAnd, formatList, joinSentences } from '../../lib/format.ts';
+import { holdText } from '../../lib/hold-words.ts';
 import { ColumnHeaderExtra } from '../../lib/columns/context.tsx';
 import { describeError, renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
@@ -34,7 +44,7 @@ import { Markdown } from '../markdown/index.ts';
 import { ChangedFiles } from '../worktree/index.tsx';
 import { AskBox } from './AskBox.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, isMerged, openChangesAsked, outcomeLabel } from './model.ts';
+import { agentAccessNames, decidersOf, dependentsOf, isMerged, itemBadge, itemNumbers, mergesAuto, openChangesAsked, outcomeLabel } from './model.ts';
 import { Foot, LinkButton, Note, Scroll, formatClock, useAction, useMembers, useOpenSide, useSentNotice, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import './topics.css';
@@ -116,7 +126,8 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
   const sessionsRead = useStore(stores.sessions, (state) => state.status === 'ready');
   const itemSession = useStore(stores.sessions, (state) => (item?.sessionId === undefined ? undefined : selectSession(state, item.sessionId)));
   const sessionEnded = item !== undefined && (item.sessionId === undefined || (itemSession === undefined ? sessionsRead : isSessionOver(itemSession)));
-  const closed = merged && report.state === 'reviewed' && sessionEnded;
+  // (0.7.0: or its topic's result was checked, which ends the sessions of its merged items: DESIGN D12.)
+  const closed = merged && (report.state === 'reviewed' || topic.checked !== undefined) && sessionEnded;
   const live = !topic.archived;
   const changes = report.changes;
   // The report on screen is the newest word about its own state (the plan's copy of the summary follows a moment later).
@@ -130,7 +141,7 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
       <Scroll>
         <div className="report col-measure">
           <div className="report__facts">
-            <StateBadge report={report} selfUserId={member?.userId ?? null} />
+            <StateBadge report={report} item={item} selfUserId={member?.userId ?? null} />
             <span className="report__checks">
               {(report.checks.failed ?? 0) > 0
                 ? t('report.checks.line', { passed: report.checks.passed, failed: report.checks.failed ?? 0, notVerified: report.checks.notVerified })
@@ -261,12 +272,20 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
           }}
         />
       ) : null}
-      {live ? <ReviewFoot topic={topic} report={report} item={item} request={request} worktree={worktree} merged={merged === true} /> : <Foot className="topics-foot--status" text={t('archived.note')} />}
+      {!live ? (
+        <Foot className="topics-foot--status" text={t('archived.note')} />
+      ) : item?.autoMerge?.state === 'held' ? (
+        <DecisionFoot topic={topic} report={report} item={item} hold={item.autoMerge} request={request} worktree={worktree} />
+      ) : item?.undone !== undefined ? (
+        <Foot className="topics-foot--status" text={t('undo.done', { name: item.undone.by.displayName, time: formatClock(item.undone.at) })} />
+      ) : (
+        <ReviewFoot topic={topic} report={report} item={item} request={request} worktree={worktree} merged={merged === true} />
+      )}
     </>
   );
 }
 
-function StateBadge({ report, selfUserId }: { report: ReportInfo; selfUserId: string | null }) {
+function StateBadge({ report, item, selfUserId }: { report: ReportInfo; item: WorkItem | undefined; selfUserId: string | null }) {
   if (report.state === 'reviewed' && report.review !== undefined) {
     return (
       <Badge tone="success">
@@ -275,6 +294,18 @@ function StateBadge({ report, selfUserId }: { report: ReportInfo; selfUserId: st
     );
   }
   if (report.state === 'invalid') return <Badge tone="danger">{t('badge.reportInvalid')}</Badge>;
+  // An item smurg merges waits for no review (DESIGN 0.7.0 D12): the badge says where its merge is.
+  if (item !== undefined && mergesAuto(item)) {
+    if (item.merged !== undefined && item.merged.by === 'smurg' && item.autoMerge === undefined) {
+      return (
+        <Badge tone="success">
+          <IconGitMerge size={12} /> {t('report.state.mergedAuto', { time: formatClock(item.merged.at) })}
+        </Badge>
+      );
+    }
+    const badge = itemBadge(item, { items: [item], slots: { inUse: 0, max: 0, waitingForPeople: 0 } });
+    return <Badge tone={badge.tone}>{badge.text}</Badge>;
+  }
   const mine = selfUserId !== null && report.reviewers.some((reviewer) => reviewer.userId === selfUserId);
   const waits = mine ? t('report.state.waitsYou') : report.reviewers.length === 1 ? t('report.state.waitsFor', { name: (report.reviewers[0] as { displayName: string }).displayName }) : t('report.state.waits');
   return <Badge tone="warning">{report.state === 'changed-after-review' ? t('report.state.changed', { waits }) : waits}</Badge>;
@@ -363,8 +394,16 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
         </Foot>
       );
     }
+    // Under automatic merging the review is a mark: the lead says what smurg did, not what the review leads to.
+    const auto = item !== undefined && mergesAuto(item);
+    const lead =
+      report.state === 'changed-after-review'
+        ? t('review.again')
+        : auto && item?.merged !== undefined && item.merged.by === 'smurg'
+          ? t('review.lead.auto', { time: formatClock(item.merged.at) })
+          : t('review.lead');
     return (
-      <Foot className="report-foot" text={joinSentences([conflictLine, report.state === 'changed-after-review' ? t('review.again') : t('review.lead')])}>
+      <Foot className="report-foot" text={joinSentences([conflictLine, lead])}>
         {resolve}
         {isHost && request !== undefined && !merged ? <MergeButton requestId={request.id} secondary /> : null}
         {canRequest && !isHost && worktree !== undefined && request?.status === 'draft' ? <RequestMerge worktree={worktree} /> : null}
@@ -393,8 +432,22 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
   /** Who reviewed it, then what became of the change. */
   const reviewed = (then: string): string => joinSentences([by, insteadOf, then]);
   if (merged) {
-    const mergedBy = request?.decidedAt === undefined ? t('review.merged') : t('review.mergedAt', { time: formatClock(request.decidedAt) });
+    const mergedBy =
+      item?.merged !== undefined && item.merged.by === 'smurg'
+        ? t('report.state.mergedAuto', { time: formatClock(item.merged.at) })
+        : request?.decidedAt === undefined
+          ? t('review.merged')
+          : t('review.mergedAt', { time: formatClock(request.decidedAt) });
     return <Foot className="report-foot" text={reviewed(mergedBy)} />;
+  }
+  // An item smurg merges, reviewed before its merge: the badge's words say where the merge is.
+  if (item !== undefined && mergesAuto(item)) {
+    const badge = itemBadge(item, { items: [item], slots: { inUse: 0, max: 0, waitingForPeople: 0 } });
+    return (
+      <Foot className="report-foot" text={reviewed(badge.text)}>
+        {isHost && request !== undefined && request.status !== 'rejected' ? <MergeButton requestId={request.id} secondary /> : null}
+      </Foot>
+    );
   }
   if (request === undefined || report.changes === undefined) return <Foot className="report-foot" text={reviewed(t('review.noChanges'))} />;
   if (request.status === 'conflict') {
@@ -409,6 +462,101 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
   return (
     <Foot className="report-foot" text={reviewed(isHost ? t('review.ready.host') : t('review.ready'))}>
       {isHost ? <MergeButton requestId={request.id} /> : null}
+    </Foot>
+  );
+}
+
+const REPORT_HOLDS: ReadonlySet<string> = new Set(['partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected']);
+const RELEASABLE: ReadonlySet<string> = new Set(RELEASABLE_HOLDS);
+const SELF_CLEARING: ReadonlySet<string> = new Set(SELF_CLEARING_HOLDS);
+
+/** Puts the caret into this item's follow-up box ("Ask the agent to fix it"): the text a person writes is the fix. */
+function focusFollowUp(topicId: string, itemId: string): void {
+  const key = `follow-up:${topicId}:${itemId}`;
+  const ask = [...document.querySelectorAll<HTMLElement>('[data-ask]')].find((element) => element.dataset['ask'] === key);
+  ask?.querySelector('textarea')?.focus();
+}
+
+/** What to do in the main workspace for a hold that ends by itself once it is done (the host's). */
+function inTheWayText(hold: AutoMergeInfo): string | null {
+  const paths = formatList([...(hold.paths ?? [])]);
+  switch (hold.reason) {
+    case 'local-changes':
+      return t('decision.inTheWay.local-changes', { paths });
+    case 'in-the-way':
+      return t('decision.inTheWay.in-the-way', { paths });
+    case 'staged':
+      return t('decision.inTheWay.staged');
+    case 'branch':
+      return hold.branch === undefined ? null : t('decision.inTheWay.branch', { expected: hold.branch.expected, current: hold.branch.current });
+    case 'git-busy':
+      return t('decision.inTheWay.git-busy');
+    case 'undo-interrupted':
+      return t('decision.inTheWay.undo-interrupted');
+    default:
+      return null;
+  }
+}
+
+/**
+ * The foot of an item held for a decision (DESIGN 0.7.0 D9, D10): "Not merged: {reason}. {who} decides. Items {items}
+ * wait for it.", the people whose change a conflict is against, what to do for a hold that ends by itself, and the
+ * actions of D9's table that the viewer's role allows (the daemon refuses anything else).
+ */
+function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic: Topic; report: ReportInfo; item: WorkItem; hold: AutoMergeInfo; request: MergeRequest | undefined; worktree: WorktreeInfo | undefined }) {
+  const stores = useStores();
+  const act = useAction();
+  const members = useMembers();
+  const isHost = useCan('worktree.merge.decide');
+  const canDrive = useCan('session.drive');
+  const canRequest = useCan('worktree.merge.request');
+  const canAsk = useCan('suggest.create');
+  const plan = useStore(stores.topics, (state) => selectPlan(state, topic.id));
+  const direct = item.merging === undefined;
+  const reason = hold.reason;
+  const byHand = reason === 'by-hand' ? [...new Set((report.changes?.byHand ?? []).flatMap((entry) => entry.by.map((user) => user.displayName)))] : [];
+  const words = holdText(reason, hold, byHand);
+  const who = decidersOf(item, members);
+  const waiting = plan ? dependentsOf(plan, item.id).filter((dependent) => !isMerged(dependent) && dependent.leftOut === undefined) : [];
+  const lead = waiting.length > 0 ? t('decision.foot', { reason: words, who, items: itemNumbers(plan ?? { items: [] }, waiting.map((dependent) => dependent.id)) }) : t('decision.foot.alone', { reason: words, who });
+  const people = reason === 'conflict' ? (hold.people ?? []).map((change) => (change.outside || change.by.length === 0 ? t('decision.people.outside', { path: change.path }) : t('decision.people', { path: change.path, names: formatAnd(change.by.map((user) => user.displayName)) }))) : [];
+  const inTheWay = isHost ? inTheWayText(hold) : null;
+  const failed = (why: string): string => t('item.failed', { item: itemLabel(item), reason: why });
+  const selfClearing = SELF_CLEARING.has(reason);
+  const reportHold = REPORT_HOLDS.has(reason);
+
+  const fix = (reportHold || RELEASABLE.has(reason)) && canAsk ? <Button onClick={() => focusFollowUp(topic.id, item.id)}>{t('decision.fix')}</Button> : null;
+  const resolve = reason === 'conflict' && canDrive ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
+  const continueTurn = reason === 'stopped' && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
+  const asIs =
+    RELEASABLE.has(reason) && !direct && canDrive ? (
+      <Button onClick={() => void act(() => stores.topics.release({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.asIs')}</Button>
+    ) : null;
+  const accept =
+    direct && isHost ? <Button onClick={() => void act(() => stores.topics.accept({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.accept')}</Button> : null;
+  const removePaths = reason === 'policy' && isHost ? <Button onClick={() => void act(() => stores.topics.removePaths(topic.id, item.id), failed)}>{t('decision.removePaths')}</Button> : null;
+  // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes.
+  const requestMerge =
+    worktree !== undefined && request?.status === 'draft' && ((reportHold && canRequest && !isHost) || (reason === 'policy' && isHost)) ? <RequestMerge worktree={worktree} /> : null;
+  const merge = isHost && !direct && !selfClearing && request !== undefined && request.status !== 'merged' && (reason !== 'policy' || request.status !== 'draft') ? <MergeButton requestId={request.id} secondary /> : null;
+  const leaveOut =
+    canDrive && (!selfClearing || reason === 'in-the-way') ? (
+      <Button variant="ghost" onClick={() => topicDialogs(stores).open({ kind: 'leaveOut', topicId: topic.id, itemId: item.id })}>
+        {t('decision.leaveOut')}
+      </Button>
+    ) : null;
+
+  return (
+    <Foot className="report-foot report-foot--decision" text={joinSentences([lead, ...people, inTheWay])}>
+      {leaveOut}
+      {fix}
+      {resolve}
+      {continueTurn}
+      {removePaths}
+      {requestMerge}
+      {merge}
+      {accept}
+      {asIs}
     </Foot>
   );
 }

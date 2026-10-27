@@ -97,15 +97,20 @@ describe('the topic screens in zh-TW', () => {
       blockers: [{ text: msg('plan.start.invalid'), fallback: 'Fix PLAN.md before you start.' }],
       history: 'folder', direct: null, agent: { model: null, permissionMode: null, effective: 'auto' }, nestedRepos: [], cloudSynced: false, merging: { workspace: 'auto', proposed: 'auto', detached: false },
     };
-    const text = startLines(preflight, PLAN, MEI.userId).map((line) => line.text);
+    const text = startLines(preflight, PLAN, MEI.userId, { merging: 'auto', host: 'Ian' }).map((line) => line.text);
     expect(text).toEqual([
       '開始前請先修正 PLAN.md',
       '2 個項目現在開始：1 · 購物車 API 和 2 · 付款表單。',
       '3 · 結帳頁 會在 1 · 購物車 API 和 2 · 付款表單 都合併後自動開始，前提是 spec 和計畫還是你現在看到的內容。',
+      // protocol 6 (DESIGN 0.7.0 D19): how the items reach the main workspace, what stops the run, the end
+      '項目的報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替 Ian 把它合併到主工作區（主人的設定），等著它的項目接著從合併後的主工作區開始。',
+      '需要人決定的地方才會停下：選擇題、它的模式要先問的請求、不是完成且驗證過的報告、有人停下或對 agent 說了話的工作、只有主人能合併的檔案、主人的資料夾擋住了，或是 smurg 沒辦法自己順利完成的合併。不依賴它的項目會繼續。',
+      '所有項目都合併之後，每位成員的收件夾都會顯示主題待驗收：可以看每一份報告、合起來的變更和 agent 說它們驗證了什麼，也可以復原某個項目。',
+      '你可以關掉這個頁面：只要 Ian 的電腦上 smurg host 在執行，工作就會繼續，重新啟動之後也一樣。',
       '負責人：Ian 1 · Mei 1。',
       'Mei 目前離線：他負責的項目會開始，然後等他。',
       '這 1 個 session 的選擇題會由你決定。',
-      'smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。資料夾裡還有、但不會提交的檔案：specs/topic-1/notes.txt。',
+      'smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。smurg 會把每個項目合併到 main；主工作區在別的分支上的時候，合併會等主人處理。資料夾裡還有、但不會提交的檔案：specs/topic-1/notes.txt。',
       'SPEC.md 裡有你看不到的字元。開始之前請先看變更。',
       'spec 在這份計畫寫好之後有變動。',
       'spec 裡列了 2 個未決事項。',
@@ -290,5 +295,60 @@ describe('the topic screens in zh-TW', () => {
     );
     const dialog = screen.getByRole('dialog', { name: '新增主題' });
     expect(within(dialog).getByText('個人的 Claude 訂閱（Pro 或 Max）只供你自己使用。有其他人在這裡使用 agent 時，請改用 API 金鑰、Team 或 Enterprise 方案。')).toBeTruthy();
+  });
+});
+
+describe('the topic screens in zh-TW: work items smurg merges by itself (protocol 6, DESIGN 0.7.0 D19)', () => {
+  const held = { state: 'held' as const, reason: 'partial' as const, since: 1, tries: 0, hostOnly: false, escalated: false };
+  const AUTO: PlanInfo = buildPlan({
+    items: [
+      buildWorkItem({ id: 'cart-api', number: 1, title: '購物車 API', state: 'done', attempt: 1, merging: 'auto', merged: { at: 1, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false }, report: buildReportSummary() }),
+      buildWorkItem({ id: 'payment-form', number: 2, title: '付款表單', state: 'done', attempt: 1, merging: 'auto', autoMerge: held, responsible: { ...MEI, source: 'agent' }, report: buildReportSummary({ outcome: 'partial' }) }),
+      buildWorkItem({ id: 'checkout-page', number: 3, title: '結帳頁', state: 'waiting', armed: true, dependsOn: ['cart-api', 'payment-form'], waitsFor: ['payment-form'] }),
+    ],
+  });
+
+  it('the plan: merges counted, the decision named, what waits for it', async () => {
+    const topic = { ...TOPIC, phase: 'executing' as const, plan: { ...TOPIC.plan, started: 2, merged: 1 } };
+    const world = { role: 'agent' as const, topics: [topic], plans: { tp_1: AUTO } };
+    const conn = topicConnection(world);
+    renderInColumn(<PlanColumn topicId="tp_1" />, { target: { kind: 'plan', topicId: 'tp_1' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle();
+    expect(screen.getByText('3 項中 1 項已合併')).toBeTruthy();
+    expect(screen.getByText('自動執行中：報告寫著完成且驗證過的項目由 smurg 合併，等著它的項目接著開始。')).toBeTruthy();
+    expect(screen.getByText('2 · 付款表單 沒有合併：沒有完成（部分完成）。由 Mei 決定。不依賴它的項目會繼續。')).toBeTruthy();
+    expect(within(screen.getByText('購物車 API').closest('li') as HTMLElement).getByText('已合併')).toBeTruthy();
+    expect(within(screen.getByText('付款表單').closest('li') as HTMLElement).getByText('沒有合併：沒有完成（部分完成）')).toBeTruthy();
+    expect(within(screen.getByText('結帳頁').closest('li') as HTMLElement).getByText('在等 2 的決定')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '暫停' })).toBeTruthy();
+  });
+
+  it('a decision\'s foot in the report column', async () => {
+    const world = { role: 'agent' as const, topics: [{ ...TOPIC, phase: 'executing' as const }], plans: { tp_1: AUTO } };
+    const conn = topicConnection(world);
+    conn.handle('report.get', () => ({ report: buildReport({ itemId: 'payment-form', outcome: 'partial' }) }));
+    renderInColumn(<ReportColumn topicId="tp_1" itemId="payment-form" />, { target: { kind: 'report', topicId: 'tp_1', itemId: 'payment-form' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle(4);
+    const foot = document.querySelector('.report-foot') as HTMLElement;
+    expect(within(foot).getByText('沒有合併：沒有完成（部分完成）。由 Mei 決定。項目 3 在等它。')).toBeTruthy();
+    for (const name of ['請 agent 修正', '略過這個項目…']) expect(within(foot).getByRole('button', { name })).toBeTruthy();
+  });
+
+  it('the Result column', async () => {
+    const settled: PlanInfo = buildPlan({ items: [AUTO.items[0] as PlanInfo['items'][number], { ...(AUTO.items[1] as PlanInfo['items'][number]), autoMerge: undefined, state: 'stopped', leftOut: { by: MEI, at: 1 } }] });
+    const topic = { ...TOPIC, phase: 'ready' as const, plan: { ...TOPIC.plan, items: 2, started: 2, merged: 1, leftOut: 1 } };
+    const world = { role: 'agent' as const, topics: [topic], plans: { tp_1: settled } };
+    const conn = topicConnection(world);
+    conn.handle('report.get', () => ({ report: buildReport({ itemId: 'cart-api' }) }));
+    conn.handle('worktree.merge.diff', () => ({ diff: '', truncated: false, files: [] }));
+    const { default: ResultColumn } = await import('./ResultColumn.tsx');
+    renderInColumn(<ResultColumn topicId="tp_1" />, { target: { kind: 'result', topicId: 'tp_1' }, conn, admit: false });
+    admitAs(conn, world);
+    await settle(5);
+    expect(screen.getByText('2 項中 1 項已合併 · 1 項通過 · 0 項失敗 · 0 項沒有驗證 · 1 項已略過')).toBeTruthy();
+    for (const name of ['通過', '各項目合起來的變更', '工作項目', '已略過和已復原的項目']) expect(screen.getByRole('heading', { level: 3, name })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '我已驗收' })).toBeTruthy();
   });
 });

@@ -490,13 +490,21 @@ export const t = defineStrings(
     'settings.agentsAuto.banner':
       "Since smurg 0.6.0, agents run in auto mode: Claude Code's check decides which commands run without asking you, and file edits and simple file commands inside an agent's own folder run without that check. To be asked before commands again, choose \"Asks before commands\" below.",
     'settings.agentsAuto.dismiss': 'Got it',
+    // ---- how work items reach the shared folder (protocol 6, DESIGN 0.7.0 D3, D18)
+    'settings.merging': 'Merging work items',
+    'settings.merging.auto': 'smurg merges what its report says is complete and verified',
+    'settings.merging.host': 'I merge each item myself',
+    'settings.mergingHint':
+      'smurg merges a work item for you, without anyone reading its diff first, when its report says complete, at least one check passed and none failed, and it merges cleanly into the branch its Start used; anything else waits for a decision. The checks are what the agent reports: smurg does not run them. You can undo a merged item. Turning this off applies at once (a merge already under way finishes) and gives every started work item to you; turning it on applies to work items started from then on.',
+    'settings.mergesAuto.banner':
+      'Since smurg 0.7.0, work items merge by themselves: when a work item\'s report says complete, at least one check passed and none failed, and it merges cleanly, smurg merges it into the shared folder for you, and everyone\'s inbox says when a topic is ready to check. Work items started before the update still wait for you. To merge each item yourself, choose "I merge each item myself" below.',
     'settings.creditsSessions': 'Agent sessions on a model that may be billed to usage credits ({count}): {names}',
     'settings.creditsSessions.more': '{count} more',
     'settings.maxLiveAgents': 'Work items running at the same time',
     'settings.maxLiveAgentsHint': 'How many work items smurg keeps running at once on your computer ({min} to {max}). The others wait for a free agent. A message from a person always gets an agent.',
     'settings.escalateAfter': 'Waiting time before others are asked (minutes)',
     'settings.escalateAfterHint':
-      'A question or a permission request that has waited this long also reaches you and the members with agent access. A result report does after {factor} times as long. Default: {minutes} minutes.',
+      'A question, a permission request or a decision on a work item that has waited this long also reaches you and the members with agent access. A result report of a work item you merge yourself does after {factor} times as long. Default: {minutes} minutes.',
     'settings.agentMcp': "Agents may use my own and this project's MCP servers",
     'settings.agentMcpHint':
       "Off: agents get only the tools of smurg. On: an agent that any member with agent access drives can call those servers (mail, drive, chat and the like), and their answers show to every member. A discussion agent never gets them. The project's servers also need your confirmation under Claude Code project settings.",

@@ -384,3 +384,102 @@ describe('the report column: loading', () => {
     expect(conn.requestsOf('report.get')).toHaveLength(before + 1);
   });
 });
+
+describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 0.7.0 D12, D19)', () => {
+  const T = 1_780_000_000_000;
+  const hold = (reason: string, extra: Record<string, unknown> = {}) =>
+    ({
+      state: 'held',
+      reason,
+      since: T,
+      tries: 0,
+      hostOnly: ['policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'git-busy', 'history-changed', 'merge-failed', 'by-hand', 'undo-interrupted'].includes(reason),
+      escalated: false,
+      ...extra,
+    }) as NonNullable<Parameters<typeof buildWorkItem>[0]>['autoMerge'];
+  const autoPlan = (overrides: Parameters<typeof buildWorkItem>[0] = {}): PlanInfo =>
+    buildPlan({
+      items: [
+        buildWorkItem({ state: 'done', sessionId: 'sess_i', worktreeId: 'wt_1', attempt: 1, merging: 'auto', responsible: { ...MEI, source: 'chosen' }, report: buildReportSummary({ reviewers: [MEI] }), merge: { requestId: 'mr_1', status: 'draft', ready: false }, ...overrides }),
+        buildWorkItem({ id: 'checkout-page', number: 2, title: 'Checkout page', state: 'waiting', armed: true, dependsOn: ['cart-api'], waitsFor: ['cart-api'] }),
+      ],
+    });
+  const foot = (): HTMLElement => document.querySelector('.report-foot') as HTMLElement;
+
+  it('merged by smurg: the state and the lead say so, and "I\'ve reviewed this" is a mark', async () => {
+    const { conn } = await setup({ role: 'agent', report: { ...REPORT, reviewers: [MEI] }, plan: autoPlan({ merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
+    expect(screen.getByText(/^Merged by smurg at /)).toBeTruthy();
+    expect(within(foot()).getByText(/^smurg merged this change into the main workspace at .+: its report says complete, at least one check passed and none failed\. Mark it reviewed when you have read it; that changes nothing in the folder\.$/)).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Merge…' })).toBeNull();
+    fireEvent.click(within(foot()).getByRole('button', { name: "I've reviewed this" }));
+    expect(conn.lastRequest('report.review')?.payload).toMatchObject({ topicId: 'tp_1', itemId: 'cart-api', version: 1 });
+  });
+
+  it('held for a report that is not complete: why, who decides, what waits; the follow-up, Request merge, Leave it out for agent access', async () => {
+    const { dialog } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('partial'), report: buildReportSummary({ outcome: 'partial', reviewers: [MEI] }) }), report: { ...REPORT, outcome: 'partial' } });
+    expect(within(foot()).getByText('Not merged: not complete (partial). Mei decides. Items 2 wait for it.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to fix it' }));
+    expect(document.activeElement?.tagName).toBe('TEXTAREA');
+    expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Merge…' })).toBeNull();
+    expect(within(foot()).queryByRole('button', { name: 'Merge it as it is' })).toBeNull();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Leave it out…' }));
+    expect(dialog()).toEqual({ kind: 'leaveOut', topicId: 'tp_1', itemId: 'cart-api' });
+  });
+
+  it('the host gets "Merge…" for a report hold; an editor only reads why and who decides', async () => {
+    await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('check-failed') }) });
+    expect(within(foot()).getByText('Not merged: a check failed. Mei decides. Items 2 wait for it.')).toBeTruthy();
+    expect(within(foot()).getByRole('button', { name: 'Merge…' })).toBeTruthy();
+    const editor = await setup({ role: 'editor', plan: autoPlan({ autoMerge: hold('check-failed') }) });
+    const editorFoot = editor.container.querySelector('.report-foot') as HTMLElement;
+    expect(within(editorFoot).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+    expect(within(editorFoot).queryByRole('button', { name: 'Merge…' })).toBeNull();
+  });
+
+  it('a later message or a stopped turn: "Merge it as it is" for the version on screen, and Continue', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped') }) });
+    expect(within(foot()).getByText('Not merged: its last turn did not finish. Mei decides. Items 2 wait for it.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Merge it as it is' }));
+    expect(conn.lastRequest('plan.item.release')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', version: 1 });
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
+    expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+  });
+
+  it('a conflict with a person\'s change names it; the agent may be asked to resolve', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('conflict', { people: [{ path: 'src/cart.ts', by: [AMY], outside: false }, { path: 'README.md', by: [], outside: true }] }) }) });
+    expect(within(foot()).getByText(/^Not merged: it conflicts with Amy's change of src\/cart\.ts\. Mei decides\. Items 2 wait for it\. src\/cart\.ts: the other side is Amy's change\. Whose lines stay is a person's decision\. README\.md: the other side was changed outside smurg\. Whose lines stay is a person's decision\.$/)).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to resolve' }));
+    expect(conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+  });
+
+  it('files only the host may merge: the host asks the agent to take them out; a member is not offered it', async () => {
+    const { conn } = await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.github/workflows/ci.yml'] }) }) });
+    expect(within(foot()).getByText('Not merged: it changes files only the host may merge. Ian decides. Items 2 wait for it.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to take them out' }));
+    expect(conn.lastRequest('plan.item.removePaths')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
+    const member = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.github/workflows/ci.yml'] }) }) });
+    expect(within(member.container.querySelector('.report-foot') as HTMLElement).queryByRole('button', { name: 'Ask the agent to take them out' })).toBeNull();
+  });
+
+  it('a hold that ends by itself says what to do in the main workspace, for the host', async () => {
+    await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('branch', { branch: { expected: 'main', current: 'experiment' } }) }) });
+    expect(within(foot()).getByText(/The main workspace is on experiment\. Switch back to main, where this topic started; smurg merges the item by itself then\.$/)).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+    expect(within(foot()).queryByRole('button', { name: 'Merge…' })).toBeNull();
+  });
+
+  it('an item that ran directly in the folder and is held: the host accepts it as it is', async () => {
+    const plan = buildPlan({ items: [buildWorkItem({ state: 'done', sessionId: 'sess_i', attempt: 1, responsible: { ...MEI, source: 'chosen' }, report: buildReportSummary({ outcome: 'blocked', reviewers: [MEI] }), autoMerge: hold('blocked') })] });
+    const { conn } = await setup({ role: 'host', plan, requests: [] });
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Accept as it is' }));
+    expect(conn.lastRequest('plan.item.accept')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', version: 1 });
+    expect(within(foot()).queryByRole('button', { name: 'Merge it as it is' })).toBeNull();
+  });
+
+  it('undone: who took it back, and when', async () => {
+    await setup({ role: 'host', plan: autoPlan({ state: 'not-started', undone: { by: IAN, at: T } }) });
+    expect(screen.getByText(/^Undone by Ian at .+: its change was taken back out of the main workspace\.$/)).toBeTruthy();
+  });
+});

@@ -68,7 +68,7 @@ export function useWorkspaceNotices(): void {
       if (notice.kind === 'started' && topic?.createdBy.userId === selectUserId(stores.workspace.getState())) continue;
       const target = topicNoticeTarget(notice, topic?.discussionSessionId);
       toast.show({
-        tone: notice.kind === 'complete' ? 'success' : 'info',
+        tone: notice.kind === 'complete' || notice.kind === 'checked' || notice.kind === 'ready' ? 'success' : 'info',
         title: tWorkbench(`notice.${notice.kind}`, { name: notice.name }),
         action: { label: tWorkbench('notice.open'), onClick: () => void openColumn({ target, from: 'inbox' }).catch(() => {}) },
       });
@@ -76,10 +76,14 @@ export function useWorkspaceNotices(): void {
   }, [topicNotices, toast, stores, openColumn]);
 }
 
-/** What "Open" on a topic's notice shows: its discussion for a new topic, its spec for a draft, else its plan. */
+/**
+ * What "Open" on a topic's notice shows: its discussion for a new topic, its spec for a draft, its Result once every
+ * item is merged or the result was checked (0.7.0), else its plan.
+ */
 export function topicNoticeTarget(notice: Pick<TopicNotice, 'kind' | 'topicId'>, discussionSessionId: string | undefined): ColumnTarget {
   if (notice.kind === 'started') return discussionSessionId === undefined ? { kind: 'spec', topicId: notice.topicId } : { kind: 'session', sessionId: discussionSessionId };
   if (notice.kind === 'spec-ready') return { kind: 'spec', topicId: notice.topicId };
+  if (notice.kind === 'ready' || notice.kind === 'checked') return { kind: 'result', topicId: notice.topicId };
   return { kind: 'plan', topicId: notice.topicId };
 }
 

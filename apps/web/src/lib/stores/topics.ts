@@ -10,7 +10,8 @@
 //             by report.updated (a summary: when its version moved on, or when nothing a summary carries changed (a
 //             follow-up was asked or answered), the whole report is fetched again);
 //   notices   what a toast tells everyone: a topic was started, its spec draft or its plan is ready, the plan was
-//             updated, the topic is complete (DESIGN §5.3). Derived here from topic.updated; they are not inbox items.
+//             updated, every item is merged and it is ready to check, its result was checked, the topic is complete
+//             (DESIGN §5.3; 0.7.0 D13). Derived here from topic.updated; they are not inbox items.
 //
 // Every request of the topic.*, plan.* and report.* families is a method here; a reply that carries a topic or a plan
 // is put into the store before the promise resolves.
@@ -26,13 +27,14 @@ import {
   type SessionModeChoice,
   type StartPreflight,
   type Topic,
+  type UndoPreview,
 } from '@smurg/protocol';
 import { createStore, type ReadableStore } from '../store.ts';
 import { loadSnapshot, mapFrom, mapWith, mapWithout, readyState, type AreaLifecycle, type LoadStatus, type Loadable, type StoreContext } from './base.ts';
 import { compareIds } from '../format.ts';
 import { LONG_REQUEST_TIMEOUT_MS } from './sessions.ts';
 
-export type TopicNoticeKind = 'started' | 'spec-ready' | 'plan-ready' | 'plan-updated' | 'complete';
+export type TopicNoticeKind = 'started' | 'spec-ready' | 'plan-ready' | 'plan-updated' | 'ready' | 'checked' | 'complete';
 
 export interface TopicNotice {
   readonly id: number;
@@ -115,6 +117,22 @@ export interface TopicsStore extends ReadableStore<TopicsState> {
   continueItem(topicId: string, itemId: string): Promise<void>;
   /** "Ask the agent to resolve" a merge conflict. */
   resolveItem(topicId: string, itemId: string): Promise<void>;
+  /** "Pause" (protocol 6): nothing of the plan starts, merges or continues by itself until "Continue all". */
+  pause(topicId: string): Promise<PlanInfo>;
+  /** "Leave it out" (protocol 6): the item and what depends on it are not merged, without editing PLAN.md. */
+  leaveOut(topicId: string, itemId: string): Promise<PlanInfo>;
+  /** The host's "Accept as it is" of a held item that ran directly in the folder, for the report version on screen. */
+  accept(input: PayloadInputOf<'plan.item.accept'>): Promise<PlanInfo>;
+  /** "Merge it as it is": the version on screen stands although someone wrote to the agent, stopped a turn, or it was not checked again. */
+  release(input: PayloadInputOf<'plan.item.release'>): Promise<PlanInfo>;
+  /** The host's "Ask the agent to take them out": the files only the host may merge. */
+  removePaths(topicId: string, itemId: string): Promise<void>;
+  /** "I've checked the result" (protocol 6): the topic is complete. */
+  check(topicId: string): Promise<Topic>;
+  /** What the host's undo of these items (null: every merged item of the topic) would do; nothing changes. Long-running. */
+  undoPreview(topicId: string, itemIds: readonly string[] | null): Promise<UndoPreview>;
+  /** The host's undo, with the preview's token. Long-running. */
+  undo(topicId: string, itemIds: readonly string[] | null, token: string): Promise<PlanInfo>;
 
   // ---- reports
   /** Fetches the whole report and keeps it current (also across a resync). */
@@ -158,8 +176,11 @@ export const selectArchivedTopics = (state: TopicsState): Topic[] => [...(state.
 export const selectTopic = (state: TopicsState, topicId: string): Topic | undefined => state.topics.get(topicId) ?? state.archived?.get(topicId);
 export const selectPlan = (state: TopicsState, topicId: string): PlanInfo | null | undefined => state.plans.get(topicId);
 export const selectReport = (state: TopicsState, topicId: string, itemId: string): ReportInfo | undefined => state.reports.get(reportKey(topicId, itemId));
-/** Topics whose plan was paused by a restart of the host's smurg (the banner of the sessions view). */
-export const selectPausedTopics = (state: TopicsState): Topic[] => selectTopicList(state).filter((topic) => topic.plan.paused);
+/**
+ * Topics whose plan smurg paused after a restart of the host's smurg (the banner of the sessions view). A plan a
+ * person paused ("Pause", protocol 6: `pausedBy`) is not one: its own plan says who paused it.
+ */
+export const selectPausedTopics = (state: TopicsState): Topic[] => selectTopicList(state).filter((topic) => topic.plan.paused && topic.plan.pausedBy === undefined);
 
 /** What a change of a topic tells everyone, if anything. `previous` undefined: the topic is new to this client. */
 export function topicNoticeKind(previous: Topic | undefined, next: Topic): TopicNoticeKind | null {
@@ -169,7 +190,9 @@ export function topicNoticeKind(previous: Topic | undefined, next: Topic): Topic
   if (previous.phase !== next.phase) {
     if (next.phase === 'spec') return previous.phase === 'discussing' ? 'spec-ready' : null;
     if (next.phase === 'plan') return previous.phase === 'discussing' || previous.phase === 'spec' ? 'plan-ready' : null;
-    if (next.phase === 'complete') return 'complete';
+    // Every item is settled (protocol 6): the team checks the result; pressing "I've checked the result" completes it.
+    if (next.phase === 'ready') return 'ready';
+    if (next.phase === 'complete') return next.checked !== undefined && previous.checked === undefined ? 'checked' : 'complete';
     return null;
   }
   // The same phase: the agent finished writing the plan again ("Update plan").
@@ -442,6 +465,32 @@ export function createTopicsArea(): { store: TopicsStore; lifecycle: AreaLifecyc
     async resolveItem(topicId, itemId) {
       // Resolve snapshots the shared folder into smurg's own history (DESIGN 0.6.0 D14): as long as a Start.
       await context().conn.request('plan.item.resolve', { topicId, itemId }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS });
+    },
+    async pause(topicId) {
+      return putPlan((await context().conn.request('plan.pause', { topicId })).plan);
+    },
+    async leaveOut(topicId, itemId) {
+      // It waits for a merge already under way (DESIGN 0.7.0 D11), which may snapshot a big folder first.
+      return putPlan((await context().conn.request('plan.item.leaveOut', { topicId, itemId }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).plan);
+    },
+    async accept(input) {
+      return putPlan((await context().conn.request('plan.item.accept', input)).plan);
+    },
+    async release(input) {
+      return putPlan((await context().conn.request('plan.item.release', input)).plan);
+    },
+    async removePaths(topicId, itemId) {
+      await context().conn.request('plan.item.removePaths', { topicId, itemId });
+    },
+    async check(topicId) {
+      return upsertTopic((await context().conn.request('topic.check', { topicId })).topic, false);
+    },
+    async undoPreview(topicId, itemIds) {
+      // In smurg's own history the preview records the folder first (DESIGN 0.7.0 D14): as long as a merge request.
+      return (await context().conn.request('topic.undo.preview', { topicId, itemIds: itemIds === null ? null : [...itemIds] }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).preview;
+    },
+    async undo(topicId, itemIds, token) {
+      return putPlan((await context().conn.request('topic.undo', { topicId, itemIds: itemIds === null ? null : [...itemIds], token }, { timeoutMs: LONG_REQUEST_TIMEOUT_MS })).plan);
     },
     loadReport(topicId, itemId) {
       wantedReports.set(reportKey(topicId, itemId), { topicId, itemId });

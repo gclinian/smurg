@@ -3,7 +3,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { FakeConnection } from '../../testing/fake-connection.ts';
-import { T0, makeMergeRequest, makeWelcome, makeWorktree } from '../../testing/fixtures.ts';
+import { T0, makeMember, makeMergeRequest, makeWelcome, makeWorktree, presenceOf } from '../../testing/fixtures.ts';
 import { WorkspaceTestProviders, createTestWorkspace } from '../../testing/services.tsx';
 import { t as tTopics } from '../topics/strings.ts';
 import type { MergeDiff } from './diff-model.ts';
@@ -336,7 +336,7 @@ describe('merge requests: the draft behind a result report', () => {
     const waiting = await screen.findByRole('region', { name: 'Waiting for review (1)' });
     expect(within(waiting).getByText('Reviewed, ready to merge')).toBeTruthy();
     expect(within(waiting).getByText('Changes of a work item')).toBeTruthy();
-    const drafts = screen.getByRole('region', { name: 'Work items nobody reviewed yet' });
+    const drafts = screen.getByRole('region', { name: 'Work items not merged yet' });
     expect(within(drafts).getByText('Not requested yet')).toBeTruthy();
   });
 
@@ -379,6 +379,12 @@ describe('merge requests: the draft behind a result report', () => {
     expect(within(dialog).getByText('smurg: work item 1 (cart-api)')).toBeTruthy();
     expect(within(dialog).queryByText(/Message from/)).toBeNull();
     expect(within(dialog).queryByRole('button', { name: 'Merge into the main workspace' })).toBeNull();
+  });
+
+  it('protocol 6: a merge smurg made on the host\'s standing consent says so in the list', async () => {
+    const { conn } = setup({ role: 'host', requests: [makeMergeRequest({ status: 'merged', auto: true, topicId: 'tp_1', itemId: 'cart-api', decidedAt: T0 + 9 })] });
+    act(() => conn.emit('presence.state', { members: [presenceOf(makeMember({ userId: 'dev:host', displayName: 'Ian', role: 'host' }))], agents: [] }));
+    expect(await screen.findByText('Merged by smurg for Ian')).toBeTruthy();
   });
 
   it('a work item\'s merge that stopped on a conflict says the item\'s agent can resolve it, and where to ask; a free session\'s does not', async () => {

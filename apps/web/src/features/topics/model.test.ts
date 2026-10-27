@@ -6,6 +6,8 @@ import { makeMember } from '../../testing/fixtures.ts';
 import {
   agentAccessNames,
   assignablePeople,
+  decidersOf,
+  dependentsOf,
   assignHint,
   handEditsLine,
   itemActions,
@@ -14,6 +16,7 @@ import {
   itemNumbers,
   loads,
   planFile,
+  planHeadline,
   planSummary,
   progressLine,
   specFile,
@@ -27,6 +30,7 @@ import {
 
 const IAN = { userId: 'dev:host', displayName: 'Ian' };
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
+const AMY = { userId: 'dev:amy', displayName: 'Amy' };
 const item = (id: string, number: number, overrides: Partial<WorkItem> = {}): WorkItem => buildWorkItem({ id, number, title: `Item ${id}`, ...overrides });
 const noSession = (): undefined => undefined;
 
@@ -124,15 +128,18 @@ describe('work items', () => {
     expect(itemBadge(running, plan, { status: 'running' }).text).toBe('Running');
   });
 
-  it('an item whose dependencies are all reviewed waits only for the host’s merge', () => {
+  it('an item whose dependencies are all reviewed waits only for the host’s merge, when the host merges them (0.7.0: R-SAFE S17)', () => {
     const waiting = buildPlan({
       items: [
-        item('a', 1, { state: 'reviewed', merge: { requestId: 'm1', status: 'draft', ready: true } }),
-        item('b', 2, { state: 'reviewed', merge: { requestId: 'm2', status: 'pending', ready: true } }),
+        item('a', 1, { state: 'reviewed', merging: 'host', merge: { requestId: 'm1', status: 'draft', ready: true } }),
+        item('b', 2, { state: 'reviewed', merging: 'host', merge: { requestId: 'm2', status: 'pending', ready: true } }),
         item('c', 3, { state: 'waiting', armed: true, dependsOn: ['a', 'b'] }),
       ],
     });
     expect(itemBadge(waiting.items[2] as WorkItem, waiting).text).toBe('Waits for the host to merge 1 and 2');
+    // On purpose (0.7.0): a reviewed dependency that smurg merges is waiting, held or resolving, not the host's.
+    const auto = buildPlan({ items: waiting.items.map((one) => (one.id === 'c' ? one : { ...one, merging: 'auto' as const })) });
+    expect(itemBadge(auto.items[2] as WorkItem, auto).text).toBe('Waits for 1 and 2');
   });
 
   it('what a row offers follows the item’s state', () => {
@@ -233,5 +240,93 @@ describe('hand edits', () => {
     expect(line).toBe('Amy (SPEC.md, 14:12), Mei (SPEC.md, 14:03), and a program outside smurg (PLAN.md, 13:00)');
     // An edit of an earlier day carries its date.
     expect(handEditsLine({ spec: [{ by: 'outside', at: at(14, 3) }], plan: [] }, at(15, 0) + 86_400_000)).not.toBe('a program outside smurg (SPEC.md, 14:03)');
+  });
+});
+
+describe('work items smurg merges by itself (protocol 6, DESIGN 0.7.0 D19)', () => {
+  const T = 1_780_000_000_000;
+  const wait = (reason: 'queued' | 'paused' | 'busy' | 'asked' | 'typing' | 'git-busy' | 'behind' | 'retry', extra: Record<string, unknown> = {}) => ({ state: 'waiting' as const, reason, since: T, tries: 0, hostOnly: false, escalated: false, ...extra });
+  const hold = (reason: string, extra: Record<string, unknown> = {}) => ({ state: 'held' as const, reason, since: T, tries: 0, hostOnly: ['policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'git-busy', 'history-changed', 'merge-failed', 'by-hand', 'undo-interrupted'].includes(reason), escalated: false, ...extra }) as WorkItem['autoMerge'];
+  const done = (overrides: Partial<WorkItem> = {}): WorkItem => item('a', 1, { state: 'done', attempt: 1, merging: 'auto', report: buildReportSummary(), ...overrides });
+  const planOf = (one: WorkItem) => buildPlan({ items: [one, item('b', 2, { state: 'waiting', armed: true, dependsOn: ['a'], waitsFor: ['a'] })] });
+  const badge = (one: WorkItem, options = {}) => itemBadge(one, planOf(one), undefined, options);
+
+  it('the itemBadge table: merged, waits, resolves, held, left out, undone', () => {
+    expect(badge(done({ merged: { at: T, by: 'smurg' } })).text).toBe('Merged');
+    expect(badge(done({ state: 'reviewed', merged: { at: T, by: 'smurg' }, report: buildReportSummary({ state: 'reviewed', review: { by: IAN, at: T, version: 1 } }) })).text).toBe('Merged · reviewed');
+    expect(badge(done()).text).toBe('Merging…');
+    expect(badge(done({ autoMerge: wait('queued') })).text).toBe('Merging…');
+    expect(badge(done({ autoMerge: wait('behind') })).text).toBe('Merging…');
+    expect(badge(done({ autoMerge: wait('busy') })).text).toBe('Running');
+    expect(badge(done({ autoMerge: wait('asked', { asked: MEI }) })).text).toBe('Changes asked by Mei');
+    expect(badge(done({ autoMerge: wait('paused') })).text).toBe('Waits to merge: the plan is paused');
+    expect(badge(done({ autoMerge: wait('git-busy') })).text).toBe('Waits to merge: git is busy in the main workspace');
+    expect(badge(done({ autoMerge: wait('typing', { paths: ['src/a.ts'] }) })).text).toBe('Waits to merge: a file is being edited');
+    expect(badge(done({ autoMerge: wait('typing', { paths: ['src/a.ts'] }) }), { editing: () => ['Amy'] }).text).toBe('Waits to merge: Amy is editing');
+    expect(badge(done({ autoMerge: { state: 'resolving', reason: 'conflict', since: T, tries: 1, hostOnly: false, escalated: false } })).text).toBe('Bringing its work up to date');
+    expect(badge(done({ autoMerge: { state: 'resolving', reason: 'stale-report', since: T, tries: 0, hostOnly: false, escalated: false } })).text).toBe('Checking its report again');
+    expect(badge(done({ autoMerge: hold('partial') })).text).toBe('Not merged: not complete (partial)');
+    expect(badge(done({ autoMerge: hold('check-failed') })).text).toBe('Not merged: a check failed');
+    expect(badge(done({ autoMerge: hold('policy') })).text).toBe('Not merged: it changes files only the host may merge');
+    expect(badge(done({ autoMerge: hold('asked', { asked: AMY }) })).text).toBe('Not merged: Amy wrote to the agent after its report');
+    expect(badge(done({ autoMerge: hold('conflict', { people: [{ path: 'src/a.ts', by: [AMY], outside: false }] }) })).text).toBe("Not merged: it conflicts with Amy's change of src/a.ts");
+    expect(badge(done({ autoMerge: hold('conflict', { people: [{ path: 'src/a.ts', by: [], outside: true }] }) })).text).toBe('Not merged: it conflicts with a change of src/a.ts made outside smurg');
+    expect(badge(done({ autoMerge: hold('by-hand') })).text).toBe('Not merged: files of it were edited by hand');
+    expect(badge(done({ autoMerge: hold('partial') })).waitsForPerson).toBe(true);
+    expect(badge(done({ leftOut: { by: MEI, at: T } })).text).toBe('Left out');
+    expect(badge(item('a', 1, { undone: { by: IAN, at: T } })).text).toBe('Undone');
+    expect(badge(done({ waiting: 'question' })).text).toBe('Waiting for an answer');
+    expect(badge(done({ waiting: 'permission' })).text).toBe('Waiting for permission');
+    // A held item that ran directly in the folder (D10): no `merging`, the same words.
+    expect(badge(item('a', 1, { state: 'done', attempt: 1, report: buildReportSummary({ outcome: 'blocked' }), autoMerge: hold('blocked') })).text).toBe('Not merged: not complete (blocked)');
+  });
+
+  it('what waits for a held item waits for a decision; for one that merges or resolves, plainly', () => {
+    const held = planOf(done({ autoMerge: hold('partial') }));
+    expect(itemBadge(held.items[1] as WorkItem, held).text).toBe('Waits for a decision on 1');
+    const merging = planOf(done({ autoMerge: wait('queued') }));
+    expect(itemBadge(merging.items[1] as WorkItem, merging).text).toBe('Waits for 1');
+  });
+
+  it('the plan counts merges and decisions, and the host is led only to what it merges itself', () => {
+    const plan = buildPlan({
+      items: [
+        done({ id: 'a', merged: { at: T, by: 'smurg' }, merge: { requestId: 'm1', status: 'merged', ready: false } }),
+        done({ id: 'b', number: 2, state: 'reviewed', autoMerge: hold('partial'), report: buildReportSummary({ state: 'reviewed', review: { by: IAN, at: T, version: 1 } }), merge: { requestId: 'm2', status: 'draft', ready: true } }),
+        item('c', 3, { state: 'stopped', attempt: 1, merging: 'auto', leftOut: { by: MEI, at: T } }),
+        item('d', 4, { state: 'waiting', armed: true, dependsOn: ['b'], waitsFor: ['b'] }),
+      ],
+    });
+    const summary = planSummary(plan, noSession);
+    expect(summary).toMatchObject({ auto: true, merged: 1, decisions: 1, leftOut: 1, toReview: 0, notStarted: 1 });
+    expect(summary.reviewedNotMerged).toEqual([]);
+    expect(planHeadline(summary)).toBe('1 of 4 merged');
+    expect(progressLine(summary)).toBe('1 waits for a decision · 1 not started');
+    expect(planHeadline(planSummary(buildPlan({ items: [item('a', 1, { state: 'reviewed', merging: 'host', report: buildReportSummary({ state: 'reviewed' }) })] }), noSession))).toBe('1 of 1 reviewed');
+    expect(waitingForLine({ waitingFor: [{ user: MEI, questions: 0, permissions: 0, reports: 0, decisions: 2, since: T }] }, T)).toMatch(/^Mei 2 decisions \(/);
+  });
+
+  it('who decides a held item: the host for its holds, the responsible person with agent access, else agent access', () => {
+    const members = [makeMember({ ...IAN, role: 'host' }), makeMember({ ...MEI, role: 'agent' }), makeMember({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' })];
+    expect(decidersOf({ autoMerge: hold('partial'), responsible: { ...MEI, source: 'chosen' } }, members)).toBe('Mei');
+    expect(decidersOf({ autoMerge: hold('policy'), responsible: { ...MEI, source: 'chosen' } }, members)).toBe('Ian');
+    expect(decidersOf({ autoMerge: { ...(hold('partial') as NonNullable<WorkItem['autoMerge']>), escalated: true }, responsible: { ...MEI, source: 'chosen' } }, members)).toBe('Ian and Mei');
+    expect(decidersOf({ autoMerge: hold('partial'), responsible: { userId: 'dev:amy', displayName: 'Amy', source: 'chosen' } }, members)).toBe('Ian and Mei');
+  });
+
+  it('a row offers "Leave it out…" until it is merged, and "Undo…" once it is, where smurg keeps history', () => {
+    const one = done({ autoMerge: hold('partial') });
+    expect(itemActions(one, planOf(one))).toMatchObject({ leaveOut: true, undo: false });
+    const merged = done({ merged: { at: T, by: 'smurg' } });
+    expect(itemActions(merged, planOf(merged))).toMatchObject({ leaveOut: false, undo: true });
+    const direct = item('a', 1, { state: 'done', attempt: 1, merged: { at: T, by: IAN } });
+    expect(itemActions(direct, planOf(direct)).undo).toBe(false);
+    expect(itemActions(item('a', 1), planOf(item('a', 1))).leaveOut).toBe(false);
+  });
+
+  it('dependentsOf follows the plan transitively', () => {
+    const plan = buildPlan({ items: [item('a', 1), item('b', 2, { dependsOn: ['a'] }), item('c', 3, { dependsOn: ['b'] }), item('d', 4)] });
+    expect(dependentsOf(plan, 'a').map((one) => one.id)).toEqual(['b', 'c']);
+    expect(dependentsOf(plan, 'd')).toEqual([]);
   });
 });

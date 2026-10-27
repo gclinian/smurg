@@ -13,7 +13,7 @@ import { columnKindOf, type ColumnKind, type ColumnRef } from './target.ts';
 export type ColumnPicture =
   /** An agent session: its status glyph. */
   | { readonly kind: 'status'; readonly status: GlyphStatus }
-  | { readonly kind: 'terminal' | 'spec' | 'plan' | 'report' | 'changes' | 'unknown' };
+  | { readonly kind: 'terminal' | 'spec' | 'plan' | 'report' | 'changes' | 'result' | 'unknown' };
 
 export interface ColumnDescription {
   /** The header's title and the region's accessible name: "1 · Cart API", "Plan", "Result report: 3 · Receipt email". */
@@ -95,6 +95,7 @@ export function describeColumn(target: ColumnRef, stores: DescribeStores): Colum
   const base = { ...(topic === undefined ? {} : { topicName: topic.name, topic }), topicId: target.topicId, gone, discussion: false };
   if (target.kind === 'spec') return { ...base, title: tStores('column.spec'), picture: { kind: 'spec' }, kind: 'spec' };
   if (target.kind === 'plan') return { ...base, title: tStores('column.plan'), picture: { kind: 'plan' }, kind: 'plan' };
+  if (target.kind === 'result') return { ...base, title: tStores('column.result'), picture: { kind: 'result' }, kind: 'result' };
   const item = itemOf(topics, sessions, target.topicId, target.itemId);
   return {
     ...base,

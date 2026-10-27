@@ -1,22 +1,27 @@
 // The flow in Traditional Chinese, in real browsers (DESIGN §9.5 item 4, its last sentence; docs/ACCEPTANCE.md row
 // T8.2): the BUILT app served by the real relay, a daemon on the release composition, the scripted stand-in `claude`
 // with the real `smurg hook` / `smurg mcp` commands. The short path of the owner's flow on a page in Traditional
-// Chinese, with a topic named in Chinese: New topic → the agent's question → the spec → the plan → Start → the first
-// item in auto mode (the default since 0.6.0: its command runs with no card, Claude Code's check stops another) → the
-// topic's items set to "Asks before commands" → the result report → "I've reviewed this" → the merge → the second
-// item's permission request → its report → the topic is complete.
+// Chinese, with a topic named in Chinese: New topic → the agent's question → the spec → the plan → "Start this one"
+// for the first item, with "The host merges each item" (0.7.0's choice at Start: 0.6.0's flow, "I merge each item
+// myself") → the item in auto mode (the default since 0.6.0: its command runs with no card, Claude Code's check stops
+// another) → the topic's items set to "Asks before commands" → the result report → "I've reviewed this" → the host's
+// merge → Start of the second item, back to "smurg merges what its report says is complete and verified" (the
+// workspace's setting, 0.7.0's default) → its permission request → its report, merged by smurg with nobody pressing
+// review or merge → the topic is ready to check → its Result → "I've checked the result" → the topic is complete.
 //
 // Two people: the host on a zh-TW page does all of it; Amy (an Editor) watches on an English page and votes. At every
 // stop the Chinese page must hold no label nobody translated, and the English page no Chinese character besides what
 // the people and the agent wrote themselves (the checks of the language smokes, on the screens of the flow).
 //
 // With SMURG_SMOKE_SHOTS=<folder> every stop writes a numbered picture of both pages.
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { promisify } from 'node:util';
 import type { Locator, Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { installFakeClaude, type FakeClaudeScenario } from '../../../../packages/daemon/src/testing/index.ts';
+import { installFakeClaude, isolatedGitEnv, type FakeClaudeScenario } from '../../../../packages/daemon/src/testing/index.ts';
 import { STEP_MS, cjkTexts, explainFailures, joinAs, joinAsHost, startSmoke, systemChrome, untranslatedTexts, waitUntil, type SmokeEnv } from './helpers.ts';
 
 const chrome = systemChrome();
@@ -140,8 +145,7 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         // The workspace's permission mode is the default, auto mode (0.6.0).
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
-        // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
-        settings: { merging: 'host' },
+        // Work items merge by themselves, the default since 0.7.0 (DESIGN D3, D22): the first Start chooses the host.
       },
     });
     host = await env.newPage({ width: 1440, height: 900, locale: 'zh-TW' });
@@ -227,16 +231,22 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     for (const prefix of ['session:', 'spec:']) await column(host, prefix).locator('.col-head__actions button').last().click();
     await expect.poll(() => view(host).locator('[data-column-id]').count(), { timeout: STEP_MS }).toBe(1);
 
-    // ---- Start: the dialog in Chinese, then the item's session and its permission request.
-    // The button and the dialog's title say one number: what starts now.
-    await plan.getByRole('button', { name: '開始 1 個項目' }).click();
+    // ---- "Start this one" for the first item: the dialog in Chinese, with the host merging each item of this Start.
+    await plan.locator('.plan-item[data-item="cart-total"]').getByRole('button', { name: '只開始這個' }).click();
     const start = host.getByRole('dialog', { name: '開始 1 個項目' });
     await expect.poll(() => start.locator('.start-line[data-line="starts"]').textContent(), { timeout: STEP_MS }).toContain('1 個項目現在開始：1 · 購物車金額。');
     expect(await start.locator('.start-line[data-line="commit"]').textContent()).toContain('smurg 會以你的身分，把 SPEC.md 和 PLAN.md 提交到主人資料夾的 main 分支。');
     // The topic's settings, in Chinese: the items follow the workspace, auto mode.
     expect(await start.getByRole('combobox', { name: '它們的 agent 不必先問就能做的事' }).locator('option:checked').textContent()).toBe('工作區預設（自動：檢查通過就執行）');
     await start.getByText('其他的都要經過 Claude Code 的檢查。').waitFor({ timeout: STEP_MS });
+    // How its items are merged (0.7.0): the workspace's setting first; the host chooses to merge this one by hand.
+    const merging = start.getByRole('combobox', { name: '項目怎麼合併' });
+    expect(await merging.locator('option:checked').textContent()).toBe('報告寫著完成且驗證過的，由 smurg 合併（工作區設定）');
+    await start.getByText(/^需要人決定的地方才會停下：/).waitFor({ timeout: STEP_MS });
     await stop('start-dialog');
+    await merging.selectOption('host');
+    await start.getByText('每個項目的變更都要等主人讀過 diff 再合併；依賴它的項目在合併之後才會開始。').waitFor({ timeout: STEP_MS });
+    await start.getByText('你可以關掉這個頁面：只要你電腦上的 smurg host 在執行，工作就會繼續，重新啟動之後也一樣。').waitFor({ timeout: STEP_MS });
     await start.getByRole('button', { name: '開始', exact: true }).click();
     await start.waitFor({ state: 'detached', timeout: STEP_MS });
 
@@ -256,7 +266,7 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await settings.getByRole('combobox', { name: '權限模式' }).selectOption('ask-commands');
     await expect.poll(() => settings.getByRole('combobox', { name: '權限模式' }).inputValue(), { timeout: STEP_MS }).toBe('ask-commands');
 
-    // ---- The result report: opened from the inbox, reviewed, merged; the item that waited starts by itself.
+    // ---- The result report: opened from the inbox, reviewed, merged by the host (0.6.0's flow, the host's choice).
     await inbox(host, 'report').filter({ hasText: '結果報告：1 · 購物車金額' }).locator('.inbox-item__main').click();
     const reportColumn = column(host, 'report:');
     for (const heading of ['做了什麼', '為什麼這樣做', '怎麼驗證的', '要注意什麼', '變更']) await reportColumn.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
@@ -277,8 +287,22 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await changes.getByRole('button', { name: '確認合併' }).click();
     await changes.waitFor({ state: 'detached', timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'cart', 'total.ts'), 'utf8').catch(() => '')).includes('total'), STEP_MS, "item 1's change in the main workspace");
+    await reportColumn.locator('.col-head__actions button').last().click();
 
-    // ---- The second item starts by itself and asks before its command (the topic's setting): the host allows it once.
+    // ---- The second item: Start, back to the workspace's setting (the dialog proposes the last Start's choice).
+    await plan.locator('.plan-item[data-item="checkout-page"]').getByText('可以開始').waitFor({ timeout: STEP_MS });
+    await plan.getByRole('button', { name: '再開始 1 個項目' }).click();
+    const second = host.getByRole('dialog', { name: '開始 1 個項目' });
+    const secondMerging = second.getByRole('combobox', { name: '項目怎麼合併' });
+    await expect.poll(() => secondMerging.locator('option:checked').textContent(), { timeout: STEP_MS }).toBe('每個項目都由主人合併');
+    await secondMerging.selectOption('auto');
+    await second.getByText(/^項目的報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替主人把它合併到主工作區/).waitFor({ timeout: STEP_MS });
+    await second.getByText(/^所有項目都合併之後，每位成員的收件夾都會顯示主題待驗收/).waitFor({ timeout: STEP_MS });
+    await stop('start-dialog-auto');
+    await second.getByRole('button', { name: '開始', exact: true }).click();
+    await second.waitFor({ state: 'detached', timeout: STEP_MS });
+
+    // ---- It asks before its command (the topic's setting): the host allows it once.
     await inbox(host, 'permission').filter({ hasText: 'pnpm test' }).locator('.inbox-item__main').click();
     const card = view(host).locator('.conv-card--permission:not(.ui-card--settled)');
     await expect.poll(() => card.locator('.conv-perm__cmd').textContent(), { timeout: STEP_MS }).toBe('pnpm test');
@@ -286,25 +310,36 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await stop('permission-request');
     await card.getByRole('button', { name: '允許一次' }).click();
 
-    // ---- The second item reports; reviewed and merged, the topic is complete (0.7.0, DESIGN D13, on purpose: once the
-    // last item is merged too, not at its review).
-    await inbox(host, 'report').filter({ hasText: '結果報告：2 · 結帳頁面' }).locator('.inbox-item__main').click();
-    const second = view(host).locator('[data-column-id$=":checkout-page"]');
-    await second.getByRole('button', { name: '我已看過' }).click();
-    await inbox(host, 'merge').filter({ hasText: '已看過，可以合併：2 · 結帳頁面' }).locator('.inbox-item__main').click();
+    // ---- Its report says complete and verified: smurg merges it, nobody presses review or merge. Every item is merged:
+    // the topic is ready to check, everyone is told (DESIGN 0.7.0 D13).
+    const ready = host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都合併了，待驗收。` }).first().waitFor({ timeout: STEP_MS });
+    await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'checkout', 'page.ts'), 'utf8').catch(() => '')).includes('page'), STEP_MS, "item 2's change in the main workspace, merged by smurg");
+    const gitHome = await mkdtemp(join(process.env['TMPDIR'] as string, 'flow-zh-git-'));
+    const { stdout: lastCommit } = await promisify(execFile)('git', ['log', '-1', '--format=%cn%n%B'], { cwd: env.stack.root, env: isolatedGitEnv(gitHome) });
+    expect(lastCommit.trim()).toMatch(/^smurg\n[\s\S]*Merged-by: smurg \(automatic merging, the host's setting\)/);
+    await ready;
+    await host.locator('aside.sidebar .topic__phase').getByText('待驗收', { exact: true }).waitFor({ timeout: STEP_MS });
+    await inbox(host, 'ready').filter({ hasText: `待驗收：${TOPIC}` }).waitFor({ timeout: STEP_MS });
+    await inbox(amy, 'ready').filter({ hasText: `Ready to check: ${TOPIC}` }).waitFor({ timeout: STEP_MS });
+    await column(host, 'plan:').locator('.plan-item[data-item="checkout-page"]').getByText('已合併').waitFor({ timeout: STEP_MS });
+    await column(host, 'plan:').locator('.plan-item[data-item="cart-total"]').getByText('已看過 · 已合併').waitFor({ timeout: STEP_MS });
     await dismissToasts(host);
-    await second.getByRole('button', { name: '合併…' }).click();
-    const lastChanges = host.getByRole('dialog', { name: /的變更$/ });
-    await lastChanges.getByRole('button', { name: '合併到主工作區' }).click();
-    await lastChanges.getByRole('button', { name: '確認合併' }).click();
-    await lastChanges.waitFor({ state: 'detached', timeout: STEP_MS });
-    await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'checkout', 'page.ts'), 'utf8').catch(() => '')).includes('page'), STEP_MS, "item 2's change in the main workspace");
-    await host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都看過了，主題已完成。` }).first().waitFor({ timeout: STEP_MS });
+    await dismissToasts(amy);
+    await stop('ready-to-check');
+
+    // ---- The Result: every report, what the items changed; "I've checked the result" completes the topic.
+    await inbox(host, 'ready').locator('.inbox-item__main').click();
+    const result = column(host, 'result:');
+    await result.getByText('2 項中 2 項已合併 · 2 項通過 · 0 項失敗 · 0 項沒有驗證').waitFor({ timeout: STEP_MS });
+    for (const heading of ['通過', '各項目合起來的變更', '工作項目']) await result.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
+    await stop('result');
+    const checked = host.locator('.ui-toast__title', { hasText: `${TOPIC}：成果已驗收，主題完成。` }).first().waitFor({ timeout: STEP_MS });
+    await result.getByRole('button', { name: '我已驗收' }).click();
+    await checked;
     await host.locator('aside.sidebar .topic__phase').getByText('已完成', { exact: true }).waitFor({ timeout: STEP_MS });
+    await result.getByText(/ 在 .+ 驗收了。/).waitFor({ timeout: STEP_MS });
+    await expect.poll(() => inbox(host, 'ready').count(), { timeout: STEP_MS }).toBe(0);
     await dismissToasts(host);
-    // The plan (pinned while its topic was executing, so it stayed) says so; the English page follows.
-    await column(host, 'plan:').getByText('主題完成').waitFor({ timeout: STEP_MS });
-    await column(host, 'plan:').getByText('2 / 2 已看過').waitFor({ timeout: STEP_MS });
     await dismissToasts(amy);
     await amy.locator('aside.sidebar .topic__phase').getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });
     await stop('topic-complete');

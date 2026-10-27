@@ -5,6 +5,10 @@
 // What the Items view says comes from `PlanInfo` (the daemon's reading of the file plus its own state per item) and
 // from the topic (`plan.generating`, `valid`, `stale`, `paused`): the sentences are composed in model.ts. "Start"
 // opens the Start dialog (`plan.preflight` → `plan.start`), never starts anything by itself.
+//
+// Protocol 6 (DESIGN 0.7.0 D19): a plan whose items smurg merges counts merges ("2 of 3 merged"), says that it runs by
+// itself, names the first item held for a decision and who decides it, and, once every item is settled, that the
+// topic is ready to check with the way to its Result. "Pause" stops what goes on by itself until "Continue all".
 import { MAIN_ROOT, type AgentSession, type PlanInfo, type PresenceMember, type Topic, type WorkItem } from '@smurg/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ColumnMenuItems } from '../../lib/columns/context.tsx';
@@ -18,13 +22,14 @@ import { selectPlan } from '../../lib/stores/topics.ts';
 import { useNow } from '../../lib/use-now.ts';
 import { useCan, useCommand, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Banner, Button, EmptyState, Segmented, Spinner, type MenuItem } from '../../ui/index.ts';
-import { IconCode, IconFileText, IconGitMerge, IconOpenSide, IconPlan, IconPlay, IconUser, IconUsers, IconWand } from '../../ui/icons.tsx';
+import { IconCode, IconFileText, IconGitMerge, IconOpenSide, IconPause, IconPlan, IconPlay, IconUser, IconUsers, IconWand } from '../../ui/icons.tsx';
 import { StandaloneDocument, useHeldDocument } from '../editor/standalone.tsx';
 import { ReviseBox } from './Discussion.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, itemBadge, itemNames, loads, planFile, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
+import { holdText } from '../../lib/hold-words.ts';
+import { agentAccessNames, decidersOf, firstHeld, itemBadge, loads, planFile, planHeadline, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
 import { PlanItems } from './PlanItems.tsx';
-import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
+import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import { TopicAgentSettings, TopicRules } from './TopicRules.tsx';
 import './topics.css';
@@ -132,7 +137,7 @@ function Plan({ topic }: { topic: Topic }) {
           {topic.plan.paused ? (
             <Banner
               tone="warning"
-              title={t('plan.paused.title')}
+              {...(topic.plan.pausedBy === undefined ? { title: t('plan.paused.title') } : {})}
               actions={
                 canDrive && live ? (
                   <Button size="sm" variant="primary" onClick={() => void act(() => stores.topics.resume(topic.id), (reason) => t('plan.paused.failed', { reason }))}>
@@ -141,7 +146,31 @@ function Plan({ topic }: { topic: Topic }) {
                 ) : null
               }
             >
-              {canDrive ? t('plan.paused.body') : t('plan.paused.body.others', { names: agentAccessNames(members) })}
+              {topic.plan.pausedBy !== undefined
+                ? t('plan.paused.by', { name: topic.plan.pausedBy.displayName })
+                : canDrive
+                  ? t('plan.paused.body')
+                  : t('plan.paused.body.others', { names: agentAccessNames(members) })}
+            </Banner>
+          ) : null}
+          {plan && summary?.auto === true && topic.phase === 'executing' && !topic.plan.paused && live ? (
+            <Banner tone="info" live="none">
+              {t('plan.auto.running')}
+            </Banner>
+          ) : null}
+          {plan ? <DecisionBanner topic={topic} plan={plan} /> : null}
+          {topic.phase === 'ready' ? (
+            <Banner
+              tone="success"
+              live="none"
+              title={t('ready.title')}
+              actions={
+                <Button size="sm" variant="primary" onClick={() => openSide({ kind: 'result', topicId: topic.id })}>
+                  {t('ready.open')}
+                </Button>
+              }
+            >
+              {t('ready.body')}
             </Banner>
           ) : null}
           {topic.plan.generating ? (
@@ -185,7 +214,7 @@ function Plan({ topic }: { topic: Topic }) {
               {t('plan.stale')}
             </Banner>
           ) : null}
-          {plan && summary && topic.phase === 'complete' ? <Complete topic={topic} plan={plan} summary={summary} /> : null}
+          {topic.phase === 'complete' ? <Complete topic={topic} /> : null}
 
           {!topic.plan.exists && !topic.plan.generating ? (
             <EmptyState
@@ -242,7 +271,7 @@ function PlanBody({ topic, plan, summary, members, sessionOf }: { topic: Topic; 
     <>
       <div className="plan__summary">
         <div className="plan__counts">
-          <strong>{summary.started ? t('summary.reviewed', { reviewed: summary.reviewed, total: summary.total }) : t('summary.items', { count: summary.total })}</strong>
+          <strong>{summary.started ? planHeadline(summary) : t('summary.items', { count: summary.total })}</strong>
           <span>
             {summary.started
               ? progressLine(summary)
@@ -260,7 +289,7 @@ function PlanBody({ topic, plan, summary, members, sessionOf }: { topic: Topic; 
           </div>
         ) : null}
       </div>
-      {topic.phase === 'complete' ? null : <Assign topic={topic} plan={plan} members={members} started={summary.started} />}
+      {topic.phase === 'complete' || topic.phase === 'ready' ? null : <Assign topic={topic} plan={plan} members={members} started={summary.started} />}
       {plan.warnings.length > 0 ? (
         <Banner tone="warning" live="none">
           <ul className="topics-list">
@@ -348,11 +377,37 @@ function Assign({ topic, plan, members, started }: { topic: Topic; plan: PlanInf
   );
 }
 
-/** "Topic complete", with what is still open: reviewed items the host has not merged. */
-function Complete({ topic, plan, summary }: { topic: Topic; plan: PlanInfo; summary: PlanSummary }) {
+/**
+ * The first item held for a decision (DESIGN 0.7.0 D9): what it is, who decides, and that the rest goes on, with "Open"
+ * (its report, where the decision's actions are).
+ */
+function DecisionBanner({ topic, plan }: { topic: Topic; plan: PlanInfo }) {
+  const openSide = useOpenSide();
+  const members = useMembers();
+  const held = firstHeld(plan);
+  if (held === undefined || held.autoMerge === undefined || topic.archived) return null;
+  return (
+    <Banner
+      tone="warning"
+      live="none"
+      actions={
+        <Button size="sm" onClick={() => openSide({ kind: 'report', topicId: topic.id, itemId: held.id })}>
+          {t('plan.decision.open')}
+        </Button>
+      }
+    >
+      {t('plan.decision', { item: itemLabel(held), reason: holdText(held.autoMerge.reason, held.autoMerge), who: decidersOf(held, members) })}
+    </Banner>
+  );
+}
+
+/**
+ * "Topic complete": its result was checked (protocol 6), or every item was settled and reviewed. (A complete topic has
+ * no unmerged item any more: DESIGN 0.7.0 D13.)
+ */
+function Complete({ topic }: { topic: Topic }) {
   const stores = useStores();
   const canArchive = useCan('session.create') && !topic.archived;
-  const open = summary.reviewedNotMerged;
   return (
     <Banner
       tone="success"
@@ -367,14 +422,7 @@ function Complete({ topic, plan, summary }: { topic: Topic; plan: PlanInfo; summ
         ) : null
       }
     >
-      {open.length === 0
-        ? t('complete.body')
-        : t('complete.body.unmerged', {
-            items: itemNames(
-              plan,
-              open.map((item) => item.id),
-            ),
-          })}
+      {topic.checked !== undefined ? t('complete.checked', { name: topic.checked.by.displayName, time: formatClock(topic.checked.at) }) : t('complete.body')}
     </Banner>
   );
 }
@@ -383,8 +431,10 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   const stores = useStores();
   const openSide = useOpenSide();
   const canStart = useCan('session.create');
+  const canDrive = useCan('session.drive');
   const isHost = useCan('worktree.merge.decide');
   const members = useMembers();
+  const act = useAction();
   // Without the git program items run one at a time in the shared folder, and nothing waits for a merge (DESIGN 0.6.0
   // D15). A folder without `.git` runs them as a repository does (smurg's own history, D14): nothing to say here.
   const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
@@ -397,14 +447,15 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
         {t('foot.nextMerge')}
       </Button>
     ) : null;
-  // A complete topic has nothing left to start: only the host's way to what is not merged yet.
-  if (topic.phase === 'complete') return mergeButton === null ? null : <Foot>{mergeButton}</Foot>;
+  // A complete (or ready) topic has nothing left to start: only the host's way to what is not merged yet.
+  if (topic.phase === 'complete' || topic.phase === 'ready') return mergeButton === null ? null : <Foot>{mergeButton}</Foot>;
 
   const byItself = startsByItselfLines(plan);
   const running = plan.items.filter((item) => item.inPlan && item.state === 'running' && sessionOf(item) !== undefined);
   // The button counts what starts NOW; when everything left waits for another item, what a Start would arm.
   const startable = summary.canStart > 0 ? summary.canStart : summary.startable.length;
   const text: string[] = [];
+  if (summary.auto) text.push(t('foot.autoMerge'));
   if (direct) {
     text.push(t('plan.direct.foot'));
     if (startable > 0 && !canStart) text.push(t('foot.start.others', { names: agentAccessNames(members) }));
@@ -416,6 +467,11 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   return (
     <Foot text={text.length === 0 ? undefined : joinSentences(text)}>
       {mergeButton}
+      {canDrive && topic.phase === 'executing' && !topic.plan.paused ? (
+        <Button icon={<IconPause />} onClick={() => void act(() => stores.topics.pause(topic.id), (reason) => t('plan.pause.failed', { reason }))}>
+          {t('plan.pause.action')}
+        </Button>
+      ) : null}
       {running.length > 1 ? (
         <Button
           icon={<IconOpenSide />}

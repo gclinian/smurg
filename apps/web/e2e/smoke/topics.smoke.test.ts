@@ -13,7 +13,10 @@
 //   - the Start dialog lists what the daemon would do (smurg's own history, what waits) and Start runs the item in its
 //     own worktree of that history; the agent's checked report shows in the report column with its diff; "I've
 //     reviewed this" and the host's "Merge…" finish the item, and the item that waited for it starts by itself. No
-//     `.git` is ever made in the folder.
+//     `.git` is ever made in the folder;
+//   - 0.7.0 (DESIGN D14, D22): the host's "Undo…" of an item says first what stops it (an item built on it is running);
+//     "Leave it out…" drops that item; the topic is ready to check, and "Undo the whole topic…" in its Result takes the
+//     merged change back out of the folder with one change in smurg's own history, the report kept.
 //
 // The scenario below is the whole "model": a turn is chosen by a pattern on the message smurg (or a person) sent.
 import { mkdtemp, readFile, stat } from 'node:fs/promises';
@@ -113,7 +116,8 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
         // A folder without `.git` (0.6.0 on purpose: until 0.5.2 Start was refused here).
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
-        // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
+        // "I merge each item myself" (the host's flow, as in 0.6.0): this smoke proves the review and the host's
+        // "Merge…"; the flow smokes run automatic merging (DESIGN 0.7.0 D22).
         settings: { merging: 'host' },
       },
     });
@@ -251,6 +255,55 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
     await column(host, 'Plan').getByText('1 of 2 reviewed').waitFor({ timeout: STEP_MS });
     // The editor's plan followed without a reload.
     await column(amy, 'Plan').getByText('1 of 2 reviewed').waitFor({ timeout: STEP_MS });
+  }, 300_000);
+
+  it('0.7.0: the host\'s "Undo…" of item 1 says what stops it first (item 2 is built on it and running); nothing changes', async () => {
+    const items = column(host, 'Plan').getByRole('list', { name: 'Work items' }).getByRole('listitem');
+    await items.nth(0).getByRole('button', { name: 'Undo…' }).click();
+    const dialog = host.getByRole('alertdialog', { name: 'Undo 1 · Cart API?' });
+    // smurg's own history: the preview records the folder first, and says what the undo would do.
+    await dialog.getByText(/^smurg takes the change back out of the shared folder with one new change in its own history\./).waitFor({ timeout: STEP_MS });
+    await dialog.getByText('smurg cannot undo it now:').waitFor({ timeout: STEP_MS });
+    await dialog.getByText('2 · Checkout page depend on it and are running: wait for them, or stop them.').waitFor({ timeout: STEP_MS });
+    expect(await dialog.getByRole('button', { name: 'Undo', exact: true }).isDisabled()).toBe(true);
+    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+    expect(await readFile(join(env.stack.root, 'src', 'cart', 'total.ts'), 'utf8')).toContain('total');
+    // An editor has no Undo, and no Leave it out.
+    const amyItems = column(amy, 'Plan').getByRole('list', { name: 'Work items' }).getByRole('listitem');
+    expect(await amyItems.nth(0).getByRole('button', { name: 'Undo…' }).count()).toBe(0);
+    expect(await amyItems.nth(1).getByRole('button', { name: 'Leave it out…' }).count()).toBe(0);
+  }, 300_000);
+
+  it('0.7.0: item 2 is left out, the topic is ready to check, and "Undo the whole topic…" takes item 1 back out of the folder', async () => {
+    const plan = column(host, 'Plan');
+    const items = plan.getByRole('list', { name: 'Work items' }).getByRole('listitem');
+    await items.nth(1).getByRole('button', { name: 'Leave it out…' }).click();
+    const leave = host.getByRole('alertdialog', { name: 'Leave out 2 · Checkout page?' });
+    await leave.getByText('Its change is not merged. Its session ends; its worktree is kept.').waitFor({ timeout: STEP_MS });
+    await leave.getByRole('button', { name: 'Leave out', exact: true }).click();
+    await leave.waitFor({ state: 'detached', timeout: STEP_MS });
+    await items.nth(1).getByText('Left out').waitFor({ timeout: STEP_MS });
+
+    // Every item is settled: the topic is ready to check, and its Result is a row of the session list.
+    await plan.getByText('Every item is merged into the main workspace. Look at the result: the reports, the combined change and what the agents say they verified.').waitFor({ timeout: STEP_MS });
+    await treeRow(amy, /^Result/).waitFor({ timeout: STEP_MS });
+    await plan.getByRole('button', { name: 'Open the result' }).click();
+    const result = column(host, /^Result/);
+    await result.getByText('1 of 2 merged · 1 passed · 0 failed · 1 not verified · 1 left out').waitFor({ timeout: STEP_MS });
+    await result.getByRole('region', { name: 'Not verified' }).getByText('Manual check in the browser').waitFor({ timeout: STEP_MS });
+    await result.getByRole('button', { name: 'Undo the whole topic…' }).click();
+    const undo = host.getByRole('alertdialog', { name: 'Undo every item of Checkout redesign?' });
+    await undo.getByText(/^smurg takes the change back out of the shared folder with one new change in its own history\./).waitFor({ timeout: STEP_MS });
+    await expect.poll(() => undo.getByRole('button', { name: 'Undo', exact: true }).isEnabled(), { timeout: STEP_MS }).toBe(true);
+    await undo.getByRole('button', { name: 'Undo', exact: true }).click();
+    await undo.waitFor({ state: 'detached', timeout: STEP_MS });
+    await waitUntil(async () => !(await stat(join(env.stack.root, 'src', 'cart', 'total.ts')).then(() => true, () => false)), STEP_MS, "item 1's change taken back out of the folder");
+    // The report stays; the item says it was undone, for everyone; still no `.git` of the folder's own.
+    expect(await readFile(join(env.stack.root, 'specs', SLUG, 'reports', 'cart-api.md'), 'utf8')).toBe(REPORT);
+    await items.nth(0).getByText('Undone').waitFor({ timeout: STEP_MS });
+    await column(amy, 'Plan').getByRole('list', { name: 'Work items' }).getByRole('listitem').nth(0).getByText('Undone').waitFor({ timeout: STEP_MS });
+    expect(await stat(join(env.stack.root, '.git')).then(() => true, () => false)).toBe(false);
   }, 300_000);
 
   it('nothing in the pages failed on the way', () => {

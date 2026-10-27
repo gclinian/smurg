@@ -2,6 +2,8 @@
 // sees the outcome; on a conflict the host sees the conflicting files and what to do next).
 import type { MergeRequest, WorktreeInfo } from '@smurg/protocol';
 import { formatRelativeTime } from '../../lib/format.ts';
+import { shallowEqual, useStore } from '../../lib/store.ts';
+import { useStores } from '../../lib/workspace/context.tsx';
 import { Badge, Button } from '../../ui/index.ts';
 import { shortCommit } from './diff-model.ts';
 import { isDecidable, requestStatusLabel, requestStatusTone } from './labels.ts';
@@ -56,7 +58,12 @@ function StatusDetail({ request, mine, isHost, now }: { request: MergeRequest; m
     case 'pending':
       return mine && !isHost ? <p className="worktree-mr__detail">{t('detail.pendingRequester')}</p> : null;
     case 'merged':
-      return request.decidedAt !== undefined ? <p className="worktree-mr__detail">{t('detail.merged', { time: formatRelativeTime(request.decidedAt, now) })}</p> : null;
+      return (
+        <>
+          {request.decidedAt !== undefined ? <p className="worktree-mr__detail">{t('detail.merged', { time: formatRelativeTime(request.decidedAt, now) })}</p> : null}
+          {request.auto === true ? <MergedByAuto /> : null}
+        </>
+      );
     case 'rejected':
       return (
         <p className="worktree-mr__detail">
@@ -93,4 +100,11 @@ export function ConflictDetails({ request, viewerIsHost }: { request: MergeReque
       </p>
     </div>
   );
+}
+
+/** "Merged by smurg for Ian": a merge smurg made on the host's standing consent (protocol 6, `auto`). */
+function MergedByAuto() {
+  const stores = useStores();
+  const host = useStore(stores.presence, (state) => state.members.filter((member) => member.role === 'host').map((member) => member.displayName), shallowEqual)[0];
+  return host === undefined ? null : <p className="worktree-mr__detail">{t('merge.byAuto', { host })}</p>;
 }
