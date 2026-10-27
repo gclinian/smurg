@@ -230,7 +230,10 @@ export class FakeAgentSessions implements AgentSessions {
 
   facts(sessionId: string): AgentSessionFacts | null {
     const record = this.records.get(sessionId);
-    return record ? { ...record.facts } : null;
+    if (!record) return null;
+    // Messages no turn has taken yet: sent since the last turn's end while no turn runs (as the runner keeps `pending`).
+    const waiting = record.turnOpen === null ? record.turnMessages.length : 0;
+    return { ...record.facts, ...(waiting > 0 ? { pendingMessages: waiting } : {}) };
   }
 
   async send(sessionId: string, message: OutboundMessage): Promise<{ readonly messageId: string; readonly seq: number }> {

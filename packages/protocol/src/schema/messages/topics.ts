@@ -128,7 +128,8 @@ export const planPreflightResultSchema = z.strictObject({ preflight: startPrefli
  * (`plan.preflight`): refused with `conflict` reason `plan-changed` when one differs from the files now. Protocol 5:
  * `agent` sets the topic's agent settings in the same change that starts the items (a refused Start changes neither);
  * `direct` confirms that the items change the shared folder directly (required when the preflight said `direct`, and
- * only the host's).
+ * only the host's). Protocol 6 (DESIGN 0.7.0 D3): `merging: 'host'` is "The host merges each item" of this Start, the
+ * stricter choice any member may make; there is no way to ask for smurg's merge (the workspace's setting gives it).
  */
 export const planStartPayloadSchema = z.strictObject({
   topicId: opaqueIdSchema,
@@ -138,6 +139,7 @@ export const planStartPayloadSchema = z.strictObject({
   planHash: sha256HexSchema,
   agent: z.strictObject({ model: modelIdSchema.nullable().optional(), permissionMode: sessionModeChoiceSchema.nullable().optional() }).optional(),
   direct: z.literal(true).optional(),
+  merging: z.literal('host').optional(),
 });
 
 /**

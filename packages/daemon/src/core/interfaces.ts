@@ -1323,6 +1323,12 @@ export interface AgentSessionFacts {
   /** Who chose the session's model, if anyone. */
   readonly modelChangedBy?: UserId;
   readonly hasProcess: boolean;
+  /**
+   * Messages sent to the session that no turn has taken yet (written to its process, or waiting for one). 0.7.0
+   * (DESIGN D6 row 4): a person's message to a work item's agent counts from the moment it is sent, not from the moment
+   * its turn starts. Absent: none.
+   */
+  readonly pendingMessages?: number;
 }
 
 /**

@@ -119,11 +119,41 @@ ${PLAN_FORMAT}
 `;
 }
 
-export function executionRolePrompt(input: { readonly slug: string; readonly itemId: string; readonly smurgTag: string; readonly branch: string }): string {
+/**
+ * What a work item's agent is told about smurg's merge when smurg merges its item by itself (DESIGN 0.7.0 D17): its
+ * report decides it, and only a version whose report was checked in the turn that made it is merged. It says "may":
+ * the setting can be turned to the host's merge while the session runs, and a running prompt is never rewritten.
+ */
+export const AUTO_MERGE_SENTENCE =
+  'When your report says complete and no check failed, smurg may merge your work into the shared folder without a person reading it first, and other work items then start from it: write complete only when the item is done as described, and write a check you ran that did not pass as failed. After any change you make, also after resolving a conflict or answering a follow-up, verify again and call check_report in that same turn: smurg merges a version only when its report was checked in the turn that made it.';
+
+/** A sentence wrapped at the prompt's width (for the reader of the prompt; the model reads it as one paragraph). */
+function wrapped(sentence: string, indent: string, width = 118): string {
+  const lines: string[] = [];
+  let line = '';
+  for (const word of sentence.split(' ')) {
+    if (line.length > 0 && indent.length + line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else line = line.length === 0 ? word : `${line} ${word}`;
+  }
+  if (line.length > 0) lines.push(line);
+  return lines.join(`\n${indent}`);
+}
+
+export function executionRolePrompt(input: {
+  readonly slug: string;
+  readonly itemId: string;
+  readonly smurgTag: string;
+  readonly branch: string;
+  /** How the item's change reaches the main workspace when its session starts (DESIGN 0.7.0 D17); absent: the host merges. */
+  readonly merging?: 'auto' | 'host';
+}): string {
   const slug = slugOf(input.slug);
   const id = itemIdOf(input.itemId);
   const tag = tagOf(input.smurgTag);
   const branch = branchOf(input.branch);
+  const merge = input.merging === 'auto' ? `\n- ${wrapped(AUTO_MERGE_SENTENCE, '  ')}` : '';
   const spec = topicSpecPath(slug);
   const plan = topicPlanPath(slug);
   const report = topicReportPath(slug, id);
@@ -142,7 +172,7 @@ other checkouts. Do your item and nothing else.
 - Editing files in your checkout needs no permission. A command may need a person's permission, or a safety check
   may refuse it: run few, purposeful commands, never one that only prints what you already know, and when one is
   refused, say in your answer why you need it instead of looking for another way around.
-- Do not commit, push, merge or change branches. smurg records your changes when you are done.
+- Do not commit, push, merge or change branches. smurg records your changes when you are done.${merge}
 - When the item is finished, write ${report} in the format below, call the tool check_report, fix
   what it reports until it answers ok, and stop.
 - If you cannot finish, write the report all the same: set its outcome line to partial or blocked, say what is
@@ -264,9 +294,35 @@ export function nudgeReportMessage(): string {
   return 'You stopped without the result report. If you need a decision, ask it with AskUserQuestion. If you are finished, write the report and call check_report.';
 }
 
-export function resolveConflictMessage(input: { readonly conflicted: readonly string[] }): string {
-  if (input.conflicted.length === 0) return 'smurg merged the main workspace into your checkout without conflicts. Verify again, update the report and call check_report. Do not run git.';
-  return `smurg merged the main workspace into your checkout. These files have conflict markers: ${JSON.stringify(input.conflicted.slice(0, 50))}. Resolve them, verify again, update the report and call check_report. Do not run git.`;
+/**
+ * `resolve-conflict`. DESIGN 0.7.0 D17: `mergedBefore` names the work items merged before this one since its Start (by
+ * number and pattern-checked id: a title is people's text and never quoted), and `peopleChanged` the files whose other
+ * side is a person's change in the main workspace (paths only, at most 50, JSON-quoted: who made it is never told
+ * through smurg's messages), which the agent keeps unless the person who asked to resolve says otherwise.
+ */
+export function resolveConflictMessage(input: {
+  readonly conflicted: readonly string[];
+  readonly mergedBefore?: readonly { readonly number: number; readonly id: string }[];
+  readonly peopleChanged?: readonly string[];
+}): string {
+  const before = (input.mergedBefore ?? []).map((item) => {
+    if (!Number.isSafeInteger(item.number) || item.number < 0) throw new TypeError('prompts: the item number is not a number');
+    return `${item.number} (id ${itemIdOf(item.id)})`;
+  });
+  const merged = before.length === 0 ? '' : ` Other work items were merged before yours: ${before.slice(0, 40).join(', ')}. Keep their changes.`;
+  const people = (input.peopleChanged ?? []).length === 0 ? '' : ` In these files the other side is a change a person made in the main workspace, not another work item's: ${JSON.stringify((input.peopleChanged ?? []).slice(0, 50))}. Keep that change and fit yours to it, unless the person who asked you to resolve says otherwise.`;
+  if (input.conflicted.length === 0) return `smurg merged the main workspace into your checkout without conflicts.${merged}${people} Verify again, update the report and call check_report. Do not run git.`;
+  return `smurg merged the main workspace into your checkout. These files have conflict markers: ${JSON.stringify(input.conflicted.slice(0, 50))}.${merged}${people} Resolve them, verify again, update the report and call check_report. Do not run git.`;
+}
+
+/** `verify-again` (DESIGN 0.7.0 D6 row 13, D17): a version whose report was not checked in the turn that made it. */
+export function verifyAgainMessage(): string {
+  return 'You changed files after your report was last checked. Verify again, update the report so that it says what you verified now, and call check_report. Do not run git.';
+}
+
+/** `remove-paths` (DESIGN 0.7.0 D9, D17): the files of the item's change that only the host may merge, at most 50. */
+export function removePathsMessage(input: { readonly paths: readonly string[] }): string {
+  return `smurg does not merge changes to these files, which only the host may change: ${JSON.stringify(input.paths.slice(0, 50))}. Undo your changes to them, keep the rest of your work, verify again, update the report and call check_report. Do not run git.`;
 }
 
 /** One decision the team made in the earlier discussion: the question, the chosen labels, a submitted free text. */

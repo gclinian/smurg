@@ -120,7 +120,9 @@ describe('R11 host console', () => {
       // has (the default follows the machine's memory).
       // The workspace asks before commands, as every 0.5.x workspace did (0.6.0 on purpose: the default is auto mode
       // now, DESIGN D8); one session is switched to auto mode, whose check stops a command (agent.command.blocked).
-      settings: { diskReserveBytes: 0, diskReservePercent: 0, maxLiveAgents: 8, permissionMode: 'ask-commands' },
+      // And the host merges each item, as in 0.6.0 (0.7.0 on purpose: the default is automatic merging now, DESIGN
+      // 0.7.0 D3): the story is the host's reviews and merges.
+      settings: { diskReserveBytes: 0, diskReservePercent: 0, maxLiveAgents: 8, permissionMode: 'ask-commands', merging: 'host' },
       // Agent sessions run the stand-in for Claude Code with the real `smurg hook` / `smurg mcp`.
       claude: agentScenario(RECEIPT_GOES_ON),
     });
@@ -239,10 +241,15 @@ describe('R11 host console', () => {
       // holds and undo, the end of a topic, Pause, the carers' and the host's new actions on a work item, the automatic
       // continues and the setting's turn to the host. Each joins the lists above with the step that writes it.
       const notWrittenYet = new Set<AuditAction>([
-        'worktree.merge.auto', 'worktree.merge.held', 'worktree.merge.undo', 'topic.check', 'plan.pause', 'plan.item.leaveOut',
-        'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue', 'plan.merging.host',
+        'worktree.merge.undo', 'topic.check', 'plan.pause', 'plan.item.leaveOut',
+        'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue',
       ]);
-      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notWrittenYet.has(action)).sort());
+      // Written since 0.7.0 S2 and S3 by smurg's own merge (DESIGN 0.7.0 D7, D8, D3), which this story of the host's
+      // merges does not run (its workspace says the host merges each item): the daemon's tests prove each
+      // (test/worktree/auto-merge.test.ts, test/topics/auto-merge.test.ts, test/topics/plan.test.ts, and the stand-in
+      // story test/integration/release-flow.unattended.test.ts).
+      const notInThisStory = new Set<AuditAction>(['worktree.merge.auto', 'worktree.merge.held', 'plan.merging.host']);
+      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notWrittenYet.has(action) && !notInThisStory.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;

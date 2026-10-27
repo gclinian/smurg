@@ -477,6 +477,8 @@ export class AgentSessionsImpl implements AgentSessions {
       ...(record.modeChangedBy === undefined ? {} : { modeChangedBy: record.modeChangedBy.userId }),
       ...(record.modelChangedBy === undefined ? {} : { modelChangedBy: record.modelChangedBy.userId }),
       hasProcess: entry.runner.hasProcess,
+      // (0.7.0: what no turn has taken yet, so a person's message counts from the moment it is sent)
+      ...((record.pending?.length ?? 0) > 0 ? { pendingMessages: record.pending?.length ?? 0 } : {}),
     };
   }
 

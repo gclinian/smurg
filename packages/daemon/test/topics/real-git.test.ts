@@ -34,6 +34,8 @@ describe('topics with the real worktree module and git', { timeout: 120_000 }, (
     t = await createTestDaemon({
       modules: [locksModule, createWorktreeModule({ limits: { treeCheckDelayMs: 100 } }), fakesModule({ except: ['topics', 'plans', 'reports', 'worktrees'], handlers: true }), createTopicsModule({ fileDebounceMs: 20 })],
       project: { git: true, files: { 'src/app.ts': 'export const answer = 42;\n' } },
+      // 0.6.0's flow, on purpose: the host reads the draft and merges it (DESIGN 0.7.0 D3 "I merge each item myself").
+      settings: { merging: 'host' },
     });
     const d = t;
     const fakes: Fakes = fakesOf(d.ctx);

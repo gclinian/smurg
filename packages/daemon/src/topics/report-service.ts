@@ -20,6 +20,14 @@
 // but in the shared folder itself: it counts by the same rule, is registered without a snapshot (`no-history`: there
 // is no diff), and the item counts as merged at registration (its changes are in the folder already). Its first run
 // then gives the shared folder back (direct-folder.ts).
+//
+// 0.7.0 (DESIGN D6, D8, D12): what the merge queue reads of a turn is recorded here, as it happens: the turns of an
+// item's sessions are counted when a turn's end arrives (`turns`), `check_report` stamps the turn it answered in, a
+// version is "checked in the turn that made it" (`checkedInTurn`) or a later turn that changed nothing confirms it, a
+// later turn that did not finish is `lastTurn`, a turn that carried a person's message and made no new version is
+// `changesAsked`. A version is snapshotted again whenever its item is bringing its work up to date. A new version ends
+// any hold of the merge queue and wakes it; a report of an item that smurg merges by itself is no review for anybody
+// (its review is a mark) and never escalates.
 import {
   CHECKED_HASHES_MAX,
 } from './store.ts';
@@ -52,7 +60,8 @@ import type { FileCheck, McpToolContext, Principal, ReportService, Req, Snapshot
 import { newId, type Disposable, toDisposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { userRefOf, type FileContent, type TopicsCore } from './core.ts';
+import type { AutoMerger } from './auto-merge.ts';
+import { itemKey, userRefOf, type FileContent, type TopicsCore } from './core.ts';
 import { DirectFolder } from './direct-folder.ts';
 import { fixFileMessage, nudgeReportMessage } from './prompts.ts';
 import { parseReport, type ParsedReport } from './report-format.ts';
@@ -83,11 +92,17 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   /** What `prepareCheck` read for an item session's next `check_report` (the contract's method is synchronous). */
   private readonly prepared = new Map<string, FileContent | null>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  private merger: AutoMerger | null = null;
 
   constructor(ctx: DaemonContext, core: TopicsCore, scheduler: Scheduler) {
     this.ctx = ctx;
     this.core = core;
     this.scheduler = scheduler;
+  }
+
+  /** The merge queue a new version wakes (DESIGN 0.7.0 D8). */
+  attachMerger(merger: AutoMerger): void {
+    this.merger = merger;
   }
 
   // ===================================================================================================================
@@ -150,11 +165,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     if (content === null) return { ok: false, errors: [{ message: `${file} does not exist. Write it first, then call check_report.` }] };
     const parse = parseReport(content.text, hit.item.id);
     if (!parse.ok) return { ok: false, errors: parse.errors.map((error) => ({ line: error.line, message: error.model })) };
-    // The ok answer is what lets the daemon register exactly this content, for this session.
+    // The ok answer is what lets the daemon register exactly this content, for this session. 0.7.0 (DESIGN D6): with
+    // the turn it answered in (the turn in progress), so "checked in the turn that made it" survives a restart.
     const attempt = hit.item.attempt;
+    const turn = (hit.item.turns ?? 0) + 1;
     this.core.updateItem(hit.topic.id, hit.item.id, (draft) => {
       const kept = draft.checked.filter((entry) => !(entry.sessionId === mcp.sessionId && entry.hash === content.hash));
-      kept.push({ sessionId: mcp.sessionId, attempt, hash: content.hash });
+      kept.push({ sessionId: mcp.sessionId, attempt, hash: content.hash, turn });
       draft.checked = kept.slice(-CHECKED_HASHES_MAX);
     });
     return { ok: true };
@@ -169,10 +186,67 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     if (hit === null || hit.item === null) return Promise.resolve();
     const topicId = hit.topic.id;
     const itemId = hit.item.id;
-    return this.core.serialize(`report:${topicId}:${itemId}`, () => this.itemTurn(topicId, itemId, event));
+    // DESIGN 0.7.0 D6: the turn is counted when its end arrives, synchronously, before its handling is queued; and
+    // until that handling is done nothing of the item merges (the turn may have changed what is in order).
+    let turn = hit.item.turns ?? 0;
+    if (hit.item.sessionId === event.sessionId) {
+      turn += 1;
+      this.core.updateItem(topicId, itemId, (draft) => {
+        draft.turns = (draft.turns ?? 0) + 1;
+      });
+    }
+    const key = itemKey(topicId, itemId);
+    this.core.turnsInHand.set(key, (this.core.turnsInHand.get(key) ?? 0) + 1);
+    return this.core.serialize(`report:${topicId}:${itemId}`, () => this.itemTurn(topicId, itemId, event, turn)).finally(() => {
+      const left = (this.core.turnsInHand.get(key) ?? 1) - 1;
+      if (left <= 0) this.core.turnsInHand.delete(key);
+      else this.core.turnsInHand.set(key, left);
+      if (this.core.started && this.core.topic(topicId) !== null) this.core.publish(topicId);
+      this.merger?.request();
+    });
   }
 
-  private async itemTurn(topicId: string, itemId: string, event: TurnFinished): Promise<void> {
+  private async itemTurn(topicId: string, itemId: string, event: TurnFinished, turn: number): Promise<void> {
+    const before = this.core.report(topicId, itemId)?.version ?? 0;
+    await this.turnBody(topicId, itemId, event, turn);
+    this.afterTurn(topicId, itemId, event, turn, before);
+  }
+
+  /**
+   * DESIGN 0.7.0 D6, D8: what a completed turn that made no new version says. It carried a person's message: somebody
+   * wrote to the agent since this version (`changesAsked`). It checked the current version's content and changed
+   * nothing: that version is checked in a turn of its own (`checkedInTurn`). And a turn that `verify-again` started
+   * and that did neither is a decision (`held: stale-report`).
+   */
+  private afterTurn(topicId: string, itemId: string, event: TurnFinished, turn: number, before: number): void {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    const registered = this.core.report(topicId, itemId);
+    if (topic === null || item === null || topic.archived || item.sessionId !== event.sessionId || registered === null || event.outcome !== 'completed') return;
+    if (registered.version !== before) return;
+    const person = event.messages.find((message) => message.kind === 'person' && message.from !== undefined);
+    if (person?.from !== undefined) {
+      const by = person.from;
+      this.core.updateItem(topicId, itemId, (draft) => {
+        draft.changesAsked = { by: { ...by }, at: this.ctx.clock.now() };
+      });
+    }
+    const confirmed =
+      event.edited.length === 0 && registered.sessionId === event.sessionId && item.checked.some((entry) => entry.sessionId === event.sessionId && entry.hash === registered.contentHash && entry.turn === turn);
+    if (confirmed && registered.checkedInTurn !== true) {
+      const previous = this.core.summaryOf(registered);
+      this.core.putReport({ ...registered, checkedInTurn: true });
+      this.core.publishReport(topicId, itemId, previous);
+    }
+    const record = this.core.item(this.core.need(topicId), itemId)?.autoMerge;
+    if (record?.state === 'resolving' && record.reason === 'stale-report') {
+      if (confirmed) this.merger?.drop(topicId, itemId);
+      else this.merger?.store(topicId, itemId, { state: 'held', reason: 'stale-report', ...(record.requestId === undefined ? {} : { requestId: record.requestId }) }, this.ctx.clock.now());
+    }
+    this.core.publish(topicId);
+  }
+
+  private async turnBody(topicId: string, itemId: string, event: TurnFinished, turn: number): Promise<void> {
     let topic = this.core.topic(topicId);
     let item = topic === null ? null : this.core.item(topic, itemId);
     if (topic === null || item === null || topic.archived || item.sessionId !== event.sessionId) return;
@@ -195,8 +269,25 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       const agents = this.ctx.services.agents;
       const processFailed = item.state === 'failed' || (!isStubService(agents) && agents.get(event.sessionId)?.status === 'failed');
       if (registered === null && !processFailed) this.stall(topic, item, event.outcome === 'interrupted' ? 'stopped' : 'error');
-      else this.core.publish(topicId);
+      else {
+        // DESIGN 0.7.0 D6 row 6: a later turn after a version did not finish (R-SAFE S7): that version is not merged.
+        if (registered !== null) {
+          const at = this.ctx.clock.now();
+          this.core.updateItem(topicId, itemId, (draft) => {
+            draft.lastTurn = { outcome: event.outcome === 'interrupted' ? 'interrupted' : 'error', at };
+          });
+        }
+        this.core.publish(topicId);
+      }
       return;
+    }
+    // A completed turn: no later turn is unfinished any more.
+    if (item.lastTurn !== undefined) {
+      this.core.updateItem(topicId, itemId, (draft) => {
+        delete draft.lastTurn;
+      });
+      topic = this.core.need(topicId);
+      item = this.core.needItem(topic, itemId);
     }
     const root = reportRootOf(item);
     if (root === null) return;
@@ -212,11 +303,15 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     if (checkedHere) {
       const parse = parseReport(file.text, item.id);
       // After `resolve-conflict` the worktree changed whatever the agent did (smurg merged the main workspace into
-      // it): the snapshot is taken again, so the resolution is committed with its second parent.
-      const resolved = event.messages.some((message) => message.purpose === 'resolve-conflict');
+      // it): the snapshot is taken again, so the resolution is committed with its second parent. 0.7.0 (DESIGN D8):
+      // also whenever the item is bringing its work up to date, or its worktree holds a merge parent no snapshot has
+      // committed yet.
+      const resolved = event.messages.some((message) => message.purpose === 'resolve-conflict') || this.resolving(item);
       const unchanged = registered !== null && item.snapshotOwed !== true && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved;
       if (parse.ok && !unchanged) {
-        await this.register(topic, item, event.sessionId, file, parse.report);
+        // checked in THIS turn (DESIGN 0.7.0 D6 row 13): what smurg's merge of this version needs
+        const inTurn = item.checked.some((entry) => entry.sessionId === event.sessionId && entry.hash === file.hash && entry.turn === turn);
+        await this.register(topic, item, event.sessionId, file, parse.report, inTurn);
         return;
       }
       if (parse.ok) {
@@ -276,8 +371,22 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     }
   }
 
+  /**
+   * The item is bringing its work up to date (DESIGN 0.7.0 D8): its record says it resolves a conflict or markers, or
+   * its worktree holds a merge parent that no snapshot committed yet. Its next version is snapshotted whatever the
+   * report file did.
+   */
+  private resolving(item: StoredItem): boolean {
+    const record = item.autoMerge;
+    if (record?.state === 'resolving' && (record.reason === 'conflict' || record.reason === 'markers')) return true;
+    const worktrees = this.ctx.services.worktrees;
+    return item.worktreeId !== undefined && !isStubService(worktrees) && worktrees.pendingMergeParent(item.worktreeId) !== null;
+  }
+
   /** The session is idle without a registered report: the item needs someone ("Stopped without a report · Continue"). */
   private stall(topic: StoredTopic, item: StoredItem, by: NonNullable<StoredItem['stalledBy']>): void {
+    // (DESIGN 0.7.0 D8: an item that was bringing its work up to date stops doing so with the stall)
+    if (item.autoMerge?.state === 'resolving') this.merger?.drop(topic.id, item.id);
     this.core.setItemState(topic.id, item.id, 'stalled', by);
     // A direct item that needs someone gives the shared folder back ("Continue" takes it again, as a later turn).
     if (item.direct === true) this.scheduler.folder.firstRunOver(DirectFolder.key(topic.id, item.id));
@@ -338,13 +447,14 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
    * A new report version: the draft merge request, the stored report, a `pointer` event, the reviewers' inbox.
    * `false`: the worktree could not be snapshotted, and nothing was registered.
    */
-  private async register(topic: StoredTopic, item: StoredItem, sessionId: string, file: FileContent, parsed: ParsedReport): Promise<boolean> {
+  private async register(topic: StoredTopic, item: StoredItem, sessionId: string, file: FileContent, parsed: ParsedReport, checkedInTurn = false): Promise<boolean> {
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     const direct = item.direct === true;
     const root: RootRef = direct ? MAIN_ROOT : worktreeRoot(item.worktreeId as string);
     let changes: ReportInfo['changes'];
     let noChanges: ReportInfo['noChanges'];
+    let refusedFiles: readonly string[] = [];
     // In the folder itself there is no history: no snapshot, no diff (the report and the guides say so).
     if (direct) noChanges = 'no-history';
     else if (!isStubService(worktrees)) {
@@ -363,10 +473,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
           additions: snapshot.additions,
           deletions: snapshot.deletions,
           byHand: snapshot.byHand.slice(0, REPORT_BY_HAND_MAX).map((entry) => ({ path: entry.path, by: entry.by.slice(0, 20).map((user) => ({ ...user })) })),
+          // (DESIGN 0.7.0 D4: a hand edit the list does not show holds an item smurg would merge, D6 row 9)
+          ...(snapshot.byHand.length > REPORT_BY_HAND_MAX || snapshot.byHand.some((entry) => entry.by.length > 20) ? { byHandTruncated: true as const } : {}),
         };
       } else {
         // A refused snapshot still registers the report; people are told in the session why there is no diff.
         noChanges = snapshot.reason;
+        refusedFiles = snapshot.files;
         const why =
           snapshot.reason === 'host-only-paths'
             ? msg('report.changes.hostOnly')
@@ -404,6 +517,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       contentHash: file.hash,
       sessionId,
       waitingSince: now,
+      ...(checkedInTurn ? { checkedInTurn: true as const } : {}),
       pending: previous?.pending ?? [],
     };
     this.core.putReport(stored);
@@ -417,10 +531,17 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       delete draft.fix;
       delete draft.changesAsked;
       delete draft.snapshotOwed;
+      // A new version ends whatever the merge queue held or waited for (DESIGN 0.7.0 D8), and any unfinished later turn.
+      delete draft.autoMerge;
+      delete draft.lastTurn;
       if (changes !== undefined) draft.merge = { requestId: changes.requestId, status: 'draft', ready: false };
       // Its changes are in the folder already: what depends on it may start (once the folder is free).
       if (direct) draft.merged = true;
     });
+    const key = itemKey(topic.id, item.id);
+    this.core.refused.delete(key);
+    this.merger?.forget(topic.id, item.id);
+    if (noChanges === 'host-only-paths' || noChanges === 'spec-files' || noChanges === 'conflict-markers') this.merger?.refused(topic.id, item.id, noChanges, refusedFiles);
     try {
       agents.append(sessionId, { kind: 'pointer', target: 'report', topicId: topic.id, itemId: item.id, version });
       agents.setItemState(sessionId, { reportRegistered: true });
@@ -440,11 +561,18 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       this.scheduler.folder.firstRunOver(DirectFolder.key(topic.id, item.id));
       this.scheduler.request();
     }
+    // The merge queue looks at the new version (DESIGN 0.7.0 D8).
+    this.merger?.request();
     return true;
   }
 
-  /** After a restart: a session that was mid-turn may have left a report it had checked; it is registered right then. */
-  async checkAfterRestart(topicId: string, itemId: string): Promise<boolean> {
+  /**
+   * After a restart: a session that was mid-turn may have left a report it had checked; it is registered right then.
+   * A check stamped with the turn the restart cut (`turns + 1`: its end never arrived) counts as checked in the turn
+   * that made the version (DESIGN 0.7.0 D6). `cutTurnOnly` (an item that was bringing its work up to date, D8): only a
+   * check of that cut turn counts, and the snapshot is taken again whatever the report file did.
+   */
+  async checkAfterRestart(topicId: string, itemId: string, options: { readonly cutTurnOnly?: boolean } = {}): Promise<boolean> {
     return this.core.serialize(`report:${topicId}:${itemId}`, async () => {
       const topic = this.core.topic(topicId);
       const item = topic === null ? null : this.core.item(topic, itemId);
@@ -452,14 +580,18 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       if (topic === null || item === null || item.sessionId === undefined || root === null) return false;
       const sessionId = item.sessionId;
       const file = await this.core.readFile(root, topicReportPath(topic.slug, item.id));
-      if (file === null || !item.checked.some((entry) => entry.sessionId === sessionId && entry.hash === file.hash)) return false;
+      const cutTurn = (item.turns ?? 0) + 1;
+      const entry = file === null ? undefined : item.checked.find((candidate) => candidate.sessionId === sessionId && candidate.hash === file.hash && (options.cutTurnOnly !== true || candidate.turn === cutTurn));
+      if (file === null || entry === undefined) return false;
+      const forced = options.cutTurnOnly === true || this.resolving(item);
       const registered = this.core.report(topicId, itemId);
-      if (registered !== null && registered.contentHash === file.hash && item.snapshotOwed !== true) return true;
+      if (registered !== null && registered.contentHash === file.hash && item.snapshotOwed !== true && !forced) return true;
       const parse = parseReport(file.text, item.id);
       if (!parse.ok) return false;
       // (a snapshot that fails here has left the item stalled or with its earlier version: nothing more to do at the start)
-      await this.register(topic, item, sessionId, file, parse.report);
-      return this.core.report(topicId, itemId) !== null;
+      const before = registered?.version ?? 0;
+      await this.register(topic, item, sessionId, file, parse.report, entry.turn === cutTurn);
+      return (this.core.report(topicId, itemId)?.version ?? 0) > before || (registered !== null && !forced);
     });
   }
 
@@ -632,6 +764,9 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       if ((report.state !== 'to-review' && report.state !== 'changed-after-review') || report.escalatedAt !== undefined || now - report.waitingSince < after) continue;
       const topic = this.core.topic(report.topicId);
       if (topic === null || topic.archived) continue;
+      // A report of an item smurg merges by itself waits for nobody (DESIGN 0.7.0 D12): its review is a mark.
+      const item = this.core.item(topic, report.itemId);
+      if (item !== null && this.core.mergingOf(item) === 'auto') continue;
       const previous = this.core.summaryOf(report);
       this.core.putReport({ ...report, escalatedAt: now });
       this.core.publishReport(report.topicId, report.itemId, previous);
@@ -645,6 +780,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
         this.sweep();
       } catch (err) {
         this.ctx.log.error('report escalation sweep failed', { error: err instanceof Error ? err.name : 'unknown' });
+      }
+      // The merge queue: long waits become holds, and what is due is tried (DESIGN 0.7.0 D8).
+      try {
+        this.merger?.sweep();
+      } catch (err) {
+        this.ctx.log.error('merge queue sweep failed', { error: err instanceof Error ? err.name : 'unknown' });
       }
       // An item that is merged and reviewed but could not be finished yet (its worktree held something unmerged).
       void this.scheduler.finishPending().catch((err: unknown) => this.ctx.log.error('finishing items failed', { error: err instanceof Error ? err.name : 'unknown' }));

@@ -734,7 +734,13 @@ describe('the release composition: one topic from the discussion to the archive,
     expect(kinds(resolveTurn)).toEqual(['line', 'line', 'smurg', 'delivery', 'turn.started', 'tool.started', 'tool.finished', 'tool.started', 'tool.finished', 'tool.started', 'tool.finished', 'text', 'turn.finished', 'delivery', 'pointer']);
     expect(resolveTurn[0]).toMatchObject({ text: { id: 'conversation.resolveRequested', params: { name: 'Mei' } } });
     expect(resolveTurn[1]).toMatchObject({ text: { id: 'conversation.conflict.merged', params: { count: 1 } } });
-    expect(resolveTurn[2]).toMatchObject({ kind: 'smurg', purpose: 'resolve-conflict', by: { userId: MEI }, text: 'smurg merged the main workspace into your checkout. These files have conflict markers: ["src/app.ts"]. Resolve them, verify again, update the report and call check_report. Do not run git.' });
+    // (0.7.0, DESIGN D17, on purpose: the message names the work items merged before this one, by number and id)
+    expect(resolveTurn[2]).toMatchObject({
+      kind: 'smurg',
+      purpose: 'resolve-conflict',
+      by: { userId: MEI },
+      text: 'smurg merged the main workspace into your checkout. These files have conflict markers: ["src/app.ts"]. Other work items were merged before yours: 1 (id cart-api), 2 (id checkout-page). Keep their changes. Resolve them, verify again, update the report and call check_report. Do not run git.',
+    });
     expect(await text('src/app.ts', flow, receiptRoot)).toBe(APP_RESOLVED);
     // ---- a NEW draft (the conflicted request is gone), and the report asks for its review again
     const resolvedReport = (await leo.conn.request('report.get', { topicId, itemId: 'receipt-email' })).report;

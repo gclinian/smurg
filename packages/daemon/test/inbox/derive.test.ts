@@ -362,6 +362,29 @@ describe('merge requests: the host', () => {
   });
 });
 
+describe('DESIGN 0.7.0 D12: a work item that smurg merges by itself', () => {
+  const plan = (merging: 'auto' | 'host'): PlanInfo => buildPlan({ items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', merging, responsible: { ...ref(MEI), source: 'chosen' } })] });
+  const report: InboxWorld['reports'] = [{ topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary({ escalatedAt: T }) }];
+  const merge = (overrides: Parameters<typeof buildMergeRequest>[0]): InboxWorld['merges'] => [buildMergeRequest({ topicId: 'tp_1', itemId: 'cart-api', ...overrides })];
+
+  it('its report waits for nobody\'s review (a review is a mark); the host\'s item keeps its row', () => {
+    expect(holders({ plans: { tp_1: plan('auto') }, reports: report }, 'report')).toEqual([]);
+    expect(holders({ plans: { tp_1: plan('host') }, reports: report }, 'report')).toEqual([HOST, MEI, KEN]);
+  });
+
+  it('its drafts and the conflicts of smurg\'s own tries are not the host\'s rows; a merge somebody asked for is, also when it conflicts', () => {
+    const auto = { tp_1: plan('auto') };
+    expect(holders({ plans: auto, merges: merge({ status: 'draft', requestedBy: undefined, reviewed: true }) }, 'merge')).toEqual([]);
+    expect(holders({ plans: auto, merges: merge({ status: 'conflict', requestedBy: undefined, conflictFiles: ['src/a.ts'] }) }, 'merge')).toEqual([]);
+    expect(holders({ plans: auto, merges: merge({ status: 'pending', requestedBy: ref(MEI) }) }, 'merge')).toEqual([HOST]);
+    expect(holders({ plans: auto, merges: merge({ status: 'conflict', requestedBy: ref(MEI), conflictFiles: ['src/a.ts'] }) }, 'merge')).toEqual([HOST]);
+    // The host's item: 0.6.0's rows.
+    const host = { tp_1: plan('host') };
+    expect(holders({ plans: host, merges: merge({ status: 'draft', requestedBy: undefined, reviewed: true }) }, 'merge')).toEqual([HOST]);
+    expect(holders({ plans: host, merges: merge({ status: 'conflict', requestedBy: undefined, conflictFiles: ['src/a.ts'] }) }, 'merge')).toEqual([HOST]);
+  });
+});
+
 describe('attention: work that stopped and has no card', () => {
   const fact = (overrides: Partial<AttentionFact> & Pick<AttentionFact, 'subject' | 'id' | 'recipients' | 'target'>): AttentionFact => ({ at: T, excerpt: '', ...overrides });
 

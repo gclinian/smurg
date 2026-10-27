@@ -113,6 +113,8 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
         // A folder without `.git` (0.6.0 on purpose: until 0.5.2 Start was refused here).
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
+        // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
+        settings: { merging: 'host' },
       },
     });
     host = await env.newPage({ width: 1500, height: 900 });

@@ -214,8 +214,10 @@ export async function startFlow(options: FlowOptions = {}): Promise<Flow> {
       // How many work items may hold an agent process at once defaults from the machine's memory (2 on a small one):
       // fixed here, so the same sessions are parked for a slot, or not, on every machine.
       // The flows tell the story of the cards people answer: their workspace asks before commands, as every 0.5.x
-      // workspace did (0.6.0 on purpose: the default is auto mode now, DESIGN D8; a flow may say otherwise).
-      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands', ...options.settings },
+      // workspace did (0.6.0 on purpose: the default is auto mode now, DESIGN D8; a flow may say otherwise). And of the
+      // host who reads each item and merges it, as in 0.6.0 (0.7.0 on purpose: the default is automatic merging now,
+      // DESIGN 0.7.0 D3; release-flow.unattended.test.ts tells that story).
+      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands', merging: 'host', ...options.settings },
       sessions: { claudePath: claude.path, hostHome, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
     });
     const daemon = d;

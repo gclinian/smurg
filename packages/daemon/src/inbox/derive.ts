@@ -12,7 +12,10 @@
 //               it has not escalated; else the host and every member with agent access
 //   suggestion  suggestionRecipients (as a permission request that is not host-only); ONE item per author and session
 //   report      reportRecipients: the reviewers; once escalated also the host and every member with agent access
-//   merge       the host: `pending`, `conflict`, and a `draft` whose report is reviewed (`ready`)
+//               (0.7.0, DESIGN D12: only for work items the host merges; under automatic merging a review is a mark)
+//   merge       the host: `pending`, `conflict`, and a `draft` whose report is reviewed (`ready`); of a work item that
+//               smurg merges by itself only what somebody asked for (a `pending` request, a `conflict` that keeps its
+//               `requestedBy`): its drafts and the conflicts of smurg's own tries are its decision rows (0.7.0 D12)
 //   attention   the recipients its fact names (the service that owns the fact decides them)
 //
 // An item leaves when its thing is no longer in the world, for everyone at once: there is nothing to clear by hand.
@@ -344,6 +347,8 @@ function deriveReports(world: InboxWorld, boxes: Boxes): void {
     if (report.state !== 'to-review' && report.state !== 'changed-after-review') continue;
     if (!world.topicOpen(topicId)) continue;
     const planItem = world.plan(topicId)?.items.find((item) => item.id === itemId);
+    // Under automatic merging nobody waits for a review (DESIGN 0.7.0 D12): a held item has its decision instead.
+    if (planItem?.merging === 'auto') continue;
     const view = planItem?.sessionId === undefined ? null : world.session(planItem.sessionId);
     const escalated = report.escalatedAt !== undefined;
     let reviewers: string[];
@@ -397,11 +402,18 @@ function mergeInInbox(request: MergeRequest): boolean {
   return request.status === 'pending' || request.status === 'conflict' || (request.status === 'draft' && request.reviewed);
 }
 
+/** A request of a work item smurg merges by itself that nobody asked for: smurg's to merge, or the item's decision. */
+function smurgsOwn(world: Pick<InboxWorld, 'plan'>, request: MergeRequest): boolean {
+  if (request.topicId === undefined || request.itemId === undefined) return false;
+  if (world.plan(request.topicId)?.items.find((item) => item.id === request.itemId)?.merging !== 'auto') return false;
+  return request.status === 'draft' || (request.status === 'conflict' && request.requestedBy === undefined);
+}
+
 function deriveMerges(world: InboxWorld, boxes: Boxes): void {
   const host = hostOf(world.members);
   if (host === null) return;
   for (const request of world.merges) {
-    if (!mergeInInbox(request)) continue;
+    if (!mergeInInbox(request) || smurgsOwn(world, request)) continue;
     const where: Where = request.topicId === undefined ? {} : request.itemId === undefined ? { topicId: request.topicId } : whereOfItem(world, request.topicId, request.itemId);
     const unblocks = request.topicId === undefined || request.itemId === undefined ? [] : unblockedBy(world.plan(request.topicId), request.itemId);
     boxes.add(

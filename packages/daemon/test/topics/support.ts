@@ -15,6 +15,7 @@ import { createTopicsModule, type TopicsModuleOptions } from '../../src/topics/m
 import { PLAN_MARKER_END, PLAN_MARKER_START } from '../../src/topics/plan-format.ts';
 import type { PlanServiceImpl } from '../../src/topics/plan-service.ts';
 import type { ReportServiceImpl } from '../../src/topics/report-service.ts';
+import { REPORTS_DOCUMENT, TOPICS_DOCUMENT, initialReportsDocument, initialTopicsDocument, reportsDocumentSchema, topicsDocumentSchema, type StoredItem, type StoredReport, type StoredTopic } from '../../src/topics/store.ts';
 
 export const HOST: Principal = fakePrincipal(TEST_HOST_USER, 'host', TEST_HOST_NAME);
 
@@ -62,7 +63,9 @@ export async function setupTopics(options: TopicsTestOptions = {}): Promise<Topi
   const t = await createTestDaemon({
     modules: [fakesModule({ except: ['topics', 'plans', 'reports'], handlers: true }), seed, createTopicsModule({ fileDebounceMs: 10, ...options.topics })],
     agents: { escalationSweepMs: 20, ...options.agents },
-    ...(options.settings === undefined ? {} : { settings: options.settings }),
+    // These tests tell the story of 0.6.0's flow: the host reads each item and merges it ("I merge each item myself",
+    // DESIGN 0.7.0 D3). The default of a new workspace is automatic merging; the tests of the merge queue say so.
+    settings: { merging: 'host', ...options.settings },
     ...(options.root === undefined ? { project: { files: { 'README.md': '# project\n', ...options.files } } } : { root: options.root }),
     ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
@@ -171,11 +174,33 @@ export async function topicWithPlan(test: TopicsTest, items: readonly PlanItemTe
   return { topic: test.topic(topic.id), session, plan: test.plan(topic.id) };
 }
 
-/** Presses Start for a topic as `client` (default Mei): preflight, then start with its pins. */
-export async function startPlan(test: TopicsTest, topicId: string, itemIds?: readonly string[], client: TestClient = test.mei): Promise<PlanInfo> {
+/** Presses Start for a topic as `client` (default Mei): preflight, then start with its pins (and `extra`: "The host merges each item"). */
+export async function startPlan(test: TopicsTest, topicId: string, itemIds?: readonly string[], client: TestClient = test.mei, extra: { readonly merging?: 'host' } = {}): Promise<PlanInfo> {
   const { preflight } = await client.conn.request('plan.preflight', { topicId, ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }) });
-  const { plan } = await client.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }) });
+  const { plan } = await client.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, ...(itemIds === undefined ? {} : { itemIds: [...itemIds] }), ...extra });
   return plan;
+}
+
+/** The topic as topics.json holds it now (the pins, the merge queue's records: what the wire does not carry). */
+export async function storedTopic(test: TopicsTest, topicId: string): Promise<StoredTopic> {
+  const doc = await test.t.ctx.state.document(TOPICS_DOCUMENT, topicsDocumentSchema, initialTopicsDocument);
+  const topic = doc.get().topics.find((candidate) => candidate.id === topicId);
+  if (topic === undefined) throw new Error(`no stored topic ${topicId}`);
+  return structuredClone(topic) as StoredTopic;
+}
+
+/** One item as topics.json holds it now. */
+export async function storedItem(test: TopicsTest, topicId: string, itemId: string): Promise<StoredItem> {
+  const item = (await storedTopic(test, topicId)).items.find((candidate) => candidate.id === itemId);
+  if (item === undefined) throw new Error(`no stored item ${itemId}`);
+  return item;
+}
+
+/** One report as reports.json holds it now (with what the wire does not carry: `checkedInTurn`). */
+export async function storedReport(test: TopicsTest, topicId: string, itemId: string): Promise<StoredReport | null> {
+  const doc = await test.t.ctx.state.document(REPORTS_DOCUMENT, reportsDocumentSchema, initialReportsDocument);
+  const report = doc.get().reports.find((candidate) => candidate.topicId === topicId && candidate.itemId === itemId);
+  return report === undefined ? null : (structuredClone(report) as StoredReport);
 }
 
 /** The item of a plan by id. */

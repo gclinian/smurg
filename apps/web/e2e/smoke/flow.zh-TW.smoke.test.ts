@@ -140,6 +140,8 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
         projectFiles: { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const x = 1;\n' },
         // The workspace's permission mode is the default, auto mode (0.6.0).
         sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } },
+        // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
+        settings: { merging: 'host' },
       },
     });
     host = await env.newPage({ width: 1440, height: 900, locale: 'zh-TW' });

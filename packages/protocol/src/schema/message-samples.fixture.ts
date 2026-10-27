@@ -1701,12 +1701,16 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: 'sonnet', permissionMode: 'ask-commands' } },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: null }, direct: true },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: {} },
+        // protocol 6: "The host merges each item" of this Start
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, merging: 'host' },
       ],
       invalid: [
         { topicId: 'tp_1' },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH },
         { topicId: 'tp_1', planRevision: 4, specHash: 'x', planHash: HASH },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, direct: false },
+        // nobody asks for smurg's merge: the workspace's setting gives it
+        { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, merging: 'auto' },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { permissionMode: 'ask-nothing' } },
         { topicId: 'tp_1', planRevision: 4, specHash: HASH, planHash: HASH, agent: { model: 'opus', mode: 'auto' } },
       ],

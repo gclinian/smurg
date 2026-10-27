@@ -8,6 +8,7 @@ import { rootRefKey, MAIN_ROOT } from '@smurg/protocol';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
 import type { DaemonEvents } from '../core/interfaces.ts';
 import { DisposableStack, toDisposable } from '../core/lifecycle.ts';
+import { AutoMerger } from './auto-merge.ts';
 import { TopicsCore, type TopicsOptions } from './core.ts';
 import { registerTopicHandlers } from './handlers.ts';
 import { PlanServiceImpl } from './plan-service.ts';
@@ -24,6 +25,7 @@ interface Parts {
   readonly plans: PlanServiceImpl;
   readonly reports: ReportServiceImpl;
   readonly scheduler: Scheduler;
+  readonly merger: AutoMerger;
 }
 
 /** A topics module with seams (the file debounce, the number of fixes in a row). Production uses topicsModule. */
@@ -38,17 +40,24 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       const topics = new TopicServiceImpl(ctx, core);
       const plans = new PlanServiceImpl(ctx, core, topics, scheduler);
       const reports = new ReportServiceImpl(ctx, core, scheduler);
+      // The merge queue (DESIGN 0.7.0 D8): smurg merges the work items that are in order.
+      const merger = new AutoMerger(ctx, core);
       scheduler.attach(reports);
       plans.attach(reports);
+      plans.attachMerger(merger);
+      reports.attachMerger(merger);
+      merger.attach(reports);
       core.requestSchedule = () => scheduler.request();
-      built.set(ctx, { core, topics, plans, reports, scheduler });
+      built.set(ctx, { core, topics, plans, reports, scheduler, merger });
       return { topics, plans, reports };
     },
     register: (router, ctx) => {
       const parts = built.get(ctx);
       if (!parts) return toDisposable(() => {});
-      const { core, topics, plans, reports, scheduler } = parts;
+      const { core, topics, plans, reports, scheduler, merger } = parts;
       const stack = new DisposableStack();
+      /** The status each item session last had, as the merge queue was told. */
+      const itemStatuses = new Map<string, string>();
       stack.add(registerTopicHandlers(router, { topics, plans, reports }));
       const log = (what: string) => (err: unknown) => ctx.log.error(what, { module: 'topics', error: err instanceof Error ? err.name : 'unknown' });
 
@@ -58,6 +67,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
         ctx.bus.on('file.changed', (event) => {
           if (rootRefKey(event.root) !== rootRefKey(MAIN_ROOT)) return;
           for (const change of event.changes) topics.onFileChanged({ root: event.root, path: change.path });
+          // A file in the way of a merge may have been moved or committed (the merge queue looks again, D8).
+          if (core.started) merger.onFiles(event.root, event.changes.map((change) => change.path));
         }),
       );
       // Typing in the editor: every save is a hand edit of whoever typed (the feed's entry is one per person and minute).
@@ -86,31 +97,75 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
             core.publish(event.session.topicId);
           }
           scheduler.onSessionUpdated(event.session);
+          // An item's session became idle, or its card closed: its merge may be in order now (a change of its status;
+          // every event of a turn moves the session too).
+          if (core.started && event.session.kind === 'agent' && event.session.purpose === 'item' && itemStatuses.get(event.session.id) !== event.session.status) {
+            itemStatuses.set(event.session.id, event.session.status);
+            merger.request();
+          }
         }),
       );
       stack.add(
         ctx.bus.on('session.exited', (event) => {
           topics.onSession(event.session, true);
           scheduler.onSessionExited(event.session, event.reason);
+          itemStatuses.delete(event.session.id);
+          if (core.started) merger.request();
         }),
       );
       stack.add(ctx.bus.on('agent.process', (event) => scheduler.onProcess(event)));
 
       // ---- what a plan waits for ----
-      stack.add(ctx.bus.on('merge.changed', (event) => scheduler.onMerge(event.request)));
+      stack.add(
+        ctx.bus.on('merge.changed', (event) => {
+          scheduler.onMerge(event.request);
+          merger.onMerge(event.request);
+          if (core.started) merger.request();
+        }),
+      );
       stack.add(
         ctx.bus.on('worktree.changed', (event) => {
           if (event.worktree === null) scheduler.onWorktreeRemoved(event.worktreeId);
         }),
       );
       // The folder became a git repository while it is shared, or stopped being one (the worktree module looked).
-      stack.add(ctx.bus.on('workspace.git', (event) => core.setVersioned(event.isGitRepo)));
-      stack.add(ctx.bus.on('question.changed', () => core.started && core.publishAll()));
-      stack.add(ctx.bus.on('permission.changed', () => core.started && core.publishAll()));
+      stack.add(
+        ctx.bus.on('workspace.git', (event) => {
+          core.setVersioned(event.isGitRepo);
+          if (core.started) merger.onGit();
+        }),
+      );
+      // (a card that closed may be the one an item's merge waited for)
+      stack.add(
+        ctx.bus.on('question.changed', () => {
+          if (!core.started) return;
+          core.publishAll();
+          merger.request();
+        }),
+      );
+      stack.add(
+        ctx.bus.on('permission.changed', () => {
+          if (!core.started) return;
+          core.publishAll();
+          merger.request();
+        }),
+      );
       stack.add(ctx.bus.on('suggestion.changed', (event) => reports.onSuggestion(event.suggestion)));
+      // A plan paused or continued, a topic archived: the merge queue looks again.
+      stack.add(ctx.bus.on('topic.changed', () => core.started && merger.request()));
+      // Someone stopped typing in a file a merge waits for.
+      stack.add(ctx.bus.on('lock.changed', (event) => core.started && merger.onLock(event.file, event.lock)));
       stack.add(
         ctx.bus.on('settings.changed', (event) => {
-          if (!core.started || event.settings.maxLiveAgents === event.previous.maxLiveAgents) return;
+          if (!core.started) return;
+          // DESIGN 0.7.0 D3: the workspace's merging setting turned to the host's: every started item is the host's for
+          // good; either way every plan says it again and the merge queue looks.
+          if (event.settings.merging !== event.previous.merging) {
+            merger.settingSaysHost('setting');
+            core.publishAll();
+            merger.request();
+          }
+          if (event.settings.maxLiveAgents === event.previous.maxLiveAgents) return;
           core.publishAll();
           scheduler.request();
         }),
@@ -140,8 +195,11 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
     start: async (ctx) => {
       const parts = built.get(ctx);
       if (!parts) return;
-      const { core, reports, scheduler } = parts;
+      const { core, reports, scheduler, merger } = parts;
       await core.open();
+      // DESIGN 0.7.0 D3: while the workspace says the host merges, no pin says smurg's (a crash between state.json and
+      // topics.json when the setting turned is repaired here).
+      merger.settingSaysHost('start');
       // (Set, not announced: every topic is announced below, once the restart is looked at.) What the share found at
       // `.git`, with no git process: asking the worktree module (`mainState`) would look for the git program when the
       // folder has no `.git`, and DESIGN 0.6.0 D14 looks for it lazily, never at the start of sharing (on a Mac
@@ -163,7 +221,10 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       core.publishAttention();
       // An item that was merged and reviewed when smurg went away, and whose session or worktree is still there.
       await scheduler.finishPending();
+      // Items whose agent was bringing their work up to date when smurg stopped (DESIGN 0.7.0 D8), then the queue.
+      await merger.takeUp();
       scheduler.request();
+      merger.begin();
     },
     stop: async (ctx) => {
       const parts = built.get(ctx);

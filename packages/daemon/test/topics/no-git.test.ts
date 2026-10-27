@@ -207,11 +207,15 @@ withGit('a folder without .git: smurg\'s own history (DESIGN 0.6.0 D14)', { time
     expect(recorded).toEqual(expect.arrayContaining(['README.md', 'src/app.ts', topicSpecPath(SLUG), topicPlanPath(SLUG)]));
     expect(recorded.some((path) => path.startsWith('node_modules/') || path.startsWith('.smurg/'))).toBe(false);
 
-    const done = await planIs(s, topicId, (plan) => plan.items[0]?.state === 'done' && plan.items[0]?.merge?.status === 'draft', 'the first report with its draft');
+    // 0.7.0 (DESIGN D8, on purpose): its report says complete, a check passed, and it was checked in the turn that made
+    // it: smurg merges it into the folder by itself, as the workspace's setting says (a new workspace's default).
+    const done = await planIs(s, topicId, (plan) => plan.items[0]?.merged?.by === 'smurg', 'smurg to merge the first item');
+    expect(done.items[0]).toMatchObject({ state: 'done', merging: 'auto', merge: { status: 'merged' } });
+    expect(done.items[0]?.autoMerge).toBeUndefined();
     const requestId = done.items[0]?.merge?.requestId as string;
+    // What it merged, as everyone reads it afterwards.
     const diff = await s.ian.conn.request('worktree.merge.diff', { requestId });
     expect(diff.files.map((file) => file.path).sort()).toEqual(['src/cart.ts', topicReportPath(SLUG, 'cart-api')].sort());
-    expect((await s.ian.conn.request('worktree.merge.approve', { requestId })).request.status).toBe('merged');
     expect(await readFile(join(s.root, 'src', 'cart.ts'), 'utf8')).toBe('export const cart: string[] = [];\n');
     expect(await readFile(join(s.root, 'node_modules', 'existing', 'index.js'), 'utf8')).toBe('module.exports = "mine";\n');
     expect(await exists(join(s.root, 'node_modules', 'left-pad'))).toBe(false);

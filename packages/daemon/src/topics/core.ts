@@ -20,6 +20,10 @@ import {
   wireText,
   type Actor,
   type FileRef,
+  type HostSettings,
+  type MergePolicy,
+  type MergeRequest,
+  type MergeRequestStatus,
   type PlanInfo,
   type ReportInfo,
   type ReportSummary,
@@ -37,6 +41,7 @@ import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { attentionFacts } from './attention.ts';
+import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeVerdict, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
 import { parsePlan, planFingerprint, type ParsedItem, type PlanParse } from './plan-format.ts';
 import { evenSplit, SIZE_WEIGHT, type SplitPerson } from './split.ts';
 import {
@@ -107,6 +112,25 @@ export function applyTopicAgent(
   return next;
 }
 
+/**
+ * How this started item's change reaches the main workspace now (DESIGN 0.7.0 D3): smurg's merge needs BOTH the
+ * Start's (its pin) and the host's (the workspace's setting). null: never started, or nothing to merge (it ran directly
+ * in the shared folder). A pin of 0.6.0 says nothing of merging: the host merges.
+ */
+export function mergingOf(item: Pick<StoredItem, 'pin'>, settings: Pick<HostSettings, 'merging'>): MergePolicy | null {
+  if (item.pin === undefined) return null;
+  if (item.pin.history === 'direct') return null;
+  return item.pin.merging === 'auto' && settings.merging === 'auto' ? 'auto' : 'host';
+}
+
+/** The key of a work item in the module's in-memory sets. */
+export function itemKey(topicId: string, itemId: string): string {
+  return `${topicId}\u0000${itemId}`;
+}
+
+/** Session states that are inside a turn (or about to start one). */
+const IN_A_TURN: ReadonlySet<string> = new Set(['starting', 'running', 'waiting-answer', 'waiting-permission']);
+
 /** An item that was started at least once, or is armed to start: it is no longer "not started" for the plan's counts. */
 export function isStarted(item: StoredItem): boolean {
   return item.armed || item.sessionId !== undefined || item.sessions.length > 0;
@@ -153,6 +177,17 @@ export class TopicsCore {
   /** Who wrote a topic's spec or plan since it was last read (noteWriter), with the order of the notes. */
   private readonly pendingActors = new Map<string, { readonly actor: Actor; readonly order: number }>();
   private notes = 0;
+  /**
+   * What the topics module knows of each work item's merge request (DESIGN 0.7.0 D6 row 15): its status and whether
+   * somebody asked for its merge. Kept from `merge.changed`, and read whole from the worktree module at the start.
+   */
+  readonly requests = new Map<string, { readonly status: MergeRequestStatus; readonly requested: boolean }>();
+  /** Items an undo claims while it runs (DESIGN 0.7.0 D14, D6 row 2): nothing of them merges meanwhile. */
+  readonly claimed = new Set<string>();
+  /** Items whose end of a turn is being looked at (report-service.ts), how many: until then nothing of them merges. */
+  readonly turnsInHand = new Map<string, number>();
+  /** The files a refused snapshot of an item's current version named (D6 row 8), until a version is registered again. */
+  readonly refused = new Map<string, readonly string[]>();
   private readonly lastTopics = new Map<string, Topic>();
   private readonly lastPlans = new Map<string, string>();
   private attentionSignature = '[]';
@@ -376,7 +411,7 @@ export class TopicsCore {
 
   /** The wire's ReportInfo of a stored report (without the daemon's bookkeeping). */
   toReportInfo(stored: StoredReport): ReportInfo {
-    const { contentHash: _hash, sessionId: _session, waitingSince: _since, pending: _pending, ...info } = stored;
+    const { contentHash: _hash, sessionId: _session, waitingSince: _since, pending: _pending, checkedInTurn: _checked, ...info } = stored;
     return structuredClone(info);
   }
 
@@ -437,10 +472,122 @@ export class TopicsCore {
     });
   }
 
-  toWorkItem(topic: StoredTopic, item: StoredItem): WorkItem {
+  // ===================================================================================================================
+  // Automatic merging (DESIGN 0.7.0 D3, D6)
+  // ===================================================================================================================
+
+  /** A merge request of a work item changed (or was read at the start): what D6 row 15 needs of it. */
+  noteRequest(request: MergeRequest): void {
+    if (request.itemId === undefined) return;
+    this.requests.set(request.id, { status: request.status, requested: request.requestedBy !== undefined || request.status === 'pending' });
+  }
+
+  /** The item's policy now (D3). */
+  mergingOf(item: StoredItem): MergePolicy | null {
+    return mergingOf(item, this.ctx.settings.get());
+  }
+
+  /** The sessions that have an open question or permission card now. */
+  sessionsWithCards(): ReadonlySet<string> {
+    const conversation = this.ctx.services.conversation;
+    if (isStubService(conversation)) return new Set();
+    return new Set([...conversation.openQuestions().map((question) => question.sessionId), ...conversation.openPermissions().map((request) => request.sessionId)]);
+  }
+
+  /**
+   * Files of the item's current version edited by hand by someone who holds no agent access now, or is no member any
+   * more (D6 row 9); `truncated` when the report's list was cut; null: none.
+   */
+  private byHandOutside(report: StoredReport | null): readonly string[] | 'truncated' | null {
+    const changes = report?.changes;
+    if (changes === undefined) return null;
+    if (changes.byHandTruncated === true) return 'truncated';
+    const outside = changes.byHand
+      .filter((entry) =>
+        entry.by.some((user) => {
+          const role = this.ctx.members.roleOf(user.userId);
+          return role === null || !can(role, 'session.drive');
+        }),
+      )
+      .map((entry) => entry.path);
+    return outside.length === 0 ? null : outside;
+  }
+
+  /** What D6 reads of an item (the stores, the session, the request). */
+  verdictInputOf(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string> = this.sessionsWithCards()): AutoMergeVerdictInput {
+    const key = itemKey(topic.id, item.id);
+    const report = this.report(topic.id, item.id);
+    const pointer = item.merge;
+    const known = pointer === undefined ? undefined : this.requests.get(pointer.requestId);
+    // In a turn: its session runs one, a message waits for one, or the end of one is being looked at.
+    const inHand = (this.turnsInHand.get(key) ?? 0) > 0;
+    let session: AutoMergeVerdictInput['session'] = inHand ? { turnOpen: true, openCards: 0 } : null;
+    const agents = this.ctx.services.agents;
+    const live = item.sessionId === undefined || isStubService(agents) ? null : agents.get(item.sessionId);
+    if (live !== null && live.status !== 'ended') {
+      // (a message a failed process never took is no turn to come: "Try again" decides about it)
+      const waiting = live.status === 'failed' ? 0 : (agents.facts(live.id)?.pendingMessages ?? 0);
+      session = { turnOpen: inHand || IN_A_TURN.has(live.status) || waiting > 0, openCards: cards.has(live.id) ? 1 : 0 };
+    }
+    const recordPaths = item.autoMerge?.paths ?? this.refused.get(key);
+    return {
+      policy: this.mergingOf(item),
+      topic: { archived: topic.archived, paused: topic.plan.paused },
+      claimed: this.claimed.has(key),
+      item,
+      // A conflict whose asker smurg does not know is taken as asked for (the host's row): never merged by smurg.
+      request: pointer === undefined ? null : { id: pointer.requestId, status: known?.status ?? pointer.status, requested: known?.requested ?? pointer.status !== 'draft' },
+      report:
+        report === null
+          ? null
+          : {
+              version: report.version,
+              state: report.state,
+              outcome: report.outcome,
+              checks: report.checks,
+              checkedInTurn: report.checkedInTurn === true,
+              pendingFollowUps: report.pending.length,
+              ...(report.noChanges === undefined ? {} : { noChanges: report.noChanges }),
+              ...(recordPaths === undefined ? {} : { paths: recordPaths }),
+            },
+      byHandOutside: this.byHandOutside(report),
+      session,
+      tries: item.mergeTries ?? 0,
+      maxTries: AUTO_MERGE_TRIES,
+    };
+  }
+
+  /** The items of the plan merged since this one's Start (numbers and ids: what a resolve message may name, D17). */
+  mergedBefore(topic: StoredTopic, item: StoredItem): { number: number; id: string }[] {
+    const since = item.pin?.at ?? 0;
+    return topic.items
+      .filter((other) => other.id !== item.id && other.number > 0 && other.mergedAs !== undefined && other.mergedAs.at >= since)
+      .sort((a, b) => (a.mergedAs?.at ?? 0) - (b.mergedAs?.at ?? 0) || a.number - b.number)
+      .map((other) => ({ number: other.number, id: other.id }));
+  }
+
+  /** D6: whether smurg merges this item now, and if not, what it waits for. */
+  verdictOf(topic: StoredTopic, item: StoredItem, cards?: ReadonlySet<string>): AutoMergeVerdict {
+    return autoMergeVerdict(this.verdictInputOf(topic, item, cards));
+  }
+
+  toWorkItem(topic: StoredTopic, item: StoredItem, cards?: ReadonlySet<string>): WorkItem {
     const report = this.report(topic.id, item.id);
     const waitsFor = item.state === 'waiting' ? this.unmergedDependencies(topic, item) : [];
     const showsResponsible = item.sessionId !== undefined || topic.plan.mode === 'assigned';
+    // Protocol 6 (DESIGN 0.7.0 D3, D9): how its change reaches the main workspace, and what smurg's merge waits for.
+    const merging = this.mergingOf(item);
+    const autoMerge =
+      merging !== 'auto'
+        ? undefined
+        : autoMergeInfoOf(this.verdictOf(topic, item, cards), {
+            record: item.autoMerge,
+            tries: item.mergeTries ?? 0,
+            reportAt: report?.writtenAt ?? null,
+            ...(topic.plan.pausedAt === undefined ? {} : { pausedAt: topic.plan.pausedAt }),
+            ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }),
+            ...(item.lastTurn === undefined ? {} : { lastTurnAt: item.lastTurn.at }),
+          });
     return structuredClone({
       id: item.id,
       number: item.number,
@@ -464,6 +611,11 @@ export class TopicsCore {
       ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }),
       ...(report === null ? {} : { report: this.summaryOf(report) }),
       ...(item.merge === undefined ? {} : { merge: item.merge }),
+      ...(merging === null ? {} : { merging }),
+      ...(autoMerge === undefined ? {} : { autoMerge }),
+      ...(item.mergedAs === undefined ? {} : { merged: { at: item.mergedAs.at, by: item.mergedAs.by } }),
+      ...(item.leftOut === undefined ? {} : { leftOut: item.leftOut }),
+      ...(item.undone === undefined ? {} : { undone: { by: item.undone.by, at: item.undone.at } }),
     });
   }
 
@@ -513,6 +665,8 @@ export class TopicsCore {
     for (const item of topic.items) {
       const report = this.report(topic.id, item.id);
       if (report === null || (report.state !== 'to-review' && report.state !== 'changed-after-review')) continue;
+      // Under automatic merging a review is a mark, and nobody waits for it (DESIGN 0.7.0 D12).
+      if (this.mergingOf(item) === 'auto') continue;
       for (const reviewer of report.reviewers) add(reviewer.userId, 'reports', report.waitingSince);
     }
     return [...waits]
@@ -528,6 +682,7 @@ export class TopicsCore {
     if (!topic.plan.parsed) return null;
     const inPlan = topic.items.filter((item) => item.number > 0).sort((a, b) => a.number - b.number);
     const gone = topic.items.filter((item) => item.number === 0).slice(0, Math.max(0, PLAN_INFO_ITEMS_MAX - inPlan.length));
+    const cards = this.sessionsWithCards();
     return structuredClone({
       topicId: topic.id,
       revision: topic.plan.revision,
@@ -535,7 +690,7 @@ export class TopicsCore {
       planHash: topic.plan.hash,
       mode: topic.plan.mode,
       paused: topic.plan.paused,
-      items: [...inPlan, ...gone].map((item) => this.toWorkItem(topic, item)),
+      items: [...inPlan, ...gone].map((item) => this.toWorkItem(topic, item, cards)),
       ...(topic.plan.split === undefined ? {} : { split: topic.plan.split }),
       warnings: topic.plan.warnings,
       waitingFor: this.waitingFor(topic),

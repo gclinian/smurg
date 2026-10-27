@@ -71,6 +71,8 @@ export class FakeWorktreeManager implements WorktreeManager {
    * conflict nobody requested that is still in order is merged (`auto: true`).
    */
   readonly autoMergeSteps = new Map<string, FakeAutoMergeStep[]>();
+  /** The same per work item id, for the requests of every version of it (consulted after `autoMergeSteps`). */
+  readonly autoMergeItemSteps = new Map<string, FakeAutoMergeStep[]>();
   /** The merge parent `updateFromMain` recorded per worktree, until the worktree's next snapshot (`pendingMergeParent`). */
   readonly mergeParents = new Map<string, string>();
   /** The `main` queue of the real module (one merge at a time): `autoMerge` waits in it, behind `holdMain` and each other. */
@@ -196,7 +198,7 @@ export class FakeWorktreeManager implements WorktreeManager {
       const request = this.requests.get(input.requestId);
       if (request === undefined || request.itemId === undefined || !(request.status === 'draft' || (request.status === 'conflict' && request.requestedBy === undefined))) return { kind: 'gone' };
       if (!input.stillInOrder()) return { kind: 'gone' };
-      const step = this.autoMergeSteps.get(input.requestId)?.shift();
+      const step = this.autoMergeSteps.get(input.requestId)?.shift() ?? this.autoMergeItemSteps.get(request.itemId)?.shift();
       if (step?.kind === 'conflict') {
         const marked = this.putRequest({ ...request, status: 'conflict', conflictFiles: [...step.paths], decidedAt: this.env.clock.now() });
         return { kind: 'conflict', request: structuredClone(marked), paths: [...step.paths], people: structuredClone(step.people ?? []) };

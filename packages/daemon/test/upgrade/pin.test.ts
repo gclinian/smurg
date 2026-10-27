@@ -156,7 +156,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/messages/presence.ts': 'b072fa7f56d76819acf58811ff698efb3cf8c2dd87c80fee42a5f8938ec11c10',
   'schema/messages/sessions.ts': '2b5ff7a0bd5e1665a44d62389510e10f00e9750736d30f786db0f2399b88ae58',
   'schema/messages/suggestions.ts': 'db0a00d60c70ae8b4c92a228a7f1ef48e3b484bdb20b692e6056d9428a2cfd3c',
-  'schema/messages/topics.ts': 'b76510dd47294926d00d119894652bf32649874e18bb38ba7da19b5a73afc5f7',
+  'schema/messages/topics.ts': '0c632901b79d7ba908232ef23c800eed86f8026f043ff960dc973a654e444003',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
   'schema/messages/worktrees.ts': 'eaa11a57ec6ac2071cde8f50c96be484d6ce7be7f4554789556ba4d1350faac8',
   'schema/paths.ts': '0ee840e274f57501b9c49baa8e4f16150ce0a3a543ee17bf49e2730777a6f6ca',

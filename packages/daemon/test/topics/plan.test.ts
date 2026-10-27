@@ -1,17 +1,21 @@
 // The plan of a topic (design §3.7, §4.3, §4.4, §4.5): generating it, the agent's own check of its file, who is
 // responsible, the Start dialog. The REAL topics module in a test daemon; every other service is a fake.
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, SmurgError, planInfoSchema, startPreflightSchema, topicPlanPath, topicSpecPath } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
+import { serializeDocument } from '../../src/core/state-store.ts';
+import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir } from '../../src/testing/index.ts';
 import { countOpenQuestions } from '../../src/topics/plan-service.ts';
-import { checkPlan, createTopic, itemOf, lineIds, mcpContext, planText, settle, setupTopics, smurgSent, SPEC_TEXT, startPlan, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
+import { checkPlan, createTopic, itemOf, lineIds, mcpContext, planText, settle, setupTopics, smurgSent, SPEC_TEXT, startPlan, storedItem, storedTopic, topicWithPlan, waitFor, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
+const after: (() => Promise<void>)[] = [];
 afterEach(async () => {
   await test?.cleanup();
+  for (const job of after.splice(0)) await job();
 });
 
 async function refusal(promise: Promise<unknown>): Promise<SmurgError> {
@@ -573,7 +577,7 @@ describe('a topic\'s agent settings (topic.agent.set, plan.start `agent`)', () =
   });
 
   it('protocol 6: the Start dialog says how its items reach the main workspace: the workspace\'s setting, only the host on a detached HEAD, nothing without git (DESIGN 0.7.0 D3)', async () => {
-    test = await setupTopics();
+    test = await setupTopics({ settings: { merging: 'auto' } });
     const { topic } = await topicWithPlan(test, THREE);
     const preflight = async () => (await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight;
     expect((await preflight()).merging).toEqual({ workspace: 'auto', proposed: 'auto', detached: false });
@@ -619,5 +623,104 @@ describe('a topic\'s agent settings (topic.agent.set, plan.start `agent`)', () =
     // The items it started run in the topic's mode.
     const cart = test.fakes.agents.get(itemOf(test.plan(topic.id), 'cart-api').sessionId as string);
     expect(cart).toMatchObject({ purpose: 'item', permissionMode: 'ask-commands', modeChoice: null, model: null });
+  });
+});
+
+describe('DESIGN 0.7.0 D3: the consent: the workspace\'s setting, the Start\'s choice, the pin', () => {
+  const PLAN = [{ id: 'cart-api' }, { id: 'payment-form' }, { id: 'checkout-page' }];
+
+  it('a Start under automatic merging pins it with the branch it committed on; "The host merges each item" pins the host and is proposed next; under the host\'s setting every Start is the host\'s; the audit names both', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, PLAN);
+    await startPlan(test, topic.id, ['cart-api']);
+    expect((await storedItem(test, topic.id, 'cart-api')).pin).toMatchObject({ merging: 'auto', branch: 'main' });
+    expect((await storedTopic(test, topic.id)).plan.lastPin).toMatchObject({ merging: 'auto', branch: 'main' });
+    expect(itemOf(test.plan(topic.id), 'cart-api').merging).toBe('auto');
+    expect((await test.audit('plan.start'))[0]?.detail).toMatchObject({ itemIds: ['cart-api'], merging: 'auto', branch: 'main' });
+
+    // A member may choose the stricter flow for a Start: the host merges each of its items.
+    await startPlan(test, topic.id, ['payment-form'], test.mei, { merging: 'host' });
+    expect((await storedItem(test, topic.id, 'payment-form')).pin).toMatchObject({ merging: 'host', branch: 'main' });
+    expect(itemOf(test.plan(topic.id), 'payment-form').merging).toBe('host');
+    expect((await test.audit('plan.start'))[1]?.detail).toMatchObject({ merging: 'host', branch: 'main' });
+    // ...and the topic's next Start proposes it.
+    expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.merging).toEqual({ workspace: 'auto', proposed: 'host', detached: false });
+    // Nobody can ask for smurg's merge: the workspace's setting gives it.
+    const { preflight } = await test.mei.conn.request('plan.preflight', { topicId: topic.id });
+    expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, merging: 'auto' } as never))).toMatchObject({ code: 'bad_request' });
+
+    // While the host merges each item, every Start is the host's, whatever it sent.
+    await test.host.conn.request('admin.settings.set', { merging: 'host' });
+    await startPlan(test, topic.id, ['checkout-page']);
+    expect((await storedItem(test, topic.id, 'checkout-page')).pin).toMatchObject({ merging: 'host', branch: 'main' });
+  });
+
+  it('a Start on a detached HEAD is the host\'s: no branch to guard, so nothing merges by itself; a Start without git pins no merge at all', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, PLAN);
+    test.fakes.worktrees.main = { isRepo: true, hasCommit: true, gitOk: true, branch: null, busy: false, free: 64 };
+    expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.merging).toEqual({ workspace: 'auto', proposed: 'host', detached: true });
+    await startPlan(test, topic.id, ['cart-api']);
+    const pin = (await storedItem(test, topic.id, 'cart-api')).pin;
+    expect(pin).toMatchObject({ merging: 'host' });
+    expect(pin?.branch).toBeUndefined();
+    expect((await test.audit('plan.start'))[0]?.detail).toMatchObject({ merging: 'host' });
+    expect((await test.audit('plan.start'))[0]?.detail?.['branch']).toBeUndefined();
+
+    // Without a usable git program the items run in the folder itself: the host starts them, and there is no merge.
+    test.fakes.worktrees.main = { isRepo: false, hasCommit: false, gitOk: false, branch: null, busy: false, free: 64 };
+    const direct = (await test.host.conn.request('plan.preflight', { topicId: topic.id, itemIds: ['payment-form'] })).preflight;
+    expect(direct).toMatchObject({ history: 'direct', merging: null });
+    await test.host.conn.request('plan.start', { topicId: topic.id, itemIds: ['payment-form'], planRevision: direct.planRevision, specHash: direct.specHash, planHash: direct.planHash, direct: true });
+    const directPin = (await storedItem(test, topic.id, 'payment-form')).pin;
+    expect(directPin).toMatchObject({ history: 'direct', commit: null });
+    expect(directPin?.merging).toBeUndefined();
+    expect(itemOf(test.plan(topic.id), 'payment-form').merging).toBeUndefined();
+  });
+
+  it('turning the setting off is for good: every pin says the host (one audit entry), and turning it on again leaves them the host\'s; a later Start is smurg\'s again', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, PLAN);
+    await startPlan(test, topic.id, ['cart-api', 'payment-form']);
+    expect(test.plan(topic.id).items.filter((item) => item.merging === 'auto').map((item) => item.id)).toEqual(['cart-api', 'payment-form']);
+
+    await test.host.conn.request('admin.settings.set', { merging: 'host' });
+    await waitFor(() => itemOf(test.plan(topic.id), 'cart-api').merging === 'host', { what: 'the plan to say the host merges' });
+    for (const itemId of ['cart-api', 'payment-form']) expect((await storedItem(test, topic.id, itemId)).pin).toMatchObject({ merging: 'host' });
+    // The last Start's record only proposes: it says what that Start chose.
+    expect((await storedTopic(test, topic.id)).plan.lastPin).toMatchObject({ merging: 'auto' });
+    expect((await test.audit('plan.merging.host')).map((entry) => [entry.actor.kind, entry.detail])).toEqual([['system', { topics: 1, items: 2, cause: 'setting' }]]);
+
+    // On again: it applies to work items started from then on.
+    await test.host.conn.request('admin.settings.set', { merging: 'auto' });
+    await settle(test);
+    expect(itemOf(test.plan(topic.id), 'cart-api').merging).toBe('host');
+    await startPlan(test, topic.id, ['checkout-page']);
+    expect(itemOf(test.plan(topic.id), 'checkout-page').merging).toBe('auto');
+    expect(await test.audit('plan.merging.host')).toHaveLength(1);
+  });
+
+  it('a stop between the setting and the rewrite of the pins (two documents): the next start rewrites them', async () => {
+    const root = await createTempDir('d3-rewrite');
+    const stateDir = await createTempRunDir();
+    after.push(async () => {
+      await removeTempDir(root);
+      await removeTempRunDir(stateDir);
+    });
+    await writeFile(join(root, 'README.md'), '# project\n');
+    const workspaceId = 'ws_test_d3_rewrite_0001';
+    test = await setupTopics({ root, stateDir, workspaceId, settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, PLAN);
+    await startPlan(test, topic.id, ['cart-api']);
+    await test.cleanup();
+    // What a kill after state.json and before topics.json leaves: the setting says the host, the pin says smurg.
+    const statePath = join(stateDir, 'workspaces', workspaceId, 'state.json');
+    const state = JSON.parse(await readFile(statePath, 'utf8')) as { settings: { merging: string } };
+    await writeFile(statePath, serializeDocument({ ...state, settings: { ...state.settings, merging: 'host' } }), { mode: 0o600 });
+
+    test = await setupTopics({ root, stateDir, workspaceId });
+    expect((await storedItem(test, topic.id, 'cart-api')).pin).toMatchObject({ merging: 'host' });
+    expect(itemOf(test.plan(topic.id), 'cart-api').merging).toBe('host');
+    expect((await test.audit('plan.merging.host')).map((entry) => entry.detail)).toEqual([{ topics: 1, items: 1, cause: 'start' }]);
   });
 });

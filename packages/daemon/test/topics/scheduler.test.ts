@@ -9,6 +9,8 @@ import { msg } from '@smurg/protocol/i18n';
 import { buildMergeRequest, buildQuestion, recordActivity } from '../../src/core/fakes/index.ts';
 import type { AgentStartInput } from '../../src/core/interfaces.ts';
 import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir } from '../../src/testing/index.ts';
+import type { PlanServiceImpl } from '../../src/topics/plan-service.ts';
+import { TOPICS_DOCUMENT, initialTopicsDocument, topicsDocumentSchema } from '../../src/topics/store.ts';
 import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
@@ -953,5 +955,30 @@ describe("the models of a topic's sessions (DESIGN 0.6.0 D7)", () => {
     expect(restarted.session).toMatchObject({ purpose: 'discussion', model: null });
     expect(discussionStarts(test).at(-1)?.model).toBeNull();
     expect(discussionStarts(test).at(-1)?.modelChangedBy).toBeUndefined();
+  });
+});
+
+describe('DESIGN 0.7.0 D12: when an item is finished', () => {
+  it('merged and reviewed, as in 0.6.0, or merged and its topic\'s result checked: its session ends and its worktree goes; merged alone, both stay', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+    await startPlan(test, topic.id);
+    const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    merge(test, topic.id, 'a');
+    await waitFor(() => itemOf(test.plan(topic.id), 'a').merged !== undefined, { what: 'the merge' });
+    // Merged by the host here (a request of the fake); not reviewed, the topic not checked: the item is not finished.
+    expect(itemOf(test.plan(topic.id), 'a').merged).toMatchObject({ by: { userId: 'dev:host' } });
+    await settle(test);
+    expect(test.fakes.agents.get(sessionId)?.status).not.toBe('ended');
+    // "I've checked the result" (0.7.0 S4's request; its record is the topic's `checked`).
+    const doc = await test.t.ctx.state.document(TOPICS_DOCUMENT, topicsDocumentSchema, initialTopicsDocument);
+    doc.update((draft) => {
+      const stored = draft.topics.find((candidate) => candidate.id === topic.id);
+      if (stored !== undefined) stored.checked = { by: { userId: 'dev:mei', displayName: 'Mei' }, at: 1 };
+    });
+    await (test.t.ctx.services.plans as PlanServiceImpl).settle();
+    await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the item to finish' });
+    expect(test.fakes.agents.get(sessionId)?.endReason).toBe('merged');
+    expect(test.fakes.worktrees.log.of('releaseItem')).toHaveLength(1);
   });
 });

@@ -345,7 +345,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       // The shortest waiting time a host can set: a question nobody answers reaches the others after one minute.
       // People who typed in a file keep it for ten minutes: only "Let the agent go first" hands it over in this story.
       // The workspace's permission mode is the default, auto mode (0.6.0): the topic's items are set to ask at Start.
-      settings: { escalateAfterMs: 60_000, humanLockIdleMs: 600_000 },
+      // The host merges each item, as in 0.6.0, until 0.7.0's S7 tells both flows (DESIGN 0.7.0 D22).
+      settings: { escalateAfterMs: 60_000, humanLockIdleMs: 600_000, merging: 'host' },
     });
     startedAt = Date.now();
     ian = await env.newPage({ width: 1440, height: 900 });

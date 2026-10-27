@@ -288,8 +288,10 @@ describe('T topics flow: one topic through the real relay, five SDK clients and 
       claude: scenario(CART_GOES_ON),
       // How many work items may hold an agent process at once defaults from the machine's memory (2 on a small one):
       // fixed, so the same sessions run on every machine. The workspace asks before commands, as every 0.5.x workspace
-      // did: the story is about the cards people answer (0.6.0 on purpose: the default is auto mode now, DESIGN D8).
-      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands' },
+      // did: the story is about the cards people answer (0.6.0 on purpose: the default is auto mode now, DESIGN D8). And
+      // the host reads each item and merges it, as in 0.6.0 (0.7.0 on purpose: the default is automatic merging now,
+      // DESIGN 0.7.0 D3; the daemon's release-flow.unattended.test.ts tells the other story).
+      settings: { maxLiveAgents: 8, permissionMode: 'ask-commands', merging: 'host' },
     });
     startedAt = Date.now();
     ian = member(stack.hostClient, 'Ian', 'host');

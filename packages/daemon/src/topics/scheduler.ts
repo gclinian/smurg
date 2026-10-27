@@ -16,6 +16,12 @@
 // request, and finishes an item that is merged and reviewed (its session ends, its worktree goes): never while the
 // item's worktree holds something the main workspace does not have.
 //
+// 0.7.0 (DESIGN D8, D12): `onMerge` is the one writer of who merged an item (`mergedAs`: smurg, or the host), also for
+// a merge a restart found; an item is finished when it is merged and reviewed OR its topic's result was checked, so an
+// item smurg merged keeps its session and its clean worktree until then (a follow-up from its report still reaches the
+// agent that did the work, and a change it makes merges like the first one). An item's agent is told at its start
+// whether smurg may merge its work by itself.
+//
 // 0.6.0 (DESIGN D14, D15): an item starts only in the history its Start used (its pin's `history`): a worktree of the
 // folder's own `.git`, a worktree of smurg's own history, or, only when that Start said so (`direct`), directly in the
 // shared folder. When that history cannot be used now (git missing or unusable, the folder's `.git` gone or changed,
@@ -266,7 +272,8 @@ export class Scheduler {
         modeChoice: null,
         model: model.model,
         ...(model.by === undefined ? {} : { modelChangedBy: model.by }),
-        rolePrompt: ({ smurgTag, branch }) => executionRolePrompt({ slug: topic.slug, itemId: item.id, smurgTag, branch: branch ?? handle.worktree.branch }),
+        // (DESIGN 0.7.0 D17: the item's policy when its session starts; a later change of the setting does not rewrite it)
+        rolePrompt: ({ smurgTag, branch }) => executionRolePrompt({ slug: topic.slug, itemId: item.id, smurgTag, branch: branch ?? handle.worktree.branch, merging: this.core.mergingOf(item) === 'auto' ? 'auto' : 'host' }),
         opening: retry ? msg('conversation.retry', { name: item.startedBy?.displayName ?? '', attempt }) : msg('conversation.started.item', { number: item.number, branch: handle.worktree.branch }),
         firstMessage: retry
           ? { kind: 'smurg', purpose: 'retry-item', text: retryItemMessage(), ...(item.startedBy === undefined ? {} : { by: item.startedBy }) }
@@ -551,13 +558,24 @@ export class Scheduler {
    */
   onMerge(request: MergeRequest): void {
     if (!this.core.started || request.topicId === undefined || request.itemId === undefined) return;
+    this.core.noteRequest(request);
     const topic = this.core.topic(request.topicId);
     const item = topic === null ? null : this.core.item(topic, request.itemId);
     if (topic === null || item === null) return;
     const tracked = item.merge === undefined || item.merge.requestId === request.id || request.status === 'draft' || request.status === 'pending';
+    // Who merged it (DESIGN 0.7.0 D8, R-ENG E3): smurg on the host's standing consent, or the host; written here only,
+    // so a merge `reconcile` finds after a crash is recorded the same way. (The merge commit is worktrees.json's, which
+    // the wire's request does not carry: the merge queue adds it when its own merge says it, auto-merge.ts `apply`.)
+    const hostRef = this.ctx.members.userRef(this.ctx.members.hostUserId()) ?? request.requestedBy ?? null;
+    const by = request.auto === true ? ('smurg' as const) : hostRef;
     this.core.updateItem(topic.id, item.id, (draft) => {
       if (tracked) draft.merge = { requestId: request.id, status: request.status, ready: request.status === 'draft' && request.reviewed };
-      if (request.status === 'merged') draft.merged = true;
+      if (request.status === 'merged') {
+        draft.merged = true;
+        if (by !== null && (draft.mergedAs === undefined || draft.mergedAs.requestId !== request.id)) {
+          draft.mergedAs = { requestId: request.id, at: request.decidedAt ?? this.ctx.clock.now(), by: by === 'smurg' ? by : { userId: by.userId, displayName: by.displayName } };
+        }
+      }
     });
     this.core.publish(topic.id);
     if (request.status === 'merged') {
@@ -569,12 +587,13 @@ export class Scheduler {
   }
 
   /**
-   * Merged and reviewed: the item is finished. Its session ends (`merged`), its worktree goes; conversation and report
-   * stay. Removing the worktree deletes whatever it holds, so the item is finished only when the main workspace has
-   * all of it: the item's CURRENT request is the merged one (a follow-up after a merge makes a new draft, and an older
-   * request that is merged later says nothing about it), and the tree holds nothing no merge carried (a version whose
-   * snapshot was refused, edits made after the report). Until then everything stays as it is and `finishPending`
-   * asks again. One at a time per item: two callers never end the same session twice.
+   * Merged and reviewed, or merged and its topic's result checked (DESIGN 0.7.0 D12): the item is finished. Its session
+   * ends (`merged`), its worktree goes; conversation and report stay. Removing the worktree deletes whatever it holds,
+   * so the item is finished only when the main workspace has all of it: the item's CURRENT request is the merged one (a
+   * follow-up after a merge makes a new draft, and an older request that is merged later says nothing about it), and
+   * the tree holds nothing no merge carried (a version whose snapshot was refused, edits made after the report). Until
+   * then everything stays as it is and `finishPending` asks again. One at a time per item: two callers never end the
+   * same session twice.
    */
   finishIfDone(topicId: string, itemId: string): Promise<void> {
     return this.core.serialize(`finish:${topicId}:${itemId}`, () => this.finish(topicId, itemId));
@@ -583,14 +602,16 @@ export class Scheduler {
   private async finish(topicId: string, itemId: string): Promise<void> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
-    if (topic === null || item === null || topic.archived || !item.merged || this.reports?.isReviewed(topicId, itemId) !== true) return;
+    const reviewed = this.reports?.isReviewed(topicId, itemId) === true;
+    if (topic === null || item === null || topic.archived || !item.merged || !(reviewed || topic.checked !== undefined)) return;
     const agents = this.ctx.services.agents;
     if (item.direct === true) {
-      // It ran in the folder itself: nothing waits for a merge. Reviewed, it is complete and its session ends.
+      // It ran in the folder itself: nothing waits for a merge. Reviewed (or its topic checked), it is complete and its
+      // session ends.
       if (item.sessionId !== undefined && !isStubService(agents)) {
         const session = agents.get(item.sessionId);
         if (session !== null && session.status !== 'ended') {
-          agents.append(item.sessionId, lineEvent(msg('conversation.ended.reviewed')));
+          agents.append(item.sessionId, lineEvent(msg(reviewed ? 'conversation.ended.reviewed' : 'conversation.ended.checked')));
           await agents.end(item.sessionId, { by: SYSTEM_ACTOR, reason: 'reviewed', keepWorktree: true });
         }
       }
@@ -676,6 +697,8 @@ export class Scheduler {
       } catch (err) {
         this.ctx.log.warn('merge requests not read at the start', { error: err instanceof Error ? err.name : 'unknown' });
       }
+      // What the merge queue knows of each request (who asked for it) starts from what the worktree module has.
+      for (const request of requests) this.core.noteRequest(request);
       const ofItem = (topicId: string, itemId: string): MergeRequest[] => requests.filter((request) => request.topicId === topicId && request.itemId === itemId).sort((a, b) => b.createdAt - a.createdAt);
       for (const listed of this.core.topics()) {
         if (listed.archived) continue;

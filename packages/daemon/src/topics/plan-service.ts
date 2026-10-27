@@ -4,6 +4,11 @@
 // MCP tools `check_plan` / `propose_split`), who is responsible, the Start dialog (`plan.preflight`) and Start with
 // its pins, "Show the changes", "Continue all", and the three things a person can do to one item (try again,
 // continue, resolve a conflict). The scheduler (scheduler.ts) starts what a Start armed.
+//
+// 0.7.0 (DESIGN D3): a Start records in each pin how its items reach the main workspace (`merging`: smurg merges an
+// item that is in order while the workspace's setting says so too, or the host merges each) and, with the folder's
+// own git, the branch it committed on (smurg merges only into it). A member may choose the host's merge for a Start;
+// nobody can choose smurg's while the workspace says the host merges; a Start on a detached HEAD is the host's.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -14,6 +19,7 @@ import {
   PREFLIGHT_EDITING_NOW_MAX,
   SPLIT_REASON_MAX_CHARS,
   SmurgError,
+  shortBranchSchema,
   agentDisplayName,
   agentSafeName,
   can,
@@ -45,7 +51,8 @@ import { SYSTEM_PRINCIPAL, isHostPrincipal } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
 import { requireModelOffered } from '../sessions/model-offered.ts';
-import { applyTopicAgent, isStarted, userRefOf, type TopicsCore } from './core.ts';
+import type { AutoMerger } from './auto-merge.ts';
+import { applyTopicAgent, isStarted, itemKey, userRefOf, type TopicsCore } from './core.ts';
 import type { PlanParse } from './plan-format.ts';
 import { fixFileMessage, generatePlanMessage, resolveConflictMessage, updatePlanMessage } from './prompts.ts';
 import type { Scheduler, SchedulerReports } from './scheduler.ts';
@@ -100,6 +107,7 @@ export class PlanServiceImpl implements PlanService {
   private readonly topics: TopicServiceImpl;
   private readonly scheduler: Scheduler;
   private reports: SchedulerReports | null = null;
+  private merger: AutoMerger | null = null;
   /** What `prepareCheck` read for a discussion session's next `check_plan` (the contract's method is synchronous). */
   private readonly prepared = new Map<string, PlanParse | null>();
 
@@ -114,6 +122,11 @@ export class PlanServiceImpl implements PlanService {
     this.reports = reports;
   }
 
+  /** The merge queue (DESIGN 0.7.0 D8): a Start and "Continue all" give it work. */
+  attachMerger(merger: AutoMerger): void {
+    this.merger = merger;
+  }
+
   /**
    * Resolves when what this module does in the background has come to rest: the reading of a topic's files and the
    * end of a turn that are under way, one whole scheduler pass, and the finishing of merged and reviewed items. The
@@ -122,6 +135,7 @@ export class PlanServiceImpl implements PlanService {
   async settle(): Promise<void> {
     await this.core.idle();
     await this.scheduler.runNow();
+    await this.merger?.runNow();
     await this.scheduler.finishPending();
     await this.core.idle();
   }
@@ -588,10 +602,24 @@ export class PlanServiceImpl implements PlanService {
 
       const now = this.ctx.clock.now();
       const pinned = { by: caller, at: now, planRevision: input.planRevision, specHash: input.specHash, planHash: input.planHash };
+      // How its items are merged (DESIGN 0.7.0 D3): smurg's merge only while the workspace says so, the Start did not
+      // ask for the host's, and (the folder's own git) the checkpoint is on a branch, which the pin records: smurg
+      // merges only into it. A detached HEAD (the checkpoint's branch reads `HEAD`) has no branch to guard: the host's.
+      const branch = checkpoint !== null && checkpoint.history === 'folder' && main?.branch !== null && checkpoint.branch !== 'HEAD' && shortBranchSchema.safeParse(checkpoint.branch).success ? checkpoint.branch : null;
+      const merging: 'auto' | 'host' | null =
+        checkpoint === null ? null : this.ctx.settings.get().merging === 'auto' && input.merging !== 'host' && (checkpoint.history === 'smurg' || branch !== null) ? 'auto' : 'host';
       const pin: Pin =
         checkpoint === null
           ? { ...pinned, commit: null, specBlob: null, planBlob: null, history: 'direct' }
-          : { ...pinned, commit: checkpoint.commit, specBlob: checkpoint.specBlob, planBlob: checkpoint.planBlob, ...(checkpoint.history === 'smurg' ? { history: 'smurg' as const } : {}) };
+          : {
+              ...pinned,
+              commit: checkpoint.commit,
+              specBlob: checkpoint.specBlob,
+              planBlob: checkpoint.planBlob,
+              ...(checkpoint.history === 'smurg' ? { history: 'smurg' as const } : {}),
+              ...(merging === null ? {} : { merging }),
+              ...(branch === null ? {} : { branch }),
+            };
       const armed = new Set(targets.map((item) => item.id));
       modeBefore = topic.agent?.permissionMode ?? null;
       // The topic's agent settings the dialog showed change in the SAME update that arms the items, after the
@@ -613,8 +641,16 @@ export class PlanServiceImpl implements PlanService {
           item.since = now;
           delete item.disarmed;
           delete item.startError;
+          // A Start again begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8).
+          delete item.autoMerge;
+          delete item.mergeTries;
+          delete item.lastTurn;
         }
       });
+      for (const itemId of armed) {
+        this.core.refused.delete(itemKey(topic.id, itemId));
+        this.merger?.forget(topic.id, itemId);
+      }
       this.ctx.audit.record({
         actor: principal.actor,
         action: 'plan.start',
@@ -629,6 +665,8 @@ export class PlanServiceImpl implements PlanService {
           commit: checkpoint?.commit ?? null,
           committed: checkpoint?.created ?? false,
           history: pin.history ?? 'folder',
+          ...(pin.merging === undefined ? {} : { merging: pin.merging }),
+          ...(pin.branch === undefined ? {} : { branch: pin.branch }),
           ...(input.agent === undefined ? {} : { agent: input.agent }),
         },
       });
@@ -678,6 +716,9 @@ export class PlanServiceImpl implements PlanService {
     }
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.resume', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemIds: continued } });
     this.core.publish(topic.id);
+    // Items whose agent was bringing their work up to date when smurg stopped go on too (DESIGN 0.7.0 D8).
+    await this.merger?.takeUp(topic.id);
+    this.merger?.request();
     await this.scheduler.runNow();
     return this.needPlan(topic.id);
   }
@@ -719,7 +760,12 @@ export class PlanServiceImpl implements PlanService {
         delete draft.stalledBy;
         delete draft.disarmed;
         delete draft.startError;
+        // "Try again" begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8).
+        delete draft.autoMerge;
+        delete draft.mergeTries;
+        delete draft.lastTurn;
       });
+      this.merger?.forget(topic.id, item.id);
     } else throw new SmurgError('conflict', msg('plan.item.notRetryable'), { reason: 'not-retryable' });
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.retry', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, was: item.state, attempt: item.attempt } });
     this.core.publish(topic.id);
@@ -747,11 +793,15 @@ export class PlanServiceImpl implements PlanService {
     if (item.merge?.status !== 'conflict') throw new SmurgError('conflict', msg('plan.item.noConflict'), { reason: 'no-conflict' });
     const sessionId = this.liveSession(item);
     if (sessionId === null || item.worktreeId === undefined) throw new SmurgError('conflict', msg('plan.item.noSession'), { reason: 'no-session' });
+    // A person's resolve is not counted as one of smurg's tries (DESIGN 0.7.0 D8). When the other side of the conflict
+    // is a person's change (the item is held for it), the message says which files hold it and that it stays (D17).
+    const record = item.autoMerge;
+    const peopleChanged = record?.state === 'held' && record.reason === 'conflict' ? (record.people ?? []).map((change) => change.path) : [];
     const result = await this.ctx.services.worktrees.updateFromMain(item.worktreeId);
     const agents = this.ctx.services.agents;
     agents.append(sessionId, lineEvent(msg('conversation.resolveRequested', { name: by.displayName })));
     agents.append(sessionId, lineEvent(msg('conversation.conflict.merged', { count: result.conflicted.length })));
-    const sent = await agents.send(sessionId, { kind: 'smurg', purpose: 'resolve-conflict', text: resolveConflictMessage({ conflicted: result.conflicted }), by });
+    const sent = await agents.send(sessionId, { kind: 'smurg', purpose: 'resolve-conflict', text: resolveConflictMessage({ conflicted: result.conflicted, mergedBefore: this.core.mergedBefore(topic, item), peopleChanged }), by });
     this.core.updateItem(topic.id, item.id, (draft) => {
       draft.nudged = false;
       delete draft.fix;

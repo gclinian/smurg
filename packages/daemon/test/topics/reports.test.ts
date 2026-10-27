@@ -6,7 +6,7 @@ import { SmurgError, reportInfoSchema, type ReportSummary } from '@smurg/protoco
 import { msg } from '@smurg/protocol/i18n';
 import { buildMergeRequest } from '../../src/core/fakes/index.ts';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
-import { checkReport, handInReport, itemOf, lineIds, reportText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
+import { checkReport, handInReport, itemOf, lineIds, reportText, settle, setupTopics, smurgSent, startPlan, storedItem, storedReport, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 afterEach(async () => {
@@ -648,5 +648,73 @@ describe('a report nobody reviews', () => {
     expect(reviewed).toMatchObject({ state: 'reviewed', review: { by: { userId: 'dev:mei' }, insteadOf: { userId: 'dev:amy', displayName: 'Amy' } } });
     expect(reviewed.escalatedAt).toBeUndefined();
     expect((await test.audit('report.review'))[0]).toMatchObject({ detail: { insteadOf: 'dev:amy' } });
+  });
+});
+
+describe('DESIGN 0.7.0 D6: what the end of a turn records for smurg\'s merge (for every item)', () => {
+  it('the turns are counted when their end arrives; check_report stamps the turn it answered in; a version checked in its own turn says so; a later turn that checks it again and changes nothing confirms it', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    const sessionId = run.session('a');
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'the report' });
+    let stored = await storedItem(test, run.topicId, 'a');
+    expect(stored.turns).toBe(1);
+    expect(stored.checked).toMatchObject([{ sessionId, turn: 1 }]);
+    expect((await storedReport(test, run.topicId, 'a'))?.checkedInTurn).toBe(true);
+    // (not on the wire)
+    expect((await test.mei.conn.request('report.get', { topicId: run.topicId, itemId: 'a' })).report).not.toHaveProperty('checkedInTurn');
+    test.fakes.agents.say(sessionId, 'Anything else?');
+    test.fakes.agents.finishTurn(sessionId);
+    await settle(test);
+    stored = await storedItem(test, run.topicId, 'a');
+    expect(stored.turns).toBe(2);
+    expect(stored.lastTurn).toBeUndefined();
+    expect(stored.changesAsked).toBeUndefined();
+  });
+
+  it('a version registered from a check of an earlier turn is not checked in its own; a turn that checks it again and edits nothing makes it so', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    const sessionId = run.session('a');
+    await writeReport(test, run.slug, 'a', run.worktree('a'), reportText('a'));
+    expect((await checkReport(test, sessionId)).ok).toBe(true);
+    test.fakes.agents.finishTurn(sessionId, { outcome: 'interrupted' });
+    await waitFor(() => state(run.topicId, 'a') === 'stalled', { what: 'the stopped turn' });
+    await test.mei.conn.request('plan.item.continue', { topicId: run.topicId, itemId: 'a' });
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'the version' });
+    expect((await storedReport(test, run.topicId, 'a'))?.checkedInTurn).toBeUndefined();
+    expect((await checkReport(test, sessionId)).ok).toBe(true);
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(async () => (await storedReport(test, run.topicId, 'a'))?.checkedInTurn === true, { what: 'the confirming turn' });
+    expect((await storedReport(test, run.topicId, 'a'))?.version).toBe(1);
+  });
+
+  it('a later turn that did not finish is the item\'s `lastTurn` until a turn completes; a completed turn that carried a person\'s message and made no version is `changesAsked`', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    const sessionId = run.session('a');
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'the report' });
+    test.fakes.agents.startTurn(sessionId);
+    test.fakes.agents.finishTurn(sessionId, { outcome: 'interrupted', stoppedBy: { userId: 'dev:mei', displayName: 'Mei' } });
+    await waitFor(async () => (await storedItem(test, run.topicId, 'a')).lastTurn?.outcome === 'interrupted', { what: 'lastTurn' });
+    // (a turn after a version that did not finish does not stall the item: it is done, with its version)
+    expect(state(run.topicId, 'a')).toBe('done');
+    test.fakes.agents.startTurn(sessionId);
+    test.fakes.agents.finishTurn(sessionId, { outcome: 'error' });
+    await waitFor(async () => (await storedItem(test, run.topicId, 'a')).lastTurn?.outcome === 'error', { what: 'lastTurn error' });
+    await test.fakes.agents.send(sessionId, { kind: 'person', from: test.principals.mei, text: 'Is the rounding right?', cleaned: false, origin: 'composer' });
+    test.fakes.agents.finishTurn(sessionId, { finalText: 'Yes.' });
+    await waitFor(async () => (await storedItem(test, run.topicId, 'a')).changesAsked !== undefined, { what: 'changesAsked' });
+    const stored = await storedItem(test, run.topicId, 'a');
+    expect(stored.changesAsked).toMatchObject({ by: { userId: 'dev:mei', displayName: 'Mei' } });
+    expect(stored.lastTurn).toBeUndefined();
+    expect(itemOf(test.plan(run.topicId), 'a').changesAsked).toMatchObject({ by: { userId: 'dev:mei' } });
+    // A new version ends both.
+    await handInReport(test, run.slug, 'a', { text: reportText('a', { done: 'Rounded.' }) });
+    await waitFor(() => itemOf(test.plan(run.topicId), 'a').report?.version === 2, { what: 'version 2' });
+    expect((await storedItem(test, run.topicId, 'a')).changesAsked).toBeUndefined();
   });
 });

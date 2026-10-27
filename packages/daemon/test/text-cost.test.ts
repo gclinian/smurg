@@ -680,7 +680,10 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'sessions/agent/transcript.ts': 2,
   'sessions/session-manager.ts': 2,
   'suggest/suggestion-service.ts': 3,
-  'topics/core.ts': 3,
+  // (0.7.0: the merge queue's candidates by the time their report was registered, the topic's creation and the item's
+  // number; the items merged before one, by when they were merged and their number: numbers, at most 40 per plan)
+  'topics/auto-merge.ts': 1,
+  'topics/core.ts': 4,
   'topics/plan-format.ts': 2,
   'topics/plan-service.ts': 3,
   'topics/report-format.ts': 1,
