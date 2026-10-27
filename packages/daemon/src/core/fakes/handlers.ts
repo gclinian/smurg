@@ -251,6 +251,7 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
     stack.add(router.handle('topic.rule.add', async (payload, req) => ({ topic: await s.topics.addRule(payload, req.principal) })));
     stack.add(router.handle('topic.rule.remove', async (payload, req) => ({ topic: await s.topics.removeRule(payload, req.principal) })));
     stack.add(router.handle('topic.agent.set', async (payload, req) => ({ topic: await s.topics.setAgent(payload, req.principal) })));
+    stack.add(router.handle('topic.check', async (payload, req) => ({ topic: await s.topics.check(payload, req.principal) })));
     // d→c `topic.updated` / `topic.removed`, to everyone.
     stack.add(ctx.bus.on('topic.changed', (event) => void ctx.hub.broadcast('topic.updated', { topic: event.topic })));
     stack.add(ctx.bus.on('topic.removed', (event) => void ctx.hub.broadcast('topic.removed', { topicId: event.topicId })));
@@ -281,6 +282,15 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
     stack.add(
       router.handle('plan.item.resolve', async (payload, req) => {
         await s.plans.resolveItem(payload, req.principal);
+        return {};
+      }),
+    );
+    stack.add(router.handle('plan.item.leaveOut', async (payload, req) => ({ plan: await s.plans.leaveOut(payload, req.principal) })));
+    stack.add(router.handle('plan.item.accept', async (payload, req) => ({ plan: await s.plans.accept(payload, req.principal) })));
+    stack.add(router.handle('plan.item.release', async (payload, req) => ({ plan: await s.plans.release(payload, req.principal) })));
+    stack.add(
+      router.handle('plan.item.removePaths', async (payload, req) => {
+        await s.plans.removePaths(payload, req.principal);
         return {};
       }),
     );

@@ -2,7 +2,7 @@
 // them (the first that applies decides), and what the wire shows of each (`WorkItem.autoMerge`).
 import { describe, expect, it } from 'vitest';
 import { autoMergeInfoSchema, HOST_HOLDS } from '@smurg/protocol';
-import { AUTO_MERGE_TRIES, autoContinueDue, autoMergeInfoOf, autoMergeVerdict, withinTextBudget, type AutoMergeVerdict, type AutoMergeVerdictInput } from '../../src/topics/auto-merge-verdict.ts';
+import { AUTO_MERGE_TRIES, autoContinueDue, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, directVerdict, withinTextBudget, type AutoMergeVerdict, type AutoMergeVerdictInput } from '../../src/topics/auto-merge-verdict.ts';
 import { mergingOf } from '../../src/topics/core.ts';
 import type { Pin, StoredAutoMerge } from '../../src/topics/store.ts';
 
@@ -174,5 +174,24 @@ describe('DESIGN 0.7.0 D9: what the wire shows (`WorkItem.autoMerge`)', () => {
     expect(autoMergeInfoSchema.safeParse(info).success).toBe(true);
     expect(info?.paths).toHaveLength(2);
     expect(info?.people?.length).toBeLessThan(5);
+  });
+});
+
+describe('DESIGN 0.7.0 D10: an item that ran directly in the folder counts as merged only when its report is complete and verified', () => {
+  const report = (overrides: Partial<Parameters<typeof directVerdict>[0]> = {}): Parameters<typeof directVerdict>[0] => ({ outcome: 'complete', checks: { passed: 1 }, checkedInTurn: true, ...overrides });
+  const ROWS: readonly { readonly name: string; readonly report: Parameters<typeof directVerdict>[0]; readonly verdict: ReturnType<typeof directVerdict> }[] = [
+    { name: 'complete, a check passed, none failed, checked in its turn: merged', report: report(), verdict: { kind: 'merged' } },
+    { name: 'partial (before anything else)', report: report({ outcome: 'partial', checks: { passed: 0, failed: 1 }, checkedInTurn: false }), verdict: { kind: 'hold', reason: 'partial' } },
+    { name: 'blocked', report: report({ outcome: 'blocked' }), verdict: { kind: 'hold', reason: 'blocked' } },
+    { name: 'a check failed', report: report({ checks: { passed: 2, failed: 1 } }), verdict: { kind: 'hold', reason: 'check-failed' } },
+    { name: 'no check passed', report: report({ checks: { passed: 0 } }), verdict: { kind: 'hold', reason: 'not-verified' } },
+    { name: 'not checked in the turn that made it: its agent is asked once', report: report({ checkedInTurn: false }), verdict: { kind: 'verify' } },
+  ];
+  for (const row of ROWS) it(row.name, () => expect(directVerdict(row.report)).toEqual(row.verdict));
+
+  it('what it is held for is its record on the wire, as it is stored', () => {
+    const info = autoMergeInfoOfRecord(record('held', 'not-verified', { escalatedAt: 2_000 }), { tries: 0 });
+    expect(info).toEqual({ state: 'held', reason: 'not-verified', since: 1_000, tries: 0, hostOnly: false, escalated: true });
+    expect(autoMergeInfoSchema.safeParse(info).success).toBe(true);
   });
 });

@@ -230,7 +230,8 @@ export class Scheduler {
   private async startItem(topicId: string, itemId: string): Promise<void> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
-    if (topic === null || item === null || !item.armed) return;
+    // (an item a person is leaving out right now is not started: DESIGN 0.7.0 D11)
+    if (topic === null || item === null || !item.armed || item.leftOut !== undefined) return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     // The session is opened as the member who pressed Start (or "Try again"): they must still be allowed to.

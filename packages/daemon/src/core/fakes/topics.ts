@@ -169,6 +169,14 @@ export class FakeTopicService implements TopicService {
     return { topic: this.put({ ...topic, discussionSessionId: session.id, discussion: 'live' }), session };
   }
 
+  /** "I've checked the result": only a topic the test put as ready to check (as the real one, `topic.check.notReady` otherwise). */
+  async check(input: Req<'topic.check'>, principal: Principal): Promise<Topic> {
+    this.log.record('check', input, principal);
+    const topic = this.need(input.topicId);
+    if (topic.phase !== 'ready') throw new SmurgError('conflict', msg('topic.check.notReady'), { reason: 'not-ready' });
+    return this.put({ ...topic, phase: 'complete', checked: { by: userRef(principal), at: this.env.clock.now() } });
+  }
+
   async revise(input: Req<'topic.revise'>, principal: Principal): Promise<{ readonly messageId: string } | { readonly suggestion: Suggestion }> {
     this.log.record('revise', input, principal);
     const topic = this.need(input.topicId);
@@ -395,6 +403,26 @@ export class FakePlanService implements PlanService {
 
   async resolveItem(input: Req<'plan.item.resolve'>, principal: Principal): Promise<void> {
     this.log.record('resolveItem', input, principal);
+  }
+
+  /** "Leave it out": the item (only; the real one also leaves out what depends on it) says it is left out. */
+  async leaveOut(input: Req<'plan.item.leaveOut'>, principal: Principal): Promise<PlanInfo> {
+    this.log.record('leaveOut', input, principal);
+    return this.patchItem(input.topicId, input.itemId, { leftOut: { by: userRef(principal), at: this.env.clock.now() } });
+  }
+
+  async accept(input: Req<'plan.item.accept'>, principal: Principal): Promise<PlanInfo> {
+    this.log.record('accept', input, principal);
+    return this.need(input.topicId);
+  }
+
+  async release(input: Req<'plan.item.release'>, principal: Principal): Promise<PlanInfo> {
+    this.log.record('release', input, principal);
+    return this.need(input.topicId);
+  }
+
+  async removePaths(input: Req<'plan.item.removePaths'>, principal: Principal): Promise<void> {
+    this.log.record('removePaths', input, principal);
   }
 
   checkPlan(ctx: McpToolContext): ReturnType<PlanService['checkPlan']> {

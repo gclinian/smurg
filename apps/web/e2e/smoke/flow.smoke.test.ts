@@ -1347,12 +1347,11 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await showOnly(mei, [`plan:${topicId}`, `session:${receiptId}`]);
     await inbox(mei, 'report').filter({ hasText: '結果報告：3 · Receipt email' }).locator('.inbox-item__main').click();
     await dismissToasts(mei);
-    // With this review every report has been reviewed: the topic is complete for the first time, and everyone is told.
-    const told = people.map(({ page }) => toast(page, page === mei ? `${TOPIC}：所有項目都看過了，主題已完成。` : `${TOPIC}: every item is reviewed. The topic is complete.`));
+    // With this review every report has been reviewed, and item 3 is not merged yet: the topic still waits for the host's
+    // merge (0.7.0, DESIGN D13, on purpose: 0.6.0 called it complete here and told everyone).
     await reportOf(mei, 'receipt-email').getByRole('button', { name: '我已看過' }).click();
-    await Promise.all(told);
-    for (const { page } of people) await dismissToasts(page);
     await inbox(ian, 'merge').filter({ hasText: 'Reviewed, ready to merge: 3 · Receipt email' }).waitFor({ timeout: STEP_MS });
+    for (const page of [ian, amy, leo]) await phase(page).getByText('Executing', { exact: true }).waitFor({ timeout: STEP_MS });
 
     // Ian's merge stops on the conflict: nothing reached the main workspace, and every page says where it stands.
     const { report: conflicted, review } = await mergeFromInbox('receipt-email', '3 · Receipt email', { conflict: true });
@@ -1404,29 +1403,31 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await shots('conflict-resolved-by-the-agent');
   }, 300_000);
 
-  it('all reviewed: the topic is complete', async () => {
-    const told = people.map(({ page }) => toast(page, page === mei ? `${TOPIC}：所有項目都看過了，主題已完成。` : `${TOPIC}: every item is reviewed. The topic is complete.`));
+  it('all reviewed and merged: the topic is complete', async () => {
     await reportOf(mei, 'receipt-email').getByText('The title names both now.', { exact: false }).waitFor({ timeout: STEP_MS });
     await dismissToasts(mei);
     await reportOf(mei, 'receipt-email').getByRole('button', { name: '我已看過' }).click();
+    // Every report is reviewed; the last change waits for the host's merge (0.7.0, DESIGN D13, on purpose: the topic is
+    // complete once every item is merged and reviewed, not before).
+    for (const page of [ian, amy, leo]) {
+      await plan(page).getByText('3 of 3 reviewed').waitFor({ timeout: STEP_MS });
+      await phase(page).getByText('Executing', { exact: true }).waitFor({ timeout: STEP_MS });
+    }
+
+    // The last change merges cleanly now: the title names both, the topic is complete and everyone is told.
+    const told = people.map(({ page }) => toast(page, page === mei ? `${TOPIC}：所有項目都看過了，主題已完成。` : `${TOPIC}: every item is reviewed. The topic is complete.`));
+    await mergeFromInbox('receipt-email', '3 · Receipt email');
+    await waitUntil(async () => (await fileText('src/app.ts')) === APP_RESOLVED, STEP_MS, 'the resolved change in the main workspace');
     await Promise.all(told);
+    await closeReport('receipt-email');
     for (const page of [ian, amy, leo]) {
       await phase(page).getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });
       await plan(page).getByText('Topic complete').waitFor({ timeout: STEP_MS });
-      await plan(page).getByText("Every result report has been reviewed. Not merged yet: 3 · Receipt email (in the host's inbox).").waitFor({ timeout: STEP_MS });
-      await plan(page).getByText('3 of 3 reviewed').waitFor({ timeout: STEP_MS });
-    }
-    await shots('topic-complete');
-    for (const { page } of people) await dismissToasts(page);
-
-    // The last change merges cleanly now: the title names both.
-    await mergeFromInbox('receipt-email', '3 · Receipt email');
-    await waitUntil(async () => (await fileText('src/app.ts')) === APP_RESOLVED, STEP_MS, 'the resolved change in the main workspace');
-    await closeReport('receipt-email');
-    for (const page of [ian, amy, leo]) {
       await plan(page).getByText('Every result report has been reviewed.', { exact: true }).waitFor({ timeout: STEP_MS });
       for (const id of ['cart-api', 'checkout-page', 'receipt-email']) await item(page, id).getByText('Reviewed · merged').waitFor({ timeout: STEP_MS });
     }
+    await shots('topic-complete');
+    for (const { page } of people) await dismissToasts(page);
     expect(await env.git(['status', '--porcelain'])).toBe('');
     for (const { page } of people) await expect.poll(() => inbox(page).count(), { timeout: STEP_MS }).toBe(0);
   }, 300_000);
@@ -1619,15 +1620,16 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     }
     await expect.poll(() => inbox(ian, 'attention').count(), { timeout: STEP_MS }).toBe(0);
 
-    // Ian is responsible for it: he reviews its report and merges it. Everything is done.
-    const told = people.map(({ page }) => toast(page, page === mei ? `${TOPIC}：所有項目都看過了，主題已完成。` : `${TOPIC}: every item is reviewed. The topic is complete.`));
+    // Ian is responsible for it: he reviews its report and merges it. Everything is done (0.7.0, DESIGN D13: the topic is
+    // complete, and everyone is told, once the item is merged too).
     await inbox(ian, 'report').filter({ hasText: 'Result report: 4 · Gift receipt' }).locator('.inbox-item__main').click();
     await dismissToasts(ian);
     await reportOf(ian, 'gift-receipt').getByRole('button', { name: "I've reviewed this" }).click();
-    await Promise.all(told);
-    for (const { page } of people) await dismissToasts(page);
+    const told = people.map(({ page }) => toast(page, page === mei ? `${TOPIC}：所有項目都看過了，主題已完成。` : `${TOPIC}: every item is reviewed. The topic is complete.`));
     await mergeFromInbox('gift-receipt', '4 · Gift receipt');
     await waitUntil(async () => (await fileText('src/gift/receipt.ts')).includes('gift'), STEP_MS, "item 4's change in the main workspace");
+    await Promise.all(told);
+    for (const { page } of people) await dismissToasts(page);
     await closeReport('gift-receipt');
     for (const page of [ian, amy, leo]) {
       await phase(page).getByText('Complete', { exact: true }).waitFor({ timeout: STEP_MS });

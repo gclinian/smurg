@@ -156,14 +156,14 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/messages/presence.ts': 'b072fa7f56d76819acf58811ff698efb3cf8c2dd87c80fee42a5f8938ec11c10',
   'schema/messages/sessions.ts': '2b5ff7a0bd5e1665a44d62389510e10f00e9750736d30f786db0f2399b88ae58',
   'schema/messages/suggestions.ts': 'db0a00d60c70ae8b4c92a228a7f1ef48e3b484bdb20b692e6056d9428a2cfd3c',
-  'schema/messages/topics.ts': '0c632901b79d7ba908232ef23c800eed86f8026f043ff960dc973a654e444003',
+  'schema/messages/topics.ts': 'd3ec83a9e27b43654791384010bcf2e81ef3a733e166dbbfa87dde9ba6a301d1',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
   'schema/messages/worktrees.ts': 'eaa11a57ec6ac2071cde8f50c96be484d6ce7be7f4554789556ba4d1350faac8',
   'schema/paths.ts': '0ee840e274f57501b9c49baa8e4f16150ce0a3a543ee17bf49e2730777a6f6ca',
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
-  'schema/registry.ts': '33e909dac94820a8cd8a8a1d7990791f0047a63f08fe9d3085271fbc905be3ca',
-  'schema/topics.ts': '1abc4b0afa49ab233ae98364d9653963a8545a6ffbca3beff4a6a535ae0abf0c',
+  'schema/registry.ts': '6dee834f4d0b98cc032d2b2049ea794b06d828ef2b3c510bc37738276297e90f',
+  'schema/topics.ts': 'b2921cdd2900b5f23aa8fb6b2fb538a6467c74f871c3de3ea1be740ad5715741',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
 

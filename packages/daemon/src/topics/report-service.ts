@@ -18,8 +18,10 @@
 //
 // An item that ran directly in the shared folder (no git, DESIGN 0.6.0 D15) writes its report where every item does,
 // but in the shared folder itself: it counts by the same rule, is registered without a snapshot (`no-history`: there
-// is no diff), and the item counts as merged at registration (its changes are in the folder already). Its first run
-// then gives the shared folder back (direct-folder.ts).
+// is no diff), and its first run then gives the shared folder back (direct-folder.ts). Its changes are in the folder
+// already; it COUNTS as merged (what depends on it may start) only when its report is complete and verified and was
+// checked in the turn that produced it (0.7.0, DESIGN D10: else its agent is asked once to check it again, and then it
+// is held for its carers, as a report that is not complete and verified is at once; the host may accept it as it is).
 //
 // 0.7.0 (DESIGN D6, D8, D12): what the merge queue reads of a turn is recorded here, as it happens: the turns of an
 // item's sessions are counted when a turn's end arrives (`turns`), `check_report` stamps the turn it answered in, a
@@ -56,14 +58,15 @@ import {
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
+import { directVerdict, type DirectVerdict } from './auto-merge-verdict.ts';
 import type { FileCheck, McpToolContext, Principal, ReportService, Req, SnapshotResult, TurnMessage } from '../core/interfaces.ts';
 import { newId, type Disposable, toDisposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import type { AutoMerger } from './auto-merge.ts';
-import { itemKey, userRefOf, type FileContent, type TopicsCore } from './core.ts';
+import { isDirect, itemKey, userRefOf, type FileContent, type TopicsCore } from './core.ts';
 import { DirectFolder } from './direct-folder.ts';
-import { fixFileMessage, nudgeReportMessage } from './prompts.ts';
+import { fixFileMessage, nudgeReportMessage, verifyAgainMessage } from './prompts.ts';
 import { parseReport, type ParsedReport } from './report-format.ts';
 import type { Scheduler, SchedulerReports } from './scheduler.ts';
 import type { StoredItem, StoredReport, StoredTopic } from './store.ts';
@@ -222,8 +225,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
     const registered = this.core.report(topicId, itemId);
-    if (topic === null || item === null || topic.archived || item.sessionId !== event.sessionId || registered === null || event.outcome !== 'completed') return;
+    if (topic === null || item === null || topic.archived || item.sessionId !== event.sessionId || registered === null) return;
     if (registered.version !== before) return;
+    // DESIGN 0.7.0 D10: the turn `verify-again` started for an item that ran in the folder did not finish: a decision.
+    if (event.outcome !== 'completed') {
+      if (isDirect(item) && item.autoMerge?.state === 'resolving' && item.autoMerge.reason === 'stale-report') this.merger?.store(topicId, itemId, { state: 'held', reason: 'stale-report' }, this.ctx.clock.now());
+      return;
+    }
     const person = event.messages.find((message) => message.kind === 'person' && message.from !== undefined);
     if (person?.from !== undefined) {
       const by = person.from;
@@ -239,9 +247,43 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       this.core.publishReport(topicId, itemId, previous);
     }
     const record = this.core.item(this.core.need(topicId), itemId)?.autoMerge;
-    if (record?.state === 'resolving' && record.reason === 'stale-report') {
+    if (isDirect(item)) {
+      // An item that ran in the folder, whose version waited for a check of its report (D10): checked now, it counts as
+      // merged and what depends on it may start; asked to and not checked, it is a decision.
+      if (record?.reason === 'stale-report' && (record.state === 'resolving' || record.state === 'held')) {
+        if (confirmed) this.directMerged(topicId, itemId);
+        else if (record.state === 'resolving') this.merger?.store(topicId, itemId, { state: 'held', reason: 'stale-report' }, this.ctx.clock.now());
+      }
+    } else if (record?.state === 'resolving' && record.reason === 'stale-report') {
       if (confirmed) this.merger?.drop(topicId, itemId);
       else this.merger?.store(topicId, itemId, { state: 'held', reason: 'stale-report', ...(record.requestId === undefined ? {} : { requestId: record.requestId }) }, this.ctx.clock.now());
+    }
+    this.core.publish(topicId);
+  }
+
+  /** DESIGN 0.7.0 D10: an item that ran in the folder counts as merged now; what depends on it may start. */
+  private directMerged(topicId: string, itemId: string): void {
+    this.merger?.drop(topicId, itemId);
+    this.core.updateItem(topicId, itemId, (draft) => {
+      draft.merged = true;
+    });
+    this.scheduler.request();
+  }
+
+  /**
+   * DESIGN 0.7.0 D10, D6 row 13: the version of an item that ran in the folder was not checked in the turn that made
+   * it: its agent is asked once to check it again (recorded first; the end of that turn decides, `afterTurn`).
+   */
+  private async directVerify(topicId: string, itemId: string, sessionId: string): Promise<void> {
+    const agents = this.ctx.services.agents;
+    this.merger?.store(topicId, itemId, { state: 'resolving', reason: 'stale-report' }, this.ctx.clock.now());
+    try {
+      agents.append(sessionId, lineEvent(msg('conversation.verifyAgain')));
+      await agents.send(sessionId, { kind: 'smurg', purpose: 'verify-again', text: verifyAgainMessage() });
+    } catch (err) {
+      if (this.ctx.stopping.aborted) return;
+      this.ctx.log.warn('verify-again not sent', { module: 'topics', topic: topicId, item: itemId, error: err instanceof Error ? err.name : 'unknown' });
+      this.merger?.store(topicId, itemId, { state: 'held', reason: 'stale-report' }, this.ctx.clock.now());
     }
     this.core.publish(topicId);
   }
@@ -492,6 +534,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     const previous = this.core.report(topic.id, item.id);
     const now = this.ctx.clock.now();
     const version = (previous?.version ?? 0) + 1;
+    // In the folder itself (DESIGN 0.7.0 D10): whether this version lets what depends on the item start.
+    const decided: DirectVerdict | null = direct ? directVerdict({ outcome: parsed.outcome, checks: parsed.checks, checkedInTurn }) : null;
     const stored: StoredReport = {
       version,
       writtenAt: now,
@@ -535,13 +579,26 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       delete draft.autoMerge;
       delete draft.lastTurn;
       if (changes !== undefined) draft.merge = { requestId: changes.requestId, status: 'draft', ready: false };
-      // Its changes are in the folder already: what depends on it may start (once the folder is free).
-      if (direct) draft.merged = true;
+      // Its changes are in the folder already: what depends on it may start (once the folder is free), when its report
+      // is complete and verified and was checked in this turn (D10). Each version decides again.
+      // (`mergedAs` of a direct item is the host's "Accept as it is" of an earlier version: this one decides anew)
+      if (decided !== null) {
+        draft.merged = decided.kind === 'merged';
+        delete draft.mergedAs;
+      }
     });
+    // A version registered after the topic's result was checked: the topic has new work again (DESIGN 0.7.0 D13).
+    if (topic.checked !== undefined) {
+      this.core.update(topic.id, (draft) => {
+        delete draft.checked;
+      });
+    }
     const key = itemKey(topic.id, item.id);
     this.core.refused.delete(key);
     this.merger?.forget(topic.id, item.id);
     if (noChanges === 'host-only-paths' || noChanges === 'spec-files' || noChanges === 'conflict-markers') this.merger?.refused(topic.id, item.id, noChanges, refusedFiles);
+    // (stored after the version: the hold's `since` is the version's, and its line follows the report's pointer below)
+    if (decided?.kind === 'hold') this.merger?.store(topic.id, item.id, { state: 'held', reason: decided.reason }, now);
     try {
       agents.append(sessionId, { kind: 'pointer', target: 'report', topicId: topic.id, itemId: item.id, version });
       agents.setItemState(sessionId, { reportRegistered: true });
@@ -560,6 +617,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // The first run is over with its report: the folder goes once its turn is, and what depends on it may start.
       this.scheduler.folder.firstRunOver(DirectFolder.key(topic.id, item.id));
       this.scheduler.request();
+      if (decided?.kind === 'verify') await this.directVerify(topic.id, item.id, sessionId);
     }
     // The merge queue looks at the new version (DESIGN 0.7.0 D8).
     this.merger?.request();
@@ -771,6 +829,9 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       this.core.putReport({ ...report, escalatedAt: now });
       this.core.publishReport(report.topicId, report.itemId, previous);
     }
+    // A decision on a work item escalates too (DESIGN 0.7.0 D9), and a topic whose phase moved quietly is announced.
+    this.core.escalateHolds();
+    this.core.publishChangedPhases();
   }
 
   startSweep(): Disposable {

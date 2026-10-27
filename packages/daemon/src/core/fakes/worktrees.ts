@@ -77,6 +77,8 @@ export class FakeWorktreeManager implements WorktreeManager {
   readonly mergeParents = new Map<string, string>();
   /** The `main` queue of the real module (one merge at a time): `autoMerge` waits in it, behind `holdMain` and each other. */
   private mainTail: Promise<void> = Promise.resolve();
+  /** `holdMerging`: the automatic merges that passed their last "still in order" wait here, as `git merge` runs. */
+  private mergingHold: { readonly reached: (requestId: string) => void; readonly held: Promise<void> } | null = null;
   private readonly env: FakeEnv;
   private readonly worktrees = new Map<string, WorktreeInfo>();
   private readonly roots = new Map<string, RootInfo>();
@@ -206,6 +208,12 @@ export class FakeWorktreeManager implements WorktreeManager {
       if (step !== undefined) return structuredClone(step);
       // ...and again just before the merge.
       if (!input.stillInOrder()) return { kind: 'gone' };
+      // (`git merge` runs: nothing that happens now can stop this merge any more)
+      const hold = this.mergingHold;
+      if (hold !== null) {
+        hold.reached(input.requestId);
+        await hold.held;
+      }
       const { conflictFiles: _conflict, ...rest } = request;
       const merged = this.putRequest({ ...rest, status: 'merged', auto: true, decidedAt: this.env.clock.now() });
       return { kind: 'merged', request: structuredClone(merged), mergeCommit: this.nextCommit('merge'), files: this.snapshotStats.files, overlap: [] };
@@ -227,6 +235,29 @@ export class FakeWorktreeManager implements WorktreeManager {
     });
     this.mainTail = this.mainTail.then(() => held);
     return release;
+  }
+
+  /**
+   * Holds the automatic merges after their last "still in order", as a `git merge` that runs (DESIGN 0.7.0 D11's race:
+   * "Leave it out" meets a merge it can no longer stop). `reached` resolves with the request id when one is there.
+   */
+  holdMerging(): { readonly reached: Promise<string>; readonly release: () => void } {
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let reached: (requestId: string) => void = () => {};
+    const there = new Promise<string>((resolve) => {
+      reached = resolve;
+    });
+    this.mergingHold = { reached, held };
+    return {
+      reached: there,
+      release: () => {
+        this.mergingHold = null;
+        release();
+      },
+    };
   }
 
   private onMain<T>(run: () => Promise<T>): Promise<T> {

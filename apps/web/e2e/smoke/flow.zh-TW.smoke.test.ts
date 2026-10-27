@@ -286,11 +286,11 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await stop('permission-request');
     await card.getByRole('button', { name: '允許一次' }).click();
 
-    // ---- The second item reports; reviewed and merged, the topic is complete.
+    // ---- The second item reports; reviewed and merged, the topic is complete (0.7.0, DESIGN D13, on purpose: once the
+    // last item is merged too, not at its review).
     await inbox(host, 'report').filter({ hasText: '結果報告：2 · 結帳頁面' }).locator('.inbox-item__main').click();
     const second = view(host).locator('[data-column-id$=":checkout-page"]');
     await second.getByRole('button', { name: '我已看過' }).click();
-    await host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都看過了，主題已完成。` }).first().waitFor({ timeout: STEP_MS });
     await inbox(host, 'merge').filter({ hasText: '已看過，可以合併：2 · 結帳頁面' }).locator('.inbox-item__main').click();
     await dismissToasts(host);
     await second.getByRole('button', { name: '合併…' }).click();
@@ -299,6 +299,7 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await lastChanges.getByRole('button', { name: '確認合併' }).click();
     await lastChanges.waitFor({ state: 'detached', timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'checkout', 'page.ts'), 'utf8').catch(() => '')).includes('page'), STEP_MS, "item 2's change in the main workspace");
+    await host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都看過了，主題已完成。` }).first().waitFor({ timeout: STEP_MS });
     await host.locator('aside.sidebar .topic__phase').getByText('已完成', { exact: true }).waitFor({ timeout: STEP_MS });
     await dismissToasts(host);
     // The plan (pinned while its topic was executing, so it stayed) says so; the English page follows.

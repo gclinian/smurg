@@ -9,11 +9,17 @@
 // item that is in order while the workspace's setting says so too, or the host merges each) and, with the folder's
 // own git, the branch it committed on (smurg merges only into it). A member may choose the host's merge for a Start;
 // nobody can choose smurg's while the workspace says the host merges; a Start on a detached HEAD is the host's.
+//
+// 0.7.0 (DESIGN D9, D10, D11): what a person decides about one work item: "Leave it out" (it and what depends on it,
+// without editing PLAN.md), "Merge it as it is" (a version that stands although somebody wrote to its agent since, a
+// later turn was stopped, or its report was not checked again), the host's "Accept as it is" (an item that ran in the
+// folder) and "Ask the agent to take them out" (files only the host may merge).
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   MAIN_ROOT,
   PLAN_CHANGES_DIFF_MAX_BYTES,
+  RELEASABLE_HOLDS,
   PREFLIGHT_ALSO_IN_FOLDER_MAX,
   PREFLIGHT_BLOCKERS_MAX,
   PREFLIGHT_EDITING_NOW_MAX,
@@ -52,9 +58,9 @@ import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
 import { requireModelOffered } from '../sessions/model-offered.ts';
 import type { AutoMerger } from './auto-merge.ts';
-import { applyTopicAgent, isStarted, itemKey, userRefOf, type TopicsCore } from './core.ts';
+import { applyTopicAgent, isDirect, isStarted, itemKey, userRefOf, type TopicsCore } from './core.ts';
 import type { PlanParse } from './plan-format.ts';
-import { fixFileMessage, generatePlanMessage, resolveConflictMessage, updatePlanMessage } from './prompts.ts';
+import { fixFileMessage, generatePlanMessage, removePathsMessage, resolveConflictMessage, updatePlanMessage } from './prompts.ts';
 import type { Scheduler, SchedulerReports } from './scheduler.ts';
 import { checkProposal } from './split.ts';
 import type { Pin, StoredItem, StoredTopic } from './store.ts';
@@ -631,6 +637,8 @@ export class PlanServiceImpl implements PlanService {
         }
         draft.handEdits = { spec: [], plan: [] };
         draft.plan.lastPin = pin;
+        // The plan has new work: its result is not checked any more (DESIGN 0.7.0 D13).
+        delete draft.checked;
         for (const item of draft.items) {
           if (!armed.has(item.id)) continue;
           item.armed = true;
@@ -641,10 +649,11 @@ export class PlanServiceImpl implements PlanService {
           item.since = now;
           delete item.disarmed;
           delete item.startError;
-          // A Start again begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8).
+          // A Start again begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8), and takes it back in (D11).
           delete item.autoMerge;
           delete item.mergeTries;
           delete item.lastTurn;
+          delete item.leftOut;
         }
       });
       for (const itemId of armed) {
@@ -751,19 +760,24 @@ export class PlanServiceImpl implements PlanService {
     } else if (item.state === 'stopped' || (item.state === 'failed' && this.liveSession(item) === null)) {
       // A new session in the same worktree, when a slot is free.
       const now = this.ctx.clock.now();
-      this.core.updateItem(topic.id, item.id, (draft) => {
-        draft.armed = true;
-        draft.retry = true;
-        draft.startedBy = by;
-        draft.state = 'queued';
-        draft.since = now;
-        delete draft.stalledBy;
-        delete draft.disarmed;
-        delete draft.startError;
-        // "Try again" begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8).
-        delete draft.autoMerge;
-        delete draft.mergeTries;
-        delete draft.lastTurn;
+      this.core.update(topic.id, (draft) => {
+        const target = draft.items.find((candidate) => candidate.id === item.id);
+        if (target === undefined) return;
+        target.armed = true;
+        target.retry = true;
+        target.startedBy = by;
+        target.state = 'queued';
+        target.since = now;
+        delete target.stalledBy;
+        delete target.disarmed;
+        delete target.startError;
+        // "Try again" begins the merge queue's account of the item afresh (DESIGN 0.7.0 D8), takes a left-out item back
+        // in (D11), and the topic has new work: its result is not checked any more (D13).
+        delete target.autoMerge;
+        delete target.mergeTries;
+        delete target.lastTurn;
+        delete target.leftOut;
+        delete draft.checked;
       });
       this.merger?.forget(topic.id, item.id);
     } else throw new SmurgError('conflict', msg('plan.item.notRetryable'), { reason: 'not-retryable' });
@@ -807,6 +821,197 @@ export class PlanServiceImpl implements PlanService {
       delete draft.fix;
     });
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.resolve', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, sessionId, messageId: sent.messageId, conflicted: result.conflicted.length } });
+    this.core.publish(topic.id);
+  }
+
+  // ===================================================================================================================
+  // What a person decides about one item (DESIGN 0.7.0 D9, D10, D11)
+  // ===================================================================================================================
+
+  /** An item of the plan (not one that left PLAN.md): `plan.item.unknown` otherwise. */
+  private needPlanItem(topic: StoredTopic, itemId: string): StoredItem {
+    const item = this.core.needItem(topic, itemId);
+    if (item.number === 0) throw new SmurgError('not_found', msg('plan.item.unknown'), { reason: 'unknown-item' });
+    return item;
+  }
+
+  /** The item and every item of the topic that depends on it, directly or through others, that is not merged and not left out already. */
+  private withDependents(topic: StoredTopic, itemId: string): string[] {
+    const out = [itemId];
+    for (let index = 0; index < out.length; index += 1) {
+      const id = out[index] as string;
+      for (const other of topic.items) {
+        if (out.includes(other.id) || !other.dependsOn.includes(id)) continue;
+        out.push(other.id);
+      }
+    }
+    return out.filter((id) => {
+      const item = this.core.item(topic, id);
+      return item !== null && !item.merged && item.leftOut === undefined;
+    });
+  }
+
+  /**
+   * "Leave it out" (DESIGN 0.7.0 D11): the item and every item that depends on it and is not merged are left out in ONE
+   * topic update, without touching PLAN.md (an edit of the file would disarm every armed item of the topic). The claim
+   * comes first: from that moment D6 row 1 refuses their merge, also inside the worktree module's queue. A merge of one
+   * of them that is already past its last check (R-SAFE S3) is waited for; then what is true decides: the asked item
+   * merged → `plan.item.leaveOut.merged` and nothing is left out; a dependent that merged is not left out. Then each
+   * is not armed any more, its record of the merge queue goes, its live session ends after its line (the worktree and
+   * its draft stay), and its state says `stopped` (it had a session) or `not-started`.
+   */
+  async leaveOut(input: Req<'plan.item.leaveOut'>, principal: Principal): Promise<PlanInfo> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    this.needPlan(topic.id);
+    const asked = this.needPlanItem(topic, input.itemId);
+    if (asked.merged) throw new SmurgError('conflict', msg('plan.item.leaveOut.merged'), { reason: 'merged' });
+    if (asked.leftOut !== undefined) return this.needPlan(topic.id);
+    const at = this.ctx.clock.now();
+    const claimed = this.withDependents(topic, asked.id);
+    const claim = new Set(claimed);
+    this.core.update(topic.id, (draft) => {
+      for (const item of draft.items) if (claim.has(item.id)) item.leftOut = { by, at };
+    });
+    for (const id of claimed) await this.merger?.whenSettled(topic.id, id);
+    const ours = (item: StoredItem): boolean => claim.has(item.id) && item.leftOut?.at === at && item.leftOut.by.userId === by.userId;
+    const settled = this.core.need(topic.id);
+    if (this.core.needItem(settled, asked.id).merged) {
+      this.core.update(topic.id, (draft) => {
+        for (const item of draft.items) if (ours(item)) delete item.leftOut;
+      });
+      this.core.publish(topic.id);
+      throw new SmurgError('conflict', msg('plan.item.leaveOut.merged'), { reason: 'merged' });
+    }
+    const leaving = new Set(settled.items.filter((item) => ours(item) && !item.merged).map((item) => item.id));
+    const sessions: string[] = [];
+    this.core.update(topic.id, (draft) => {
+      for (const item of draft.items) {
+        if (!ours(item)) continue;
+        // (merged meanwhile: it is in the main workspace, so it is not left out)
+        if (!leaving.has(item.id)) {
+          delete item.leftOut;
+          continue;
+        }
+        const live = this.liveSession(item);
+        if (live !== null) sessions.push(live);
+        item.armed = false;
+        item.retry = false;
+        delete item.autoMerge;
+        delete item.stalledBy;
+        item.state = item.sessions.length > 0 ? 'stopped' : 'not-started';
+        item.since = at;
+      }
+    });
+    for (const id of leaving) {
+      this.core.refused.delete(itemKey(topic.id, id));
+      this.merger?.forget(topic.id, id);
+    }
+    const agents = this.ctx.services.agents;
+    for (const sessionId of sessions) {
+      try {
+        agents.append(sessionId, lineEvent(msg('conversation.ended.leftOut', { name: by.displayName })));
+        await agents.end(sessionId, { by: principal.actor, reason: 'ended', keepWorktree: true });
+      } catch (err) {
+        this.ctx.log.warn('the session of a left-out item was not ended', { module: 'topics', topic: topic.id, session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
+      }
+    }
+    this.ctx.audit.record({
+      actor: principal.actor,
+      action: 'plan.item.leaveOut',
+      outcome: 'ok',
+      target: topic.id,
+      detail: { topicId: topic.id, itemId: asked.id, others: [...leaving].filter((id) => id !== asked.id), sessions: sessions.length },
+    });
+    this.core.publish(topic.id);
+    this.merger?.request();
+    this.scheduler.request();
+    return this.needPlan(topic.id);
+  }
+
+  /**
+   * "Accept as it is" (DESIGN 0.7.0 D10; `worktree.merge.decide`, the host): an item that ran directly in the folder,
+   * held because its report is not complete and verified (or was not checked again), counts as merged: who accepted it
+   * is its `mergedAs`, the hold goes, and what depends on it may start.
+   */
+  async accept(input: Req<'plan.item.accept'>, principal: Principal): Promise<PlanInfo> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    const item = this.needPlanItem(topic, input.itemId);
+    const hold = item.autoMerge;
+    if (!isDirect(item) || item.merged || hold?.state !== 'held') throw new SmurgError('conflict', msg('plan.item.accept.notHeld'), { reason: 'not-held' });
+    const report = this.core.report(topic.id, item.id);
+    if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
+    const at = this.ctx.clock.now();
+    this.core.updateItem(topic.id, item.id, (draft) => {
+      draft.merged = true;
+      draft.mergedAs = { at, by: { userId: by.userId, displayName: by.displayName } };
+      delete draft.autoMerge;
+    });
+    this.merger?.forget(topic.id, item.id);
+    this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.accept', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, version: report.version, outcome: report.outcome, reason: hold.reason } });
+    this.core.publish(topic.id);
+    await this.scheduler.runNow();
+    return this.needPlan(topic.id);
+  }
+
+  /**
+   * "Merge it as it is" (DESIGN 0.7.0 D9, R-SAFE S7, S4; `session.drive`: a person who may stop the agent decides that
+   * its work stands): for an item that smurg merges by itself and that is held because somebody wrote to its agent
+   * since this version, a later turn was stopped, or its report was not checked again (RELEASABLE_HOLDS). What made it
+   * so goes (`changesAsked`, `lastTurn`), the version counts as checked in its turn, and the merge queue merges it when
+   * it is otherwise in order.
+   */
+  async release(input: Req<'plan.item.release'>, principal: Principal): Promise<PlanInfo> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    const item = this.needPlanItem(topic, input.itemId);
+    const verdict = this.core.mergingOf(item) === 'auto' ? this.core.verdictOf(topic, item) : null;
+    if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason)) throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
+    const report = this.core.report(topic.id, item.id);
+    if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
+    this.core.updateItem(topic.id, item.id, (draft) => {
+      delete draft.changesAsked;
+      delete draft.lastTurn;
+    });
+    if (report.checkedInTurn !== true) this.core.putReport({ ...report, checkedInTurn: true });
+    this.merger?.drop(topic.id, item.id);
+    const sessionId = this.liveSession(item);
+    if (sessionId !== null) {
+      try {
+        this.ctx.services.agents.append(sessionId, lineEvent(msg('conversation.released', { name: by.displayName })));
+      } catch (err) {
+        this.ctx.log.debug('release line not written', { session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
+      }
+    }
+    this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.release', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, version: report.version, reason: verdict.reason } });
+    this.core.publish(topic.id);
+    this.merger?.request();
+    return this.needPlan(topic.id);
+  }
+
+  /**
+   * "Ask the agent to take them out" (DESIGN 0.7.0 D9; `worktree.merge.decide`, the host): the item smurg merges by
+   * itself is held because it changes files only the host may merge; its agent is asked (`remove-paths`) to undo its
+   * changes to exactly those files. The hold stays until its next version.
+   */
+  async removePaths(input: Req<'plan.item.removePaths'>, principal: Principal): Promise<void> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    const item = this.needPlanItem(topic, input.itemId);
+    const verdict = this.core.mergingOf(item) === 'auto' ? this.core.verdictOf(topic, item) : null;
+    const paths = verdict?.kind === 'hold' && verdict.reason === 'policy' ? (verdict.paths ?? []) : [];
+    if (paths.length === 0) throw new SmurgError('conflict', msg('plan.item.removePaths.notHeld'), { reason: 'not-held' });
+    const sessionId = this.liveSession(item);
+    if (sessionId === null) throw new SmurgError('conflict', msg('plan.item.noSession'), { reason: 'no-session' });
+    const agents = this.ctx.services.agents;
+    agents.append(sessionId, lineEvent(msg('conversation.removePathsRequested', { name: by.displayName })));
+    const sent = await agents.send(sessionId, { kind: 'smurg', purpose: 'remove-paths', text: removePathsMessage({ paths }), by });
+    this.core.updateItem(topic.id, item.id, (draft) => {
+      draft.nudged = false;
+      delete draft.fix;
+    });
+    this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.removePaths', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, sessionId, messageId: sent.messageId, paths: paths.slice(0, 20) } });
     this.core.publish(topic.id);
   }
 

@@ -31,6 +31,7 @@ import {
   type InboxItem,
   type PlanInfo,
   type SessionInfo,
+  type Topic,
 } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
@@ -545,6 +546,19 @@ export class InboxServiceImpl implements InboxService {
         if (!topics.has(topicId)) topics.set(topicId, this.ask('topics', services.topics, () => services.topics.get(topicId)?.archived === false, true));
         return topics.get(topicId) ?? true;
       },
+      // Every open topic (its decisions and whether it is ready to check, DESIGN 0.7.0 D9, D13), page by page.
+      topics: this.read('topic list', services.topics, () => {
+        const out: Topic[] = [];
+        let after: string | undefined;
+        for (let pages = 0; pages < 1_000; pages += 1) {
+          const page = services.topics.list(after === undefined ? {} : { after });
+          out.push(...page.topics);
+          const last = page.topics.at(-1);
+          if (!page.hasMore || last === undefined) break;
+          after = last.id;
+        }
+        return out;
+      }),
     };
   }
 

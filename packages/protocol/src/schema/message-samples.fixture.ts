@@ -1731,6 +1731,18 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'plan.item.retry': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] }, result: { valid: [{ plan }], invalid: [{}] } },
   'plan.item.continue': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ itemId: 'cart-api' }] }, result: emptyOnly },
   'plan.item.resolve': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1', itemId: '' }] }, result: emptyOnly },
+  // protocol 6 (DESIGN 0.7.0 D9, D10, D11, D13)
+  'topic.check': { payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}, { topicId: 'tp_1', itemId: 'cart-api' }] }, result: { valid: [{ topic: checkedTopic }], invalid: [{}, { topic: { ...checkedTopic, checked: { by: AMY_REF } } }] } },
+  'plan.item.leaveOut': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', itemId: 'cart-api', dependents: false }] }, result: { valid: [{ plan: autoPlan }], invalid: [{}] } },
+  'plan.item.accept': {
+    payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api', version: 2 }], invalid: [{ topicId: 'tp_1', itemId: 'cart-api' }, { topicId: 'tp_1', itemId: 'cart-api', version: 0 }] },
+    result: { valid: [{ plan }], invalid: [{}] },
+  },
+  'plan.item.release': {
+    payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api', version: 1 }], invalid: [{ topicId: 'tp_1', itemId: 'cart-api' }, { topicId: 'tp_1', itemId: 'cart-api', version: 1.5 }] },
+    result: { valid: [{ plan: autoPlan }], invalid: [{}] },
+  },
+  'plan.item.removePaths': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1', itemId: 'cart-api', paths: ['CLAUDE.md'] }] }, result: emptyOnly },
   'report.get': {
     payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] },
     result: {

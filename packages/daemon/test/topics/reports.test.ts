@@ -431,9 +431,14 @@ describe('T5.2 review, change after review, topic complete', () => {
     await test.amy.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 2 });
     expect(test.topic(run.topicId).phase).toBe('executing');
     await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'b', version: 1 });
-    // Every item of the plan is reviewed.
-    expect(test.topic(run.topicId)).toMatchObject({ phase: 'complete', plan: { items: 2, reviewed: 2, merged: 0 } });
+    // Every item of the plan is reviewed, and nothing is merged yet: 0.7.0 (DESIGN D13, on purpose) says `executing`
+    // (it waits for the host's merges); 0.6.0 said `complete` here.
+    expect(test.topic(run.topicId)).toMatchObject({ phase: 'executing', plan: { items: 2, reviewed: 2, merged: 0 } });
     expect(test.t.ctx.services.reports.toReview()).toEqual([]);
+    // The host merges both: every item is merged and reviewed, the topic is complete.
+    for (const itemId of ['a', 'b']) await test.fakes.worktrees.approve({ requestId: itemOf(test.plan(run.topicId), itemId).merge?.requestId as string }, test.principals.host);
+    await waitFor(() => test.topic(run.topicId).phase === 'complete', { what: 'the topic to be complete' });
+    expect(test.topic(run.topicId)).toMatchObject({ phase: 'complete', plan: { items: 2, reviewed: 2, merged: 2 } });
   });
 
   it('with nobody assigned anyone who may discuss reviews, once, for all; a Viewer never', async () => {

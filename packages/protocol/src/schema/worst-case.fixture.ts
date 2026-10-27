@@ -507,6 +507,12 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'plan.item.retry': { payload: itemPayload, result: { plan: worstPlan } },
   'plan.item.continue': { payload: itemPayload, result: {} },
   'plan.item.resolve': { payload: itemPayload, result: {} },
+  // protocol 6 (DESIGN 0.7.0 D9, D10, D11, D13)
+  'topic.check': { payload: { topicId: id('tp') }, result: { topic: worstTopic } },
+  'plan.item.leaveOut': { payload: itemPayload, result: { plan: worstPlan } },
+  'plan.item.accept': { payload: { ...itemPayload, version: 9e6 }, result: { plan: worstPlan } },
+  'plan.item.release': { payload: { ...itemPayload, version: 9e6 }, result: { plan: worstPlan } },
+  'plan.item.removePaths': { payload: itemPayload, result: {} },
   'report.get': { payload: itemPayload, result: { report: worstReport } },
   'report.updated': { payload: { ...itemPayload, report: reportSummary } },
   'report.followUp': { payload: { ...itemPayload, text, mentions }, result: messageOrSuggestion },

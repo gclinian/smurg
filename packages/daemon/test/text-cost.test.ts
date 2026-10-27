@@ -670,7 +670,8 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'frozen/v0.5.0.ts': 1, // its `normalize` of a path (below)
   'frozen/v0.6.0.ts': 1, // the same `normalize` of a path
   'hooks/settings-writer.ts': 2,
-  'inbox/derive.ts': 2,
+  // (0.7.0: the numbers of the items that wait for one, transitively, as a merge row has them: numbers, at most 40)
+  'inbox/derive.ts': 3,
   'inbox/inbox-service.ts': 2,
   'locks/colors.ts': 1,
   'locks/lock-manager.ts': 1,

@@ -47,6 +47,8 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   stack.add(router.handle('topic.rule.remove', async (payload, req) => ({ topic: await topics.removeRule(payload, req.principal) })));
   // [session.drive] topic-open, model-offered: the model of the topic's new sessions, the mode its work items follow
   stack.add(router.handle('topic.agent.set', async (payload, req) => ({ topic: await topics.setAgent(payload, req.principal) })));
+  // [discuss] topic-open; only while the topic is ready to check (DESIGN 0.7.0 D13)
+  stack.add(router.handle('topic.check', async (payload, req) => ({ topic: await topics.check(payload, req.principal) })));
 
   // ---- plan.* ----
   // [session.drive] topic-open, a spec exists, the discussion is live
@@ -84,6 +86,20 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   stack.add(
     router.handle('plan.item.resolve', async (payload, req) => {
       await plans.resolveItem(payload, req.principal);
+      return {};
+    }),
+  );
+  // ---- what a person decides about a work item (DESIGN 0.7.0 D9, D10, D11) ----
+  // [session.drive] topic-open; not a merged item
+  stack.add(router.handle('plan.item.leaveOut', async (payload, req) => ({ plan: await plans.leaveOut(payload, req.principal) })));
+  // [worktree.merge.decide] topic-open; a held item that ran directly in the folder, the current version
+  stack.add(router.handle('plan.item.accept', async (payload, req) => ({ plan: await plans.accept(payload, req.principal) })));
+  // [session.drive] topic-open; an item held for a person's message, a stopped turn or an unchecked report, the current version
+  stack.add(router.handle('plan.item.release', async (payload, req) => ({ plan: await plans.release(payload, req.principal) })));
+  // [worktree.merge.decide] topic-open; an item held for files only the host may merge, with a live session
+  stack.add(
+    router.handle('plan.item.removePaths', async (payload, req) => {
+      await plans.removePaths(payload, req.principal);
       return {};
     }),
   );

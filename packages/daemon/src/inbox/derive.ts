@@ -17,6 +17,14 @@
 //               smurg merges by itself only what somebody asked for (a `pending` request, a `conflict` that keeps its
 //               `requestedBy`): its drafts and the conflicts of smurg's own tries are its decision rows (0.7.0 D12)
 //   attention   the recipients its fact names (the service that owns the fact decides them)
+//   decision    decisionRecipients (0.7.0, DESIGN D9: as a permission request): a work item held for a person, read
+//               from its plan (`WorkItem.autoMerge.state === 'held'`): the host for a hold only the host can settle;
+//               the responsible person while they hold `session.drive` and it has not escalated; else the host and
+//               every member with agent access
+//   ready       every active member, Viewers included (0.7.0, DESIGN D13): a topic whose every item is settled
+//
+// A question, a permission request, an attention item of a work item and a decision say which items of the plan wait
+// for it (`unblocks`, the plan's `waitsFor` followed through: what waits for what waits for it counts too).
 //
 // An item leaves when its thing is no longer in the world, for everyone at once: there is nothing to clear by hand.
 //
@@ -33,6 +41,7 @@ import {
   PLAN_ITEMS_MAX,
   agentAccessMembers,
   allVoted,
+  decisionRecipients,
   deciderOf,
   hostOf,
   inboxKindWaits,
@@ -54,7 +63,9 @@ import {
   type ReportSummary,
   type RoutingMembers,
   type Suggestion,
+  type Topic,
   type UserRef,
+  type WorkItem,
 } from '@smurg/protocol';
 import type { AttentionFact } from '../core/interfaces.ts';
 import { noteKey, type StoredNote } from './store.ts';
@@ -91,6 +102,8 @@ export interface InboxWorld {
   plan(topicId: string): PlanInfo | null;
   /** The topic exists and is not archived (nothing waits in an archived topic). */
   topicOpen(topicId: string): boolean;
+  /** Every topic that is not archived, as the wire shows it (its phase: ready to check; its plan: its decisions). */
+  readonly topics: readonly Topic[];
 }
 
 /** An item without the one field that is the member's own (`unread`). */
@@ -158,6 +171,14 @@ export function mergeKey(requestId: string): string {
   return `merge:${requestId}`;
 }
 
+export function decisionKey(topicId: string, itemId: string): string {
+  return `decision:${topicId}.${itemId}`;
+}
+
+export function readyKey(topicId: string): string {
+  return `ready:${topicId}`;
+}
+
 export function attentionKey(subject: AttentionSubject, id: string): string {
   const prefix = `attention:${subject}:`;
   return prefix + keyPart(id, INBOX_KEY_MAX_CHARS - prefix.length);
@@ -205,6 +226,32 @@ function userActor(ref: UserRef): Actor {
   return { kind: 'user', userId: ref.userId, displayName: ref.displayName };
 }
 
+/**
+ * The numbers of the plan's items that wait for this one (DESIGN 0.7.0 D9): those whose `waitsFor` names it, and those
+ * that wait for one of them, and so on. Empty when nothing waits (or the plan is not known).
+ */
+function waitersOf(plan: PlanInfo | null, itemId: string): number[] {
+  if (plan === null) return [];
+  const found = new Set<string>();
+  const next = [itemId];
+  for (let id = next.shift(); id !== undefined; id = next.shift()) {
+    for (const item of plan.items) {
+      if (item.id === itemId || found.has(item.id) || item.waitsFor?.includes(id) !== true) continue;
+      found.add(item.id);
+      next.push(item.id);
+    }
+  }
+  const numbers = plan.items.filter((item) => found.has(item.id) && item.inPlan && item.number >= 1).map((item) => item.number);
+  return [...new Set(numbers)].sort((a, b) => a - b).slice(0, PLAN_ITEMS_MAX);
+}
+
+/** `unblocks` of a thing of a work item's session (a question, a permission request), when something waits for that item. */
+function unblocksOf(world: Pick<InboxWorld, 'plan'>, where: Where): Pick<InboxItemBody, 'unblocks'> {
+  if (where.topicId === undefined || where.itemId === undefined) return {};
+  const unblocks = waitersOf(world.plan(where.topicId), where.itemId);
+  return unblocks.length === 0 ? {} : { unblocks };
+}
+
 /** What a permission row says the agent wants: the command, the URL, the file in the workspace; else the tool's name. Never the absolute path. */
 function permissionExcerpt(request: PermissionRequest): string {
   return excerptOf(request.command ?? request.url ?? request.file?.path ?? request.tool);
@@ -235,10 +282,11 @@ function deriveQuestions(world: InboxWorld, boxes: Boxes): void {
     const voters = votersOf(question);
     const everyone = allVoted(question);
     const leading = leadingLabel(question);
+    const where = whereOfSession(view);
     const shared = {
       at: question.askedAt,
       waiting: true,
-      ...whereOfSession(view),
+      ...where,
       sessionId: question.sessionId,
       target: { kind: 'session' as const, sessionId: question.sessionId },
       anchor: { cardId: question.id },
@@ -255,6 +303,7 @@ function deriveQuestions(world: InboxWorld, boxes: Boxes): void {
           ...shared,
           allVoted: everyone,
           ...(leading === undefined ? {} : { leading }),
+          ...unblocksOf(world, where),
           ...waitingOn(world, decider, userId),
           ...(escalated ? { escalated: true } : {}),
           ...othersOf(world, deciders, userId),
@@ -281,6 +330,7 @@ function derivePermissions(world: InboxWorld, boxes: Boxes): void {
     // The one person it went to before it escalated: the others' copies say who has not answered.
     const first = escalated ? permissionRecipients({ hostOnly: request.hostOnly, escalated: false }, session, world.members) : [];
     const waitedFor = first.length === 1 ? (first[0] as string) : null;
+    const where = whereOfSession(view);
     for (const userId of recipients) {
       boxes.add(
         userId,
@@ -289,7 +339,8 @@ function derivePermissions(world: InboxWorld, boxes: Boxes): void {
           kind: 'permission',
           at: request.askedAt,
           waiting: true,
-          ...whereOfSession(view),
+          ...where,
+          ...unblocksOf(world, where),
           sessionId: request.sessionId,
           target: { kind: 'session', sessionId: request.sessionId },
           anchor: { cardId: request.id },
@@ -453,8 +504,103 @@ function deriveAttention(world: InboxWorld, boxes: Boxes): void {
       target: fact.target,
       excerpt: excerptOf(fact.excerpt),
       ...(fact.count === undefined ? {} : { count: fact.count }),
+      ...unblocksOf(world, where),
     };
     for (const userId of new Set(fact.recipients)) if (members.has(userId)) boxes.add(userId, body, 'open');
+  }
+}
+
+/** The reasons of a hold that are about what the report says: its row carries the report's outcome and checks. */
+const REPORT_HOLDS: ReadonlySet<string> = new Set(['partial', 'blocked', 'check-failed', 'not-verified']);
+
+function checksOf(report: Pick<ReportSummary, 'checks'>): NonNullable<InboxItemBody['checks']> {
+  return { passed: report.checks.passed, notVerified: report.checks.notVerified, ...((report.checks.failed ?? 0) > 0 ? { failed: report.checks.failed } : {}) };
+}
+
+/**
+ * DESIGN 0.7.0 D9: every work item of an open topic that is held for a person (its plan says `autoMerge.state` held)
+ * is a decision in the inbox of whom routing.ts names, until the hold goes. A new reason, or the same one again later,
+ * makes it unread again (the stamp).
+ */
+function deriveDecisions(world: InboxWorld, boxes: Boxes): void {
+  for (const topic of world.topics) {
+    if (topic.archived) continue;
+    const plan = world.plan(topic.id);
+    if (plan === null) continue;
+    for (const item of plan.items) {
+      const hold = item.autoMerge;
+      if (hold?.state !== 'held') continue;
+      const view = item.sessionId === undefined ? null : world.session(item.sessionId);
+      // One fact, one home: the session once the item has one, the plan's own record before (as for reports).
+      const responsible = view === null ? (item.responsible?.userId ?? null) : view.responsible;
+      const recipients = decisionRecipients({ hostOnly: hold.hostOnly, escalated: hold.escalated }, { responsible }, world.members);
+      // The one person it went to before it escalated: the others' copies say who has not decided.
+      const first = hold.escalated ? decisionRecipients({ hostOnly: hold.hostOnly, escalated: false }, { responsible }, world.members) : [];
+      const waitedFor = first.length === 1 ? (first[0] as string) : null;
+      const unblocks = waitersOf(plan, item.id);
+      const report = REPORT_HOLDS.has(hold.reason) ? item.report : undefined;
+      for (const userId of recipients) {
+        boxes.add(
+          userId,
+          {
+            key: decisionKey(topic.id, item.id),
+            kind: 'decision',
+            at: hold.since,
+            waiting: true,
+            topicId: topic.id,
+            itemId: item.id,
+            item: { number: item.number, title: item.title },
+            ...(item.sessionId === undefined ? {} : { sessionId: item.sessionId }),
+            target: { kind: 'report', topicId: topic.id, itemId: item.id },
+            excerpt: '',
+            reason: hold.reason,
+            ...(unblocks.length === 0 ? {} : { unblocks }),
+            ...(report === undefined ? {} : { outcome: report.outcome, checks: checksOf(report) }),
+            ...waitingOn(world, waitedFor, userId),
+            ...(hold.escalated ? { escalated: true } : {}),
+            ...othersOf(world, recipients, userId),
+          },
+          `${hold.reason}:${hold.since}`,
+        );
+      }
+    }
+  }
+}
+
+/** The items of a plan as a ready row counts them: those not left out or undone are the merged ones (every item is settled). */
+function keptOf(items: readonly WorkItem[]): WorkItem[] {
+  return items.filter((item) => item.inPlan && item.leftOut === undefined && item.undone === undefined);
+}
+
+/**
+ * DESIGN 0.7.0 D13: a topic ready to check is in every active member's inbox, Viewers included (they read files; the
+ * team is told), unread once; it leaves when the topic is checked or archived, or is not ready any more. Nothing
+ * stands still on it.
+ */
+function deriveReady(world: InboxWorld, boxes: Boxes): void {
+  for (const topic of world.topics) {
+    if (topic.archived || topic.phase !== 'ready') continue;
+    const items = world.plan(topic.id)?.items ?? [];
+    const checks = { passed: 0, notVerified: 0, failed: 0 };
+    for (const item of keptOf(items)) {
+      checks.passed += item.report?.checks.passed ?? 0;
+      checks.notVerified += item.report?.checks.notVerified ?? 0;
+      checks.failed += item.report?.checks.failed ?? 0;
+    }
+    // When it became ready, as far as the plan tells: the newest merge, leave out, undo or report of its items.
+    const times = items.filter((item) => item.inPlan).flatMap((item) => [item.merged?.at, item.leftOut?.at, item.undone?.at, item.report?.writtenAt].filter((at): at is number => at !== undefined));
+    const body: InboxItemBody = {
+      key: readyKey(topic.id),
+      kind: 'ready',
+      at: times.length === 0 ? topic.createdAt : Math.max(...times),
+      waiting: false,
+      topicId: topic.id,
+      target: { kind: 'result', topicId: topic.id },
+      excerpt: excerptOf(topic.name),
+      tally: { items: topic.plan.items, merged: topic.plan.merged, leftOut: topic.plan.leftOut, undone: topic.plan.undone },
+      checks: { passed: checks.passed, notVerified: checks.notVerified, ...(checks.failed > 0 ? { failed: checks.failed } : {}) },
+    };
+    for (const member of world.members) boxes.add(member.userId, body, 'ready');
   }
 }
 
@@ -467,6 +613,8 @@ export function deriveInbox(world: InboxWorld): Map<string, DerivedItem[]> {
   deriveReports(world, boxes);
   deriveMerges(world, boxes);
   deriveAttention(world, boxes);
+  deriveDecisions(world, boxes);
+  deriveReady(world, boxes);
   return boxes.byMember;
 }
 

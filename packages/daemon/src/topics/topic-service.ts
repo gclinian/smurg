@@ -1,9 +1,9 @@
 // TopicService (ARCHITECTURE §5.10): the topics of a workspace. A topic is a folder `specs/<slug>/` in the MAIN
 // workspace with its discussion session; its phase is derived from facts (does SPEC.md exist, does PLAN.md parse, was
-// an item started, is every item reviewed), never set by a request. What this file adds to the shared state
-// (core.ts): creating and renaming, archiving and deleting, the restart of a lost discussion, "Ask the agent to
-// revise", "Write the spec now", the kinds of commands always allowed in every session of the topic, hand edits of
-// the two files, and what goes with a member who is removed.
+// an item started, is every item settled, was the result checked), never set by a request. What this file adds to the
+// shared state (core.ts): creating and renaming, archiving and deleting, the restart of a lost discussion, "Ask the
+// agent to revise", "Write the spec now", the kinds of commands always allowed in every session of the topic, hand
+// edits of the two files, what goes with a member who is removed, and "I've checked the result" (0.7.0, DESIGN D13).
 import { mkdir, rmdir } from 'node:fs/promises';
 import {
   HAND_EDITS_MAX,
@@ -84,10 +84,50 @@ export class TopicServiceImpl implements TopicService {
   private readonly typing = new Map<string, Set<UserId>>();
   /** Whose typing the last save of such a file held (a save nobody typed before only finishes that one). */
   private readonly lastTyped = new Map<string, readonly UserId[]>();
+  /** The scheduler's finishing of merged items (a checked topic's items are finished at once). */
+  private finishPending: () => Promise<void> = async () => {};
 
   constructor(ctx: DaemonContext, core: TopicsCore) {
     this.ctx = ctx;
     this.core = core;
+  }
+
+  attachFinish(finishPending: () => Promise<void>): void {
+    this.finishPending = finishPending;
+  }
+
+  /**
+   * "I've checked the result" (DESIGN 0.7.0 D13), for anyone who may discuss (the router checked `discuss`): only while
+   * the topic is ready to check (`topic.check.notReady`). The topic is complete from then on; its merged items are
+   * finished (their sessions end, their worktrees go; an item that ran in the folder says the result was checked).
+   * A later Start, or a report version registered afterwards, clears the mark (plan-service.ts, report-service.ts).
+   */
+  async check(input: Req<'topic.check'>, principal: Principal): Promise<Topic> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    if (this.core.phaseOf(topic) !== 'ready') throw new SmurgError('conflict', msg('topic.check.notReady'), { reason: 'not-ready' });
+    const at = this.ctx.clock.now();
+    this.core.update(topic.id, (draft) => {
+      draft.checked = { by, at };
+    });
+    const inPlan = topic.items.filter((item) => item.number > 0);
+    this.ctx.audit.record({
+      actor: principal.actor,
+      action: 'topic.check',
+      outcome: 'ok',
+      target: topic.id,
+      detail: {
+        topicId: topic.id,
+        items: inPlan.length,
+        merged: inPlan.filter((item) => item.merged && item.leftOut === undefined && item.undone === undefined).length,
+        leftOut: inPlan.filter((item) => item.leftOut !== undefined).length,
+        undone: inPlan.filter((item) => item.undone !== undefined).length,
+      },
+    });
+    this.core.publish(topic.id);
+    // (the check stands whatever the finishing does: the module's sweep asks again for an item it could not finish)
+    await this.finishPending().catch((err: unknown) => this.ctx.log.error('items of a checked topic not finished', { module: 'topics', topic: topic.id, error: err instanceof Error ? err.name : 'unknown' }));
+    return this.core.toTopic(this.core.need(topic.id));
   }
 
   // ===================================================================================================================

@@ -26,7 +26,7 @@ import type { AutoMergeOutcome, PeopleChange } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { AUTO_MERGE_TRIES, KEPT_HOLDS, withinTextBudget, type AutoMergeVerdict } from './auto-merge-verdict.ts';
-import { itemKey, type TopicsCore } from './core.ts';
+import { isDirect, itemKey, type TopicsCore } from './core.ts';
 import { resolveConflictMessage, verifyAgainMessage } from './prompts.ts';
 import type { StoredAutoMerge, StoredItem, StoredTopic } from './store.ts';
 
@@ -207,6 +207,8 @@ export class AutoMerger {
    */
   private reconcile(topic: StoredTopic, item: StoredItem, now: number, cards: ReadonlySet<string>): boolean {
     const record = item.autoMerge;
+    // An item that ran directly in the folder has nothing to merge: its record is the report service's (DESIGN 0.7.0 D10).
+    if (isDirect(item)) return false;
     if (topic.archived || this.core.mergingOf(item) !== 'auto') {
       if (record === undefined) return false;
       this.drop(topic.id, item.id);
@@ -554,11 +556,12 @@ export class AutoMerger {
     let items = 0;
     for (const topic of this.core.topics()) {
       const rewritten = topic.items.filter((item) => item.pin?.merging === 'auto');
-      if (rewritten.length === 0 && !topic.items.some((item) => item.autoMerge !== undefined)) continue;
+      // (an item that ran directly in the folder keeps what it is held for: that is no merge of anybody's, D10)
+      if (rewritten.length === 0 && !topic.items.some((item) => item.autoMerge !== undefined && !isDirect(item))) continue;
       this.core.update(topic.id, (draft) => {
         for (const item of draft.items) {
           if (item.pin?.merging === 'auto') item.pin = { ...item.pin, merging: 'host' };
-          delete item.autoMerge;
+          if (!isDirect(item)) delete item.autoMerge;
         }
       });
       for (const item of topic.items) this.forget(topic.id, item.id);

@@ -15,9 +15,9 @@ import {
   type Role,
   type RoutingMember,
 } from '@smurg/protocol';
-import { buildMergeRequest, buildPermission, buildPlan, buildQuestion, buildReportSummary, buildSuggestion, buildWorkItem } from '@smurg/protocol/testing';
+import { buildMergeRequest, buildPermission, buildPlan, buildQuestion, buildReportSummary, buildSuggestion, buildTopic, buildWorkItem } from '@smurg/protocol/testing';
 import type { AttentionFact } from '../../src/core/interfaces.ts';
-import { attentionKey, deriveInbox, excerptOf, noteItem, suggestionKey, type DerivedItem, type InboxWorld, type SessionView } from '../../src/inbox/derive.ts';
+import { attentionKey, decisionKey, deriveInbox, excerptOf, noteItem, readyKey, suggestionKey, type DerivedItem, type InboxWorld, type SessionView } from '../../src/inbox/derive.ts';
 import type { StoredNote } from '../../src/inbox/store.ts';
 
 const HOST = 'dev:host';
@@ -43,6 +43,7 @@ interface WorldInput {
   reports?: InboxWorld['reports'];
   merges?: InboxWorld['merges'];
   attention?: InboxWorld['attention'];
+  topics?: InboxWorld['topics'];
 }
 
 /** A world of five members (host Ian, Mei and Ken with agent access, the editor Amy, the viewer Leo), all online. */
@@ -61,6 +62,7 @@ function world(input: WorldInput = {}): InboxWorld {
     session: (sessionId) => input.sessions?.[sessionId] ?? null,
     plan: (topicId) => input.plans?.[topicId] ?? null,
     topicOpen: (topicId) => !(input.archived ?? []).includes(topicId),
+    topics: input.topics ?? [],
   };
 }
 
@@ -385,6 +387,135 @@ describe('DESIGN 0.7.0 D12: a work item that smurg merges by itself', () => {
   });
 });
 
+describe('DESIGN 0.7.0 D9: a decision on a work item', () => {
+  type Hold = NonNullable<PlanInfo['items'][number]['autoMerge']>;
+  const hold = (overrides: Partial<Hold> = {}): Hold => ({ state: 'held', reason: 'partial', since: T + 5, tries: 0, hostOnly: false, escalated: false, ...overrides });
+  /** 1 cart-api (Mei's, held unless said otherwise), 2 checkout-page waiting for it, 3 receipt waiting for 2, 4 search on its own. */
+  function planWith(autoMerge: Hold | undefined, extra: Partial<PlanInfo['items'][number]> = {}): PlanInfo {
+    return buildPlan({
+      items: [
+        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', merging: 'auto', responsible: { ...ref(MEI), source: 'chosen' }, sessionId: 'sess_c', report: buildReportSummary({ outcome: 'partial', checks: { passed: 1, notVerified: 1 } }), ...(autoMerge === undefined ? {} : { autoMerge }), ...extra }),
+        buildWorkItem({ id: 'checkout-page', number: 2, title: 'Checkout page', dependsOn: ['cart-api'], state: 'waiting', armed: true, waitsFor: ['cart-api'] }),
+        buildWorkItem({ id: 'receipt', number: 3, title: 'Receipt', dependsOn: ['checkout-page'], state: 'waiting', armed: true, waitsFor: ['checkout-page'] }),
+        buildWorkItem({ id: 'search', number: 4, title: 'Search', state: 'running', sessionId: 'sess_s' }),
+      ],
+    });
+  }
+  const topics = [buildTopic({ phase: 'executing' })];
+  const input = (autoMerge: Hold | undefined, extra: Partial<WorldInput> = {}, item: Partial<PlanInfo['items'][number]> = {}): WorldInput => ({
+    topics,
+    plans: { tp_1: planWith(autoMerge, item) },
+    sessions: { sess_c: sessionOf(MEI, { topicId: 'tp_1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' } }) },
+    ...extra,
+  });
+
+  it('is in the responsible person\'s inbox and waits; escalated, also the host\'s and agent access\'s, whose copies say who has not decided', () => {
+    expect(holders(input(hold()), 'decision')).toEqual([MEI]);
+    expect(itemOf(input(hold()), MEI, 'decision')).toEqual({
+      key: 'decision:tp_1.cart-api',
+      kind: 'decision',
+      at: T + 5,
+      unread: true,
+      waiting: true,
+      topicId: 'tp_1',
+      itemId: 'cart-api',
+      item: { number: 1, title: 'Cart API' },
+      sessionId: 'sess_c',
+      target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' },
+      excerpt: '',
+      reason: 'partial',
+      unblocks: [2, 3],
+      outcome: 'partial',
+      checks: { passed: 1, notVerified: 1 },
+    });
+    const escalated = input(hold({ escalated: true }));
+    expect(holders(escalated, 'decision')).toEqual([HOST, MEI, KEN]);
+    expect(itemOf(escalated, HOST, 'decision')).toMatchObject({ escalated: true, waitsFor: ref(MEI), waitsForOffline: false, alsoFor: [ref(MEI), ref(KEN)] });
+    expect(itemOf(escalated, MEI, 'decision').waitsFor).toBeUndefined();
+  });
+
+  it('a hold only the host settles is the host\'s alone (a hand edit by someone without agent access among them); a hold that is not about the report carries no outcome', () => {
+    for (const reason of ['policy', 'by-hand', 'branch', 'local-changes'] as const) {
+      expect(holders(input(hold({ reason, hostOnly: true, paths: ['CLAUDE.md'] })), 'decision'), reason).toEqual([HOST]);
+    }
+    const conflict = itemOf(input(hold({ reason: 'conflict', paths: ['src/app.ts'], people: [{ path: 'src/app.ts', by: [ref(AMY)], outside: false }] })), MEI, 'decision');
+    expect(conflict).toMatchObject({ reason: 'conflict', unblocks: [2, 3] });
+    expect(conflict.outcome).toBeUndefined();
+    expect(conflict.checks).toBeUndefined();
+  });
+
+  it('nobody responsible, or an Editor responsible: the host and agent access, as for a permission request', () => {
+    const nobody = { ...input(hold()), sessions: { sess_c: sessionOf(null, { topicId: 'tp_1', itemId: 'cart-api' }) } };
+    expect(holders(nobody, 'decision')).toEqual([HOST, MEI, KEN]);
+    const editor = { ...input(hold()), sessions: { sess_c: sessionOf(AMY, { topicId: 'tp_1', itemId: 'cart-api' }) } };
+    expect(holders(editor, 'decision')).toEqual([HOST, MEI, KEN]);
+    // Before the item has a session, the plan's record says who is responsible.
+    expect(holders({ ...input(hold()), sessions: {} }, 'decision')).toEqual([MEI]);
+  });
+
+  it('leaves when the hold goes, waits and the agent at work are none; nothing in an archived topic; a new reason or a later hold is unread again', () => {
+    expect(holders(input(undefined), 'decision')).toEqual([]);
+    expect(holders(input(hold({ state: 'waiting', reason: 'typing' })), 'decision')).toEqual([]);
+    expect(holders(input(hold({ state: 'resolving', reason: 'conflict' })), 'decision')).toEqual([]);
+    expect(holders({ ...input(hold()), topics: [buildTopic({ archived: true })] }, 'decision')).toEqual([]);
+    const stamp = (autoMerge: Hold): string | undefined => deriveInbox(world(input(autoMerge))).get(MEI)?.find((entry) => entry.body.kind === 'decision')?.stamp;
+    expect(stamp(hold())).toBe(`partial:${T + 5}`);
+    expect(stamp(hold({ reason: 'check-failed' }))).toBe(`check-failed:${T + 5}`);
+    expect(stamp(hold({ since: T + 9 }))).toBe(`partial:${T + 9}`);
+    expect(decisionKey('tp_1', 'cart-api')).toBe('decision:tp_1.cart-api');
+  });
+
+  it('a question, a permission request and an attention item of a work item say which items wait for it, also through another', () => {
+    const where = { topicId: 'tp_1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' } };
+    const base: WorldInput = { topics, plans: { tp_1: planWith(undefined) }, sessions: { sess_a: sessionOf(MEI, where) } };
+    expect(itemOf({ ...base, questions: [buildQuestion()] }, MEI, 'question').unblocks).toEqual([2, 3]);
+    expect(itemOf({ ...base, permissions: [buildPermission()] }, MEI, 'permission').unblocks).toEqual([2, 3]);
+    const stalled: AttentionFact = { subject: 'item-stalled', id: 'tp_1.cart-api', at: T, recipients: [MEI], ...where, sessionId: 'sess_a', target: { kind: 'session', sessionId: 'sess_a' }, excerpt: '' };
+    expect(itemOf({ ...base, attention: [stalled] }, MEI, 'attention').unblocks).toEqual([2, 3]);
+    // An item nothing waits for (search) has none.
+    const search: AttentionFact = { ...stalled, id: 'tp_1.search', itemId: 'search', item: { number: 4, title: 'Search' } };
+    expect(itemOf({ ...base, attention: [search] }, MEI, 'attention').unblocks).toBeUndefined();
+  });
+});
+
+describe('DESIGN 0.7.0 D13: a topic ready to check', () => {
+  const merged = (id: string, number: number, checks: { passed: number; notVerified: number; failed?: number }, at: number): PlanInfo['items'][number] =>
+    buildWorkItem({ id, number, title: id, state: 'done', merging: 'auto', merged: { at, by: 'smurg' }, report: buildReportSummary({ checks }) });
+  const plan = buildPlan({
+    items: [
+      merged('cart-api', 1, { passed: 2, notVerified: 1 }, T + 10),
+      merged('receipt', 2, { passed: 1, notVerified: 0, failed: 0 }, T + 20),
+      buildWorkItem({ id: 'search', number: 3, title: 'search', state: 'stopped', leftOut: { by: ref(MEI), at: T + 30 }, report: buildReportSummary({ outcome: 'partial', checks: { passed: 0, notVerified: 4 } }) }),
+    ],
+  });
+  const ready = buildTopic({ phase: 'ready', name: 'Checkout\u0007 page', plan: { exists: true, valid: true, generating: false, stale: false, mode: 'assigned', paused: false, items: 3, started: 3, reviewed: 0, merged: 2, leftOut: 1, undone: 0 } });
+
+  it('is in every member\'s inbox, Viewers included, and waits for nobody; it counts the items and the checks of the merged ones', () => {
+    const input: WorldInput = { topics: [ready], plans: { tp_1: plan } };
+    expect(holders(input, 'ready')).toEqual(EVERYONE);
+    expect(itemOf(input, LEO, 'ready')).toEqual({
+      key: 'ready:tp_1',
+      kind: 'ready',
+      at: T + 30,
+      unread: true,
+      waiting: false,
+      topicId: 'tp_1',
+      target: { kind: 'result', topicId: 'tp_1' },
+      excerpt: 'Checkout page',
+      tally: { items: 3, merged: 2, leftOut: 1, undone: 0 },
+      checks: { passed: 3, notVerified: 1 },
+    });
+    expect(deriveInbox(world(input)).get(LEO)?.[0]?.stamp).toBe('ready');
+    expect(readyKey('tp_1')).toBe('ready:tp_1');
+  });
+
+  it('leaves when the topic is checked, archived, or not ready any more', () => {
+    for (const topic of [{ ...ready, phase: 'complete' as const, checked: { by: ref(MEI), at: T } }, { ...ready, archived: true }, { ...ready, phase: 'executing' as const }]) {
+      expect(holders({ topics: [topic], plans: { tp_1: plan } }, 'ready')).toEqual([]);
+    }
+  });
+});
+
 describe('attention: work that stopped and has no card', () => {
   const fact = (overrides: Partial<AttentionFact> & Pick<AttentionFact, 'subject' | 'id' | 'recipients' | 'target'>): AttentionFact => ({ at: T, excerpt: '', ...overrides });
 
@@ -438,7 +569,14 @@ describe('what an item carries', () => {
       reports: [{ topicId: 'tp_1', itemId: 'cart-api', report: buildReportSummary({ escalatedAt: T }) }],
       merges: [buildMergeRequest({ topicId: 'tp_1', itemId: 'cart-api' })],
       attention: [{ subject: 'account', id: 'workspace', at: T, recipients: [HOST], target: { kind: 'console', section: 'sessions' }, count: 2, excerpt: '' }],
+      // protocol 6: a held item of one topic, and another topic ready to check
+      topics: [buildTopic({ phase: 'executing' }), buildTopic({ id: 'tp_2', phase: 'ready' })],
     };
+    const plans: Record<string, PlanInfo> = {
+      tp_1: buildPlan({ items: [buildWorkItem(), buildWorkItem({ id: 'search', number: 2, title: 'Search', state: 'done', merging: 'auto', autoMerge: { state: 'held', reason: 'not-verified', since: T, tries: 0, hostOnly: false, escalated: true }, report: buildReportSummary() })] }),
+      tp_2: buildPlan({ topicId: 'tp_2' }),
+    };
+    input.plans = plans;
     const derived = deriveInbox(world(input));
     const kinds = new Set<string>();
     for (const userId of derived.keys()) {
@@ -451,8 +589,9 @@ describe('what an item carries', () => {
         expect(Object.values(item).every((value) => value !== undefined)).toBe(true);
       }
     }
-    expect([...kinds].sort()).toEqual(['attention', 'merge', 'permission', 'question', 'report', 'suggestion', 'vote']);
-    expect(derived.has(LEO)).toBe(false);
+    expect([...kinds].sort()).toEqual(['attention', 'decision', 'merge', 'permission', 'question', 'ready', 'report', 'suggestion', 'vote']);
+    // (a Viewer holds a topic ready to check, and nothing else)
+    expect(itemsOf(derived, LEO).map((item) => item.kind)).toEqual(['ready']);
   });
 
   it('excerptOf: valid for the wire whatever it is given, clipped with an ellipsis, never inside a surrogate pair', () => {

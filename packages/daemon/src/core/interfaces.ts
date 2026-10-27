@@ -2047,6 +2047,11 @@ export interface TopicService {
   delete(input: Req<'topic.delete'>, principal: Principal): Promise<void>;
   restartDiscussion(input: Req<'topic.discussion.restart'>, principal: Principal): Promise<{ readonly topic: Topic; readonly session: AgentSession }>;
   /**
+   * "I've checked the result" (DESIGN 0.7.0 D13): refused unless the topic is ready to check (`topic.check.notReady`).
+   * The topic is complete from then on, and its work items are finished (their sessions end, their worktrees go).
+   */
+  check(input: Req<'topic.check'>, principal: Principal): Promise<Topic>;
+  /**
    * `topic.agent.set` (DESIGN 0.6.0 D3, D4): the model of the topic's new sessions and the mode its work items follow
    * (null: the host's default / the workspace's; a key left out stays). Audit `topic.agent`; then
    * AgentSessions.topicAgentChanged. The caller checked the model (`model-offered`).
@@ -2103,6 +2108,18 @@ export interface PlanService {
   continueItem(input: Req<'plan.item.continue'>, principal: Principal): Promise<void>;
   /** → WorktreeManager.updateFromMain, then `resolve-conflict` to the item's session. */
   resolveItem(input: Req<'plan.item.resolve'>, principal: Principal): Promise<void>;
+  /**
+   * "Leave it out" (DESIGN 0.7.0 D11): the item and every item of the plan that depends on it and is not merged are left
+   * out, their sessions ended (their worktrees kept); a merge of one of them that is under way is waited for first.
+   * Refused for a merged item (`plan.item.leaveOut.merged`).
+   */
+  leaveOut(input: Req<'plan.item.leaveOut'>, principal: Principal): Promise<PlanInfo>;
+  /** "Accept as it is" (DESIGN 0.7.0 D10, the host): a held item that ran directly in the folder counts as merged. */
+  accept(input: Req<'plan.item.accept'>, principal: Principal): Promise<PlanInfo>;
+  /** "Merge it as it is" (DESIGN 0.7.0 D9): the current version of a held item stands; smurg merges it when it is otherwise in order. */
+  release(input: Req<'plan.item.release'>, principal: Principal): Promise<PlanInfo>;
+  /** "Ask the agent to take them out" (DESIGN 0.7.0 D9, the host): `remove-paths` with the files only the host may merge. */
+  removePaths(input: Req<'plan.item.removePaths'>, principal: Principal): Promise<void>;
   /** MCP `check_plan` (the session is in `ctx`, never in an argument). Messages are fixed English for the model. */
   checkPlan(ctx: McpToolContext): { readonly ok: true; readonly items: number; readonly warnings: readonly string[] } | Extract<FileCheck, { ok: false }>;
   /** MCP `propose_split`. */

@@ -164,6 +164,33 @@ export const planItemContinuePayloadSchema = topicItemPayloadSchema;
 export const planItemResolvePayloadSchema = topicItemPayloadSchema;
 export const planItemActionResultSchema = emptyPayloadSchema;
 
+// ---- protocol 6 (DESIGN 0.7.0 D9, D10, D11, D13): what a person decides about a work item, and the end ----
+
+/**
+ * "I've checked the result": refused unless the topic is ready to check (`topic.check.notReady`). The topic is then
+ * complete and its work items' sessions end. Anyone who may discuss.
+ */
+export const topicCheckPayloadSchema = topicIdPayloadSchema;
+/**
+ * "Leave it out": the item and every item of the plan that depends on it and is not merged are left out (not merged,
+ * not started, their sessions ended, their worktrees kept), without editing PLAN.md. Refused for a merged item
+ * (`plan.item.leaveOut.merged`: undo is the way back for that).
+ */
+export const planItemLeaveOutPayloadSchema = topicItemPayloadSchema;
+/**
+ * "Accept as it is" (the host): an item that ran directly in the shared folder and whose report is not complete and
+ * verified counts as merged after all; what depends on it starts. `version`: the report version the host read.
+ */
+export const planItemAcceptPayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemId: itemIdSchema, version: z.int().min(1) });
+/**
+ * "Merge it as it is": the current version of an item that smurg merges by itself stands although somebody wrote to its
+ * agent since, a later turn was stopped, or its report was not checked again; smurg merges it when it is otherwise in
+ * order. `version`: the report version the caller read.
+ */
+export const planItemReleasePayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemId: itemIdSchema, version: z.int().min(1) });
+/** "Ask the agent to take them out" (the host): the item changes files only the host may merge; its agent is asked to undo those changes. */
+export const planItemRemovePathsPayloadSchema = topicItemPayloadSchema;
+
 export const reportGetPayloadSchema = topicItemPayloadSchema;
 export const reportGetResultSchema = z.strictObject({ report: reportInfoSchema });
 export const reportUpdatedPayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemId: itemIdSchema, report: reportSummarySchema });

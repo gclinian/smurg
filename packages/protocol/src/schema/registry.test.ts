@@ -153,6 +153,12 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['plan.item.retry', 'c→d', '[session.create]'],
   ['plan.item.continue', 'c→d', '[session.drive]'],
   ['plan.item.resolve', 'c→d', '[session.drive]'],
+  // protocol 6 (DESIGN 0.7.0 Appendix A; ARCHITECTURE §5.10 gains these rows with the docs of 0.7.0)
+  ['topic.check', 'c→d', '[discuss]'],
+  ['plan.item.leaveOut', 'c→d', '[session.drive]'],
+  ['plan.item.accept', 'c→d', '[worktree.merge.decide]'],
+  ['plan.item.release', 'c→d', '[session.drive]'],
+  ['plan.item.removePaths', 'c→d', '[worktree.merge.decide]'],
   ['report.get', 'c→d', '[session.view]'],
   ['report.updated', 'd→c', ''],
   ['report.followUp', 'c→d', '[suggest.create]'],
@@ -514,6 +520,8 @@ describe('wire types and router checks', () => {
       'session.message.send', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible.set', 'session.mode.set', 'session.model.set', 'session.rule.remove', 'session.rename',
       'permission.decide', 'topic.rename', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove', 'topic.agent.set',
       'plan.generate', 'plan.mode.set', 'plan.assign', 'plan.suggest', 'plan.resume', 'plan.item.continue', 'plan.item.resolve',
+      // protocol 6: "Leave it out" and "Merge it as it is" are the carers' (agent access)
+      'plan.item.leaveOut', 'plan.item.release',
     ]) {
       expect(mayInvoke('host', type)).toBe(true);
       expect(mayInvoke('agent', type)).toBe(true);
@@ -528,7 +536,7 @@ describe('wire types and router checks', () => {
       expect(mayInvoke('viewer', type), type).toBe(false);
     }
     // Everyone but viewers votes, comments, submits among the options (the handler checks who decides) and reviews.
-    for (const type of ['question.vote', 'question.comment', 'question.submit', 'question.remind', 'question.seen', 'report.review']) {
+    for (const type of ['question.vote', 'question.comment', 'question.submit', 'question.remind', 'question.seen', 'report.review', 'topic.check']) {
       for (const role of ['host', 'agent', 'editor'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
       expect(mayInvoke('viewer', type), type).toBe(false);
     }
@@ -540,6 +548,11 @@ describe('wire types and router checks', () => {
     // Viewers watch everything.
     for (const type of ['session.list', 'session.host.get', 'session.watch', 'session.history', 'session.cards.get', 'session.rules.get', 'topic.list', 'plan.get', 'plan.changes', 'report.get', 'inbox.list', 'worktree.merge.diff']) {
       expect(mayInvoke('viewer', type), type).toBe(true);
+    }
+    // Protocol 6: what only the host settles about a work item ("Accept as it is", "Ask the agent to take them out").
+    for (const type of ['plan.item.accept', 'plan.item.removePaths']) {
+      expect(mayInvoke('host', type), type).toBe(true);
+      for (const role of ['agent', 'editor', 'viewer'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(false);
     }
     for (const type of ['topic.delete', 'admin.claudeConfig.decide', 'admin.hostRules.get', 'admin.transcript.redact']) {
       expect(mayInvoke('host', type), type).toBe(true);

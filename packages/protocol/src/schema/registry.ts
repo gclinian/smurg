@@ -555,6 +555,14 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'plan.item.resolve': request(topics.planItemResolvePayloadSchema, topics.planItemActionResultSchema, 'session.drive', {
     checks: ['topic-open'],
   }),
+  // protocol 6 (DESIGN 0.7.0 D9, D10, D11, D13)
+  'topic.check': request(topics.topicCheckPayloadSchema, topics.topicResultSchema, 'discuss', { checks: ['topic-open'] }),
+  'plan.item.leaveOut': request(topics.planItemLeaveOutPayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.item.accept': request(topics.planItemAcceptPayloadSchema, topics.planResultSchema, 'worktree.merge.decide', { checks: ['topic-open'] }),
+  'plan.item.release': request(topics.planItemReleasePayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  'plan.item.removePaths': request(topics.planItemRemovePathsPayloadSchema, topics.planItemActionResultSchema, 'worktree.merge.decide', {
+    checks: ['topic-open'],
+  }),
   'report.get': request(topics.reportGetPayloadSchema, topics.reportGetResultSchema, 'session.view', {
     resultSensitive: true,
     redact: ['done', 'why', 'watchOut', 'followUps', 'text', 'note'],

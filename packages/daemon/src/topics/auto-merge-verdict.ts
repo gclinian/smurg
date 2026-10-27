@@ -162,6 +162,22 @@ export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict
   return NONE;
 }
 
+/**
+ * An item that ran directly in the shared folder (DESIGN 0.7.0 D10): its change is in the folder already, and nothing is
+ * merged. It COUNTS as merged (what depends on it may start) only when its report is complete and verified, as D6's
+ * rows 10–12 say, and was checked in the turn that produced it (row 13: else its agent is asked once to check it
+ * again); otherwise it is held for its carers. In both merging settings: 0.6.0 let dependents start on unfinished work.
+ */
+export type DirectVerdict = { readonly kind: 'merged' } | { readonly kind: 'verify' } | { readonly kind: 'hold'; readonly reason: 'partial' | 'blocked' | 'check-failed' | 'not-verified' };
+
+export function directVerdict(report: { readonly outcome: ReportOutcome; readonly checks: { readonly passed: number; readonly failed?: number }; readonly checkedInTurn: boolean }): DirectVerdict {
+  if (report.outcome === 'partial') return { kind: 'hold', reason: 'partial' };
+  if (report.outcome === 'blocked') return { kind: 'hold', reason: 'blocked' };
+  if ((report.checks.failed ?? 0) > 0) return { kind: 'hold', reason: 'check-failed' };
+  if (report.checks.passed === 0) return { kind: 'hold', reason: 'not-verified' };
+  return report.checkedInTurn ? { kind: 'merged' } : { kind: 'verify' };
+}
+
 /** What `WorkItem.autoMerge` needs besides the verdict: the times and the people of the facts behind it. */
 export interface AutoMergeWireFacts {
   readonly record: StoredAutoMerge | undefined;
@@ -195,21 +211,25 @@ export function withinTextBudget<T extends { readonly paths?: readonly string[];
  * the agent at work), else what the verdict computes (`queued`, `paused`, `busy`, `asked`, the holds of rows 5–13).
  * Absent: nothing is waited for (it is merged, or not smurg's).
  */
+/** The wire's `WorkItem.autoMerge` of a stored record as it is (also an item that ran directly in the folder, DESIGN 0.7.0 D10). */
+export function autoMergeInfoOfRecord(stored: StoredAutoMerge, facts: Pick<AutoMergeWireFacts, 'tries' | 'changesAsked'>): AutoMergeInfo {
+  return withinTextBudget({
+    state: stored.state,
+    reason: stored.reason,
+    since: stored.since,
+    tries: facts.tries,
+    hostOnly: stored.hostOnly,
+    escalated: stored.escalatedAt !== undefined,
+    ...(stored.paths === undefined || stored.paths.length === 0 ? {} : { paths: [...stored.paths] }),
+    ...(stored.branch === undefined ? {} : { branch: { ...stored.branch } }),
+    ...(stored.people === undefined || stored.people.length === 0 ? {} : { people: stored.people }),
+    ...(stored.reason === 'asked' && facts.changesAsked !== undefined ? { asked: { ...facts.changesAsked.by } } : {}),
+  });
+}
+
 export function autoMergeInfoOf(verdict: AutoMergeVerdict, facts: AutoMergeWireFacts): AutoMergeInfo | undefined {
   const record = facts.record;
-  const fromRecord = (stored: StoredAutoMerge): AutoMergeInfo =>
-    withinTextBudget({
-      state: stored.state,
-      reason: stored.reason,
-      since: stored.since,
-      tries: facts.tries,
-      hostOnly: stored.hostOnly,
-      escalated: stored.escalatedAt !== undefined,
-      ...(stored.paths === undefined || stored.paths.length === 0 ? {} : { paths: [...stored.paths] }),
-      ...(stored.branch === undefined ? {} : { branch: { ...stored.branch } }),
-      ...(stored.people === undefined || stored.people.length === 0 ? {} : { people: stored.people }),
-      ...(stored.reason === 'asked' && facts.changesAsked !== undefined ? { asked: { ...facts.changesAsked.by } } : {}),
-    });
+  const fromRecord = (stored: StoredAutoMerge): AutoMergeInfo => autoMergeInfoOfRecord(stored, facts);
   const since = facts.reportAt ?? 0;
   const computed = (state: AutoMergeInfo['state'], reason: AutoMergeReason, at: number, paths?: readonly string[]): AutoMergeInfo => {
     const hostOnly = state === 'held' && (HOST_HOLDS as readonly string[]).includes(reason);

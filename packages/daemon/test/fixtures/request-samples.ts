@@ -91,6 +91,12 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'plan.item.retry': { topicId: 'tp_nope', itemId: 'cart-api' },
   'plan.item.continue': { topicId: 'tp_nope', itemId: 'cart-api' },
   'plan.item.resolve': { topicId: 'tp_nope', itemId: 'cart-api' },
+  // protocol 6 (DESIGN 0.7.0 D9, D10, D11, D13)
+  'topic.check': { topicId: 'tp_nope' },
+  'plan.item.leaveOut': { topicId: 'tp_nope', itemId: 'cart-api' },
+  'plan.item.accept': { topicId: 'tp_nope', itemId: 'cart-api', version: 1 },
+  'plan.item.release': { topicId: 'tp_nope', itemId: 'cart-api', version: 1 },
+  'plan.item.removePaths': { topicId: 'tp_nope', itemId: 'cart-api' },
   'report.get': { topicId: 'tp_nope', itemId: 'cart-api' },
   'report.followUp': { topicId: 'tp_nope', itemId: 'cart-api', text: 'why not check stock here?' },
   'report.review': { topicId: 'tp_nope', itemId: 'cart-api', version: 1 },

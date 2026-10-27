@@ -7,7 +7,9 @@
 //    only the host starts, and only after confirming; the items run in the shared folder itself, one at a time, with
 //    the direct role prompt; the report has no diff (`no-history`) and counts as merged at registration; a follow-up
 //    to an earlier item waits for the folder while another item works (`conversation.direct.waits`) and runs before
-//    the next item starts; the review ends the session (`reviewed`).
+//    the next item starts (0.7.0, DESIGN D10: its change made a version whose report was not checked in its turn, so
+//    the item counts as merged again only after its agent checked the report when asked); the review ends the session
+//    (`reviewed`).
 //  - An item starts only in the history its Start used: a retry of a worktree item after git went missing, or an armed
 //    item of smurg's history after `.smurg/git` was tampered with, is disarmed with `plan.start.historyChanged`, and
 //    nothing runs in the folder.
@@ -294,6 +296,71 @@ withGit('an item starts only in the history its Start used (DESIGN 0.6.0 D15)', 
   });
 });
 
+describe('without a usable git program, an unfinished report no longer lets what depends on it start (DESIGN 0.7.0 D10)', { timeout: 240_000 }, () => {
+  /** A stack whose git is too old, a plan of two items (the second depends on the first), started by the host. */
+  async function directPlan(turns: { match?: string; steps: FakeClaudeStep[] }[]): Promise<{ s: Stack; topicId: string }> {
+    const bin = await createTempDir('no-git-old');
+    cleanups.push(() => removeTempDir(bin));
+    const oldGit = join(bin, 'git');
+    await writeFile(oldGit, '#!/bin/sh\nif [ "$1" = version ]; then echo "git version 2.39.5"; exit 0; fi\nexit 1\n', { mode: 0o755 });
+    const s = await startStack({ git: false, gitPath: oldGit });
+    await s.claude.setScenario({ turns: [...turns, { steps: [{ text: 'ok' }] }] });
+    const topicId = await topicWithPlan(s, [{ id: 'cart-api' }, { id: 'checkout-page', dependsOn: ['cart-api'] }]);
+    await s.ian.conn.request('plan.assign', { topicId, itemId: 'cart-api', userId: TEST_HOST_USER });
+    const { preflight } = await s.ian.conn.request('plan.preflight', { topicId });
+    expect(preflight.history).toBe('direct');
+    await s.ian.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, direct: true });
+    return { s, topicId };
+  }
+  const partial: FakeClaudeStep[] = [
+    { tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } },
+    { tool: 'Write', input: { file_path: topicReportPath(SLUG, 'cart-api'), content: reportText('cart-api', { outcome: 'partial' }) } },
+    { tool: 'mcp__smurg__check_report', input: {} },
+    { text: 'Half of it.' },
+  ];
+
+  it('a partial report is a decision for its carers and its dependent waits; a member cannot accept it; the host\'s "Accept as it is" lets the dependent start', async () => {
+    const { s, topicId } = await directPlan([
+      { match: 'Start work item 1 ', steps: partial },
+      { match: 'Start work item 2 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'export const page = 1;\n' } }, ...handIn('checkout-page')] },
+    ]);
+    const held = await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held', 'the first item to be held');
+    expect(held.items[0]).toMatchObject({ state: 'done', autoMerge: { state: 'held', reason: 'partial', hostOnly: false }, report: { outcome: 'partial' } });
+    expect(held.items[0]?.merging).toBeUndefined();
+    expect(held.items[1]).toMatchObject({ state: 'waiting', waitsFor: ['cart-api'] });
+    expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(0);
+    expect(await refusal(s.mei.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 1 }))).toMatchObject({ code: 'forbidden' });
+    expect(await refusal(s.ian.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 2 }))).toMatchObject({ code: 'conflict', id: 'report.changed' });
+    expect(await refusal(s.ian.conn.request('plan.item.accept', { topicId, itemId: 'checkout-page', version: 1 }))).toMatchObject({ code: 'conflict', reason: 'not-held', id: 'plan.item.accept.notHeld' });
+
+    const { plan } = await s.ian.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 1 });
+    expect(plan.items[0]).toMatchObject({ merged: { by: { userId: TEST_HOST_USER } } });
+    expect(plan.items[0]?.autoMerge).toBeUndefined();
+    const audit = (await s.ian.conn.request('admin.audit.query', { limit: 200 })).entries.filter((entry) => entry.action === 'plan.item.accept');
+    expect(audit.map((entry) => entry.detail)).toEqual([{ topicId, itemId: 'cart-api', version: 1, outcome: 'partial', reason: 'partial' }]);
+    // What depended on it starts, and its complete report lets it count by itself.
+    await planIs(s, topicId, (next) => next.items[1]?.state === 'done', 'the dependent item to run');
+    expect(itemOf(s, topicId, 'checkout-page')?.autoMerge).toBeUndefined();
+    expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(2);
+  });
+
+  it('"Continue": the agent finishes the work, and the complete version counts as merged by itself', async () => {
+    const { s, topicId } = await directPlan([
+      { match: 'Start work item 1 ', steps: partial },
+      { match: 'Continue the work item', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 2;\n' } }, ...handIn('cart-api', 'All of it.')] },
+      { match: 'Start work item 2 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'export const page = 1;\n' } }, ...handIn('checkout-page')] },
+    ]);
+    await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held', 'the first item to be held');
+    await s.ian.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    const merged = await planIs(s, topicId, (plan) => plan.items[0]?.report?.version === 2 && plan.items[1]?.state !== 'waiting', 'the second version to let the dependent start');
+    expect(merged.items[0]?.autoMerge).toBeUndefined();
+    expect(merged.items[0]?.merged).toBeUndefined();
+    await planIs(s, topicId, (plan) => plan.items[1]?.state === 'done', 'the dependent item to run');
+    expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(2);
+    expect(await readFile(join(s.root, 'src', 'cart.ts'), 'utf8')).toBe('export const cart = 2;\n');
+  });
+});
+
 describe('without a usable git program: work items run directly in the shared folder (DESIGN 0.6.0 D15)', { timeout: 240_000 }, () => {
   it('the host alone starts them after confirming; one at a time in the folder itself; no diff; a follow-up waits for the folder and runs before the next item; the review ends the session', async () => {
     const bin = await createTempDir('no-git-old');
@@ -307,6 +374,8 @@ describe('without a usable git program: work items run directly in the shared fo
         { match: 'Start work item 2 ', steps: [{ sleep: 2_500 }, { tool: 'Write', input: { file_path: 'src/pay.ts', content: 'export const pay = 1;\n' } }, ...handIn('payment-form', 'Created src/pay.ts.')] },
         { match: 'Start work item 3 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'export const page = 1;\n' } }, ...handIn('checkout-page', 'Created src/page.ts.')] },
         { match: 'also handle empty carts', steps: [{ tool: 'Write', input: { file_path: 'src/empty.ts', content: 'export const empty = true;\n' } }, { text: 'Added.' }] },
+        // (0.7.0, DESIGN D10: that change is a version whose report was not checked in its turn; asked, the agent checks it)
+        { match: 'Verify again', steps: [{ tool: 'mcp__smurg__check_report', input: {} }, { text: 'Checked again.' }] },
         { steps: [{ text: 'ok' }] },
       ],
     });

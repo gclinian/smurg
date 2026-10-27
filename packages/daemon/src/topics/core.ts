@@ -12,6 +12,7 @@ import {
   agentAccessMembers,
   agentSafeName,
   can,
+  decisionRecipients,
   permissionRecipients,
   reviewersOf,
   topicFileKind,
@@ -41,7 +42,7 @@ import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { attentionFacts } from './attention.ts';
-import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeVerdict, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
+import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
 import { parsePlan, planFingerprint, type ParsedItem, type PlanParse } from './plan-format.ts';
 import { evenSplit, SIZE_WEIGHT, type SplitPerson } from './split.ts';
 import {
@@ -134,6 +135,11 @@ const IN_A_TURN: ReadonlySet<string> = new Set(['starting', 'running', 'waiting-
 /** An item that was started at least once, or is armed to start: it is no longer "not started" for the plan's counts. */
 export function isStarted(item: StoredItem): boolean {
   return item.armed || item.sessionId !== undefined || item.sessions.length > 0;
+}
+
+/** An item whose Start said it runs directly in the shared folder (no git, DESIGN 0.6.0 D15): nothing of it is merged. */
+export function isDirect(item: Pick<StoredItem, 'pin' | 'direct'>): boolean {
+  return item.pin?.history === 'direct' || item.direct === true;
 }
 
 function newItem(parsed: ParsedItem, now: number): StoredItem {
@@ -419,13 +425,59 @@ export class TopicsCore {
     return this.report(topic.id, item.id)?.state === 'reviewed';
   }
 
+  /**
+   * DESIGN 0.7.0 D13: once anything was started, a topic is `complete` when its result was checked, or when every item
+   * of its plan is settled AND reviewed; `ready` (to check) when every item is settled; else `executing`. (0.6.0 said
+   * complete once every item was reviewed: under automatic merging a review is a mark anyone may set, also on an
+   * unfinished report, so it can no longer end a topic by itself.)
+   */
   phaseOf(topic: StoredTopic): TopicPhase {
     const inPlan = topic.items.filter((item) => item.number > 0);
     if (topic.items.some((item) => isStarted(item) || item.startedBy !== undefined)) {
-      return inPlan.length > 0 && inPlan.every((item) => this.isReviewed(topic, item)) ? 'complete' : 'executing';
+      if (topic.checked !== undefined) return 'complete';
+      if (inPlan.length === 0 || !this.allSettled(topic, inPlan)) return 'executing';
+      return inPlan.every((item) => this.isReviewed(topic, item)) ? 'complete' : 'ready';
     }
     if (topic.plan.exists && topic.plan.valid && topic.plan.parsed) return 'plan';
     return topic.spec.exists ? 'spec' : 'discussing';
+  }
+
+  /**
+   * Whether every one of these items is settled (DESIGN 0.7.0 D13, R-SAFE S10): left out or undone; or merged, with its
+   * current request the merged one (an item that ran directly in the folder: counted as merged at registration or
+   * accepted), AND nothing of it still in progress: nothing smurg's merge queue waits for or holds, no follow-up whose
+   * answer is to come (a message no turn has taken, a suggestion not decided), no open turn and no open card of its
+   * session, and nothing in its worktree that no merge carried. A person's message to a merged item whose turn ended
+   * without a new version (`changesAsked` stays until one) is answered: nothing of it is in progress, and a change that
+   * turn left without a report is what its worktree holds unmerged. The cheap facts first: what the sessions, the
+   * cards and the worktrees say is asked only when every item is merged.
+   */
+  private allSettled(topic: StoredTopic, items: readonly StoredItem[]): boolean {
+    const merged = items.filter((item) => item.leftOut === undefined && item.undone === undefined);
+    for (const item of merged) {
+      if (!item.merged || (item.merge !== undefined && item.merge.status !== 'merged')) return false;
+      if (item.autoMerge !== undefined) return false;
+      if ((this.report(topic.id, item.id)?.pending.length ?? 0) > 0) return false;
+    }
+    if (merged.length === 0) return true;
+    const cards = this.sessionsWithCards();
+    for (const item of merged) {
+      const session = this.sessionAtWork(topic, item, cards);
+      if (session !== null && (session.turnOpen || session.openCards > 0)) return false;
+    }
+    if (merged.some((item) => item.worktreeId !== undefined)) {
+      const worktrees = this.ctx.services.worktrees;
+      if (isStubService(worktrees)) return true;
+      let unmerged: ReadonlySet<string>;
+      try {
+        unmerged = new Set(worktrees.unmerged(topic.id).map((worktree) => worktree.id));
+      } catch {
+        // (a question that cannot be answered counts as "something is still in progress")
+        return false;
+      }
+      if (merged.some((item) => item.worktreeId !== undefined && unmerged.has(item.worktreeId))) return false;
+    }
+    return true;
   }
 
   toTopic(topic: StoredTopic): Topic {
@@ -469,6 +521,8 @@ export class TopicsCore {
       },
       rules: topic.rules,
       agent: { model: topic.agent?.model ?? null, permissionMode: topic.agent?.permissionMode ?? null },
+      // protocol 6 (DESIGN 0.7.0 D13): "I've checked the result"
+      ...(topic.checked === undefined ? {} : { checked: topic.checked }),
     });
   }
 
@@ -513,14 +567,12 @@ export class TopicsCore {
     return outside.length === 0 ? null : outside;
   }
 
-  /** What D6 reads of an item (the stores, the session, the request). */
-  verdictInputOf(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string> = this.sessionsWithCards()): AutoMergeVerdictInput {
-    const key = itemKey(topic.id, item.id);
-    const report = this.report(topic.id, item.id);
-    const pointer = item.merge;
-    const known = pointer === undefined ? undefined : this.requests.get(pointer.requestId);
-    // In a turn: its session runs one, a message waits for one, or the end of one is being looked at.
-    const inHand = (this.turnsInHand.get(key) ?? 0) > 0;
+  /**
+   * What the item's session is doing (D6 row 4, D13): in a turn (its session runs one, a message waits for one, or the
+   * end of one is being looked at) and whether it has a card open. null: no live session and no turn in hand.
+   */
+  sessionAtWork(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string>): AutoMergeVerdictInput['session'] {
+    const inHand = (this.turnsInHand.get(itemKey(topic.id, item.id)) ?? 0) > 0;
     let session: AutoMergeVerdictInput['session'] = inHand ? { turnOpen: true, openCards: 0 } : null;
     const agents = this.ctx.services.agents;
     const live = item.sessionId === undefined || isStubService(agents) ? null : agents.get(item.sessionId);
@@ -529,6 +581,16 @@ export class TopicsCore {
       const waiting = live.status === 'failed' ? 0 : (agents.facts(live.id)?.pendingMessages ?? 0);
       session = { turnOpen: inHand || IN_A_TURN.has(live.status) || waiting > 0, openCards: cards.has(live.id) ? 1 : 0 };
     }
+    return session;
+  }
+
+  /** What D6 reads of an item (the stores, the session, the request). */
+  verdictInputOf(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string> = this.sessionsWithCards()): AutoMergeVerdictInput {
+    const key = itemKey(topic.id, item.id);
+    const report = this.report(topic.id, item.id);
+    const pointer = item.merge;
+    const known = pointer === undefined ? undefined : this.requests.get(pointer.requestId);
+    const session = this.sessionAtWork(topic, item, cards);
     const recordPaths = item.autoMerge?.paths ?? this.refused.get(key);
     return {
       policy: this.mergingOf(item),
@@ -576,18 +638,23 @@ export class TopicsCore {
     const waitsFor = item.state === 'waiting' ? this.unmergedDependencies(topic, item) : [];
     const showsResponsible = item.sessionId !== undefined || topic.plan.mode === 'assigned';
     // Protocol 6 (DESIGN 0.7.0 D3, D9): how its change reaches the main workspace, and what smurg's merge waits for.
+    // An item that ran directly in the folder has nothing to merge; what it is held for is its record (D10).
     const merging = this.mergingOf(item);
     const autoMerge =
-      merging !== 'auto'
-        ? undefined
-        : autoMergeInfoOf(this.verdictOf(topic, item, cards), {
+      merging === 'auto'
+        ? autoMergeInfoOf(this.verdictOf(topic, item, cards), {
             record: item.autoMerge,
             tries: item.mergeTries ?? 0,
             reportAt: report?.writtenAt ?? null,
             ...(topic.plan.pausedAt === undefined ? {} : { pausedAt: topic.plan.pausedAt }),
             ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }),
             ...(item.lastTurn === undefined ? {} : { lastTurnAt: item.lastTurn.at }),
-          });
+          })
+        : isDirect(item) && item.autoMerge !== undefined
+          ? autoMergeInfoOfRecord(item.autoMerge, { tries: item.mergeTries ?? 0, ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }) })
+          : undefined;
+    // Its session waits for a person (D9): the plan says so instead of "running".
+    const waiting = this.sessionWaits(item);
     return structuredClone({
       id: item.id,
       number: item.number,
@@ -616,7 +683,16 @@ export class TopicsCore {
       ...(item.mergedAs === undefined ? {} : { merged: { at: item.mergedAs.at, by: item.mergedAs.by } }),
       ...(item.leftOut === undefined ? {} : { leftOut: item.leftOut }),
       ...(item.undone === undefined ? {} : { undone: { by: item.undone.by, at: item.undone.at } }),
+      ...(waiting === null ? {} : { waiting }),
     });
+  }
+
+  /** `WorkItem.waiting` (protocol 6): the item's live session waits for an answer or a permission. */
+  private sessionWaits(item: StoredItem): 'question' | 'permission' | null {
+    const agents = this.ctx.services.agents;
+    if (item.sessionId === undefined || isStubService(agents)) return null;
+    const status = agents.get(item.sessionId)?.status;
+    return status === 'waiting-answer' ? 'question' : status === 'waiting-permission' ? 'permission' : null;
   }
 
   /** The ids an item depends on whose changes have not reached the main workspace yet. */
@@ -639,12 +715,12 @@ export class TopicsCore {
     return { inUse, max, waitingForPeople };
   }
 
-  private waitingFor(topic: StoredTopic): PlanInfo['waitingFor'] {
+  private waitingFor(topic: StoredTopic, items: readonly WorkItem[]): PlanInfo['waitingFor'] {
     const bySession = new Map<string, StoredItem>();
     for (const item of topic.items) if (item.sessionId !== undefined) bySession.set(item.sessionId, item);
-    // `decisions` (protocol 6): the work items' decisions in each person's inbox (none before 0.7.0 S4).
+    // `decisions` (protocol 6, DESIGN 0.7.0 D9): the work items' decisions in each person's inbox.
     const waits = new Map<UserId, { questions: number; permissions: number; reports: number; decisions: number; since: number }>();
-    const add = (userId: UserId, what: 'questions' | 'permissions' | 'reports', since: number): void => {
+    const add = (userId: UserId, what: 'questions' | 'permissions' | 'reports' | 'decisions', since: number): void => {
       const entry = waits.get(userId) ?? { questions: 0, permissions: 0, reports: 0, decisions: 0, since };
       entry[what] += 1;
       entry.since = Math.min(entry.since, since);
@@ -669,6 +745,14 @@ export class TopicsCore {
       if (this.mergingOf(item) === 'auto') continue;
       for (const reviewer of report.reviewers) add(reviewer.userId, 'reports', report.waitingSince);
     }
+    // A held item is a decision in the inbox of whom routing.ts names (the inbox derives its rows the same way).
+    for (const wire of items) {
+      const hold = wire.autoMerge;
+      if (hold?.state !== 'held') continue;
+      const item = this.item(topic, wire.id);
+      if (item === null) continue;
+      for (const userId of decisionRecipients({ hostOnly: hold.hostOnly, escalated: hold.escalated }, { responsible: this.responsibleOf(topic, item) }, members)) add(userId, 'decisions', hold.since);
+    }
     return [...waits]
       .flatMap(([userId, entry]) => {
         const user = this.ctx.members.userRef(userId);
@@ -683,6 +767,7 @@ export class TopicsCore {
     const inPlan = topic.items.filter((item) => item.number > 0).sort((a, b) => a.number - b.number);
     const gone = topic.items.filter((item) => item.number === 0).slice(0, Math.max(0, PLAN_INFO_ITEMS_MAX - inPlan.length));
     const cards = this.sessionsWithCards();
+    const items = [...inPlan, ...gone].map((item) => this.toWorkItem(topic, item, cards));
     return structuredClone({
       topicId: topic.id,
       revision: topic.plan.revision,
@@ -690,12 +775,43 @@ export class TopicsCore {
       planHash: topic.plan.hash,
       mode: topic.plan.mode,
       paused: topic.plan.paused,
-      items: [...inPlan, ...gone].map((item) => this.toWorkItem(topic, item, cards)),
+      items,
       ...(topic.plan.split === undefined ? {} : { split: topic.plan.split }),
       warnings: topic.plan.warnings,
-      waitingFor: this.waitingFor(topic),
+      waitingFor: this.waitingFor(topic, items),
       slots: this.slots(),
     });
+  }
+
+  /**
+   * DESIGN 0.7.0 D9: a decision that is not the host's alone and has waited `escalateAfterMs` also reaches the host and
+   * every member with agent access (`autoMerge.escalatedAt`). A host-only hold never escalates: nobody else could
+   * settle it. Stored times compared with the clock, on the reports' sweep.
+   */
+  escalateHolds(): void {
+    const now = this.ctx.clock.now();
+    const after = this.ctx.settings.get().escalateAfterMs;
+    for (const listed of this.topics()) {
+      if (listed.archived) continue;
+      const due = listed.items.filter((item) => item.autoMerge?.state === 'held' && !item.autoMerge.hostOnly && item.autoMerge.escalatedAt === undefined && now - item.autoMerge.since >= after);
+      if (due.length === 0) continue;
+      const ids = new Set(due.map((item) => item.id));
+      this.update(listed.id, (topic) => {
+        for (const item of topic.items) if (ids.has(item.id) && item.autoMerge !== undefined) item.autoMerge = { ...item.autoMerge, escalatedAt: now };
+      });
+      this.publish(listed.id);
+    }
+  }
+
+  /**
+   * A topic whose phase moved without an event of its own (an item worktree the worktree module looked at only now, a
+   * session that settled): announced on the reports' sweep. Only the phase is computed for the others.
+   */
+  publishChangedPhases(): void {
+    for (const topic of this.topics()) {
+      if (topic.archived) continue;
+      if (this.lastTopics.get(topic.id)?.phase !== this.phaseOf(topic)) this.publish(topic.id);
+    }
   }
 
   // ===================================================================================================================

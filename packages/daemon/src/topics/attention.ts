@@ -10,6 +10,9 @@
 //   plan-paused       the host's smurg restarted and the topic has armed or interrupted items (one per topic)
 //                       → the host and every member with agent access
 //   discussion-lost   the topic's discussion ended or failed for good → the host and the topic's creator
+//
+// An item a person left out (0.7.0, DESIGN D11) needs nobody: it has no fact. What waits for an item (`unblocks`, D9)
+// is read from the plan by the inbox (derive.ts), as for its decisions, questions and permission requests.
 import { agentAccessMembers, can, hostOf, type ColumnTarget } from '@smurg/protocol';
 import type { AttentionFact, UserId } from '../core/interfaces.ts';
 import type { TopicsCore } from './core.ts';
@@ -32,6 +35,7 @@ export function attentionFacts(core: TopicsCore): AttentionFact[] {
     const plan: ColumnTarget = { kind: 'plan', topicId: topic.id };
 
     for (const item of topic.items) {
+      if (item.leftOut !== undefined) continue;
       const label = { number: item.number, title: item.title };
       const base = { id: `${topic.id}.${item.id}`, at: item.since, topicId: topic.id, itemId: item.id, item: label, excerpt: '' };
       const session: ColumnTarget = item.sessionId === undefined ? plan : { kind: 'session', sessionId: item.sessionId };

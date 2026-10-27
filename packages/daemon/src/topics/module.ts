@@ -48,6 +48,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       reports.attachMerger(merger);
       merger.attach(reports);
       core.requestSchedule = () => scheduler.request();
+      // "I've checked the result" finishes the topic's merged items at once (DESIGN 0.7.0 D13).
+      topics.attachFinish(() => scheduler.finishPending());
       built.set(ctx, { core, topics, plans, reports, scheduler, merger });
       return { topics, plans, reports };
     },
