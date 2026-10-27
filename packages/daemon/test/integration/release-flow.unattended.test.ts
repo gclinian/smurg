@@ -16,7 +16,9 @@
 // merge are the host's decision and the agent takes them out when asked, M12 a branch the host switched to holds the
 // merges for the host and nothing lands on it, M15 a turn a person stopped in a paused plan holds the version for its
 // responsible person, an Editor's hand edit holds the item for the host; each topic is then ready to check for every
-// member and "I've checked the result" completes it. A restart's continues and the slots come with S6.
+// member and "I've checked the result" completes it. The cases of keeping it running (S6): M4 a restart of the host's
+// smurg in the middle of a turn goes on by itself, M5 a usage limit is continued when the account is back, M6's crash is
+// resumed once by smurg, and M10 two sessions that wait for answers no longer keep an unrelated item from starting.
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
@@ -501,8 +503,8 @@ describe('0.7.0 acceptance: what a person did to a done item is theirs to decide
     const flow = await startFlow({ files: FILES, ...UNATTENDED });
     await flow.claude.setScenario({
       turns: [
-        // Item 1 stops without its report (it needs someone); then the host's smurg restarts, which pauses the plan of an
-        // armed item (0.7.0 S4: as in 0.6.0; from S6 on a person's Pause does it).
+        // Item 1 stops without its report (it needs someone); then Mei pauses the plan (0.7.0 S6: a person's Pause; until
+        // S6 the story restarted the host's smurg, which paused the plan of an armed item as 0.6.0 did).
         { match: 'Start work item 1 ', steps: [{ text: 'Looking at the cart.' }] },
         { match: 'You stopped without the result report', steps: [{ text: 'Not yet.' }] },
         { match: 'Finish the cart', steps: CLEAN[0] as FakeClaudeStep[] },
@@ -513,7 +515,7 @@ describe('0.7.0 acceptance: what a person did to a done item is theirs to decide
     });
     const { topicId } = await started(flow, [THREE[0] as PlanItemText, THREE[2] as PlanItemText]);
     await itemIs(flow, topicId, 'cart-api', (item) => item.state === 'stalled', 'item 1 to stop without a report');
-    await flow.restart();
+    await flow.mei.conn.request('plan.pause', { topicId });
     await waitFor(async () => (await planOf(flow, topicId)).paused, { timeoutMs: 30_000, what: 'the plan to be paused' });
     const sessionId = (await itemOf(flow, topicId, 'cart-api')).sessionId as string;
     // Paused: its report comes in and nothing merges.
@@ -559,5 +561,125 @@ describe('0.7.0 acceptance: what a person did to a done item is theirs to decide
     expect((await itemOf(flow, topicId, 'cart-api')).autoMerge).toMatchObject({ state: 'held', reason: 'by-hand', hostOnly: true, paths: ['AMY.md'] });
     expect((await flow.mei.inbox()).some((entry) => entry.kind === 'decision')).toBe(false);
     expect((await itemOf(flow, topicId, 'cart-api')).merged).toBeUndefined();
+  });
+});
+
+// =====================================================================================================================
+// S6: keeping it running (DESIGN 0.7.0 D15, D16)
+// =====================================================================================================================
+
+describe('0.7.0 acceptance: the plan keeps running when the host\'s smurg restarts, the account is limited or an agent crashes (release composition, stand-in claude)', { timeout: 300_000 }, () => {
+  it('M4 the host\'s smurg restarts while an item works: after the start smurg says it continues the item, the item finishes, and everything merges with nobody pressing anything', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED });
+    await flow.claude.setScenario({
+      turns: [
+        { match: 'Start work item 1 ', steps: CLEAN[0] as FakeClaudeStep[] },
+        // Item 2 is still working when the host's smurg stops.
+        { match: 'Start work item 2 ', steps: [write('src/receipt/send.ts', 'export const send = 1;\n'), { sleep: 60_000 }, { text: 'never' }] },
+        { match: 'Continue the work item', steps: handIn('receipt-email', 'Receipt email') },
+        { match: 'Start work item 3 ', steps: CLEAN[2] as FakeClaudeStep[] },
+        { steps: [{ text: 'ok' }] },
+      ],
+    });
+    const { topicId } = await started(flow);
+    // Items 1 and 3 (which waited for 1) are merged; item 2 works.
+    for (const id of ['cart-api', 'checkout-page']) await mergedBySmurg(flow, topicId, id);
+    const receipt = await itemIs(flow, topicId, 'receipt-email', (item) => item.state === 'running' && item.sessionId !== undefined, 'item 2 to work');
+    const sessionId = receipt.sessionId as string;
+    await waitFor(async () => (await told(flow, sessionId)).length > 0, { timeoutMs: 30_000, what: 'item 2 to have its first message' });
+    await flow.restart();
+    await mergedBySmurg(flow, topicId, 'receipt-email');
+    expect((await planOf(flow, topicId)).paused).toBe(false);
+    await flow.leo.watch(sessionId);
+    const lines = flow.leo.events(sessionId).flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
+    expect(lines).toContain('conversation.continued.restart');
+    expect(flow.leo.events(sessionId).find((event) => event.kind === 'smurg' && event.purpose === 'continue-item')).toMatchObject({ purpose: 'continue-item' });
+    expect(flow.leo.events(sessionId).find((event) => event.kind === 'smurg' && event.purpose === 'continue-item' && 'by' in event && event.by !== undefined)).toBeUndefined();
+    expect((await audited(flow, 'plan.item.autoContinue')).map((entry) => [entry.actor.kind, entry.detail?.['itemId'], entry.detail?.['cause']])).toEqual([['system', 'receipt-email', 'restart']]);
+    await readyForEveryone(flow, topicId);
+  });
+
+  it('M5 the usage limit: the item that hit it waits, and when the account is back (its reset time) smurg continues it; everything merges', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED });
+    const resetsAt = Math.floor((Date.now() + 2 * 3600_000) / 1000);
+    await flow.claude.setScenario({
+      turns: [
+        { match: 'Start work item 1 ', steps: CLEAN[0] as FakeClaudeStep[] },
+        { match: 'Start work item 2 ', steps: [{ rateLimit: { status: 'rejected', resetsAt } }, { text: "You've hit your limit", apiError: 'rate_limit' }, { result: { subtype: 'success', is_error: true, terminal_reason: 'api_error' } }] },
+        { match: 'Continue the work item', steps: CLEAN[1] as FakeClaudeStep[] },
+        { match: 'Start work item 3 ', steps: CLEAN[2] as FakeClaudeStep[] },
+        { steps: [{ text: 'ok' }] },
+      ],
+    });
+    const { topicId } = await started(flow);
+    const stalled = await itemIs(flow, topicId, 'receipt-email', (item) => item.state === 'stalled', 'item 2 to stop at the limit');
+    const sessionId = stalled.sessionId as string;
+    // While the account is limited, nothing is sent to it.
+    flow.advance(30 * 60_000);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect((await told(flow, sessionId)).filter((text) => text.includes('Continue the work item'))).toEqual([]);
+    // Past the reset time the account works again: smurg continues the item.
+    flow.advance(2 * 3600_000);
+    await mergedBySmurg(flow, topicId, 'receipt-email');
+    await flow.leo.watch(sessionId);
+    expect(flow.leo.events(sessionId).some((event) => event.kind === 'line' && event.text.id === 'conversation.continued.usageLimit')).toBe(true);
+    expect((await audited(flow, 'plan.item.autoContinue')).map((entry) => [entry.detail?.['itemId'], entry.detail?.['cause'], entry.detail?.['count']])).toEqual([['receipt-email', 'usage-limit', 1]]);
+    for (const id of ['cart-api', 'checkout-page']) await mergedBySmurg(flow, topicId, id);
+    await readyForEveryone(flow, topicId);
+  });
+
+  it('M6 an agent\'s process is killed while it works: a minute later smurg starts it again (as smurg) and tells it to continue; it finishes and merges', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED });
+    await flow.claude.setScenario({
+      turns: [
+        { match: 'Start work item 1 ', steps: CLEAN[0] as FakeClaudeStep[] },
+        { match: 'Start work item 2 ', steps: CLEAN[1] as FakeClaudeStep[] },
+        { match: 'Start work item 3 ', steps: [write('src/checkout/page.ts', 'export const page = 1;\n'), { sleep: 60_000 }, { text: 'never' }] },
+        { match: 'Continue the work item', steps: handIn('checkout-page', 'Checkout page') },
+        { steps: [{ text: 'ok' }] },
+      ],
+    });
+    const { topicId } = await started(flow);
+    await mergedBySmurg(flow, topicId, 'cart-api');
+    const page = await itemIs(flow, topicId, 'checkout-page', (item) => item.state === 'running' && item.sessionId !== undefined, 'item 3 to work');
+    const sessionId = page.sessionId as string;
+    await waitFor(async () => (await flow.processes()).some((line) => line.includes(Buffer.from(sessionId, 'utf8').toString('hex'))), { timeoutMs: 30_000, what: 'item 3\'s process' });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(await flow.killProcessOf(sessionId)).toBe(1);
+    await itemIs(flow, topicId, 'checkout-page', (item) => item.state === 'failed', 'item 3 to fail');
+    flow.advance(61_000);
+    await mergedBySmurg(flow, topicId, 'checkout-page');
+    await flow.leo.watch(sessionId);
+    const lines = flow.leo.events(sessionId).flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
+    expect(lines).toContain('conversation.continued.crash');
+    expect((await audited(flow, 'session.retry')).map((entry) => entry.actor.kind)).toEqual(['system']);
+    expect((await audited(flow, 'plan.item.autoContinue')).map((entry) => [entry.detail?.['itemId'], entry.detail?.['cause'], entry.detail?.['count']])).toEqual([['checkout-page', 'crash', 1]]);
+    await readyForEveryone(flow, topicId);
+  });
+});
+
+describe('0.7.0 acceptance: sessions that wait for a person do not keep unrelated items from starting (release composition, stand-in claude)', { timeout: 300_000 }, () => {
+  it('M10 two agents allowed, two items wait for answers: the unrelated third starts at once and merges; answered, the two merge too', async () => {
+    const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging: 'auto', maxLiveAgents: 2 } });
+    const ask = (header: string) => ({ question: `${header}?`, header, multiSelect: false, options: [{ label: 'Yes', description: 'y' }, { label: 'No', description: 'n' }] });
+    await flow.claude.setScenario({
+      turns: [
+        { match: 'Start work item 1 ', steps: [{ tool: 'AskUserQuestion', input: { questions: [ask('Totals')] } }, ...(CLEAN[0] as FakeClaudeStep[])] },
+        { match: 'Start work item 2 ', steps: [{ tool: 'AskUserQuestion', input: { questions: [ask('Sender')] } }, ...(CLEAN[1] as FakeClaudeStep[])] },
+        { match: 'Start work item 3 ', steps: CLEAN[2] as FakeClaudeStep[] },
+        { steps: [{ text: 'ok' }] },
+      ],
+    });
+    const independent = THREE.map((item) => ({ id: item.id, title: item.title, touches: item.touches }));
+    const { topicId } = await started(flow, independent);
+    await waitFor(async () => (await planOf(flow, topicId)).slots.waitingForPeople === 2, { timeoutMs: 60_000, what: 'two sessions to wait for an answer' });
+    await mergedBySmurg(flow, topicId, 'checkout-page');
+    expect((await planOf(flow, topicId)).slots).toMatchObject({ max: 2, waitingForPeople: 2 });
+    const first = await inboxItem(flow.mei, (entry) => entry.kind === 'question' && entry.itemId === 'cart-api', 'item 1\'s question');
+    const second = await inboxItem(flow.ian, (entry) => entry.kind === 'question' && entry.itemId === 'receipt-email', 'item 2\'s question');
+    await flow.mei.conn.request('question.submit', { questionId: first.anchor?.cardId as string, answers: [{ options: [0] }] });
+    await flow.ian.conn.request('question.submit', { questionId: second.anchor?.cardId as string, answers: [{ options: [0] }] });
+    for (const id of ['cart-api', 'receipt-email']) await mergedBySmurg(flow, topicId, id);
+    await readyForEveryone(flow, topicId);
   });
 });

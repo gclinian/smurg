@@ -12,9 +12,8 @@ const BY_PACKAGE: Readonly<Record<string, readonly MessageId[]>> = {
   // (0.7.0 S3, the merge queue, produces its four lines; also `conversation.continued.restart` for an item whose agent
   // was resolving when smurg stopped, D8, and `conversation.ended.checked` from the finish rule of D12. 0.7.0 S4,
   // decisions and the end, produces its eight: "Merge it as it is", "Ask the agent to take them out", "Leave it out",
-  // "I've checked the result" and their refusals. 0.7.0 S5, undo, produces its six and the three it added.)
-  // 0.7.0 S6, keeping it running (DESIGN D15).
-  'S6 keeping it running': ['conversation.continued.usageLimit', 'conversation.continued.error', 'conversation.continued.crash', 'conversation.continued.snapshot'],
+  // "I've checked the result" and their refusals. 0.7.0 S5, undo, produces its six and the three it added. 0.7.0 S6,
+  // keeping it running, produces the four lines of smurg's own continues. Empty again.)
 };
 
 /** id → the package that will produce it. */

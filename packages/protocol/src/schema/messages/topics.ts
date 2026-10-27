@@ -158,8 +158,14 @@ export const planChangesResultSchema = z.strictObject({
   files: z.array(z.strictObject({ target: z.enum(REVISE_TARGETS), diff: largeTextSchema(PLAN_CHANGES_DIFF_MAX_BYTES), truncated: z.boolean() })).max(REVISE_TARGETS.length),
 });
 
-/** "Continue all" after a restart of the host's smurg. */
+/** "Continue all": a paused plan goes on, and the sessions a restart interrupted are told to go on. */
 export const planResumePayloadSchema = topicIdPayloadSchema;
+/**
+ * "Pause" (protocol 6, DESIGN 0.7.0 D15): nothing of the plan starts, merges or continues by itself until someone
+ * presses "Continue all", also across restarts of the host's smurg; turns that run finish, and so does a merge already
+ * under way. The pause names who pressed it (`plan.pausedBy`).
+ */
+export const planPausePayloadSchema = topicIdPayloadSchema;
 
 /** A failed item resumes its session; a stopped item gets a new session in the same worktree. */
 export const planItemRetryPayloadSchema = topicItemPayloadSchema;

@@ -8,8 +8,9 @@
 //   status → { ok, op: 'status', status, webOrigin? } and the daemon closes the socket; `status` is the DaemonStatus,
 //            `webOrigin` the origin of the web app the daemon's links point to (an agent session is a conversation:
 //            `smurg attach` names the workspace's address there), absent when there is none (no relay);
-//   stop   → { ok, op: 'stop' }, the daemon closes the socket and stops (channels get channel.closed{stopped}); the
-//            request names no reason: the daemon's stop reason is always CTL_STOP_REASON (verification F-2);
+//   stop   → { ok, op: 'stop', goOn? }, the daemon closes the socket and stops (channels get channel.closed{stopped});
+//            the request names no reason: the daemon's stop reason is always CTL_STOP_REASON (verification F-2). `goOn`
+//            (0.7.0, DESIGN D18): how many topics go on by themselves at the next start, only when there are any;
 //   attach → { ok, op: 'attach', welcome }, then ENVELOPE frames until either side closes. The connection is a
 //            logical channel of the host (DaemonLifecycle.attachLocal): same seq/outbox/resume and router, but only
 //            the messages `smurg attach` sends are accepted (./local-channel.ts LOCAL_CHANNEL_TYPES; anything else is
@@ -97,7 +98,8 @@ export const daemonStatusSchema = z.strictObject({
     .optional(),
   /** Agent sessions that have not ended. `stalled`: stopped without a report, or failed. */
   agents: z.strictObject({ running: count, waiting: count, stalled: count, idle: count }).optional(),
-  topics: z.strictObject({ total: count, paused: count }).optional(),
+  // 0.7.0 (DESIGN D18): how many run, wait for a decision, are ready to check; each only when it is not 0.
+  topics: z.strictObject({ total: count, paused: count, running: count.optional(), decisions: count.optional(), ready: count.optional() }).optional(),
   /** The trust state of the shared folder's project-level Claude Code settings. */
   projectSettings: projectSettingsStateSchema.optional(),
   /** How many of the host's own Claude Code allow rules apply to agent sessions. */
@@ -129,7 +131,7 @@ export function namedWebOrigin(webOrigin: string): string | null {
 
 export const ctlResponseSchema = z.union([
   z.strictObject({ ok: z.literal(true), op: z.literal('status'), status: daemonStatusSchema, webOrigin: z.string().min(1).max(CTL_WEB_ORIGIN_MAX_CHARS).optional() }),
-  z.strictObject({ ok: z.literal(true), op: z.literal('stop') }),
+  z.strictObject({ ok: z.literal(true), op: z.literal('stop'), goOn: z.int().min(1).optional() }),
   z.strictObject({ ok: z.literal(true), op: z.literal('attach'), welcome: welcomeSchema }),
   z.strictObject({ ok: z.literal(false), error: errorPayloadSchema }),
 ]);
@@ -184,9 +186,11 @@ export function parseCtlResponse(body: Uint8Array): CtlResponse {
 
 // ── The command's side: reading the daemon of another smurg version ─────────────────────────────────────────────────
 //
-// What the daemon SENDS is the strict schemas above, and stays so: `ctlResponseSchema` guards `encodeCtlControl`, and
-// no key is ever added to an answer, because the published commands (0.4.0, 0.5.0) read an answer strictly and take a
-// daemon whose answer they cannot read for "nothing is running".
+// What the daemon SENDS is the strict schemas above, and stays so: `ctlResponseSchema` guards `encodeCtlControl`. The
+// published commands 0.4.0 and 0.5.0 read an answer strictly and take a daemon whose answer they cannot read for
+// "nothing is running"; every command since 0.5.1 reads the schemas below. So a key is added to an answer only where
+// it is optional and absent in the usual case: 0.7.0's `topics.running`, `.decisions`, `.ready` and the stop answer's
+// `goOn` (DESIGN 0.7.0 D18) are sent only when they are not 0.
 //
 // What a COMMAND reads (`smurg status`, `stop`, `attach`, and the "is this computer sharing?" question of `host`,
 // `update` and `uninstall`) is these schemas instead. They differ from the strict ones in ONE way: a key the command
@@ -237,7 +241,7 @@ export const commandDaemonStatusSchema = z.object({
     })
     .optional(),
   agents: z.object({ running: count, waiting: count, stalled: count, idle: count }).optional(),
-  topics: z.object({ total: count, paused: count }).optional(),
+  topics: z.object({ total: count, paused: count, running: count.optional(), decisions: count.optional(), ready: count.optional() }).optional(),
   projectSettings: projectSettingsStateSchema.optional(),
   hostRules: z.object({ count }).optional(),
 });
@@ -245,7 +249,7 @@ export const commandDaemonStatusSchema = z.object({
 /** An answer of the control socket as a command reads it (`ctlResponseSchema` with unknown keys ignored). */
 export const commandCtlResponseSchema = z.union([
   z.object({ ok: z.literal(true), op: z.literal('status'), status: commandDaemonStatusSchema, webOrigin: z.string().min(1).max(CTL_WEB_ORIGIN_MAX_CHARS).optional() }),
-  z.object({ ok: z.literal(true), op: z.literal('stop') }),
+  z.object({ ok: z.literal(true), op: z.literal('stop'), goOn: z.int().min(1).optional() }),
   z.object({ ok: z.literal(true), op: z.literal('attach'), welcome: welcomeSchema }),
   z.object({
     ok: z.literal(false),

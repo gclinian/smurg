@@ -48,7 +48,9 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   // 4.
   ['4 its session is in a turn', (input) => ({ ...input, session: { turnOpen: true, openCards: 0 } }), { kind: 'wait', reason: 'busy' }],
   ['4 a card of it is open', (input) => ({ ...input, session: { turnOpen: false, openCards: 1 } }), { kind: 'wait', reason: 'busy' }],
-  ['4 an automatic continue is still to come', withItem({ autoContinue: { cause: 'error', count: 1, at: 1 } }), { kind: 'wait', reason: 'busy' }],
+  ['4 an automatic continue is still to come (a later turn broke, and the bound is not spent)', withItem({ lastTurn: { outcome: 'error', at: 6 }, autoContinue: { cause: 'error', count: 1, at: 1 } }), { kind: 'wait', reason: 'busy' }],
+  ['4 a failed snapshot is still to be retaken', withItem({ snapshotOwed: true, autoContinue: { cause: 'snapshot', count: 0, at: 1 } }), { kind: 'wait', reason: 'busy' }],
+  ['4 the record of a continue whose turn completed owes nothing', withItem({ autoContinue: { cause: 'error', count: 1, at: 1 } }), { kind: 'merge', requestId: 'mr_1' }],
   ['4 the automatic continues are spent', withItem({ autoContinue: { cause: 'error', count: 2, at: 1 } }), { kind: 'merge', requestId: 'mr_1' }],
   // 5.
   ['5 a follow-up whose answer is to come', withReport({ pendingFollowUps: 1 }), { kind: 'wait', reason: 'asked' }],

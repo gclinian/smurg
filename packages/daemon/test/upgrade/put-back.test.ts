@@ -112,6 +112,9 @@ describe('a kept copy put back after later decisions', { timeout: 60_000 }, () =
     await t.ctx.audit.flush();
     const since = (await t.ctx.audit.query({ limit: 500 })).filter((entry) => entry.at >= putBackAt);
     expect(since.length).toBeGreaterThan(0);
-    expect(since.filter((entry) => /^(member|device)\.|^invite\.revoke$|^settings\./.test(entry.action))).toEqual([]);
+    expect(since.filter((entry) => /^(member|device)\.|^invite\.revoke$/.test(entry.action))).toEqual([]);
+    // (0.7.0, DESIGN D4: the copy put back ran the state step from 0.6.0 again, and its one record says so; nothing else
+    // of the settings is written)
+    expect(since.filter((entry) => /^settings\./.test(entry.action)).map((entry) => [entry.actor.kind, entry.detail?.['reason']])).toEqual([['system', 'update-0.7.0']]);
   });
 });

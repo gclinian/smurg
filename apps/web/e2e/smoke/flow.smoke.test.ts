@@ -1541,6 +1541,12 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await openRow(leo, `session:${cartId}`, { side: true });
     await env.setScenario(SCENARIO_AFTER_RESTART);
 
+    // (0.7.0 S6, DESIGN D15: a restart no longer pauses a plan by itself. Ian pauses it first, the brake that stays
+    // across a restart; the web's Pause button and its words are S7's, so the smoke presses it through the daemon.)
+    const daemon = env.stack.daemon;
+    const ianAsHost = daemon.ctx.members.principalOf(daemon.ctx.members.hostUserId());
+    if (ianAsHost === null) throw new Error('no host principal');
+    await daemon.ctx.services.plans.pause({ topicId }, ianAsHost);
     await env.restartDaemon();
 
     // Every browser finds the host again by itself, and says what happened and who can go on.

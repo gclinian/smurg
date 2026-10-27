@@ -70,7 +70,9 @@ function capabilityDenials(userId: string, type: string, entries: readonly Audit
 describe('authorization table (every request type × every role)', () => {
   beforeAll(async () => {
     probe = createProbe();
-    t = await createTestDaemon({ modules: [probe.module] });
+    // Every role sends every request type: an Editor alone is refused more than the 60 a connection may be refused in a
+    // minute before it is closed (0.7.0's `plan.pause` made it 61), which is not what this table is about.
+    t = await createTestDaemon({ modules: [probe.module], limits: { maxDenialsPerConnPerMinute: 10_000 } });
     t.ctx.audit.subscribe((entry) => audit.push(entry));
     clients.set('host', await t.connectHost());
     clients.set('agent', await t.connect({ userId: 'dev:rita', role: 'agent' }));
@@ -257,6 +259,7 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'plan.start': NO_TOPIC,
   'plan.changes': NO_TOPIC,
   'plan.resume': NO_TOPIC,
+  'plan.pause': NO_TOPIC,
   'plan.item.retry': NO_TOPIC,
   'plan.item.continue': NO_TOPIC,
   'plan.item.resolve': NO_TOPIC,
@@ -313,7 +316,7 @@ describe('the release composition: every request type × every role in front of 
     // `topic.create` really open never touch a model, an account or the network.
     claude = await installFakeClaude(scratch);
     // No `modules`: DEFAULT_FEATURE_MODULES, with the real `smurg hook` / `smurg mcp` as the sessions' commands.
-    d = await createTestDaemon({ project: { git: true, files: { 'README.md': '# Shop\n' } }, sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } } });
+    d = await createTestDaemon({ project: { git: true, files: { 'README.md': '# Shop\n' } }, sessions: { claudePath: claude.path, selfCommand: { file: process.execPath, args: [CLI_MAIN] } }, limits: { maxDenialsPerConnPerMinute: 10_000 } });
     d.ctx.audit.subscribe((entry) => entries.push(entry));
     members.set('host', await d.connectHost());
     members.set('agent', await d.connect({ userId: 'dev:rita', displayName: 'Rita', role: 'agent' }));

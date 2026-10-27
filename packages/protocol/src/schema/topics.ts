@@ -121,7 +121,11 @@ export const topicSchema = z.strictObject({
     /** The spec changed after the plan was written. */
     stale: z.boolean(),
     mode: planModeSchema,
-    /** After a restart of the host's smurg: nothing runs until "Continue all". */
+    /**
+     * Nothing of the plan starts, merges or continues by itself until "Continue all": a person's "Pause" (protocol 6),
+     * or smurg's after a restart of the host's smurg left an item that runs directly in the folder interrupted (until
+     * 0.6.0 every restart paused a plan with armed or interrupted items).
+     */
     paused: z.boolean(),
     /** Who paused it ("Pause", protocol 6); absent with `paused`: smurg paused it. */
     pausedBy: userRefSchema.optional(),

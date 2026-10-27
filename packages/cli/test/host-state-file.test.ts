@@ -22,6 +22,7 @@ import { chmod, copyFile, lstat, mkdir, readFile, readdir, readlink, realpath, r
 import { basename, join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_FEATURE_MODULES, LOG_UNSAFE_CHARACTER, StateFileError, WORKSPACE_SHAPES, silentLogger, systemClock, type Daemon, type FeatureModule } from '@smurg/daemon';
+import { buildPlan, buildTopic, fakesModule, fakesOf } from '@smurg/daemon/fakes';
 import { MemoryRelay, TestIdentityIssuer, createTempDir, createTempRunDir, removeTempDir, removeTempRunDir, waitFor } from '@smurg/daemon/testing';
 import { PROTOCOL_VERSION, daemonKeyFingerprint, equalBytes, formatFingerprintForDisplay, type AdmitContext } from '@smurg/protocol';
 import { readPinnedDaemonKey } from '@smurg/protocol/node';
@@ -81,8 +82,17 @@ const autoLine = (lang: Lang): string =>
   lang === 'en'
     ? `\nAgents now run in auto mode: Claude Code's check decides which commands run without asking; file edits and simple file commands in an agent's own folder run without it. To be asked before commands again, choose "Asks before commands" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first`
     : `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不必先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人控制台的設定裡選「執行指令前先問」。說明：https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問`;
-/** Both lines of a start that upgraded the folder `from` (0.5.0 or older) wrote. */
-const upgradedLines = (lang: Lang, from: '0.4.0' | '0.5.0'): string => `${upgradedLine(lang, from)}\n${autoLine(lang)}`;
+/**
+ * The line after those when that start ran the state step from 0.6.0 or older (DESIGN 0.7.0 D18, `host.mergesAuto`:
+ * work items merge by themselves since the update). Every upgrade of state.json ends with that step, and a put-back
+ * older state.json runs it again.
+ */
+const mergesLine = (lang: Lang): string =>
+  lang === 'en'
+    ? `\nWork items now merge by themselves: when a work item's report says complete, at least one check passed and none failed, smurg merges it into the shared folder for you, and everyone's inbox says when a topic is ready to check. Work items started before this update still wait for you. To merge each item yourself, choose "I merge each item myself" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#103-merging-and-what-waits-for-it`
+    : `\n工作項目現在會自動合併：報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替你把它合併到分享的資料夾，主題待驗收時每個人的收件夾都會顯示。這次更新之前就開始的工作項目仍然會等你。想要每個項目都自己合併，請在主人控制台的設定裡選「每個項目都由我自己合併」。說明：https://smurg.ai/zh-TW/docs/hosting/#103-合併以及什麼在等它`;
+/** The lines of a start that upgraded the folder `from` (0.5.0 or older) wrote. */
+const upgradedLines = (lang: Lang, from: '0.4.0' | '0.5.0'): string => `${upgradedLine(lang, from)}\n${autoLine(lang)}\n${mergesLine(lang)}`;
 /** The line about a folder set aside beside the workspace's own (`more`: how many more there are). */
 const asideLine = (lang: Lang, path: string, more = 0): string =>
   lang === 'en'
@@ -157,6 +167,10 @@ async function smurgHost(
       socketFactory: shared.memory.hostSocketFactory(),
       identityKeys: { get: (kid: string) => (kid === shared.issuer.kid ? shared.issuer.publicKey : null), refresh: async () => {} },
       ...(options.modules ? { modules: options.modules } : {}),
+      // No agent process may start here (0.7.0, DESIGN D15: the fixtures' interrupted work items would be continued,
+      // and `claude` on this machine's PATH is the developer's own): their continues cannot be sent, and they stay
+      // stalled by the restart, as on every fixture copy.
+      sessions: { selfCommand: null },
     },
     onReady: (daemon) => ready(daemon),
     ...(options.update ? { update: options.update } : {}),
@@ -915,7 +929,7 @@ describe('a damaged state.json beside the copy an upgrade kept', () => {
           ? 'Warning: an OLDER state.json was put back into this workspace and upgraded again. Everything decided since it was written is undone: ' +
             `people removed since are members again, revoked devices and revoked or used-up invite links work again, and role changes are gone; whoever joined since is no longer a member, and invite links made since no longer work. Guide: ${GUIDE_KEPT.en}`
           : `⚠ 較舊的 state.json 被放回這個工作區，並且重新升級了。它寫入之後決定的每一件事都被取消：之後被移出的人又是成員，已撤銷的裝置、已撤銷或已用完的邀請連結又可以使用，角色的變更也消失了；之後才加入的人不再是成員，之後建立的邀請連結也不能用了。說明：${GUIDE_KEPT['zh-TW']}`;
-      expect(putBack.out).toBe(`${warning}\n${autoLine(lang)}\n${cleanStart(lang, putBack.out)}`);
+      expect(putBack.out).toBe(`${warning}\n${autoLine(lang)}\n${mergesLine(lang)}\n${cleanStart(lang, putBack.out)}`);
       // What it undoes (documented, not prevented): Gina is a member again.
       expect(gina).toBe('active');
     }
@@ -1132,7 +1146,7 @@ describe('the way back to the folder 0.5.0 told the host to move away', () => {
       },
     });
     // ONE line: the upgrade (this folder was last shared with 0.4.0). Nothing about a folder set aside: there is none.
-    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}\n${autoLine('en')}\n${cleanStart('en', back.out)}`);
+    expect(back.out).toBe(`This workspace was last shared with smurg 0.4.0: its members, invite links and settings were carried over. What changed: ${GUIDE_KEPT.en}\n${autoLine('en')}\n${mergesLine('en')}\n${cleanStart('en', back.out)}`);
     expect(keyOf(back.out)).toBe(oldKey);
     expect(members).toEqual(expect.arrayContaining(['dev:host', 'dev:amy', 'dev:bob', 'dev:carol', 'dev:ivan']));
     expect(members).toHaveLength(8);
@@ -1331,5 +1345,84 @@ describe('a CLI member after the host started over with new workspace keys (veri
     expect(equalBytes((await readPinnedDaemonKey(bob.stateDir, workspaceId)) as Uint8Array, second.daemon.daemonPublicKey)).toBe(true);
     expect(membersOf()).toEqual(['Amy', 'Bob', 'Ian']);
     expect(await second.stop()).toBe(0);
+  }, 60_000);
+});
+
+// ---- 0.7.0 (DESIGN D15, D18; R-SAFE S16): what goes on by itself is said before it goes on
+
+describe('smurg host and the work that goes on by itself after a restart (0.7.0)', () => {
+  it('prints what goes on and what a person paused after the links and only THEN lets it go on; while it runs, a topic ready to check and an item that waits for the host, once each; at the stop, how many go on next time', async () => {
+    const dirs = await makeDirs();
+    cleanups.push(() => dirs.cleanup());
+    const relay = await startFakeRelay();
+    cleanups.push(() => relay.close());
+    const env = { HOME: dirs.home, SMURG_HOME: dirs.stateDir };
+    const paths = statePaths(env);
+    const workspaceId = `ws_goon_${Math.random().toString(36).slice(2, 12)}`;
+    await rememberSharedFolder(paths, { folder: await realpath(dirs.project), relay: relay.origin, workspaceId, createdAt: 1 });
+    const token = 'stored.host-token-for-test';
+    relay.tokens.set(token, relay.loginAs);
+    await saveSession(paths, relay.origin, { token, tokenType: 'Bearer', expiresIn: 7 * 24 * 3600, user: relay.loginAs }, Date.now());
+    const memory = new MemoryRelay(workspaceId);
+    const issuer = new TestIdentityIssuer(relay.origin, generateKeyPairSync('ed25519'), systemClock);
+    const io = testIo({ env, openUrl: browserOpening });
+    // The topics the fake plan service says go on; and what the terminal had said when the daemon was told to go on.
+    let outAtGoOn: string | null = null;
+    const stage: FeatureModule = {
+      name: 'go-on-stage',
+      register: () => ({ dispose: () => {} }),
+      start: async (ctx) => {
+        const fakes = fakesOf(ctx);
+        fakes.topics.put(buildTopic({ id: 'tp_checkout', slug: 'checkout', name: 'Checkout' }));
+        fakes.plans.nextAtStart = { continues: [{ topicId: 'tp_checkout', name: 'Checkout', items: 2 }, { topicId: 'tp_search', name: 'Search', items: 1 }], paused: [{ topicId: 'tp_gift', name: 'Gift cards' }] };
+        fakes.plans.nextGoOn = 2;
+      },
+      goOn: async () => {
+        outAtGoOn = io.out();
+      },
+    };
+    let ready: (d: Daemon) => void = () => {};
+    const started = new Promise<Daemon>((resolve) => {
+      ready = resolve;
+    });
+    const done = runHost([dirs.project, '--relay', relay.origin, '--no-keep-awake'], commandContext(io), {
+      daemon: {
+        socketFactory: memory.hostSocketFactory(),
+        identityKeys: { get: (kid: string) => (kid === issuer.kid ? issuer.publicKey : null), refresh: async () => {} },
+        modules: [fakesModule(), stage, ...DEFAULT_FEATURE_MODULES.filter((m) => m.name === 'local')],
+        sessions: { selfCommand: null },
+      },
+      onReady: (d) => ready(d),
+    });
+    cleanups.push(async () => {
+      io.signal('SIGTERM');
+      await done.catch(() => {});
+    });
+    const daemon = await Promise.race([started, done.then((code) => Promise.reject(new Error(`host ended early (${code}): ${io.err()}`)))]);
+    const continues = '\n2 topics go on where they stopped: Checkout (2 work items), Search (1). To pause one, press Pause in its plan.\n';
+    const paused = '\nPaused by a person, and still paused: Gift cards. Continue it in its plan.\n';
+    // Said after the links, and before anything went on.
+    expect(outAtGoOn).not.toBeNull();
+    const before = outAtGoOn as unknown as string;
+    expect(before).toContain(`Press Ctrl-C to stop sharing.\n${continues}${paused}`);
+    expect(before.indexOf('/join/')).toBeLessThan(before.indexOf(continues));
+
+    // While it runs: one line when a topic becomes ready to check, one when an item gets a decision only the host takes.
+    const topic = buildTopic({ id: 'tp_checkout', slug: 'checkout', name: 'Checkout' });
+    const executing = { ...topic, phase: 'executing' as const, plan: { ...topic.plan, items: 3, merged: 2 } };
+    daemon.ctx.bus.emit('topic.changed', { topic: { ...executing, phase: 'ready' as const, plan: { ...executing.plan, merged: 3 } }, previous: executing });
+    daemon.ctx.bus.emit('topic.changed', { topic: { ...executing, phase: 'ready' as const, plan: { ...executing.plan, merged: 3 } }, previous: { ...executing, phase: 'ready' as const } });
+    const plan = buildPlan({ topicId: 'tp_checkout' });
+    const held = { ...(plan.items[0] as (typeof plan.items)[number]), id: 'cart-api', number: 1, title: 'Cart API', autoMerge: { state: 'held' as const, reason: 'branch' as const, since: 1, tries: 0, hostOnly: true, escalated: false, branch: { expected: 'main', current: 'experiment' } } };
+    for (let i = 0; i < 2; i += 1) daemon.ctx.bus.emit('plan.changed', { topicId: 'tp_checkout', plan: { ...plan, items: [held] } });
+    const ready1 = 'Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared folder. Look at the result in the workspace.\n';
+    const waits = 'Topic "Checkout" waits for you: work item 1 (Cart API) was not merged (the main workspace is on another branch). It is in your inbox; the work items that do not depend on it go on.\n';
+    expect(io.out().split(ready1)).toHaveLength(2);
+    expect(io.out().split(waits)).toHaveLength(2);
+
+    // The stop: after its own lines, how many topics go on by themselves at the next start.
+    io.signal('SIGTERM');
+    expect(await done).toBe(0);
+    expect(io.out().endsWith('Stopped sharing.\n\nWhen smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.\n')).toBe(true);
   }, 60_000);
 });

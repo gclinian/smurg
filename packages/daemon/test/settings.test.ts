@@ -240,3 +240,79 @@ describe('the update\'s notice `agents-auto` (DESIGN 0.6.0 D13)', () => {
     }
   }, 60_000);
 });
+
+// ── protocol 6 (smurg 0.7.0): the update's notice `auto-merge` and the record of the step (DESIGN 0.7.0 D4, D18) ────────
+
+describe('the update\'s notice `auto-merge` (DESIGN 0.7.0 D18)', () => {
+  it('is an attention fact for the host alone while it is there, beside `agents-auto`, opening the console\'s settings', () => {
+    const { service } = settingsOn({ notices: ['agents-auto', 'auto-merge'] });
+    expect(service.attention()).toEqual([
+      { subject: 'agents-auto', id: 'workspace', at: 1_000, recipients: ['dev:host'], target: { kind: 'console', section: 'settings' }, excerpt: '' },
+      { subject: 'auto-merge', id: 'workspace', at: 1_000, recipients: ['dev:host'], target: { kind: 'console', section: 'settings' }, excerpt: '' },
+    ]);
+  });
+
+  it('goes when the host has seen it, or names how work items merge (even as they do now); deciding the mode settles only the other notice', async () => {
+    const seen = settingsOn({ notices: ['auto-merge'] });
+    await expect(seen.service.seeNotice('auto-merge', EDDIE)).rejects.toMatchObject({ code: 'forbidden' });
+    await seen.service.seeNotice('auto-merge', HOST);
+    expect(seen.state.get().hostNotices).toEqual([]);
+    expect(seen.service.attention()).toEqual([]);
+
+    const set = settingsOn({ notices: ['agents-auto', 'auto-merge'] });
+    await set.service.update({ permissionMode: 'auto' }, HOST);
+    expect(set.state.get().hostNotices).toEqual(['auto-merge']);
+    await set.service.update({ humanLockIdleMs: 45_000 }, HOST);
+    expect(set.state.get().hostNotices).toEqual(['auto-merge']);
+    await set.service.update({ merging: 'auto' }, HOST);
+    expect(set.state.get().hostNotices).toEqual([]);
+    expect(set.attention).toEqual(['settings', 'settings']);
+    // Both at once.
+    const both = settingsOn({ notices: ['agents-auto', 'auto-merge'] });
+    await both.service.update({ permissionMode: 'ask-commands', merging: 'host' }, HOST);
+    expect(both.state.get().hostNotices).toEqual([]);
+  });
+
+  it('a workspace that 0.6.0 left: the start turns automatic merging on, writes ONE audit entry of the system that says so (none at the next start), and the host\'s inbox holds the notice', async () => {
+    const WS = 'ws_test_settings_merging_1';
+    const stateDir = await createTempRunDir();
+    const base = await createTempDir('merging-notice');
+    try {
+      const root = await createTempProject(base, 'project', { files: { 'README.md': 'hello\n' } });
+      const dir = join(stateDir, 'workspaces', WS);
+      t = await createTestDaemon({ stateDir, root, workspaceId: WS });
+      await t.cleanup();
+      t = null;
+      // What 0.6.0 left: state.json version 2, ten settings (no `merging`), its notice seen, its stamp (shapes 2).
+      const today = JSON.parse(await readFile(join(dir, 'state.json'), 'utf8')) as WorkspaceState;
+      const { merging: _merging, ...ten } = today.settings;
+      await writeFile(join(dir, 'state.json'), serializeDocument({ ...today, version: 2, settings: ten, hostNotices: [] }), { mode: 0o600 });
+      await writeFile(join(dir, STAMP_FILE), serializeDocument({ smurg: '0.6.0', shapes: 2, at: 1 }), { mode: 0o600 });
+
+      t = await createTestDaemon({ stateDir, root, workspaceId: WS });
+      expect(t.daemon.upgraded).toEqual([{ document: 'state', from: '0.6.0', copy: keptCopyPath(dir, 'state', '0.6.0'), writer: '0.6.0' }]);
+      expect(t.ctx.settings.get().merging).toBe('auto');
+      expect(t.ctx.settings.notices()).toEqual(['auto-merge']);
+      await t.ctx.audit.flush();
+      const step = (await t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'settings.change');
+      expect(step).toMatchObject([{ actor: { kind: 'system' }, outcome: 'ok', target: 'settings', detail: { changed: ['merging'], merging: 'auto', reason: 'update-0.7.0', from: '0.6.0' } }]);
+      const host = await t.connectHost();
+      const KEY = 'attention:auto-merge:workspace';
+      await waitFor(async () => (await host.conn.request('inbox.list', {})).items.some((item) => item.key === KEY), { what: 'the notice in the host\'s inbox' });
+      expect((await host.conn.request('inbox.list', {})).items.find((item) => item.key === KEY)).toMatchObject({ kind: 'attention', subject: 'auto-merge', waiting: false, target: { kind: 'console', section: 'settings' } });
+      await t.cleanup();
+      t = null;
+
+      // The next start ran no step: no second entry.
+      t = await createTestDaemon({ stateDir, root, workspaceId: WS });
+      expect(t.daemon.upgraded).toEqual([]);
+      await t.ctx.audit.flush();
+      expect((await t.ctx.audit.query({ limit: 50 })).filter((entry) => entry.action === 'settings.change')).toHaveLength(1);
+    } finally {
+      await t?.cleanup();
+      t = null;
+      await removeTempRunDir(stateDir);
+      await removeTempDir(base);
+    }
+  }, 60_000);
+});

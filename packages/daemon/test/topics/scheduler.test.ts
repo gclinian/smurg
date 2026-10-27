@@ -1,7 +1,7 @@
 // Start and the scheduler (design §4.5, §4.7; security S3): the pins of a Start, the checkpoint commit, items that
 // start when what they depend on is merged and a slot is free, what disarms an item, retry / continue / resolve, and
 // the pause after a restart of the host's smurg. The REAL topics module; agents, worktrees and the rest are fakes.
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { SmurgError, topicPlanPath, topicSpecPath, type MergeRequest } from '@smurg/protocol';
@@ -149,33 +149,36 @@ describe('T4.1 items start when they can', () => {
     expect(await refusal(test.mei.conn.request('plan.start', { topicId: topic.id, planRevision: done.planRevision, specHash: done.specHash, planHash: done.planHash }))).toMatchObject({ code: 'conflict', text: { id: 'plan.start.nothing' } });
   });
 
-  it('the host\'s limit of live agents is the scheduler\'s: a queued item waits for a slot, and an idle item session gives its process up for it', async () => {
+  it('the host\'s limit of live agents is the scheduler\'s: a queued item waits for a slot, a session that waits for a person does not keep it, and an idle item session gives its process up for it', async () => {
     test = await setupTopics({ settings: { maxLiveAgents: 2 } });
     // Every item session starts working at once, as a real agent does with its first message.
     test.t.ctx.bus.on('session.created', (event) => {
       if (event.session.kind === 'agent' && event.session.purpose === 'item') queueMicrotask(() => test.fakes.agents.startTurn(event.session.id));
     });
-    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }]);
     await startPlan(test, topic.id);
     await waitFor(() => test.plan(topic.id).slots.inUse === 2, { what: 'two agents to run' });
     const queued = test.plan(topic.id);
-    expect(queued.items.map((item) => item.state)).toEqual(['running', 'running', 'queued']);
+    expect(queued.items.map((item) => item.state)).toEqual(['running', 'running', 'queued', 'queued']);
     expect(queued.slots).toEqual({ inUse: 2, max: 2, waitingForPeople: 0 });
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
 
-    // One of them asks the team: it waits for a person and keeps its slot.
+    // One of them asks the team: it waits for a person and keeps its process, but not the slot (0.7.0, DESIGN D16):
+    // the next queued item starts at once, and nothing is parked for it.
     const sessionA = itemOf(queued, 'a').sessionId as string;
     const sessionB = itemOf(queued, 'b').sessionId as string;
     test.fakes.agents.raise(sessionA, { id: 'rq_1', kind: 'question', toolUseId: 'tu_1', parts: [{ header: 'Cart', text: 'Where?', multi: false, options: [{ label: 'A', description: 'a' }, { label: 'B', description: 'b' }] }] });
-    await waitFor(() => test.plan(topic.id).slots.waitingForPeople === 1, { what: 'the plan to say one waits for a person' });
+    await waitFor(() => itemOf(test.plan(topic.id), 'c').state === 'running', { what: 'the third item to start beside the one that waits' });
+    expect(test.plan(topic.id).slots).toEqual({ inUse: 3, max: 2, waitingForPeople: 1 });
+    expect(itemOf(test.plan(topic.id), 'd').state).toBe('queued');
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
 
-    // The other one is stopped by a person: idle, no open request. Its process is the one to give up.
+    // Another one is stopped by a person: idle, no open request. Its process is the one to give up.
     await test.fakes.agents.interrupt(sessionB, test.principals.mei.actor);
-    await waitFor(() => itemOf(test.plan(topic.id), 'c').state === 'running', { what: 'the queued item to start' });
+    await waitFor(() => itemOf(test.plan(topic.id), 'd').state === 'running', { what: 'the queued item to start' });
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([[sessionB, 'slot']]);
     expect(test.fakes.agents.facts(sessionB)?.hasProcess).toBe(false);
-    expect(test.plan(topic.id).slots).toMatchObject({ inUse: 2, max: 2 });
+    expect(test.plan(topic.id).slots).toMatchObject({ inUse: 3, max: 2, waitingForPeople: 1 });
 
     // The host raises the limit: the plan shows it.
     await test.t.ctx.settings.update({ maxLiveAgents: 4 }, test.principals.host);
@@ -476,9 +479,12 @@ describe('one item: try again, continue, resolve a conflict', () => {
   });
 });
 
-describe('T8.1 a restart pauses every plan', () => {
-  it('after the host\'s smurg restarts nothing runs: interrupted items are stalled, armed ones wait, and "Continue all" goes on', async () => {
-    const root = await createTempDir('p4-restart');
+// 0.7.0 (DESIGN D15) changed these on purpose: until 0.6.0 a restart paused every plan with armed or interrupted items
+// until "Continue all". Now the plan goes on by itself once the start has looked at it (and, under `smurg host`, once it
+// has said so: `goOn`); a person's "Pause" is what stays across a restart.
+describe('T8.1 after a restart the plan goes on by itself', () => {
+  async function folders(prefix: string): Promise<{ root: string; stateDir: string }> {
+    const root = await createTempDir(prefix);
     const stateDir = await createTempRunDir();
     after.push(async () => {
       await removeTempDir(root);
@@ -486,7 +492,11 @@ describe('T8.1 a restart pauses every plan', () => {
     });
     await mkdir(join(root, 'src'), { recursive: true });
     await writeFile(join(root, 'README.md'), '# project\n');
+    return { root, stateDir };
+  }
 
+  it('interrupted items are stalled by the restart and, once the start said so (goOn), told to continue after the restart\'s line; the armed one starts once what it waits for is merged; nothing is paused', async () => {
+    const { root, stateDir } = await folders('p4-restart');
     const workspaceId = 'ws_test_p4_restart_0001';
     test = await setupTopics({ root, stateDir, workspaceId });
     const { topic } = await topicWithPlan(test, THREE);
@@ -497,26 +507,97 @@ describe('T8.1 a restart pauses every plan', () => {
     expect(before.items.map((item) => item.state)).toEqual(['running', 'running', 'waiting']);
     await test.cleanup();
 
-    // ---- the daemon starts again over the same state ----
-    test = await setupTopics({ root, stateDir, workspaceId });
+    // ---- the daemon starts again over the same state, as under `smurg host`: what goes on waits for goOn ----
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      deferGoOn: true,
+      seed: async (fakes) => {
+        // The runtime has the sessions again (idle, without a process), and git still has the checkpoint at HEAD.
+        for (const session of sessions) fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        await fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
+      },
+    });
     const restarted = test.plan(topic.id);
-    expect(test.topic(topic.id)).toMatchObject({ phase: 'executing', plan: { paused: true, items: 3, started: 3 } });
-    expect(restarted.paused).toBe(true);
+    expect(test.topic(topic.id)).toMatchObject({ phase: 'executing', plan: { paused: false, items: 3, started: 3 } });
     expect(restarted.items.map((item) => [item.id, item.state, item.stalledBy, item.armed])).toEqual([
       ['cart-api', 'stalled', 'restart', false],
       ['payment-form', 'stalled', 'restart', false],
       ['checkout-page', 'waiting', undefined, true],
     ]);
     expect(itemOf(restarted, 'cart-api')).toMatchObject({ sessionId: running.sessionId, worktreeId: running.worktreeId, attempt: 1 });
+    // What smurg host prints before anything goes on: one topic, its three items (two continued, one armed).
+    expect(test.t.daemon.continued()).toEqual({ topics: [{ name: 'Checkout', items: 3 }], paused: [] });
+    expect(test.t.ctx.services.topics.attention().filter((fact) => fact.subject === 'plan-paused')).toEqual([]);
+    await settle(test);
+    for (const session of sessions) expect(smurgSent(test, session.id).filter((message) => message.purpose === 'continue-item')).toEqual([]);
+
+    // ---- goOn: the interrupted sessions are told to go on, by smurg ----
+    await test.t.daemon.goOn();
+    const resumed = test.plan(topic.id);
+    expect(resumed.items.map((item) => item.state)).toEqual(['running', 'running', 'waiting']);
+    for (const itemId of ['cart-api', 'payment-form']) {
+      const sessionId = itemOf(resumed, itemId).sessionId as string;
+      expect(lineIds(test, sessionId)).toEqual(['conversation.continued.restart']);
+      const sent = smurgSent(test, sessionId);
+      expect(sent).toMatchObject([{ purpose: 'continue-item' }]);
+      expect(sent[0]?.by).toBeUndefined();
+    }
+    expect((await test.audit('plan.item.autoContinue')).map((entry) => [entry.actor.kind, entry.detail?.['itemId'], entry.detail?.['cause']])).toEqual([
+      ['system', 'cart-api', 'restart'],
+      ['system', 'payment-form', 'restart'],
+    ]);
+    // What depends on them starts when both are merged, with nobody pressing anything.
+    merge(test, topic.id, 'cart-api');
+    merge(test, topic.id, 'payment-form');
+    await waitFor(() => itemOf(test.plan(topic.id), 'checkout-page').state === 'running', { what: 'the waiting item to start' });
+    expect(itemStarts(test).map((input) => input.item?.id)).toEqual(['checkout-page']);
+  });
+
+  it('a plan a person paused stays paused across the restart: nothing is continued or started, the plan names who paused it, and "Continue all" goes on', async () => {
+    const { root, stateDir } = await folders('p4-restart-paused');
+    const workspaceId = 'ws_test_p4_restart_0008';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, THREE);
+    await startPlan(test, topic.id);
+    const sessions = test.fakes.agents.list({ topicId: topic.id });
+    // Mei pulls the brake; the turns that run go on, nothing new starts.
+    expect(await refusal(test.amy.conn.request('plan.pause', { topicId: topic.id }))).toMatchObject({ code: 'forbidden' });
+    expect((await test.mei.conn.request('plan.pause', { topicId: topic.id })).plan).toMatchObject({ paused: true });
+    expect(test.topic(topic.id).plan).toMatchObject({ paused: true, pausedBy: { userId: 'dev:mei', displayName: 'Mei' } });
+    expect((await test.audit('plan.pause')).map((entry) => [entry.actor.kind === 'user' ? entry.actor.userId : '', entry.detail?.['topicId']])).toEqual([['dev:mei', topic.id]]);
+    // Pressed again, it is answered as it is (no second entry).
+    await test.host.conn.request('plan.pause', { topicId: topic.id });
+    expect(test.topic(topic.id).plan.pausedBy?.userId).toBe('dev:mei');
+    expect(await test.audit('plan.pause')).toHaveLength(1);
+    await test.cleanup();
+
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: async (fakes) => {
+        for (const session of sessions) fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        await fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
+      },
+    });
+    await settle(test);
+    const restarted = test.plan(topic.id);
+    expect(restarted.paused).toBe(true);
+    expect(test.topic(topic.id).plan.pausedBy).toEqual({ userId: 'dev:mei', displayName: 'Mei' });
+    expect(restarted.items.map((item) => [item.id, item.state, item.stalledBy, item.armed])).toEqual([
+      ['cart-api', 'stalled', 'restart', false],
+      ['payment-form', 'stalled', 'restart', false],
+      ['checkout-page', 'waiting', undefined, true],
+    ]);
+    expect(test.t.daemon.continued()).toEqual({ topics: [], paused: ['Checkout'] });
+    for (const session of sessions) expect(smurgSent(test, session.id)).toEqual([]);
     // One attention item per topic, for the host and every member with agent access.
     const paused = test.t.ctx.services.topics.attention().filter((fact) => fact.subject === 'plan-paused');
     expect(paused).toMatchObject([{ id: topic.id, recipients: ['dev:host', 'dev:mei'], count: 3, excerpt: 'Checkout', target: { kind: 'plan', topicId: topic.id } }]);
     // The blocker of the Start dialog says so too.
     expect((await test.mei.conn.request('plan.preflight', { topicId: topic.id })).preflight.blockers.map((blocker) => blocker.text.id)).toContain('plan.paused');
-
-    // The runtime has the sessions again (idle, without a process), and git still has the checkpoint at HEAD.
-    for (const session of sessions) test.fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
-    await test.fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
     // A merge only moves waiting → queued while the plan is paused.
     merge(test, topic.id, 'cart-api');
     merge(test, topic.id, 'payment-form');
@@ -528,6 +609,7 @@ describe('T8.1 a restart pauses every plan', () => {
     expect(await refusal(test.amy.conn.request('plan.resume', { topicId: topic.id }))).toMatchObject({ code: 'forbidden' });
     const resumed = (await test.mei.conn.request('plan.resume', { topicId: topic.id })).plan;
     expect(resumed.paused).toBe(false);
+    expect(test.topic(topic.id).plan.pausedBy).toBeUndefined();
     expect(resumed.items.map((item) => item.state)).toEqual(['running', 'running', 'running']);
     for (const itemId of ['cart-api', 'payment-form']) {
       const sessionId = itemOf(resumed, itemId).sessionId as string;
@@ -538,17 +620,9 @@ describe('T8.1 a restart pauses every plan', () => {
     expect(test.t.ctx.services.topics.attention().filter((fact) => fact.subject === 'plan-paused')).toEqual([]);
     expect((await test.audit('plan.resume'))[0]).toMatchObject({ detail: { topicId: topic.id, itemIds: ['cart-api', 'payment-form'] } });
   });
-});
 
-describe('T8.1 what the stop itself interrupts', () => {
-  it("a turn the daemon's own stop ended is not a person's stop: after the start the item is stalled by the restart, counted in the pause, and \"Continue all\" continues it", async () => {
-    const root = await createTempDir('p4-stop');
-    const stateDir = await createTempRunDir();
-    after.push(async () => {
-      await removeTempDir(root);
-      await removeTempRunDir(stateDir);
-    });
-    await writeFile(join(root, 'README.md'), '# project\n');
+  it("a turn the daemon's own stop ended is not a person's stop: after the start the item is stalled by the restart and continued; a 0.6.0 pause after a restart is lifted", async () => {
+    const { root, stateDir } = await folders('p4-stop');
     const workspaceId = 'ws_test_p4_restart_0003';
     test = await setupTopics({ root, stateDir, workspaceId });
     const { topic } = await topicWithPlan(test, THREE);
@@ -562,23 +636,31 @@ describe('T8.1 what the stop itself interrupts', () => {
       for (const session of sessions) if (session.purpose === 'item') stopped.fakes.agents.finishTurn(session.id, { outcome: 'interrupted' });
     });
     await test.cleanup();
+    // The folder as smurg 0.6.0 left it after such a stop and a start: the plan paused by the restart, nobody's pause.
+    const document = join(stateDir, 'workspaces', workspaceId, 'topics.json');
+    const stored = JSON.parse(await readFile(document, 'utf8')) as { topics: { id: string; plan: { paused: boolean; pausedAt?: number } }[] };
+    for (const entry of stored.topics) if (entry.id === topic.id) entry.plan = { ...entry.plan, paused: true, pausedAt: 5 };
+    await writeFile(document, JSON.stringify(stored), { mode: 0o600 });
 
-    test = await setupTopics({ root, stateDir, workspaceId });
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: async (fakes) => {
+        for (const session of sessions) fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        await fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
+      },
+    });
+    await settle(test);
     const restarted = test.plan(topic.id);
-    expect(restarted.paused).toBe(true);
+    expect(restarted.paused).toBe(false);
     expect(restarted.items.map((item) => [item.id, item.state, item.stalledBy, item.armed])).toEqual([
-      ['cart-api', 'stalled', 'restart', false],
-      ['payment-form', 'stalled', 'restart', false],
+      ['cart-api', 'running', undefined, false],
+      ['payment-form', 'running', undefined, false],
       ['checkout-page', 'waiting', undefined, true],
     ]);
-    // The topic's attention item counts all three: the two interrupted sessions and the armed item.
-    expect(test.t.ctx.services.topics.attention().filter((fact) => fact.subject === 'plan-paused').map((fact) => fact.count)).toEqual([3]);
-    // The runtime has the sessions again (idle, without a process), and git still has the checkpoint at HEAD.
-    for (const session of sessions) test.fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
-    await test.fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
-    const resumed = (await test.mei.conn.request('plan.resume', { topicId: topic.id })).plan;
-    expect(resumed.items.map((item) => item.state)).toEqual(['running', 'running', 'waiting']);
-    expect((await test.audit('plan.resume'))[0]).toMatchObject({ detail: { topicId: topic.id, itemIds: ['cart-api', 'payment-form'] } });
+    for (const session of sessions.filter((candidate) => candidate.purpose === 'item')) expect(lineIds(test, session.id).at(-1)).toBe('conversation.continued.restart');
+    expect(test.t.ctx.services.topics.attention().filter((fact) => fact.subject === 'plan-paused')).toEqual([]);
   });
 });
 
@@ -619,9 +701,11 @@ describe('after a restart: what a hard death between two records left out of ste
       root,
       stateDir,
       workspaceId,
-      seed: (fakes) => {
+      seed: async (fakes) => {
         fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
         fakes.worktrees.putRequest(request);
+        // (git still has the Start's checkpoint at HEAD: the pin check at the start lets what is armed go on)
+        await fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
       },
     });
     const sessionId = a.sessionId as string;
@@ -631,10 +715,10 @@ describe('after a restart: what a hard death between two records left out of ste
     const plan = test.plan(topic.id);
     expect(itemOf(plan, 'a')).toMatchObject({ state: 'reviewed', merge: { requestId: request.id, status: 'merged' } });
     expect(itemOf(plan, 'a').worktreeId).toBeUndefined();
-    // What waited for it is queued (the plan is paused after a restart: "Continue all" starts it).
-    expect(itemOf(plan, 'b')).toMatchObject({ state: 'queued', armed: true });
+    // What waited for it starts by itself (0.7.0, DESIGN D15: a restart no longer pauses the plan).
+    expect(itemOf(plan, 'b')).toMatchObject({ state: 'running', armed: false });
     expect(itemOf(plan, 'b').waitsFor).toBeUndefined();
-    expect(test.topic(topic.id).plan).toMatchObject({ merged: 1, reviewed: 1, paused: true });
+    expect(test.topic(topic.id).plan).toMatchObject({ merged: 1, reviewed: 1, paused: false });
   });
 
   it("the item's request was decided, or replaced by a newer snapshot, and the item did not hear of it: it shows what the worktree module has", async () => {
@@ -690,10 +774,12 @@ describe('after a restart: what a hard death between two records left out of ste
       root,
       stateDir,
       workspaceId,
-      seed: (fakes) => {
+      seed: async (fakes) => {
         fakes.agents.adopt({ ...running, status: 'idle' }, { hasProcess: false });
         // What the runtime kept of a start whose item record never reached the disk.
         fakes.agents.adopt({ ...running, id: 'ses_orphan', itemId: 'b', status: 'idle' }, { hasProcess: false });
+        // (git still has the Start's checkpoint at HEAD: the pin check at the start keeps `b` armed)
+        await fakes.worktrees.commitMainPaths({ paths: [topicSpecPath(topic.slug), topicPlanPath(topic.slug)], message: 'the checkpoint of before', trailers: [], as: test.principals.mei });
       },
     });
     await settle(test);
@@ -804,8 +890,11 @@ describe('after a restart: a report the agent had checked', () => {
     ]);
     expect(test.t.ctx.services.reports.get(topic.id, 'a')).toMatchObject({ version: 1, state: 'to-review', outcome: 'complete', changes: { files: 1 } });
     expect(test.t.ctx.services.reports.toReview().map((entry) => entry.itemId)).toEqual(['a']);
-    // Only the interrupted item is paused.
-    expect(test.t.ctx.services.topics.attention().find((fact) => fact.subject === 'plan-paused')).toMatchObject({ count: 1 });
+    // Nothing is paused (0.7.0, DESIGN D15): `b`, whose session the runtime does not have here, cannot be told to go on
+    // and waits, stalled by the restart, with its attention item.
+    expect(test.plan(topic.id).paused).toBe(false);
+    expect(test.t.ctx.services.topics.attention().find((fact) => fact.subject === 'plan-paused')).toBeUndefined();
+    expect(test.t.ctx.services.topics.attention().find((fact) => fact.subject === 'item-stalled')).toMatchObject({ itemId: 'b' });
     expect((await test.audit('report.register')).at(-1)).toMatchObject({ detail: { itemId: 'a', version: 1 } });
   });
 });

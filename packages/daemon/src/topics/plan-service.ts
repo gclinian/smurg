@@ -64,7 +64,7 @@ import {
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, StartFolderFacts, TurnMessage, UndoAsk, UndoFacts, UndoItem, UndoItemKey, WorktreeManager } from '../core/interfaces.ts';
+import type { FileCheck, McpToolContext, PlanService, PlansAtStart, Principal, Req, Res, StartFolderFacts, TurnMessage, UndoAsk, UndoFacts, UndoItem, UndoItemKey, WorktreeManager } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
@@ -719,7 +719,10 @@ export class PlanServiceImpl implements PlanService {
     };
   }
 
-  /** "Continue all" after a restart of the host's smurg: clears the pause and tells the interrupted sessions to go on. */
+  /**
+   * "Continue all": clears the pause (a person's, or smurg's after a restart left an item that runs directly in the
+   * folder interrupted) and tells the interrupted sessions to go on.
+   */
   async resume(input: Req<'plan.resume'>, principal: Principal): Promise<PlanInfo> {
     const by = userRefOf(principal);
     const topic = this.core.needOpen(input.topicId);
@@ -728,11 +731,12 @@ export class PlanServiceImpl implements PlanService {
     this.core.update(topic.id, (draft) => {
       draft.plan.paused = false;
       delete draft.plan.pausedAt;
+      delete draft.plan.pausedBy;
     });
     const continued: string[] = [];
     for (const item of interrupted) {
       try {
-        if (await this.scheduler.sendContinue(topic.id, item.id, by)) continued.push(item.id);
+        if (await this.scheduler.sendContinue(topic.id, item.id, { by })) continued.push(item.id);
       } catch (err) {
         this.ctx.log.warn('item not continued', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
       }
@@ -744,6 +748,40 @@ export class PlanServiceImpl implements PlanService {
     this.merger?.request();
     await this.scheduler.runNow();
     return this.needPlan(topic.id);
+  }
+
+  /**
+   * "Pause" (DESIGN 0.7.0 D15): the brake that survives a restart. Nothing of the plan starts, merges or continues by
+   * itself until someone presses "Continue all"; turns that run finish, and so does a merge already inside `git merge`
+   * (whoever wants the turns to stop stops the sessions). The plan names who paused it. A plan a person paused already
+   * is answered as it is; one smurg paused (an interrupted item in the folder) becomes this person's pause.
+   */
+  async pause(input: Req<'plan.pause'>, principal: Principal): Promise<PlanInfo> {
+    const by = userRefOf(principal);
+    const topic = this.core.needOpen(input.topicId);
+    this.needPlan(topic.id);
+    if (topic.plan.paused && topic.plan.pausedBy !== undefined) return this.needPlan(topic.id);
+    const was = topic.plan.paused;
+    this.core.update(topic.id, (draft) => {
+      draft.plan.paused = true;
+      draft.plan.pausedAt = this.ctx.clock.now();
+      draft.plan.pausedBy = { userId: by.userId, displayName: by.displayName };
+    });
+    this.ctx.audit.record({ actor: principal.actor, action: 'plan.pause', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, ...(was ? { wasPaused: true } : {}) } });
+    this.core.publish(topic.id);
+    // The merge queue looks again: what was in order waits now (D6 row 3).
+    this.merger?.request();
+    return this.needPlan(topic.id);
+  }
+
+  /** What this start found that goes on by itself, and the topics a person paused (DESIGN 0.7.0 D15, D18). */
+  atStart(): PlansAtStart {
+    return this.core.started ? this.scheduler.atStart() : { continues: [], paused: [] };
+  }
+
+  /** How many topics would go on by themselves at the next start (DESIGN 0.7.0 D18). */
+  goOnAtNextStart(): number {
+    return this.scheduler.goOnAtNextStart();
   }
 
   // ===================================================================================================================
@@ -770,7 +808,7 @@ export class PlanServiceImpl implements PlanService {
       // failed starts). After a restart of the host's smurg the session is merely idle: the message below starts it.
       const agents = this.ctx.services.agents;
       if (agents.get(sessionId)?.status === 'failed') await agents.retry(sessionId, principal);
-      await this.scheduler.sendContinue(topic.id, item.id, by);
+      await this.scheduler.sendContinue(topic.id, item.id, { by });
     } else if (item.state === 'stopped' || (item.state === 'failed' && this.liveSession(item) === null)) {
       // A new session in the same worktree, when a slot is free.
       const now = this.ctx.clock.now();
@@ -791,6 +829,8 @@ export class PlanServiceImpl implements PlanService {
         delete target.mergeTries;
         delete target.lastTurn;
         delete target.leftOut;
+        // (and the count of smurg's automatic continues starts again, DESIGN 0.7.0 D15)
+        delete target.autoContinue;
         delete draft.checked;
       });
       this.merger?.forget(topic.id, item.id);
@@ -806,7 +846,7 @@ export class PlanServiceImpl implements PlanService {
     const topic = this.core.needOpen(input.topicId);
     const item = this.core.needItem(topic, input.itemId);
     if (this.liveSession(item) === null) throw new SmurgError('conflict', msg('plan.item.noSession'), { reason: 'no-session' });
-    await this.scheduler.sendContinue(topic.id, item.id, by);
+    await this.scheduler.sendContinue(topic.id, item.id, { by });
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.continue', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, sessionId: item.sessionId } });
   }
 

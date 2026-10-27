@@ -1625,6 +1625,7 @@ export class AgentRunner {
       ...(stoppedBy === undefined ? {} : { stoppedBy }),
       messages: turn.messages,
       edited: turn.edited,
+      ...(this.refusedTurn === turn.id ? { modelRefused: true as const } : {}),
     });
     for (const waiter of [...this.turnWaiters]) waiter();
   }

@@ -769,6 +769,10 @@ export class AgentSessionsImpl implements AgentSessions {
   // The account (one state per workspace)
   // =================================================================================================================
 
+  canLaunch(): boolean {
+    return !isStubService(this.ctx.services.hooks) && this.deps.launch.selfCommand !== null && this.ctx.config.sessions.selfCommand !== null;
+  }
+
   account(): AccountInfo {
     const state = this.accountState.state;
     let sessions = 0;

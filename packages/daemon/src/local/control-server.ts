@@ -215,8 +215,15 @@ class ControlConnection {
       case 'stop': {
         server.log.info('stop requested on the control socket');
         // The requester gets its answer first; the daemon stops once the reply is flushed (or the client is gone).
-        // Always the same reason (verification F-2): the client does not choose it.
-        this.respondAndEnd({ ok: true, op: 'stop' }, () => server.stopRequested(CTL_STOP_REASON));
+        // Always the same reason (verification F-2): the client does not choose it. 0.7.0 (DESIGN D18): with how many
+        // topics go on by themselves at the next start, as it is at this moment (only when there are any).
+        let goOn = 0;
+        try {
+          goOn = server.lifecycle.goOnAtNextStart();
+        } catch {
+          goOn = 0;
+        }
+        this.respondAndEnd({ ok: true, op: 'stop', ...(goOn > 0 ? { goOn } : {}) }, () => server.stopRequested(CTL_STOP_REASON));
         return;
       }
       case 'attach': {

@@ -7,6 +7,10 @@
 // its last check), the agent sessions by state, the topics and how many are paused, whether the folder's Claude Code
 // project settings are confirmed, and how many of the host's own allow rules apply to agent sessions.
 //
+// 0.7.0 (DESIGN D18): status says what the topics do (running, waiting for a decision, ready to check, paused), and
+// stop says, when there are any, how many topics go on by themselves at the next `smurg host` (the stop answer's
+// `goOn`), so the host can press Pause in a plan first.
+//
 // A smurg host of ANOTHER VERSION (0.5.1, DESIGN B1: alive behind its control socket, its answer not readable by this
 // command; channel/discover.ts). `status` names it with what is known (the workspace and folder when workspaces.json
 // remembers the socket) and exits with EXIT.otherVersion, never with "nothing is being shared". `stop` still asks it to
@@ -27,20 +31,23 @@ import { loadWorkspaces, type WorkspaceBook } from '../state/workspaces.ts';
 import { CLI_VERSION } from '../version.ts';
 import { m, wireError, type MessageId, type Text } from '../i18n/index.ts';
 import { say, type CommandContext } from './context.ts';
+import { stopGoOnNotice } from './host-state.ts';
 
 export const STOP_WAIT_MS = 30_000;
 
 /**
  * Asks the daemon behind a control socket to stop (the control socket's `stop`); a refusal is shown in this terminal's
- * language. Returns whether the daemon confirmed: false when no readable answer came (a daemon of another version may
- * stop all the same: the caller waits for its socket to go).
+ * language. Returns whether the daemon confirmed (false when no readable answer came: a daemon of another version may
+ * stop all the same, and the caller waits for its socket to go), and how many topics it said go on by themselves at
+ * the next start (0.7.0; absent: none, or a daemon that does not say).
  */
-export async function requestStop(daemon: { readonly ctlPath: string }): Promise<boolean> {
+export async function requestStop(daemon: { readonly ctlPath: string }): Promise<{ readonly confirmed: boolean; readonly goOn?: number }> {
   const outcome = await ctlAsk(daemon.ctlPath, { v: 1, op: 'stop' });
   // Gone between the look and the request: it is not running, which is what was asked for.
-  if (outcome.kind !== 'answer') return outcome.kind === 'nothing';
+  if (outcome.kind !== 'answer') return { confirmed: outcome.kind === 'nothing' };
   if (!outcome.response.ok) throw new CliError(m('stop.refused', { reason: wireError(outcome.response.error) }));
-  return outcome.response.op === 'stop';
+  const response = outcome.response;
+  return { confirmed: response.op === 'stop', ...(response.op === 'stop' && response.goOn !== undefined ? { goOn: response.goOn } : {}) };
 }
 
 /**
@@ -80,13 +87,16 @@ export async function runStop(argv: readonly string[], ctx: CommandContext, deps
   const found = await findDaemonToStop(ctx.paths, stringOption(args, 'workspace'), ctx.io.cwd);
   if (found.kind === 'unreadable') return stopOtherVersion(ctx, found.daemon, waitMs);
   const daemon = found.daemon;
-  await requestStop(daemon);
+  const asked = await requestStop(daemon);
   say(ctx, m('stop.stopping', { workspaceId: daemon.status.workspaceId }));
   await waitUntilStopped(ctx, daemon, waitMs);
   say(ctx, m('host.stopped'));
   // The agent sessions the daemon had when it was asked: their agents ended with it, the conversations stay.
   const paused = agentsPausedNotice(daemon.status.agents);
   if (paused !== null) say(ctx, paused);
+  // DESIGN 0.7.0 D18: what goes on by itself at the next start (nothing for 0).
+  const goOn = stopGoOnNotice(asked.goOn);
+  if (goOn !== null) say(ctx, goOn);
   return EXIT.ok;
 }
 

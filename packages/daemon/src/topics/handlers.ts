@@ -76,6 +76,8 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   // [session.view] topic-open
   stack.add(router.handle('plan.changes', (payload, req) => plans.changes(payload, req.principal)));
   stack.add(router.handle('plan.resume', async (payload, req) => ({ plan: await plans.resume(payload, req.principal) })));
+  // protocol 6 (DESIGN 0.7.0 D15)
+  stack.add(router.handle('plan.pause', async (payload, req) => ({ plan: await plans.pause(payload, req.principal) })));
   stack.add(router.handle('plan.item.retry', async (payload, req) => ({ plan: await plans.retryItem(payload, req.principal) })));
   stack.add(
     router.handle('plan.item.continue', async (payload, req) => {

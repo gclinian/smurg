@@ -371,6 +371,8 @@ export const autoPlan = {
   items: [mergedAutoItem, heldItem, hostHeldItem, branchHeldItem, conflictItem, askedItem, resolvingItem, leftOutItem, undoneItem],
   waitingFor: [{ user: AMY_REF, questions: 1, permissions: 0, reports: 0, decisions: 2, since: T }],
 };
+/** Protocol 6 (DESIGN 0.7.0 D15): a plan a person paused (the topic names who: `pausedTopic`). */
+export const pausedPlan = { ...autoPlan, paused: true };
 export const report = {
   ...reportSummary,
   topicId: 'tp_1',
@@ -1753,6 +1755,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     },
   },
   'plan.resume': { payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}] }, result: { valid: [{ plan }], invalid: [{}] } },
+  'plan.pause': { payload: { valid: [{ topicId: 'tp_1' }], invalid: [{}, { topicId: 'tp_1', by: 'u' }] }, result: { valid: [{ plan: pausedPlan }], invalid: [{}] } },
   'plan.item.retry': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] }, result: { valid: [{ plan }], invalid: [{}] } },
   'plan.item.continue': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ itemId: 'cart-api' }] }, result: emptyOnly },
   'plan.item.resolve': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1', itemId: '' }] }, result: emptyOnly },

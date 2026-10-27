@@ -116,6 +116,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
         }),
       );
       stack.add(ctx.bus.on('agent.process', (event) => scheduler.onProcess(event)));
+      // The account works again: what a usage limit stopped is continued (DESIGN 0.7.0 D15).
+      stack.add(ctx.bus.on('account.changed', (event) => event.account.state === 'ok' && scheduler.onAccount()));
 
       // ---- what a plan waits for ----
       stack.add(
@@ -214,7 +216,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       await scheduler.reconcile();
       // An undo the worktree module recorded after a crash, whose items here still say they are merged (DESIGN 0.7.0 D14).
       await parts.plans.reconcileUndone();
-      // After a restart of the host's smurg nothing runs by itself: interrupted items are stalled, plans are paused.
+      // After a restart of the host's smurg: interrupted items are stalled, the pause a person pressed stays, what is armed
+      // is checked; nothing goes on before `goOn` (DESIGN 0.7.0 D15).
       await scheduler.afterRestart();
       for (const topic of core.topics()) {
         if (topic.archived) {
@@ -227,9 +230,16 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       core.publishAttention();
       // An item that was merged and reviewed when smurg went away, and whose session or worktree is still there.
       await scheduler.finishPending();
-      // Items whose agent was bringing their work up to date when smurg stopped (DESIGN 0.7.0 D8), then the queue.
+    },
+    // DESIGN 0.7.0 D15 (R-SAFE S16): what goes on by itself begins only now, once `smurg host` has said what it is.
+    goOn: async (ctx) => {
+      const parts = built.get(ctx);
+      if (!parts || !parts.core.started) return;
+      const { scheduler, merger } = parts;
+      // The interrupted items are told to continue, and the scheduler starts what is armed.
+      await scheduler.goOn();
+      // Items whose agent was bringing their work up to date when smurg stopped (D8), then the merge queue.
       await merger.takeUp();
-      scheduler.request();
       merger.begin();
     },
     stop: async (ctx) => {

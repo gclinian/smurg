@@ -308,6 +308,8 @@ export interface DaemonEvents {
     readonly stoppedBy?: UserRef;
     readonly messages: readonly TurnMessage[];
     readonly edited: readonly { readonly file: FileRef; readonly seq: number }[];
+    /** The API refused the session's model in this turn (`notice.modelRefused`): no automatic continue (DESIGN 0.7.0 D15). */
+    readonly modelRefused?: true;
   };
   'lock.changed': { readonly file: FileRef; readonly lock: LockInfo | null; readonly previous: LockInfo | null; readonly reason: LockChangeReason };
   'session.created': { readonly session: SessionInfo };
@@ -661,7 +663,11 @@ export interface DaemonStatus {
    */
   readonly claude?: { readonly version: string | null; readonly verdict: 'verified' | 'unverified' | 'too-old' | 'unknown'; readonly login: LoginState };
   readonly agents?: { readonly running: number; readonly waiting: number; readonly stalled: number; readonly idle: number };
-  readonly topics?: { readonly total: number; readonly paused: number };
+  /**
+   * The open topics; since 0.7.0 (DESIGN D18) also how many run (executing, nothing held), wait for a decision (an item
+   * held for a person), and are ready to check, each only when it is not 0 (a paused topic counts as paused only).
+   */
+  readonly topics?: { readonly total: number; readonly paused: number; readonly running?: number; readonly decisions?: number; readonly ready?: number };
   readonly projectSettings?: ProjectSettingsState;
   /** How many of the host's own Claude Code allow rules apply to agent sessions. */
   readonly hostRules?: { readonly count: number };
@@ -676,6 +682,8 @@ export interface DaemonLifecycle {
   stop(reason?: string): Promise<void>;
   status(): DaemonStatus;
   attachLocal(input: LocalAttachInput): LocalAttachment;
+  /** PlanService.goOnAtNextStart (0 without the topics module): what the control socket's stop answer says (DESIGN 0.7.0 D18). */
+  goOnAtNextStart(): number;
 }
 
 // =====================================================================================================================
@@ -1636,6 +1644,13 @@ export interface AgentSessions {
    * `attention.changed { source: 'sessions' }`, and the sessions module sends `session.host` to everyone.
    */
   account(): AccountInfo;
+  /**
+   * Whether an agent process can be started at all (the cheap first checks of every start: the hook command is
+   * configured and the hooks module is there). False in a daemon made without `selfCommand` (the upgrade tests' daemon
+   * on a published fixture): a message to a parked session would only end in a failed start. The topics module asks it
+   * before it continues work by itself (DESIGN 0.7.0 D15).
+   */
+  canLaunch(): boolean;
   /** Claude Code on the host as of the daemon's last check (`smurg status`); null: not checked yet. */
   claude(): NonNullable<DaemonStatus['claude']> | null;
   /**
@@ -2081,10 +2096,22 @@ export interface TopicService {
 export type FileCheck = { readonly ok: true } | { readonly ok: false; readonly errors: readonly { readonly line?: number; readonly message: string }[] };
 
 /**
+ * What a start of the host's smurg found that goes on by itself (DESIGN 0.7.0 D15, D18), known before `Daemon.goOn()`:
+ * the topics that go on where they stopped, with how many of their work items act by themselves (a session continued,
+ * an item started or brought up to date, a report checked again, a merge), and the topics a person paused.
+ */
+export interface PlansAtStart {
+  readonly continues: readonly { readonly topicId: string; readonly name: string; readonly items: number }[];
+  readonly paused: readonly { readonly topicId: string; readonly name: string }[];
+}
+
+/**
  * The plan and its scheduler. The host setting `maxLiveAgents` is ENFORCED HERE and nowhere else: `PlanInfo.slots`
  * counts the item sessions whose `AgentSessions.facts().hasProcess` is true (`inUse`), of `max`; a queued item starts
- * only below it. The scheduler runs again on `agent.process` (a slot was freed or taken), and may free a slot itself
- * with `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request.
+ * only while `inUse - waitingForPeople` is below it and `inUse` below twice it (and `maxAgentProcesses`): sessions that
+ * wait for a person keep their process and no longer keep unrelated items from starting (DESIGN 0.7.0 D16). The
+ * scheduler runs again on `agent.process` (a slot was freed or taken), and may free a slot itself with
+ * `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request.
  * A session's start for an item passes `item: { id, number, title, attempt }` and `keepWorktree: true` at its end.
  */
 export interface PlanService {
@@ -2103,6 +2130,18 @@ export interface PlanService {
    */
   changes(input: Req<'plan.changes'>, principal: Principal): Promise<Res<'plan.changes'>>;
   resume(input: Req<'plan.resume'>, principal: Principal): Promise<PlanInfo>;
+  /**
+   * "Pause" (DESIGN 0.7.0 D15): nothing of the plan starts, merges or continues by itself until "Continue all", also
+   * across restarts; the plan names who paused it. A plan a person paused already is answered as it is.
+   */
+  pause(input: Req<'plan.pause'>, principal: Principal): Promise<PlanInfo>;
+  /** What this start found that goes on by itself, and the topics a person paused (DESIGN 0.7.0 D15, D18). */
+  atStart(): PlansAtStart;
+  /**
+   * How many topics would go on by themselves when the host's smurg starts again (DESIGN 0.7.0 D18: what `smurg host`
+   * and `smurg stop` say when it stops): open, not paused, with work of an item that goes on by itself.
+   */
+  goOnAtNextStart(): number;
   /** A failed item: AgentSessions.retry. A stopped item: a NEW session in the same worktree (opening line `conversation.retry`). */
   retryItem(input: Req<'plan.item.retry'>, principal: Principal): Promise<PlanInfo>;
   continueItem(input: Req<'plan.item.continue'>, principal: Principal): Promise<void>;

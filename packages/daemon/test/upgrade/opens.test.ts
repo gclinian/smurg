@@ -451,6 +451,39 @@ describe.each(PUBLISHED_VERSIONS)('what smurg %s wrote opens', { timeout: 60_000
     expect(loaded.filter((entry) => entry.status === 'pending').map((entry) => entry.id)).toEqual(pending);
   });
 
+  it('0.7.0 (DESIGN D15): the first start lets the plans go on: no open topic stays paused; what was armed meets the pin check of this copy (its folder holds no SPEC.md or PLAN.md) and is disarmed; what was interrupted is stalled by the restart and, with no agent process to start here, is not continued', async () => {
+    const copy = await fresh(version);
+    type StoredTopicLook = { id: string; archived: boolean; items: { id: string; state: string; stalledBy?: string; armed: boolean }[] };
+    const before = (await storedDocuments(copy)).get('topics')?.value as { topics: StoredTopicLook[] } | undefined;
+    if (before === undefined) {
+      expect(version).toBe('0.4.0'); // (0.4.0 had no topics)
+      return;
+    }
+    const t = await start(copy);
+    let checked = 0;
+    for (const topic of before.topics.filter((entry) => !entry.archived)) {
+      const plan = t.ctx.services.plans.get(topic.id);
+      expect(t.ctx.services.topics.get(topic.id)?.plan.paused, topic.id).toBe(false);
+      if (plan === null) continue;
+      for (const stored of topic.items) {
+        const now = plan.items.find((entry) => entry.id === stored.id);
+        if (now === undefined) continue;
+        if (stored.armed) {
+          expect(now.armed, `${topic.id} ${stored.id}`).toBe(false);
+          expect(['plan-changed', 'start-failed'], `${topic.id} ${stored.id}`).toContain(now.disarmed);
+          checked += 1;
+        } else if (stored.state === 'running' || (stored.state === 'stalled' && stored.stalledBy === 'restart')) {
+          expect([now.state, now.stalledBy], `${topic.id} ${stored.id}`).toEqual(['stalled', 'restart']);
+          checked += 1;
+        }
+      }
+    }
+    // The fixtures of 0.5.0 and later hold both kinds (the Bookshop's "Wishlist", the paused "Gift cards").
+    expect(checked).toBeGreaterThanOrEqual(3);
+    await t.ctx.audit.flush();
+    expect((await t.ctx.audit.query({ limit: 500 })).filter((entry) => entry.action === 'plan.item.autoContinue')).toEqual([]);
+  });
+
   it('the kept copies are byte for byte the old files, private, and only where a step ran; the stamp names this smurg', async () => {
     const copy = await fresh(version);
     const stored = await storedDocuments(copy);

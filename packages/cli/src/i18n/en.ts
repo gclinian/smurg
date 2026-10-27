@@ -145,6 +145,23 @@ const GUIDE_KEPT = 'https://smurg.ai/docs/hosting/#92-after-an-update-what-your-
 const GUIDE_GOING_BACK = 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to';
 /** Host guide 5.2 (what agents do by themselves): printed by `smurg host`, so the heading can never be renamed (0.6.0). */
 const GUIDE_AGENTS = 'https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first';
+/** Host guide 10.3 (merging, and what waits for it): printed by `smurg host`, so the heading can never be renamed (0.7.0). */
+const GUIDE_MERGING = 'https://smurg.ai/docs/hosting/#103-merging-and-what-waits-for-it';
+
+/** A decision that is the host's alone (DESIGN 0.7.0 D9, `HOST_HOLDS`), in the words of the web's `hold.*` (B.2). */
+export type HostHold = 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch' | 'git-busy' | 'history-changed' | 'merge-failed' | 'by-hand' | 'undo-interrupted';
+const HOST_HOLD: Readonly<Record<HostHold, string>> = {
+  policy: 'it changes files only the host may merge',
+  'local-changes': 'uncommitted changes in the main workspace are in the way',
+  'in-the-way': 'files in the main workspace are in the way',
+  staged: 'changes are staged in the main workspace',
+  branch: 'the main workspace is on another branch',
+  'git-busy': 'git has been busy in the main workspace for a while',
+  'history-changed': "smurg's own history of the folder changed",
+  'merge-failed': 'smurg cannot merge it',
+  'by-hand': 'files of it were edited by hand',
+  'undo-interrupted': 'an undo was interrupted in the main workspace',
+};
 
 /** "A file of this workspace's state is" / "3 files of this workspace's state are" (+ "; the first" before its details). */
 const stateFiles = (count: number, one: string, many: string): string => (count === 1 ? `A file of this workspace's state ${one}` : `${count} files of this workspace's state ${many}`);
@@ -598,6 +615,15 @@ Docs: https://smurg.ai/docs/
   // DESIGN 0.6.0 D13: at every start while the workspace asks for nothing.
   'host.asksNothing': () =>
     `\nAgents here ask for nothing: every command runs as you, with no check by Claude Code and no question from smurg (only smurg's fixed limits stay). To change it, choose another mode in the host console's settings. Guide: ${GUIDE_AGENTS}`,
+  // DESIGN 0.7.0 D18: the update turned automatic merging on (said once, by the start that ran the state step).
+  'host.mergesAuto': () =>
+    `\nWork items now merge by themselves: when a work item's report says complete, at least one check passed and none failed, smurg merges it into the shared folder for you, and everyone's inbox says when a topic is ready to check. Work items started before this update still wait for you. To merge each item yourself, choose "I merge each item myself" in the host console's settings. Guide: ${GUIDE_MERGING}`,
+  // DESIGN 0.7.0 D15, D18: at a start, before anything goes on (names are shown escaped by the caller).
+  'host.plansContinue': (p: { topics: readonly { readonly name: string; readonly items: number }[] }) =>
+    `\n${p.topics.length} ${plural(p.topics.length, 'topic goes on where it stopped', 'topics go on where they stopped')}: ` +
+    p.topics.map((topic, index) => `${topic.name} (${index === 0 ? `${topic.items} ${plural(topic.items, 'work item', 'work items')}` : topic.items})`).join(', ') +
+    `. To pause ${plural(p.topics.length, 'it', 'one')}, press Pause in its plan.`,
+  'host.plansPaused': (p: { names: readonly string[] }) => `\nPaused by a person, and still paused: ${p.names.join(', ')}. Continue ${plural(p.names.length, 'it in its plan', 'each in its plan')}.`,
   'host.peer.newer': () => "\nWarning: a teammate's page or smurg is newer than this smurg and was turned away. Stop sharing, run smurg update, then share again.",
   'host.peer.older': () => "\nA teammate's page or smurg is older than this smurg and was turned away. That teammate reloads the page or updates smurg; if you run your own relay, deploy it again.",
   'host.smurgTracked': () => "\nsmurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit.",
@@ -632,6 +658,14 @@ Docs: https://smurg.ai/docs/
   'host.keepAwake.notice': (p: { state: string }) => `\nWarning: keep-awake: ${p.state}. While the computer sleeps, your teammates see "Host offline".`,
   'host.keepAwake.lost': (p: { state: string }) => `\nWarning: keep-awake was lost: ${p.state}. While the computer sleeps, your teammates see "Host offline".`,
   'host.stopped': () => 'Stopped sharing.',
+  // DESIGN 0.7.0 D18 (R-SAFE S16): where the brake is pulled, what goes on at the next start.
+  'host.stopping.goOn': (p: { n: number }) =>
+    `\nWhen smurg host starts again, ${p.n} ${plural(p.n, 'topic goes on by itself; to keep it stopped', 'topics go on by themselves; to keep one stopped')}, press Pause in its plan first.`,
+  // DESIGN 0.7.0 D18: while it runs, one line per change.
+  'host.topicReady': (p: { name: string; merged: number; total: number }) =>
+    `Topic "${p.name}" is ready to check: ${p.merged} of ${p.total} work ${plural(p.total, 'item is', 'items are')} merged into the shared folder. Look at the result in the workspace.`,
+  'host.topicWaits': (p: { name: string; number: number; title: string; reason: HostHold }) =>
+    `Topic "${p.name}" waits for you: work item ${p.number} (${p.title}) was not merged (${HOST_HOLD[p.reason]}). It is in your inbox; the work items that do not depend on it go on.`,
   'host.agentsPaused': (p: { count: number }) =>
     `${p.count} agent ${plural(p.count, 'session is', 'sessions are')} paused. ${plural(p.count, 'It continues', 'They continue')} when you share this folder again.`,
   'host.overlap.same': () => 'This folder is already being shared',
@@ -759,7 +793,17 @@ Docs: https://smurg.ai/docs/
     p.running + p.waiting + p.stalled + p.idle === 0
       ? 'none'
       : `${p.running} running, ${p.waiting} waiting for a person, ${p.stalled} stopped without a report or failed, ${p.idle} idle`,
-  'status.topics': (p: { total: number; paused: number }) => (p.total === 0 ? 'none' : `${p.total} (${p.paused} paused)`),
+  // DESIGN 0.7.0 D18: the parts that are 0 are left out (a daemon of 0.6.0 says none of the first three).
+  'status.topics': (p: { total: number; running?: number; decisions?: number; ready?: number; paused: number }) => {
+    if (p.total === 0) return 'none';
+    const parts = [
+      ...((p.running ?? 0) > 0 ? [`${p.running} running`] : []),
+      ...((p.decisions ?? 0) > 0 ? [`${p.decisions} waiting for a decision`] : []),
+      ...((p.ready ?? 0) > 0 ? [`${p.ready} ready to check`] : []),
+      ...(p.paused > 0 ? [`${p.paused} paused`] : []),
+    ];
+    return parts.length === 0 ? `${p.total}` : `${p.total} (${parts.join(', ')})`;
+  },
   'status.projectSettings': (p: { trust: ProjectSettings }) => PROJECT_SETTINGS[p.trust],
   'status.hostRules': (p: { count: number }) =>
     p.count === 0 ? 'none apply to agent sessions' : `${p.count} ${plural(p.count, 'applies', 'apply')} to agent sessions (agents run what ${plural(p.count, 'it allows', 'they allow')} without asking)`,

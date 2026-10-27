@@ -150,6 +150,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['plan.start', 'c→d', '[session.create]'],
   ['plan.changes', 'c→d', '[session.view]'],
   ['plan.resume', 'c→d', '[session.drive]'],
+  ['plan.pause', 'c→d', '[session.drive]'],
   ['plan.item.retry', 'c→d', '[session.create]'],
   ['plan.item.continue', 'c→d', '[session.drive]'],
   ['plan.item.resolve', 'c→d', '[session.drive]'],
@@ -524,6 +525,8 @@ describe('wire types and router checks', () => {
       'plan.generate', 'plan.mode.set', 'plan.assign', 'plan.suggest', 'plan.resume', 'plan.item.continue', 'plan.item.resolve',
       // protocol 6: "Leave it out" and "Merge it as it is" are the carers' (agent access)
       'plan.item.leaveOut', 'plan.item.release',
+      // protocol 6: "Pause", like "Continue all"
+      'plan.pause',
     ]) {
       expect(mayInvoke('host', type)).toBe(true);
       expect(mayInvoke('agent', type)).toBe(true);

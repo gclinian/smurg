@@ -44,6 +44,12 @@ const NUMBERS = new Set([
   'more',
   'uid',
   'place',
+  // 0.7.0 (DESIGN D18): the topics that go on, a topic ready to check, a work item that waits, the status's parts
+  'n',
+  'merged',
+  'number',
+  'decisions',
+  'ready',
 ]);
 const LISTS = new Set(['ids', 'others', 'markers', 'names', 'cacheRoots', 'removed', 'rest', 'left', 'labels', 'lines', 'paths', 'problems', 'fields']);
 const BOOLEANS = new Set(['stopping', 'builtIn', 'several', 'bashAttribution']);
@@ -55,6 +61,8 @@ const OPTIONAL: Readonly<Record<string, readonly string[]>> = {
   'host.summary': ['hostUrl'],
   'status.workspace': ['folder', 'relay', 'fingerprint', 'bashAttribution', 'agents', 'topics', 'projectSettings', 'hostRules', 'pid'],
   'status.claude': ['version'],
+  // (a daemon of 0.6.0 says none of these; 0.7.0 sends each only when it is not 0)
+  'status.topics': ['running', 'decisions', 'ready'],
   'attach.agents.browser': ['url'],
   'uninstall.stopFailed': ['reason'],
   'status.otherVersion': ['workspaceId', 'folder'],
@@ -77,6 +85,8 @@ const UNIONS: Readonly<Record<string, readonly string[]>> = {
   file: ['credentials', 'workspaces'],
   // The documents a host can set aside alone (a refused workspace state), and the one the catalog has no own sentence for.
   document: ['inbox', 'suggestions', 'conflicts', 'worktrees', 'sessions', 'host-rules', 'claude-trust', 'cards', 'other'],
+  // A decision that is the host's alone (0.7.0, `host.topicWaits`); every other `reason` takes any text.
+  reason: ['policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'git-busy', 'history-changed', 'merge-failed', 'by-hand', 'undo-interrupted'],
 };
 const SUBJECTS: Readonly<Record<string, readonly string[]>> = {
   'relay.badUrl': ['flag', 'web-origin', 'env', 'credentials', 'built-in', 'invite'],
@@ -103,6 +113,8 @@ function sample(lang: 'en' | 'zh-TW', id: MessageId, s: Sample): { text: string;
         read.add(name);
         if (!s.optional && OPTIONAL[id]?.includes(name)) return undefined;
         if (NUMBERS.has(name)) return s.number;
+        // (0.7.0: the topics that go on where they stopped, each with its name and how many work items)
+        if (id === 'host.plansContinue' && name === 'topics') return Array.from({ length: s.list }, (_, i) => ({ name: `<topic${i + 1}>`, items: s.number + i }));
         if (LISTS.has(name)) return Array.from({ length: s.list }, (_, i) => `<${name}${i + 1}>`);
         if (BOOLEANS.has(name)) return s.flag;
         const union = name === 'subject' ? (SUBJECTS[id] ?? SUBJECTS['state']) : UNIONS[name];

@@ -513,6 +513,8 @@ export class TopicsCore {
         stale,
         mode: topic.plan.mode,
         paused: topic.plan.paused,
+        // protocol 6 (DESIGN 0.7.0 D15): who pressed "Pause" (absent: smurg paused it)
+        ...(topic.plan.paused && topic.plan.pausedBy !== undefined ? { pausedBy: { ...topic.plan.pausedBy } } : {}),
         ...(topic.plan.changedAt === undefined ? {} : { changedAt: topic.plan.changedAt }),
         ...(topic.plan.changedBy === undefined ? {} : { changedBy: topic.plan.changedBy }),
         items: inPlan.length,
@@ -702,6 +704,17 @@ export class TopicsCore {
   /** The ids an item depends on whose changes have not reached the main workspace yet. */
   unmergedDependencies(topic: StoredTopic, item: StoredItem): string[] {
     return item.dependsOn.filter((id) => topic.items.find((candidate) => candidate.id === id)?.merged !== true);
+  }
+
+  /**
+   * Whether a queued item may start now (DESIGN 0.7.0 D16): fewer than `max` item processes WORK (a session that waits
+   * for a person keeps its process, a card holds its tool call open, but does not count), and the processes are fewer
+   * than twice `max` and than `maxAgentProcesses`. So at most `max` item processes work at once, as before, and up to
+   * `max` more may be held by sessions that wait for a person (their memory is the cost, HOSTING §10.4).
+   */
+  slotFree(slots: PlanInfo['slots'] = this.slots()): boolean {
+    const cap = Math.min(2 * slots.max, this.ctx.config.agents.maxAgentProcesses);
+    return slots.inUse - slots.waitingForPeople < slots.max && slots.inUse < cap;
   }
 
   /** How many agent processes of work items run, of how many the host allows (the scheduler's ONE limit). */

@@ -56,6 +56,8 @@ export interface TopicsTestOptions {
    * already know then (after a restart: the sessions the runtime kept, the merge requests of the worktree module).
    */
   readonly seed?: (fakes: Fakes, ctx: DaemonContext) => void | Promise<void>;
+  /** What goes on after the start waits for `t.daemon.goOn()`, as under `smurg host` (DESIGN 0.7.0 D15). */
+  readonly deferGoOn?: boolean;
 }
 
 export async function setupTopics(options: TopicsTestOptions = {}): Promise<TopicsTest> {
@@ -69,6 +71,7 @@ export async function setupTopics(options: TopicsTestOptions = {}): Promise<Topi
     ...(options.root === undefined ? { project: { files: { 'README.md': '# project\n', ...options.files } } } : { root: options.root }),
     ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
+    ...(options.deferGoOn === true ? { deferGoOn: true } : {}),
   });
   const fakes = fakesOf(t.ctx);
   const host = await t.connectHost();

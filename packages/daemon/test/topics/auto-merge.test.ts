@@ -439,7 +439,7 @@ describe('DESIGN 0.7.0 D8: after a restart', () => {
     expect((await storedItem(test, before.topicId, 'a')).mergeTries).toBe(1);
   });
 
-  it('a merge smurg made whose record the topics module never got: at the start it is recorded as smurg\'s; a plan paused by the restart merges nothing until "Continue all"', async () => {
+  it('a merge smurg made whose record the topics module never got: at the start it is recorded as smurg\'s; a plan a person paused before the restart merges nothing until "Continue all"', async () => {
     const { root, stateDir } = await folders('s3-restart-c');
     const workspaceId = 'ws_test_s3_restart_0003';
     test = await setupTopics({ root, stateDir, workspaceId, settings: { merging: 'auto' } });
@@ -454,6 +454,8 @@ describe('DESIGN 0.7.0 D8: after a restart', () => {
     const worktrees = ['a', 'b', 'c'].map((id) => test.fakes.worktrees.get(run.worktree(id)) as WorktreeInfo);
     const requests = test.fakes.worktrees.listMerges(test.principals.host);
     const aRequest = item(run.topicId, 'a').merge?.requestId as string;
+    // (0.7.0 S6, DESIGN D15: a restart pauses nothing by itself any more; Mei's "Pause" is what stays across it)
+    await test.mei.conn.request('plan.pause', { topicId: run.topicId });
     await test.cleanup();
 
     test = await setupTopics({

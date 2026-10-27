@@ -155,6 +155,17 @@ export interface DaemonOptions {
    */
   readonly homeDir?: string;
   readonly random?: () => number;
+  /**
+   * `smurg host` (DESIGN 0.7.0 D15, R-SAFE S16): what goes on by itself after a restart waits until the command has
+   * printed what goes on and calls `Daemon.goOn()`. Without it (tests, the e2e harness) it goes on at the end of `start()`.
+   */
+  readonly deferGoOn?: boolean;
+}
+
+/** What a start found that goes on by itself, and the topics a person paused (DESIGN 0.7.0 D18: `smurg host`'s lines). */
+export interface DaemonContinued {
+  readonly topics: readonly { readonly name: string; readonly items: number }[];
+  readonly paused: readonly string[];
 }
 
 export type { DaemonStatus } from './core/interfaces.ts';
@@ -169,6 +180,16 @@ export interface Daemon {
   /** The host's own single-use invite link, created by start(). Contains a secret: print it, never log it. */
   readonly hostInviteUrl: string | null;
   start(): Promise<void>;
+  /**
+   * What goes on by itself after a restart begins (DESIGN 0.7.0 D15): interrupted work items are told to continue,
+   * armed ones start, the merge queue runs. At the end of `start()` unless the daemon was made with `deferGoOn` (then
+   * `smurg host` calls it once it has printed `continued()`). Once; nothing after a stop.
+   */
+  goOn(): Promise<void>;
+  /** What this start found that goes on by itself at `goOn()`, and the topics a person paused (empty without topics). */
+  continued(): DaemonContinued;
+  /** How many topics would go on by themselves at the next start (DESIGN 0.7.0 D18: the line when smurg host stops). */
+  goOnAtNextStart(): number;
   stop(reason?: string): Promise<void>;
   status(): DaemonStatus;
   /**
@@ -393,6 +414,10 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       hostUserId: () => members.hostUserId(),
       now: () => clock.now(),
     });
+    // DESIGN 0.7.0 D4: this start ran the state step from 0.6.0 (every upgrade of state.json ends with it): ONE audit
+    // entry says that the update, not the host, turned automatic merging on.
+    const stateStep = upgraded.find((entry) => entry.document === 'state');
+    if (stateStep !== undefined) settings.recordMergingStep(reading.stamp !== null && reading.stamp.pending === undefined && !reading.putBack ? reading.stamp.smurg : stateStep.from);
     const invites = new InviteServiceImpl({
       state,
       audit,
@@ -439,6 +464,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       stop: (reason?: string) => (daemonRef as Daemon).stop(reason),
       status: () => (daemonRef as Daemon).status(),
       attachLocal: (input: LocalAttachInput) => attachLocal(input),
+      goOnAtNextStart: () => (daemonRef as Daemon).goOnAtNextStart(),
     });
     const ctx: DaemonContext = Object.freeze({
       config,
@@ -541,6 +567,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
 
     let started = false;
     let stopped = false;
+    let wentOn = false;
     let hostInviteUrl: string | null = null;
     let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -670,7 +697,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           out.agents = counts;
         }
         if (!isStubService(services.topics)) {
-          const topics: { plan: { paused: boolean } }[] = [];
+          const topics: { id: string; phase: string; plan: { paused: boolean } }[] = [];
           for (let after: string | undefined; ; ) {
             const page = services.topics.list(after === undefined ? {} : { after });
             topics.push(...page.topics);
@@ -678,7 +705,25 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
             if (!page.hasMore || last === undefined) break;
             after = last.id;
           }
-          out.topics = { total: topics.length, paused: topics.filter((topic) => topic.plan.paused).length };
+          // DESIGN 0.7.0 D18: what each topic does now, once each: paused; ready to check; executing with an item held
+          // for a person (a decision); executing (running). The parts that are 0 are left out of the answer.
+          const counts = { running: 0, decisions: 0, ready: 0 };
+          for (const topic of topics) {
+            if (topic.plan.paused) continue;
+            if (topic.phase === 'ready') counts.ready += 1;
+            else if (topic.phase === 'executing') {
+              const held = !isStubService(services.plans) && (services.plans.get(topic.id)?.items.some((item) => item.autoMerge?.state === 'held') ?? false);
+              if (held) counts.decisions += 1;
+              else counts.running += 1;
+            }
+          }
+          out.topics = {
+            total: topics.length,
+            paused: topics.filter((topic) => topic.plan.paused).length,
+            ...(counts.running > 0 ? { running: counts.running } : {}),
+            ...(counts.decisions > 0 ? { decisions: counts.decisions } : {}),
+            ...(counts.ready > 0 ? { ready: counts.ready } : {}),
+          };
         }
         if (!isStubService(services.projectTrust)) out.projectSettings = services.projectTrust.state(roots.main.ref);
         if (!isStubService(services.hostRules)) out.hostRules = { count: services.hostRules.applied().length };
@@ -709,6 +754,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
         started = true;
         try {
           await startAll();
+          if (options.deferGoOn !== true) await daemon.goOn();
         } catch (err) {
           // Half-started (keep-awake child, timers, modules): undo everything before reporting the failure.
           log.error('daemon start failed', {
@@ -717,6 +763,38 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
           });
           await daemon.stop('start-failed');
           throw whileWriting(err);
+        }
+      },
+
+      async goOn(): Promise<void> {
+        if (wentOn || !started || stopped) return;
+        wentOn = true;
+        for (const module of modules) {
+          try {
+            await module.goOn?.(ctx);
+          } catch (err) {
+            log.error('module go-on failed', { module: module.name, error: err instanceof Error ? err.name : 'unknown' });
+          }
+        }
+      },
+
+      continued(): DaemonContinued {
+        try {
+          if (isStubService(services.plans)) return { topics: [], paused: [] };
+          const found = services.plans.atStart();
+          return { topics: found.continues.map((topic) => ({ name: topic.name, items: topic.items })), paused: found.paused.map((topic) => topic.name) };
+        } catch (err) {
+          log.error('what goes on after the start is unknown', { error: err instanceof Error ? err.name : 'unknown' });
+          return { topics: [], paused: [] };
+        }
+      },
+
+      goOnAtNextStart(): number {
+        try {
+          return isStubService(services.plans) ? 0 : services.plans.goOnAtNextStart();
+        } catch (err) {
+          log.error('what goes on at the next start is unknown', { error: err instanceof Error ? err.name : 'unknown' });
+          return 0;
         }
       },
 

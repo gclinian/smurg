@@ -514,8 +514,12 @@ describe('T topics flow: one topic through the real relay, five SDK clients and 
     expect(largest).toBeLessThan(MAX_RELAY_FRAME / 2);
   });
 
-  step('the host\'s smurg stops and starts again: every client comes back by itself and catches up from what it holds; open cards are withdrawn at every client, the plan is paused until "Continue all"', async () => {
+  // 0.7.0 (DESIGN D15) changed this on purpose: a restart no longer pauses a plan by itself; Mei's Pause, pressed before
+  // the stop, is the brake that stays across it.
+  step('Mei pauses the plan; the host\'s smurg stops and starts again: every client comes back by itself and catches up from what it holds; open cards are withdrawn at every client, the plan stays paused until "Continue all"', async () => {
     const members = [ian, mei, amy, leo, noa];
+    expect((await mei.conn.request('plan.pause', { topicId })).plan.paused).toBe(true);
+    for (const one of members) await topicIs(one, topicId, (topic) => topic.plan.paused, 'the paused plan');
     const connections = members.map((one) => one.conn);
     const launchesBefore = await launches(stack.claude!);
     const heldBefore = new Map(members.map((one) => [one.name, Object.fromEntries(one.watching().map((id) => [id, one.events(id).length]))]));

@@ -28,6 +28,15 @@
 // smurg's history refused), the item is disarmed with `plan.start.historyChanged`: for EVERY armed item, retried ones
 // included, before and outside the hash part of the pin check. Direct items run one at a time (direct-folder.ts holds
 // the folder); `maxLiveAgents` is not theirs.
+//
+// 0.7.0 (DESIGN D15, D16): plans go on by themselves. After a restart of the host's smurg the plan is paused only when
+// a person paused it (`pausedBy`) or an item that runs directly in the folder was interrupted (its half-done change is
+// in the folder, which has no history); every other pause (0.6.0's after a restart) is lifted. The pin and history
+// checks of what is armed run at the start; what goes on (interrupted items told to continue, armed ones started) waits
+// for `goOn()`, which `smurg host` calls once it has printed it (R-SAFE S16). A turn that ended on a usage limit, on an
+// error (twice), in a crash (once) or with a snapshot that failed (once) is continued by smurg, each bounded, audited
+// and said in the item's conversation, never for a person's stop and never while the plan is paused. Sessions that
+// wait for a person no longer keep unrelated items from starting (core.ts `slotFree`).
 import {
   LIST_MAX_ITEMS,
   MAIN_ROOT,
@@ -43,12 +52,13 @@ import {
   type UserRef,
   type WireText,
 } from '@smurg/protocol';
-import { defaultErrorRef, msg } from '@smurg/protocol/i18n';
+import { defaultErrorRef, msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
+import type { PlansAtStart } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { pausedItems } from './attention.ts';
-import { itemKey, type TopicsCore } from './core.ts';
+import { AUTO_CONTINUE_DELAYS_MS, autoContinueOwed, type AutoContinueCause } from './auto-merge-verdict.ts';
+import { isDirect, itemKey, type TopicsCore } from './core.ts';
 import { DirectFolder } from './direct-folder.ts';
 import { continueItemMessage, directExecutionRolePrompt, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
 import type { StoredItem, StoredTopic } from './store.ts';
@@ -70,8 +80,14 @@ export class Scheduler {
   private reports: SchedulerReports | null = null;
   private loop: Promise<void> | null = null;
   private again = false;
-  /** `afterRestart` has run: until then no pass does anything (nothing may start before the plans are paused). */
+  /** `afterRestart` has run: until then no pass does anything (nothing may start before the plans are looked at). */
   private restored = false;
+  /** `goOn()` has run (DESIGN 0.7.0 D15): until then nothing starts and nothing is continued. */
+  private goneOn = false;
+  /** What the start found that goes on at `goOn()` (D18: `smurg host` prints it first). */
+  private found: PlansAtStart = { continues: [], paused: [] };
+  /** An automatic continue being sent (one at a time: the sweep runs every few seconds). */
+  private continuing: Promise<void> | null = null;
   /** Item sessions the scheduler asked to give up their process, until they did. */
   private readonly parking = new Set<string>();
   /** What each item session last looked like to the plans (its status and who is responsible): only a change is announced. */
@@ -131,55 +147,14 @@ export class Scheduler {
   }
 
   private async pass(): Promise<void> {
-    if (!this.core.started || !this.restored || this.ctx.stopping.aborted) return;
+    if (!this.core.started || !this.restored || !this.goneOn || this.ctx.stopping.aborted) return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     if (isStubService(agents) || isStubService(worktrees)) return;
     for (const listed of this.core.topics()) {
       if (listed.archived || !listed.items.some((item) => item.armed)) continue;
       const topicId = listed.id;
-      // ---- THE HISTORY (DESIGN 0.6.0 D15): for EVERY armed item, retried ones included, the history its Start used
-      //      must still be usable (not while the plan is paused: the check runs before anything starts after "Continue all") ----
-      if (!listed.plan.paused) {
-        const states = new Map<string, Awaited<ReturnType<typeof worktrees.historyState>>>();
-        for (const item of listed.items.filter((candidate) => candidate.armed)) {
-          const history = historyOf(item);
-          let state = states.get(history);
-          if (state === undefined) {
-            state = await worktrees.historyState(history).catch(() => 'unknown' as const);
-            states.set(history, state);
-          }
-          if (state === 'changed') this.disarm(topicId, item.id, 'start-failed', historyChanged());
-        }
-      }
-      // ---- PIN CHECK (not for a retried item: its worktree already holds the copy it was started from; not while
-      //      the plan is paused: nothing can start then, and the check runs before anything does after "Continue all").
-      //      The two files hash as pinned in the working tree, and at HEAD of the history the Start used (an item that
-      //      runs directly in the folder has no history: the working tree alone) ----
-      const checked = this.core.topic(topicId) ?? listed;
-      const pinned = checked.plan.paused ? [] : checked.items.filter((item) => item.armed && !item.retry);
-      if (pinned.length > 0) {
-        const specPath = topicSpecPath(listed.slug);
-        const planPath = topicPlanPath(listed.slug);
-        const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
-        const heads = new Map<string, Record<string, string | null> | null>();
-        for (const item of pinned) {
-          const pin = item.pin;
-          const history = historyOf(item);
-          let head: Record<string, string | null> | null = null;
-          if (history !== 'direct') {
-            if (!heads.has(history)) heads.set(history, await worktrees.headBlobs([specPath, planPath], { history }).catch(() => null));
-            head = heads.get(history) ?? null;
-          }
-          const asPinned =
-            pin !== undefined &&
-            item.number > 0 &&
-            (spec?.hash ?? EMPTY_HASH) === pin.specHash &&
-            (plan?.hash ?? EMPTY_HASH) === pin.planHash &&
-            (history === 'direct' || (head !== null && (head[specPath] ?? null) === pin.specBlob && (head[planPath] ?? null) === pin.planBlob));
-          if (!asPinned) this.disarm(topicId, item.id, 'plan-changed');
-        }
-      }
+      await this.checkArmed(topicId);
       // ---- waiting → queued: everything it depends on is merged (this is all a paused plan does) ----
       const afterPins = this.core.topic(topicId);
       if (afterPins === null || afterPins.archived) continue;
@@ -191,7 +166,9 @@ export class Scheduler {
       this.core.publish(topicId);
       if (afterPins.plan.paused) continue;
       // ---- queued → running, in plan order, while a slot is free (an item that runs directly in the folder: while
-      //      the folder is free, one at a time; `maxLiveAgents` is not consulted for it) ----
+      //      the folder is free, one at a time; `maxLiveAgents` is not consulted for it). DESIGN 0.7.0 D16: a slot is
+      //      free while fewer than `max` item processes WORK; sessions that wait for a person do not count (up to twice
+      //      `max` processes in all, core.ts `slotFree`) ----
       const queued = [...(this.core.topic(topicId)?.items ?? [])].filter((item) => item.armed && item.state === 'queued').sort((a, b) => a.number - b.number);
       for (const item of queued) {
         if (this.ctx.stopping.aborted) return;
@@ -199,14 +176,66 @@ export class Scheduler {
           if (this.folder.isFree()) await this.startItem(topicId, item.id);
           continue;
         }
-        const slots = this.core.slots();
-        if (slots.inUse >= slots.max) {
+        if (!this.core.slotFree()) {
           this.freeSlot();
           break;
         }
         await this.startItem(topicId, item.id);
       }
       this.core.publish(topicId);
+    }
+  }
+
+  /**
+   * The checks of what is armed in one topic, before anything of it starts: the history its Start used, and the pin
+   * (the two files as pinned). Not while the plan is paused (they run before anything starts after "Continue all").
+   * An item that fails them is disarmed.
+   */
+  private async checkArmed(topicId: string): Promise<void> {
+    const worktrees = this.ctx.services.worktrees;
+    const listed = this.core.topic(topicId);
+    if (listed === null || listed.archived || isStubService(worktrees)) return;
+    // ---- THE HISTORY (DESIGN 0.6.0 D15): for EVERY armed item, retried ones included, the history its Start used
+    //      must still be usable (not while the plan is paused: the check runs before anything starts after "Continue all") ----
+    if (!listed.plan.paused) {
+      const states = new Map<string, Awaited<ReturnType<typeof worktrees.historyState>>>();
+      for (const item of listed.items.filter((candidate) => candidate.armed)) {
+        const history = historyOf(item);
+        let state = states.get(history);
+        if (state === undefined) {
+          state = await worktrees.historyState(history).catch(() => 'unknown' as const);
+          states.set(history, state);
+        }
+        if (state === 'changed') this.disarm(topicId, item.id, 'start-failed', historyChanged());
+      }
+    }
+    // ---- PIN CHECK (not for a retried item: its worktree already holds the copy it was started from; not while
+    //      the plan is paused: nothing can start then, and the check runs before anything does after "Continue all").
+    //      The two files hash as pinned in the working tree, and at HEAD of the history the Start used (an item that
+    //      runs directly in the folder has no history: the working tree alone) ----
+    const checked = this.core.topic(topicId) ?? listed;
+    const pinned = checked.plan.paused ? [] : checked.items.filter((item) => item.armed && !item.retry);
+    if (pinned.length > 0) {
+      const specPath = topicSpecPath(listed.slug);
+      const planPath = topicPlanPath(listed.slug);
+      const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
+      const heads = new Map<string, Record<string, string | null> | null>();
+      for (const item of pinned) {
+        const pin = item.pin;
+        const history = historyOf(item);
+        let head: Record<string, string | null> | null = null;
+        if (history !== 'direct') {
+          if (!heads.has(history)) heads.set(history, await worktrees.headBlobs([specPath, planPath], { history }).catch(() => null));
+          head = heads.get(history) ?? null;
+        }
+        const asPinned =
+          pin !== undefined &&
+          item.number > 0 &&
+          (spec?.hash ?? EMPTY_HASH) === pin.specHash &&
+          (plan?.hash ?? EMPTY_HASH) === pin.planHash &&
+          (history === 'direct' || (head !== null && (head[specPath] ?? null) === pin.specBlob && (head[planPath] ?? null) === pin.planBlob));
+        if (!asPinned) this.disarm(topicId, item.id, 'plan-changed');
+      }
     }
   }
 
@@ -450,19 +479,25 @@ export class Scheduler {
   // Telling a session to go on
   // ===================================================================================================================
 
-  /** `continue-item` to an item's session (the line that explains it first), and the item runs again. */
-  async sendContinue(topicId: string, itemId: string, by: { readonly userId: string; readonly displayName: string }): Promise<boolean> {
+  /**
+   * `continue-item` to an item's session (the line that explains it first), and the item runs again. `who`: the person
+   * who asked (Continue, Continue all, Try again: the line names them, and the count of smurg's automatic continues
+   * starts again, DESIGN 0.7.0 D15), or smurg's own continue with the line that says why (no `by` on the message).
+   */
+  async sendContinue(topicId: string, itemId: string, who: { readonly by: { readonly userId: string; readonly displayName: string } } | { readonly line: MessageRef }): Promise<boolean> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
     if (topic === null || item === null || item.sessionId === undefined) return false;
     const agents = this.ctx.services.agents;
     const sessionId = item.sessionId;
-    agents.append(sessionId, lineEvent(msg('conversation.continueRequested', { name: by.displayName })));
-    await agents.send(sessionId, { kind: 'smurg', purpose: 'continue-item', text: continueItemMessage(), by });
+    const by = 'by' in who ? who.by : null;
+    agents.append(sessionId, lineEvent(by === null ? (who as { readonly line: MessageRef }).line : msg('conversation.continueRequested', { name: by.displayName })));
+    await agents.send(sessionId, { kind: 'smurg', purpose: 'continue-item', text: continueItemMessage(), ...(by === null ? {} : { by: { userId: by.userId, displayName: by.displayName } }) });
     const hasReport = this.reports?.hasReport(topicId, itemId) ?? false;
     this.core.updateItem(topicId, itemId, (draft) => {
       draft.nudged = false;
       delete draft.fix;
+      if (by !== null) delete draft.autoContinue;
     });
     if (item.state === 'stalled' || item.state === 'failed') {
       this.core.setItemState(topicId, itemId, 'running');
@@ -497,7 +532,11 @@ export class Scheduler {
         const { topic, item } = hit;
         // A direct item whose process failed holds the shared folder no more ("Try again" takes it again).
         if (session.status === 'failed' && item.direct === true) this.folder.ended(DirectFolder.key(topic.id, item.id));
-        if (session.status === 'failed' && (item.state === 'running' || item.state === 'stalled')) this.core.setItemState(topic.id, item.id, 'failed');
+        if (session.status === 'failed' && (item.state === 'running' || item.state === 'stalled')) {
+          this.core.setItemState(topic.id, item.id, 'failed');
+          // DESIGN 0.7.0 D15: a crash is resumed once by smurg, a minute later.
+          this.noteBreak(topic.id, item.id, 'crash');
+        }
         // A failed item runs again when its session is inside a turn. A session that is merely there again (idle after
         // a restart of smurg or of its process, renamed, given to someone else) works on nothing: "Try again" stays.
         else if (item.state === 'failed' && (session.status === 'running' || session.status === 'waiting-answer' || session.status === 'waiting-permission')) this.core.setItemState(topic.id, item.id, 'running');
@@ -747,9 +786,13 @@ export class Scheduler {
   }
 
   /**
-   * Nothing runs by itself after a restart. Sessions that were mid-turn are `stalled` (`restart`), unless the report
-   * the agent had checked is there (it is registered right then); every topic that has armed or interrupted items is
-   * PAUSED until a member with agent access presses "Continue all".
+   * After a restart of the host's smurg (DESIGN 0.7.0 D15; until 0.6.0 every plan with armed or interrupted items was
+   * paused here). Sessions that were mid-turn are `stalled` (`restart`), unless the report the agent had checked is
+   * there (it is registered right then). Then the one rule of every start: a plan is paused when a person paused it
+   * (`pausedBy`) or when an item of it that runs directly in the shared folder was interrupted and nobody continued it
+   * yet (its half-done change is in the folder, which has no history: the host looks first); any other pause is lifted
+   * (0.6.0's after a restart). The history and pin checks of what is armed run now, before anything starts, and what
+   * goes on is known (`atStart`): nothing of it is done before `goOn()`.
    */
   async afterRestart(): Promise<void> {
     const agents = this.ctx.services.agents;
@@ -772,16 +815,244 @@ export class Scheduler {
         }
       }
       const topic = this.core.topic(listed.id);
-      if (topic !== null && pausedItems(topic).length > 0 && !topic.plan.paused) {
+      if (topic === null) continue;
+      const keep = topic.plan.pausedBy !== undefined || topic.items.some((item) => isDirect(item) && item.state === 'stalled' && item.stalledBy === 'restart');
+      if (keep && !topic.plan.paused) {
         this.core.update(topic.id, (draft) => {
           draft.plan.paused = true;
           draft.plan.pausedAt = now;
         });
+      } else if (!keep && topic.plan.paused) {
+        this.core.update(topic.id, (draft) => {
+          draft.plan.paused = false;
+          delete draft.plan.pausedAt;
+        });
       }
     }
     this.restored = true;
+    // The checks before anything starts (the pin, the history): what fails them is disarmed now, and is not said to go on.
+    for (const topic of this.core.topics()) {
+      if (topic.archived || topic.plan.paused || !topic.items.some((item) => item.armed)) continue;
+      await this.checkArmed(topic.id).catch((err: unknown) => this.ctx.log.error('armed items not checked at the start', { topic: topic.id, error: err instanceof Error ? err.name : 'unknown' }));
+    }
+    this.found = this.lookAtStart();
+  }
+
+  /** What this start found (DESIGN 0.7.0 D18), as `afterRestart` left it: `smurg host` prints it before `goOn()`. */
+  atStart(): PlansAtStart {
+    return this.found;
+  }
+
+  private lookAtStart(): PlansAtStart {
+    const continues: { topicId: string; name: string; items: number }[] = [];
+    const paused: { topicId: string; name: string }[] = [];
+    for (const topic of this.core.topics()) {
+      if (topic.archived) continue;
+      if (topic.plan.paused) {
+        if (topic.plan.pausedBy !== undefined) paused.push({ topicId: topic.id, name: topic.name });
+        continue;
+      }
+      const items = this.goesOn(topic, 'start');
+      if (items > 0) continues.push({ topicId: topic.id, name: topic.name, items });
+    }
+    return { continues, paused };
+  }
+
+  /**
+   * How many topics would go on by themselves when the host's smurg starts again (DESIGN 0.7.0 D18), as things are now:
+   * open, not paused, with work that goes on by itself; not a topic whose item runs directly in the folder in a turn
+   * now (the stop interrupts it, and that topic is paused for the host at the start).
+   */
+  goOnAtNextStart(): number {
+    if (!this.core.started) return 0;
+    const agents = this.ctx.services.agents;
+    let count = 0;
+    for (const topic of this.core.topics()) {
+      if (topic.archived || topic.plan.paused) continue;
+      const directInTurn = topic.items.some((item) => isDirect(item) && item.sessionId !== undefined && !isStubService(agents) && IN_A_TURN.has(agents.get(item.sessionId)?.status ?? ''));
+      if (directInTurn) continue;
+      if (this.goesOn(topic, 'stop') > 0) count += 1;
+    }
+    return count;
+  }
+
+  /**
+   * The items of a topic that act by themselves at a start (`start`: what this start found; `stop`: what the next start
+   * would find): a session continued after the restart (an interrupted item, or one in a turn now), an automatic
+   * continue owed, an armed item, an item whose agent was bringing its work up to date, and what the merge queue would
+   * do (a merge, a report checked again, conflict markers resolved). Without a way to run agents (no `smurg hook`
+   * command, the account logged out) only the merges count.
+   */
+  private goesOn(topic: StoredTopic, when: 'start' | 'stop'): number {
+    const run = this.mayRunAgents();
+    const agents = this.ctx.services.agents;
+    const cards = this.core.sessionsWithCards();
+    let count = 0;
+    for (const item of topic.items) {
+      if (item.leftOut !== undefined || item.undone !== undefined) continue;
+      const live = item.sessionId !== undefined && !isStubService(agents) && (agents.get(item.sessionId)?.status ?? 'ended') !== 'ended';
+      const interrupted = live && (when === 'start' ? item.state === 'stalled' && item.stalledBy === 'restart' : item.state === 'running' || (item.state === 'stalled' && item.stalledBy === 'restart'));
+      const verdict = this.core.mergingOf(item) === 'auto' ? this.core.verdictOf(topic, item, cards).kind : 'none';
+      const acts = run
+        ? item.armed || interrupted || (live && autoContinueOwed(item)) || (live && item.autoMerge?.state === 'resolving' && this.core.mergingOf(item) === 'auto') || verdict === 'merge' || verdict === 'verify' || verdict === 'resolve'
+        : verdict === 'merge';
+      if (acts) count += 1;
+    }
+    return count;
+  }
+
+  /** Whether an agent session can be told to go on at all: an agent process can be started, and the account is not logged out. */
+  private mayRunAgents(): boolean {
+    const agents = this.ctx.services.agents;
+    if (isStubService(agents) || !agents.canLaunch()) return false;
+    return agents.account().state !== 'logged-out';
+  }
+
+  /**
+   * What the start found goes on, from now on (DESIGN 0.7.0 D15): each item a restart interrupted, in a plan that is not
+   * paused, gets `continue-item` (without `by`) after the line `conversation.continued.restart`; then the scheduler runs
+   * (the armed items). A continue that cannot be sent (no hook command, the session gone) leaves the item
+   * `stalled(restart)` with its attention item, and is not counted. Once.
+   */
+  async goOn(): Promise<void> {
+    if (this.goneOn) return;
+    this.goneOn = true;
+    if (!this.core.started || this.ctx.stopping.aborted) return;
+    if (this.mayRunAgents()) {
+      const agents = this.ctx.services.agents;
+      for (const topic of this.core.topics()) {
+        if (topic.archived || topic.plan.paused) continue;
+        for (const item of topic.items) {
+          if (this.ctx.stopping.aborted) return;
+          if (item.state !== 'stalled' || item.stalledBy !== 'restart' || item.sessionId === undefined || isDirect(item)) continue;
+          const sessionId = item.sessionId;
+          const session = agents.get(sessionId);
+          if (session === null || session.status === 'ended') continue;
+          try {
+            if (!(await this.sendContinue(topic.id, item.id, { line: msg('conversation.continued.restart') }))) continue;
+            this.ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'plan.item.autoContinue', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, sessionId, cause: 'restart' } });
+          } catch (err) {
+            if (this.ctx.stopping.aborted) return;
+            this.ctx.log.warn('an interrupted item was not continued after the start', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
+          }
+        }
+      }
+    }
+    this.request();
+  }
+
+  // ===================================================================================================================
+  // smurg's own continues (DESIGN 0.7.0 D15): bounded, audited, said in the conversation
+  // ===================================================================================================================
+
+  /**
+   * A turn of an item broke (or its process failed, or its snapshot could not be taken): what smurg will do about it.
+   * The same cause again keeps the count (the bound is per cause); another cause starts at 0; `null` (a logged-out
+   * account, a refused model, a person's stop) owes nothing and drops the record.
+   */
+  noteBreak(topicId: string, itemId: string, cause: AutoContinueCause | null): void {
+    const now = this.ctx.clock.now();
+    this.core.updateItem(topicId, itemId, (draft) => {
+      if (cause === null) {
+        delete draft.autoContinue;
+        return;
+      }
+      const count = draft.autoContinue?.cause === cause ? draft.autoContinue.count : 0;
+      draft.autoContinue = { cause, count, at: now };
+    });
+  }
+
+  /** The account works again (`account.changed`): what a usage limit stopped is continued now. */
+  onAccount(): void {
+    if (this.core.started) this.sweepContinues();
+  }
+
+  /**
+   * The reports' sweep (a few seconds): every continue that is due is sent, one at a time. Due: owed (the bound not
+   * spent, the item still where its turn broke), its plan not paused, its session there and doing nothing (no turn, no
+   * message waiting, no card), and its time come: a usage limit when the account is back, a broken turn 1 minute and
+   * then 5 minutes after the stall, a crash and a failed snapshot 1 minute after it.
+   */
+  sweepContinues(): void {
+    if (!this.core.started || !this.goneOn || this.ctx.stopping.aborted || this.continuing !== null || !this.mayRunAgents()) return;
+    const due = this.dueContinues();
+    if (due.length === 0) return;
+    this.continuing = (async () => {
+      for (const next of due) {
+        if (this.ctx.stopping.aborted) return;
+        await this.continueByItself(next.topicId, next.itemId).catch((err: unknown) => this.ctx.log.error('an automatic continue failed', { topic: next.topicId, item: next.itemId, error: err instanceof Error ? err.name : 'unknown' }));
+      }
+    })().finally(() => {
+      this.continuing = null;
+    });
+  }
+
+  private dueContinues(): { readonly topicId: string; readonly itemId: string }[] {
+    const out: { topicId: string; itemId: string }[] = [];
+    const cards = this.core.sessionsWithCards();
+    for (const topic of this.core.topics()) {
+      if (topic.archived || topic.plan.paused) continue;
+      for (const item of topic.items) if (this.continueDue(topic, item, cards)) out.push({ topicId: topic.id, itemId: item.id });
+    }
+    return out;
+  }
+
+  private continueDue(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string>): boolean {
+    const record = item.autoContinue;
+    if (record === undefined || item.leftOut !== undefined || item.sessionId === undefined || !autoContinueOwed(item)) return false;
+    const agents = this.ctx.services.agents;
+    const session = agents.get(item.sessionId);
+    if (session === null || session.status === 'ended') return false;
+    const atWork = this.core.sessionAtWork(topic, item, cards);
+    if (atWork !== null && (atWork.turnOpen || atWork.openCards > 0)) return false;
+    if (record.cause === 'usage-limit') return agents.account().state === 'ok';
+    const delays = AUTO_CONTINUE_DELAYS_MS[record.cause];
+    const delay = delays[Math.min(record.count, delays.length - 1)] ?? 60_000;
+    return this.ctx.clock.now() - record.at >= delay;
+  }
+
+  /** One automatic continue: counted and recorded first, then (a crash) the process started again, then `continue-item`. */
+  private async continueByItself(topicId: string, itemId: string): Promise<void> {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    if (topic === null || item === null || topic.archived || topic.plan.paused || !this.continueDue(topic, item, this.core.sessionsWithCards())) return;
+    const record = item.autoContinue as NonNullable<StoredItem['autoContinue']>;
+    const sessionId = item.sessionId as string;
+    const count = record.count + 1;
+    const now = this.ctx.clock.now();
+    this.core.updateItem(topicId, itemId, (draft) => {
+      draft.autoContinue = { cause: record.cause, count, at: now };
+    });
+    const audit = (outcome: 'ok' | 'error', extra: Record<string, string> = {}): void => {
+      this.ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'plan.item.autoContinue', outcome, target: topicId, detail: { topicId, itemId, sessionId, cause: record.cause, count, ...extra } });
+    };
+    const agents = this.ctx.services.agents;
+    try {
+      // A failed process is started again first, as smurg (AgentSessions.retry names smurg in its line and keeps "only
+      // the host" after three failed starts: the system principal has no role).
+      if (agents.get(sessionId)?.status === 'failed') await agents.retry(sessionId, SYSTEM_PRINCIPAL);
+      const line =
+        record.cause === 'usage-limit'
+          ? msg('conversation.continued.usageLimit')
+          : record.cause === 'error'
+            ? msg('conversation.continued.error', { count })
+            : record.cause === 'crash'
+              ? msg('conversation.continued.crash')
+              : msg('conversation.continued.snapshot');
+      await this.sendContinue(topicId, itemId, { line });
+      audit('ok');
+    } catch (err) {
+      if (this.ctx.stopping.aborted) return;
+      const reason = err instanceof SmurgError ? err.detail?.['reason'] : undefined;
+      audit('error', { reason: typeof reason === 'string' ? reason : err instanceof SmurgError ? err.code : 'internal' });
+      this.ctx.log.warn('an automatic continue was not sent', { topic: topicId, item: itemId, error: err instanceof Error ? err.name : 'unknown' });
+    }
+    this.core.publish(topicId);
   }
 }
+
+/** Session states that are inside a turn (or about to start one). */
+const IN_A_TURN: ReadonlySet<string> = new Set(['starting', 'running', 'waiting-answer', 'waiting-permission']);
 
 /** The history the Start of an item used (its pin): absent means the folder's own repository, as every 0.5.x pin. */
 function historyOf(item: StoredItem): 'folder' | 'smurg' | 'direct' {

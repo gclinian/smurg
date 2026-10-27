@@ -65,10 +65,10 @@ describe('the guide addresses the command prints lead to a heading that is there
     expect(problems).toEqual([]);
   });
 
-  it('the one-line notices of smurg host name the part they are about: what an update keeps (9.2), the way back to a folder set aside (9.4), what agents do by themselves (5.2, 0.6.0: the auto mode line and the "asks for nothing" line)', () => {
+  it('the one-line notices of smurg host name the part they are about: what an update keeps (9.2), the way back to a folder set aside (9.4), what agents do by themselves (5.2, 0.6.0: the auto mode line and the "asks for nothing" line), merging and what waits for it (10.3, 0.7.0: the line about automatic merging)', () => {
     const want: Readonly<Record<Lang, readonly string[]>> = {
-      en: ['92-after-an-update-what-your-workspace-keeps', '94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to', '52-what-agents-do-by-themselves-and-what-they-ask-first'],
-      'zh-TW': ['92-更新之後工作區保留了什麼', '94-如果你照-smurg-050-的指示把狀態資料夾移走了', '52-agent-自己能做什麼什麼要先問'],
+      en: ['92-after-an-update-what-your-workspace-keeps', '94-if-you-moved-the-state-folder-away-because-smurg-050-told-you-to', '52-what-agents-do-by-themselves-and-what-they-ask-first', '103-merging-and-what-waits-for-it'],
+      'zh-TW': ['92-更新之後工作區保留了什麼', '94-如果你照-smurg-050-的指示把狀態資料夾移走了', '52-agent-自己能做什麼什麼要先問', '103-合併以及什麼在等它'],
     };
     for (const lang of ['en', 'zh-TW'] as const) {
       const anchors = addressesOf(lang).map((address) => address.anchor);

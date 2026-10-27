@@ -15,6 +15,10 @@ import {
   agentsAutoNotice,
   asksNothingNotice,
   foldersSetAside,
+  mergesAutoNotice,
+  plansContinueNotice,
+  plansPausedNotice,
+  stopGoOnNotice,
   oldFolderNotice,
   shellWord,
   shown,
@@ -709,6 +713,56 @@ describe('0.6.0 (DESIGN D13): the line about auto mode, the line while agents as
       `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人控制台的設定裡選其他模式。說明：${GUIDE_AGENTS['zh-TW']}`,
     );
     for (const mode of ['auto', 'ask-commands', 'ask-all']) expect(asksNothingNotice(daemon(mode)), mode).toBeNull();
+  });
+
+  const GUIDE_MERGING = { en: 'https://smurg.ai/docs/hosting/#103-merging-and-what-waits-for-it', 'zh-TW': 'https://smurg.ai/zh-TW/docs/hosting/#103-合併以及什麼在等它' };
+
+  it('mergesAutoNotice (0.7.0, DESIGN D18): for a start that ran the state step from 0.6.0, i.e. every upgrade of state.json (0.6.0, and 0.4.0 through two steps more), one line in both languages', () => {
+    for (const from of ['0.4.0', '0.5.0', '0.6.0']) {
+      const text = mergesAutoNotice({ upgraded: [copy('state', from)] });
+      expect(text, from).not.toBeNull();
+      expect(renderText('en', text as Text)).toBe(
+        `\nWork items now merge by themselves: when a work item's report says complete, at least one check passed and none failed, smurg merges it into the shared folder for you, and everyone's inbox says when a topic is ready to check. Work items started before this update still wait for you. To merge each item yourself, choose "I merge each item myself" in the host console's settings. Guide: ${GUIDE_MERGING.en}`,
+      );
+      expect(renderText('zh-TW', text as Text)).toBe(
+        `\n工作項目現在會自動合併：報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替你把它合併到分享的資料夾，主題待驗收時每個人的收件夾都會顯示。這次更新之前就開始的工作項目仍然會等你。想要每個項目都自己合併，請在主人控制台的設定裡選「每個項目都由我自己合併」。說明：${GUIDE_MERGING['zh-TW']}`,
+      );
+    }
+    // Nothing upgraded, another document only, a later release's own state step: nothing.
+    expect(mergesAutoNotice({ upgraded: [] })).toBeNull();
+    expect(mergesAutoNotice({ upgraded: [copy('agent-sessions', '0.5.0')] })).toBeNull();
+    expect(mergesAutoNotice({ upgraded: [copy('state', '0.7.0')] })).toBeNull();
+    expect(mergesAutoNotice({ upgraded: [copy('state', 'legacy')] })).toBeNull();
+  });
+});
+
+describe('0.7.0 (DESIGN D15, D18): what goes on by itself, said at a start, at a stop and while it runs', () => {
+  it('the start lines: the topics that go on where they stopped (the first with "work items"), and the topics a person paused; nothing for none; names escaped', () => {
+    const two = plansContinueNotice({ topics: [{ name: 'Checkout', items: 2 }, { name: 'Search', items: 1 }], paused: [] });
+    expect(renderText('en', two as Text)).toBe('\n2 topics go on where they stopped: Checkout (2 work items), Search (1). To pause one, press Pause in its plan.');
+    expect(renderText('zh-TW', two as Text)).toBe('\n2 個主題從停下的地方繼續：Checkout（2 個工作項目）、Search（1 個）。要暫停其中一個，請在它的計畫裡按「暫停」。');
+    const one = plansContinueNotice({ topics: [{ name: 'Checkout', items: 1 }], paused: [] });
+    expect(renderText('en', one as Text)).toBe('\n1 topic goes on where it stopped: Checkout (1 work item). To pause it, press Pause in its plan.');
+    expect(renderText('zh-TW', one as Text)).toBe('\n1 個主題從停下的地方繼續：Checkout（1 個工作項目）。要暫停它，請在它的計畫裡按「暫停」。');
+    expect(plansContinueNotice({ topics: [], paused: ['Checkout'] })).toBeNull();
+    const paused = plansPausedNotice({ topics: [], paused: ['Checkout', 'Gift cards'] });
+    expect(renderText('en', paused as Text)).toBe('\nPaused by a person, and still paused: Checkout, Gift cards. Continue each in its plan.');
+    expect(renderText('zh-TW', paused as Text)).toBe('\n有人暫停、仍在暫停中的主題：Checkout、Gift cards。要繼續，請在它的計畫裡按「全部繼續」。');
+    expect(renderText('en', plansPausedNotice({ topics: [], paused: ['Checkout'] }) as Text)).toBe('\nPaused by a person, and still paused: Checkout. Continue it in its plan.');
+    expect(plansPausedNotice({ topics: [{ name: 'Checkout', items: 1 }], paused: [] })).toBeNull();
+    // A topic's name is people's text: nothing in it reaches the terminal as a control sequence.
+    const odd = renderText('en', plansContinueNotice({ topics: [{ name: 'Check\u001b[2Jout', items: 1 }], paused: [] }) as Text);
+    expect(odd).toContain('Check\\u{1b}[2Jout (1 work item)');
+    expect(LOG_UNSAFE_CHARACTER.test(odd.replace(/\n/g, ''))).toBe(false);
+  });
+
+  it('the stop line: how many topics go on by themselves at the next start; nothing for 0 or for a daemon that does not say', () => {
+    expect(renderText('en', stopGoOnNotice(2) as Text)).toBe('\nWhen smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.');
+    expect(renderText('zh-TW', stopGoOnNotice(2) as Text)).toBe('\n下次 smurg host 啟動時，2 個主題會自己繼續；要讓其中一個保持停下，請先在它的計畫裡按「暫停」。');
+    expect(renderText('en', stopGoOnNotice(1) as Text)).toBe('\nWhen smurg host starts again, 1 topic goes on by itself; to keep it stopped, press Pause in its plan first.');
+    expect(renderText('zh-TW', stopGoOnNotice(1) as Text)).toBe('\n下次 smurg host 啟動時，1 個主題會自己繼續；要讓它保持停下，請先在它的計畫裡按「暫停」。');
+    expect(stopGoOnNotice(0)).toBeNull();
+    expect(stopGoOnNotice(undefined)).toBeNull();
   });
 });
 

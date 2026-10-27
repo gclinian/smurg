@@ -88,6 +88,7 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'plan.start': { topicId: 'tp_nope', planRevision: 1, specHash: 'a'.repeat(64), planHash: 'b'.repeat(64) },
   'plan.changes': { topicId: 'tp_nope' },
   'plan.resume': { topicId: 'tp_nope' },
+  'plan.pause': { topicId: 'tp_nope' },
   'plan.item.retry': { topicId: 'tp_nope', itemId: 'cart-api' },
   'plan.item.continue': { topicId: 'tp_nope', itemId: 'cart-api' },
   'plan.item.resolve': { topicId: 'tp_nope', itemId: 'cart-api' },

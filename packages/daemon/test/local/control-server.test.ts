@@ -86,7 +86,7 @@ const fakeStatus = (workspaceId: string): DaemonStatus => ({
   isGitRepo: false,
 });
 
-function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01', more: Partial<DaemonStatus> = {}): DaemonLifecycle & { stops: string[] } {
+function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01', more: Partial<DaemonStatus> = {}, goOn = 0): DaemonLifecycle & { stops: string[] } {
   const stops: string[] = [];
   return {
     stops,
@@ -97,6 +97,7 @@ function fakeLifecycle(workspaceId = 'ws_fake_lifecycle01', more: Partial<Daemon
     attachLocal: (_input: LocalAttachInput): LocalAttachment => {
       throw new Error('not in this fake');
     },
+    goOnAtNextStart: () => goOn,
   };
 }
 
@@ -211,6 +212,27 @@ describe('ops', () => {
     plain.request({ v: 1, op: 'status' });
     const response = await plain.response();
     expect(response.ok && response.op === 'status' ? Object.keys(response.status).filter((key) => ['claude', 'agents', 'topics', 'projectSettings', 'hostRules'].includes(key)) : null).toEqual([]);
+  });
+
+  it('0.7.0 (DESIGN D18): the topics say how many run, wait for a decision and are ready to check, each only when it is not 0; the stop answer says how many topics go on by themselves at the next start, only when there are any', async () => {
+    const dir = await runDir();
+    const path = join(dir, 'cccccccccccc.ctl');
+    const topics: Partial<DaemonStatus> = { topics: { total: 5, paused: 1, running: 2, decisions: 1, ready: 1 } };
+    await server(path, { lifecycle: fakeLifecycle('ws_fake_lifecycle03', topics, 2) });
+    const c = await client(path);
+    c.request({ v: 1, op: 'status' });
+    expect(await c.response()).toMatchObject({ ok: true, op: 'status', status: topics });
+    const stopper = await client(path);
+    stopper.request({ v: 1, op: 'stop' });
+    expect(await stopper.response()).toEqual({ ok: true, op: 'stop', goOn: 2 });
+    // None: the answer is 0.6.0's, key for key.
+    const none = join(dir, 'dddddddddddd.ctl');
+    await server(none, { lifecycle: fakeLifecycle('ws_fake_lifecycle04', {}, 0) });
+    const n = await client(none);
+    n.request({ v: 1, op: 'stop' });
+    expect(await n.response()).toEqual({ ok: true, op: 'stop' });
+    expect(ctlResponseSchema.safeParse({ ok: true, op: 'stop', goOn: 0 }).success).toBe(false);
+    expect(daemonStatusSchema.safeParse({ ...fakeStatus('ws_fake_lifecycle01'), topics: { total: 1, paused: 0, waiting: 1 } }).success).toBe(false);
   });
 
   it('the status schema is strict about the agent fields: an unknown verdict, login or trust state, a negative count or an extra key is refused', () => {

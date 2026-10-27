@@ -193,7 +193,8 @@ describe('local control socket + the real CLI, every module composed', { timeout
     const status = await smurg(env, ['status'], home);
     expect(status.code).toBe(0);
     expect(status.stdout).toContain('  Agent sessions: 1 running, 1 waiting for a person, 0 stopped without a report or failed, 0 idle\n');
-    expect(status.stdout).toContain('  Topics: 1 (0 paused)\n');
+    // (0.7.0, DESIGN D18: the parts that are 0 are left out)
+    expect(status.stdout).toContain('  Topics: 1\n');
 
     const stop = await smurg(env, ['stop'], home);
     expect(stop.code).toBe(0);

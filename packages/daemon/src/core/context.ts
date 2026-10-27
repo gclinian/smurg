@@ -78,6 +78,11 @@ export interface FeatureModule {
   register(router: Router, ctx: DaemonContext): Disposable;
   /** After every module registered (open sockets, start watchers). Failing aborts daemon start. */
   start?(ctx: DaemonContext): Promise<void>;
+  /**
+   * What goes on by itself after a restart begins here (DESIGN 0.7.0 D15): after every module started, and, under
+   * `smurg host`, only once it has printed what goes on (`Daemon.goOn`). In module order, at most once. Must not throw.
+   */
+  goOn?(ctx: DaemonContext): Promise<void>;
   /** Reverse module order during stop(), after channels were closed with `stopped`. Must not throw. */
   stop?(ctx: DaemonContext): Promise<void>;
 }

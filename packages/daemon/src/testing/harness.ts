@@ -68,6 +68,8 @@ export interface TestDaemonOptions {
   readonly log?: Logger;
   readonly power?: PowerService;
   readonly workspaceId?: string;
+  /** As `smurg host` (DESIGN 0.7.0 D15): what goes on after a restart waits for `t.daemon.goOn()`. Default: it goes on at the start. */
+  readonly deferGoOn?: boolean;
 }
 
 export interface ConnectTestClientOptions {
@@ -188,6 +190,7 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
       log: options.log ?? silentLogger,
       homeDir: join(base, 'home'),
       ...(options.power ? { power: options.power } : {}),
+      ...(options.deferGoOn === true ? { deferGoOn: true } : {}),
       random: () => 0.5,
     });
     await daemon.start();

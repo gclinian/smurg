@@ -880,7 +880,9 @@ describe('the release composition: one topic from the discussion to the archive,
 });
 
 describe('the release composition: more work items than agents may run at once', { timeout: 240_000 }, () => {
-  it('with two agents allowed, the third item waits for a free agent and gets the place of the first session that is idle; a message to the parked session resumes it', async () => {
+  // 0.7.0 (DESIGN D16) changed this on purpose: a session that waits for a person no longer holds a place (M10 of
+  // release-flow.unattended.test.ts shows it); the third item here waits because the first two WORK.
+  it('with two agents allowed, the third item waits for a free agent while two work, and gets the place of the first session that is idle; a message to the parked session resumes it', async () => {
     const flow = await startFlow({ files: { 'README.md': '# Bookshop\n' }, settings: { maxLiveAgents: 2 } });
     const three = ['# Plan: Checkout', '', '<!-- smurg:plan v1 -->', '', '### 1. Cart API', '- id: cart-api', '', 'The cart.', '', '### 2. Payment form', '- id: payment-form', '', 'The form.', '', '### 3. Receipt email', '- id: receipt-email', '', 'The receipt.', '', '<!-- smurg:plan end -->', ''].join('\n');
     const done = (itemId: string, title: string): FakeClaudeStep[] => [
@@ -892,9 +894,9 @@ describe('the release composition: more work items than agents may run at once',
       turns: [
         { match: 'one page', once: true, steps: [{ tool: 'Write', input: { file_path: SPEC_PATH, content: SPEC } }, { text: 'The first draft of the spec is ready.' }] },
         { match: 'Then call check_plan', steps: [{ tool: 'Write', input: { file_path: PLAN_PATH, content: three } }, { tool: 'mcp__smurg__check_plan', input: {} }, { text: 'Three items.' }] },
-        // Item 1 waits for a person until it is allowed, then finishes; item 2 waits for a person the whole time.
-        { match: 'Start work item 1 ', steps: [PNPM_TEST, ...done('cart-api', 'Cart API')] },
-        { match: 'Start work item 2 ', steps: [{ tool: 'Bash', input: { command: 'pnpm build' } }, { text: 'never said' }] },
+        // Item 1 works a moment and finishes; item 2 works the whole time.
+        { match: 'Start work item 1 ', steps: [{ sleep: 3_000 }, ...done('cart-api', 'Cart API')] },
+        { match: 'Start work item 2 ', steps: [{ sleep: 120_000 }, { text: 'never said' }] },
         { match: 'Start work item 3 ', steps: done('receipt-email', 'Receipt email') },
         { match: 'What did you do', steps: [{ text: 'I wrote the cart.' }] },
         { steps: [{ text: 'ok' }] },
@@ -913,20 +915,18 @@ describe('the release composition: more work items than agents may run at once',
     expect(preflight).toMatchObject({ startsNow: ['cart-api', 'payment-form', 'receipt-email'], waits: [], blockers: [] });
     await mei.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash });
 
-    // ---- two start, the third is queued: "Waiting for a free agent: 2 of 2 in use, 2 wait for a person"
-    const full = await planIs(leo, topicId, (plan) => plan.slots.inUse === 2 && plan.slots.waitingForPeople === 2, 'both agents in use, both waiting for a person');
+    // ---- two start, the third is queued: "Waiting for a free agent: 2 of 2 in use"
+    const full = await planIs(leo, topicId, (plan) => plan.slots.inUse === 2, 'both agents in use');
     expect(full.items.map((item) => `${item.id} ${item.state}${item.armed ? ' armed' : ''}`)).toEqual(['cart-api running', 'payment-form running', 'receipt-email queued armed']);
-    expect(full.slots).toEqual({ inUse: 2, max: 2, waitingForPeople: 2 });
+    expect(full.slots).toEqual({ inUse: 2, max: 2, waitingForPeople: 0 });
     const cartId = itemOf(full, 'cart-api')?.sessionId as string;
     const formId = itemOf(full, 'payment-form')?.sessionId as string;
     expect(itemOf(full, 'receipt-email')?.sessionId).toBeUndefined();
     expect((await leo.conn.request('worktree.list', {})).worktrees.map((worktree) => worktree.itemId)).toEqual(['cart-api', 'payment-form']);
     for (const id of [cartId, formId]) await leo.watch(id);
-    expect(await launches(flow)).toBe(3);
+    await waitFor(async () => (await launches(flow)) === 3, { timeoutMs: 20_000, what: 'the discussion and the two item agents to have started' });
 
-    // ---- item 1 is allowed, finishes with its report, and is idle: its process is given up for the item that waits
-    const asked = await permissionAt(leo, (request) => request.sessionId === cartId && request.status === 'open', 'the command of work item 1');
-    await mei.conn.request('permission.decide', { requestId: asked.id, decision: 'allow' });
+    // ---- item 1 finishes with its report and is idle: its process is given up for the item that waits
     const started = await planIs(leo, topicId, (plan) => itemOf(plan, 'receipt-email')?.sessionId !== undefined, 'the third item started');
     const receiptId = itemOf(started, 'receipt-email')?.sessionId as string;
     await leo.watch(receiptId);

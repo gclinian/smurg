@@ -259,7 +259,8 @@ describe('the control socket has two schemas: what the daemon sends (strict) and
       ((schema as Shaped).def?.options ?? []).map((option) => objectsOf(option).get('$') as { keys: string[]; strict: boolean });
     const sent = forms(ctlResponseSchema);
     const read = forms(commandCtlResponseSchema);
-    expect(sent.map((f) => f.keys)).toEqual([['ok', 'op', 'status', 'webOrigin'], ['ok', 'op'], ['ok', 'op', 'welcome'], ['error', 'ok']]);
+    // (0.7.0, DESIGN D18: the stop answer says, when there are any, how many topics go on by themselves at the next start)
+    expect(sent.map((f) => f.keys)).toEqual([['ok', 'op', 'status', 'webOrigin'], ['goOn', 'ok', 'op'], ['ok', 'op', 'welcome'], ['error', 'ok']]);
     expect(read.map((f) => f.keys)).toEqual(sent.map((f) => f.keys));
     expect(sent.map((f) => f.strict)).toEqual([true, true, true, true]);
     expect(read.map((f) => f.strict)).toEqual([false, false, false, false]);

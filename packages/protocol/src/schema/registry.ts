@@ -548,6 +548,8 @@ export const MESSAGE_REGISTRY = Object.freeze({
     redact: ['diff'],
   }),
   'plan.resume': request(topics.planResumePayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
+  // protocol 6 (DESIGN 0.7.0 D15): the brake that survives a restart
+  'plan.pause': request(topics.planPausePayloadSchema, topics.planResultSchema, 'session.drive', { checks: ['topic-open'] }),
   'plan.item.retry': request(topics.planItemRetryPayloadSchema, topics.planResultSchema, 'session.create', { checks: ['topic-open'] }),
   'plan.item.continue': request(topics.planItemContinuePayloadSchema, topics.planItemActionResultSchema, 'session.drive', {
     checks: ['topic-open'],

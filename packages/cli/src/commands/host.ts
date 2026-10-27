@@ -29,6 +29,11 @@
 //  8. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
 //     leaves at once). A stop ends the terminals and the agents' processes; agent sessions stay (their conversations
 //     are on disk) and come back idle at the next start, so the last line says how many are paused when there are any.
+//  9. 0.7.0 (DESIGN D15, D18; R-SAFE S16): plans go on by themselves after a restart, but only once this command has
+//     said so. The daemon is made with `deferGoOn`; after the links, ONE line names the topics that go on where they
+//     stopped (and one the topics a person paused, which stay paused), and only then `daemon.goOn()` lets them go on.
+//     While it runs, one line when a topic is ready to check or a work item waits for the host; at a stop, one line
+//     with how many topics will go on by themselves at the next start, so the host can press Pause first.
 import { createWriteStream } from 'node:fs';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve, sep } from 'node:path';
@@ -54,6 +59,7 @@ import {
   type Logger,
   type PowerService,
   type PowerStatus,
+  type SessionLaunchConfig,
   type ShareErrorReason,
 } from '@smurg/daemon';
 import { INVITE_EXPIRES_IN_SEC_MAX, INVITE_MAX_USES_MAX, type GuestRole } from '@smurg/protocol';
@@ -84,13 +90,18 @@ import {
   entryUnreadProblem,
   foldersSetAside,
   formatTime,
+  mergesAutoNotice,
   oldFolderNotice,
+  plansContinueNotice,
+  plansPausedNotice,
   shown,
   stateFileProblem,
+  stopGoOnNotice,
   upgradeNotice,
   wasStamped,
   watchRefusedPeers,
   watchSmurgTracked,
+  watchTopics,
   type RefusalContext,
 } from './host-state.ts';
 
@@ -125,6 +136,12 @@ export interface HostDeps {
     readonly identityKeys?: IdentityKeySource;
     readonly modules?: readonly FeatureModule[];
     readonly power?: PowerService;
+    /**
+     * TEST ONLY: what the agent sessions launch with, over this command's own (`selfCommand`). A test that shares a
+     * folder whose plans go on (a published fixture) passes `selfCommand: null`: no agent process can start, and the
+     * `claude` on the test machine's PATH (the developer's own) is never run.
+     */
+    readonly sessions?: Partial<SessionLaunchConfig>;
   };
   /** Called once the summary is printed. */
   readonly onReady?: (daemon: Daemon) => void;
@@ -465,7 +482,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
         ...(webOrigin !== undefined ? { webOrigin } : {}),
         keepAwake,
         ...(name !== undefined ? { workspaceName: name } : {}),
-        sessions: { selfCommand: selfCommand() },
+        sessions: { selfCommand: selfCommand(), ...deps.daemon?.sessions },
         activity: { attributeBashEdits },
       },
       relay: { token: session.token, ...(deps.daemon?.socketFactory ? { socketFactory: deps.daemon.socketFactory } : {}) },
@@ -474,6 +491,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       log: log.logger,
       power,
       homeDir: homeDirOf(io.env),
+      // What goes on after a restart waits until the start lines below said what it is (DESIGN 0.7.0 D15).
+      deferGoOn: true,
     });
   } catch (err) {
     // createDaemon logged why (the state it refused, review F3); the log is flushed before the hint names it.
@@ -489,7 +508,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   // What this start found in the workspace's folder, ONE line each, before the links (the daemon wrote an upgrade in
   // createDaemon, so it is said now: a start that fails later would never say it again). The log gets the same.
   // 0.6.0 (DESIGN D13): after the upgrade lines, the one about auto mode, and the reminder while agents ask for nothing.
-  const found: (Text | null)[] = [upgradeNotice(daemon), agentsAutoNotice(daemon), asksNothingNotice(daemon), stampedBefore ? null : oldFolderNotice(await foldersSetAside(workspaceDir))];
+  // 0.7.0 (DESIGN D18): then the one about automatic merging.
+  const found: (Text | null)[] = [upgradeNotice(daemon), agentsAutoNotice(daemon), mergesAutoNotice(daemon), asksNothingNotice(daemon), stampedBefore ? null : oldFolderNotice(await foldersSetAside(workspaceDir))];
   for (const line of found) {
     if (line === null) continue;
     say(ctx, line);
@@ -529,10 +549,13 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   let selfStop = false;
   let starting = true;
   const announceControlStop = (): void => say(ctx, m('host.stopping.control'));
-  // The agent sessions as the stop begins (the event comes before any module stops): what the last line counts.
+  // The agent sessions as the stop begins (the event comes before any module stops): what the last line counts. And
+  // how many topics go on by themselves at the next start (DESIGN 0.7.0 D18), as things are at that moment.
   let agentsAtStop: ReturnType<Daemon['status']>['agents'];
+  let goOnAtStop = 0;
   const stoppingListener = daemon.ctx.bus.on('daemon.stopping', () => {
     agentsAtStop = daemon.status().agents;
+    goOnAtStop = daemon.goOnAtNextStart();
     if (stopping !== null || selfStop) return;
     stopping = { source: 'control', reason: 'control' };
     stopStartedAt = io.now();
@@ -541,6 +564,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   });
   let powerWatch: ReturnType<typeof setInterval> | undefined;
   let relayWatch: { dispose(): void } | undefined;
+  let topicsWatch: { dispose(): void } | undefined;
   // A teammate's page or smurg of another protocol version that was turned away: heard from the first connection
   // on (teammates' open tabs reconnect the moment the daemon is at the relay), told under the links.
   const peerWatch = watchRefusedPeers(daemon, (direction, text) => {
@@ -557,6 +581,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     updateCheck.abort();
     if (powerWatch !== undefined) clearInterval(powerWatch);
     relayWatch?.dispose();
+    topicsWatch?.dispose();
     peerWatch.dispose();
     smurgTrackedWatch.dispose();
     for (const off of unsubscribe) off();
@@ -585,10 +610,23 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       await cleanup();
       throw err instanceof CliError ? err : new CliError(m('host.inviteFailed'), { cause: err });
     }
+    // DESIGN 0.7.0 D15, D18 (R-SAFE S16): what goes on where it stopped, and what a person paused, BEFORE it goes on.
+    const continued = daemon.continued();
+    for (const line of [plansContinueNotice(continued), plansPausedNotice(continued)]) {
+      if (line === null) continue;
+      say(ctx, line);
+      log.logger.info(renderText('en', line));
+    }
     // Keep-awake the system refused at the start (polkit over SSH, no systemd-inhibit): one line, after the links.
     // Switched off with --no-keep-awake (reason 'disabled') is the host's own choice: nothing to tell.
     const startPower = daemon.status().power;
     if (!startPower.active && startPower.reason !== 'disabled') say(ctx, m('host.keepAwake.notice', { state: powerState(startPower) }));
+    // While it runs: a topic ready to check, a work item that waits for the host (what is so now is known already).
+    topicsWatch = watchTopics(daemon, (text) => {
+      if (stopping === null) say(ctx, text);
+    });
+    // Only now does anything go on by itself.
+    await daemon.goOn();
     // Keep-awake that is lost later (the inhibitor exited, e.g. no logind session) is told here, not only in the log.
     let keptAwake = startPower.active;
     powerWatch = setInterval(() => {
@@ -615,6 +653,9 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   say(ctx, m('host.stopped'));
   const paused = agentsPausedNotice(agentsAtStop);
   if (paused !== null) say(ctx, paused);
+  // DESIGN 0.7.0 D18: what goes on by itself when smurg host starts again (nothing for 0).
+  const goOn = stopGoOnNotice(goOnAtStop);
+  if (goOn !== null) say(ctx, goOn);
   return EXIT.ok;
 }
 

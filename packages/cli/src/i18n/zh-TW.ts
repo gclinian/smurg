@@ -1,6 +1,6 @@
 // The CLI's own messages in Traditional Chinese (zh-TW): the same ids and parameters as en.ts (checked by type and by
 // test/i18n.test.ts). The wording is the one smurg has always used; it changes only where a sentence became false.
-import type { ClaudeLogin, ClaudeVerdict, DurationUnit, ProjectSettings, RelayAction, SetAsideDocument, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
+import type { ClaudeLogin, ClaudeVerdict, DurationUnit, HostHold, ProjectSettings, RelayAction, SetAsideDocument, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: '登入資料檔（credentials.json）',
@@ -92,6 +92,20 @@ const SET_ASIDE: Readonly<Record<SetAsideDocument, string>> = {
 const GUIDE_KEPT = 'https://smurg.ai/zh-TW/docs/hosting/#92-更新之後工作區保留了什麼';
 const GUIDE_GOING_BACK = 'https://smurg.ai/zh-TW/docs/hosting/#94-如果你照-smurg-050-的指示把狀態資料夾移走了';
 const GUIDE_AGENTS = 'https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問';
+const GUIDE_MERGING = 'https://smurg.ai/zh-TW/docs/hosting/#103-合併以及什麼在等它';
+
+const HOST_HOLD: Readonly<Record<HostHold, string>> = {
+  policy: '改到只有主人能合併的檔案',
+  'local-changes': '主工作區有還沒提交的修改擋住了',
+  'in-the-way': '主工作區有檔案擋住了',
+  staged: '主工作區有已暫存的變更',
+  branch: '主工作區換了分支',
+  'git-busy': '主工作區的 git 已經忙了一段時間',
+  'history-changed': 'smurg 為資料夾保存的版本紀錄變了',
+  'merge-failed': 'smurg 沒辦法合併它',
+  'by-hand': '它的檔案被手動改過',
+  'undo-interrupted': '主工作區有一次復原被中斷了',
+};
 
 const UNCHANGED = 'smurg 沒有被更動。';
 
@@ -494,6 +508,13 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
     `\nagent 現在以自動模式執行：由 Claude Code 的檢查決定哪些指令不必先問就執行；agent 在自己資料夾裡改檔案和簡單的檔案指令，不經過這道檢查。想要執行指令前再先問，請在主人控制台的設定裡選「執行指令前先問」。說明：${GUIDE_AGENTS}`,
   'host.asksNothing': () =>
     `\n這個工作區的 agent 什麼都不問：每一個指令都以你的身分執行，Claude Code 不檢查，smurg 也不會先問（只剩 smurg 固定的限制）。要改，請在主人控制台的設定裡選其他模式。說明：${GUIDE_AGENTS}`,
+  'host.mergesAuto': () =>
+    `\n工作項目現在會自動合併：報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替你把它合併到分享的資料夾，主題待驗收時每個人的收件夾都會顯示。這次更新之前就開始的工作項目仍然會等你。想要每個項目都自己合併，請在主人控制台的設定裡選「每個項目都由我自己合併」。說明：${GUIDE_MERGING}`,
+  'host.plansContinue': (p) =>
+    `\n${p.topics.length} 個主題從停下的地方繼續：` +
+    p.topics.map((topic, index) => `${topic.name}（${topic.items} 個${index === 0 ? '工作項目' : ''}）`).join('、') +
+    `。要暫停${p.topics.length === 1 ? '它' : '其中一個'}，請在它的計畫裡按「暫停」。`,
+  'host.plansPaused': (p) => `\n有人暫停、仍在暫停中的主題：${p.names.join('、')}。要繼續，請在它的計畫裡按「全部繼續」。`,
   'host.peer.newer': () => '\n⚠ 有組員的網頁或 smurg 比這個 smurg 新，連線被拒絕了。請停止分享，執行 smurg update，再重新分享。',
   'host.peer.older': () => '\n有組員的網頁或 smurg 比這個 smurg 舊，連線被拒絕了。請那位組員重新整理網頁或更新 smurg；如果你用的是自己架的 relay，請重新部署它。',
   'host.smurgTracked': () => '\nsmurg 自己的 .smurg 資料夾已經被提交到這個儲存庫：請在分享的資料夾裡執行 `git rm -r --cached .smurg` 並提交。',
@@ -527,6 +548,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.keepAwake.notice': (p) => `\n⚠ 防止睡眠：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.keepAwake.lost': (p) => `\n⚠ 防止睡眠已失效：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.stopped': () => '已停止分享。',
+  'host.stopping.goOn': (p) => `\n下次 smurg host 啟動時，${p.n} 個主題會自己繼續；要讓${p.n === 1 ? '它' : '其中一個'}保持停下，請先在它的計畫裡按「暫停」。`,
+  'host.topicReady': (p) => `主題「${p.name}」待驗收：${p.total} 個工作項目中有 ${p.merged} 個已合併到分享的資料夾。請到工作區查看成果。`,
+  'host.topicWaits': (p) => `主題「${p.name}」在等你：工作項目 ${p.number}（${p.title}）沒有合併（${HOST_HOLD[p.reason]}）。它在你的收件夾裡；不依賴它的工作項目會繼續。`,
   'host.agentsPaused': (p) => `${p.count} 個 agent session 已暫停，下次分享這個資料夾時會繼續。`,
   'host.overlap.same': () => '這個資料夾已經在分享中',
   'host.overlap.ancestor': (p) => `這個資料夾的上層資料夾（${p.folder}）已經在分享中`,
@@ -624,7 +648,16 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'status.claude.notChecked': () => '尚未檢查（第一個 agent session 啟動時 smurg 會檢查）',
   'status.agents': (p) =>
     p.running + p.waiting + p.stalled + p.idle === 0 ? '沒有' : `${p.running} 個執行中、${p.waiting} 個在等人回應、${p.stalled} 個沒寫報告就停下或失敗、${p.idle} 個待命`,
-  'status.topics': (p) => (p.total === 0 ? '沒有' : `${p.total} 個（${p.paused} 個已暫停）`),
+  'status.topics': (p) => {
+    if (p.total === 0) return '沒有';
+    const parts = [
+      ...((p.running ?? 0) > 0 ? [`${p.running} 個執行中`] : []),
+      ...((p.decisions ?? 0) > 0 ? [`${p.decisions} 個在等決定`] : []),
+      ...((p.ready ?? 0) > 0 ? [`${p.ready} 個待驗收`] : []),
+      ...(p.paused > 0 ? [`${p.paused} 個已暫停`] : []),
+    ];
+    return parts.length === 0 ? `${p.total} 個` : `${p.total} 個（${parts.join('、')}）`;
+  },
   'status.projectSettings': (p) => PROJECT_SETTINGS[p.trust],
   'status.hostRules': (p) => (p.count === 0 ? '沒有規則套用到 agent session' : `${p.count} 條套用到 agent session（agent 不經詢問就執行這些規則允許的指令）`),
 

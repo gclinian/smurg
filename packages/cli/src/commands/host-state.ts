@@ -36,16 +36,21 @@
 //
 // Also here, each ONE line of `smurg host`: a start that upgraded what an earlier smurg wrote, or found an OLDER file
 // put back (Daemon.upgraded / putBack); a start that switched the workspace to auto mode, and every start while its
-// agents ask for nothing (0.6.0); a folder named `<workspace id>.old*` beside the one that is opened (0.5.0's
-// advice, followed); a peer of another protocol version that was turned away (once per run and direction, only for a
-// peer the daemon knows: anyone who ever held an invite link can make the daemon answer `version`).
+// agents ask for nothing (0.6.0); a start that turned automatic merging on (0.7.0); a folder named `<workspace id>.old*`
+// beside the one that is opened (0.5.0's advice, followed); a peer of another protocol version that was turned away
+// (once per run and direction, only for a peer the daemon knows: anyone who ever held an invite link can make the daemon
+// answer `version`). And 0.7.0's lines about the work that goes on by itself (DESIGN 0.7.0 D15, D18): at a start what
+// goes on and what a person paused (Daemon.continued, printed BEFORE Daemon.goOn), at a stop how many topics go on at
+// the next start, and while it runs a topic that is ready to check or waits for the host (`watchTopics`). Topic names
+// and titles are people's text: shown escaped, as folder names are.
 //
 // And, before any of it, the words for the folder's own entry in workspaces.json that this smurg cannot read
 // (state/workspaces.ts lookUpSharedFolder): `smurg host` stops there, because going on meant a NEW workspace for a
 // folder that has one (its members, invite links and daemon key left behind without a word).
 import { lstat, readdir } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
-import { LOG_UNSAFE_CHARACTER, STAMP_FILE, type Daemon, type StateFileError } from '@smurg/daemon';
+import { LOG_UNSAFE_CHARACTER, STAMP_FILE, type Daemon, type DaemonContinued, type StateFileError } from '@smurg/daemon';
+import { HOST_HOLDS, type PlanInfo, type Topic } from '@smurg/protocol';
 import { CliError } from '../cli/errors.ts';
 import type { CliIo } from '../cli/io.ts';
 import { SET_ASIDE_DOCUMENTS, type SetAsideDocument } from '../i18n/en.ts';
@@ -351,6 +356,97 @@ export function agentsAutoNotice(daemon: Pick<Daemon, 'upgraded'>): Text | null 
   const from = parseVersion(state.from);
   const step = parseVersion('0.5.0');
   return from !== null && step !== null && compareVersions(from, step) <= 0 ? m('host.agentsAuto') : null;
+}
+
+/**
+ * The ONE line of a start that turned automatic merging on (DESIGN 0.7.0 D18; the owner's words of 2026-10-26): this
+ * start ran the state step from 0.6.0 (`state` upgraded from 0.6.0 or an older smurg: every upgrade of state.json ends
+ * with that step; a put-back older state.json runs it again, so it is said again). Null otherwise.
+ */
+export function mergesAutoNotice(daemon: Pick<Daemon, 'upgraded'>): Text | null {
+  const state = daemon.upgraded.find((entry) => entry.document === 'state');
+  if (state === undefined) return null;
+  const from = parseVersion(state.from);
+  const step = parseVersion('0.6.0');
+  return from !== null && step !== null && compareVersions(from, step) <= 0 ? m('host.mergesAuto') : null;
+}
+
+/** The line of a start with what goes on where it stopped (DESIGN 0.7.0 D18), printed before `Daemon.goOn()`; null: nothing goes on. */
+export function plansContinueNotice(continued: DaemonContinued): Text | null {
+  if (continued.topics.length === 0) return null;
+  return m('host.plansContinue', { topics: continued.topics.map((topic) => ({ name: shown(topic.name), items: topic.items })) });
+}
+
+/** The line of a start with the topics a person paused, which stay paused (DESIGN 0.7.0 D18); null: none. */
+export function plansPausedNotice(continued: DaemonContinued): Text | null {
+  return continued.paused.length === 0 ? null : m('host.plansPaused', { names: continued.paused.map((name) => shown(name)) });
+}
+
+/** The line at a stop (DESIGN 0.7.0 D18, R-SAFE S16): how many topics go on by themselves at the next start; null for 0. */
+export function stopGoOnNotice(n: number | undefined): Text | null {
+  return n === undefined || n <= 0 ? null : m('host.stopping.goOn', { n });
+}
+
+/**
+ * While `smurg host` runs (DESIGN 0.7.0 D18), on the in-process bus: one line when a topic's phase becomes `ready`
+ * (`topic.changed`), and one when a work item gets a decision that is the host's alone (`plan.changed`), once per item
+ * and reason while it lasts. Never about what was so when it began: what the daemon holds then is taken as known.
+ */
+export function watchTopics(daemon: Pick<Daemon, 'ctx'>, tell: (text: Text) => void): { dispose(): void } {
+  const told = new Set<string>();
+  const holdsOf = (plan: PlanInfo): Map<string, { readonly number: number; readonly title: string; readonly reason: (typeof HOST_HOLDS)[number] }> => {
+    const out = new Map<string, { readonly number: number; readonly title: string; readonly reason: (typeof HOST_HOLDS)[number] }>();
+    for (const item of plan.items) {
+      const hold = item.autoMerge;
+      if (hold?.state !== 'held' || !hold.hostOnly || !(HOST_HOLDS as readonly string[]).includes(hold.reason)) continue;
+      out.set(`${plan.topicId}\u0000${item.id}\u0000${hold.reason}`, { number: item.number, title: item.title, reason: hold.reason as (typeof HOST_HOLDS)[number] });
+    }
+    return out;
+  };
+  const services = daemon.ctx.services;
+  try {
+    for (let after: string | undefined; ; ) {
+      const page = services.topics.list(after === undefined ? {} : { after });
+      for (const topic of page.topics) {
+        const plan = services.plans.get(topic.id);
+        if (plan !== null) for (const key of holdsOf(plan).keys()) told.add(key);
+      }
+      const last = page.topics.at(-1);
+      if (!page.hasMore || last === undefined) break;
+      after = last.id;
+    }
+  } catch {
+    // (a daemon without the topics module: nothing to watch)
+  }
+  const nameOf = (topicId: string): string | null => {
+    try {
+      return services.topics.get(topicId)?.name ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const ready = daemon.ctx.bus.on('topic.changed', ({ topic, previous }: { readonly topic: Topic; readonly previous: Topic | null }) => {
+    if (topic.phase !== 'ready' || previous === null || previous.phase === 'ready' || topic.archived) return;
+    tell(m('host.topicReady', { name: shown(topic.name), merged: topic.plan.merged, total: topic.plan.items }));
+  });
+  const waits = daemon.ctx.bus.on('plan.changed', ({ topicId, plan }: { readonly topicId: string; readonly plan: PlanInfo }) => {
+    const now = holdsOf(plan);
+    const prefix = `${topicId}\u0000`;
+    for (const key of [...told]) if (key.startsWith(prefix) && !now.has(key)) told.delete(key);
+    for (const [key, hold] of now) {
+      if (told.has(key)) continue;
+      told.add(key);
+      const name = nameOf(topicId);
+      if (name === null) continue;
+      tell(m('host.topicWaits', { name: shown(name), number: hold.number, title: shown(hold.title), reason: hold.reason }));
+    }
+  });
+  return {
+    dispose: () => {
+      ready.dispose();
+      waits.dispose();
+    },
+  };
 }
 
 /**

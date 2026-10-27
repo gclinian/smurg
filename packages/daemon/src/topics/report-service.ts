@@ -81,6 +81,7 @@ interface TurnFinished {
   readonly finalText?: string;
   readonly messages: readonly TurnMessage[];
   readonly edited: readonly { readonly file: FileRef; readonly seq: number }[];
+  readonly modelRefused?: true;
 }
 
 function clipFollowUp(text: string): { text: string; truncated?: true } {
@@ -292,11 +293,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     let topic = this.core.topic(topicId);
     let item = topic === null ? null : this.core.item(topic, itemId);
     if (topic === null || item === null || topic.archived || item.sessionId !== event.sessionId) return;
-    // A turn a person asked for (a message, "Continue", a follow-up) may be nudged and fixed afresh.
+    // A turn a person asked for (a message, "Continue", a follow-up) may be nudged and fixed afresh, and smurg's
+    // automatic continues count from 0 again (DESIGN 0.7.0 D15).
     if (event.messages.some((message) => message.kind === 'person' || message.by !== undefined)) {
       this.core.updateItem(topicId, itemId, (draft) => {
         draft.nudged = false;
         delete draft.fix;
+        delete draft.autoContinue;
       });
     }
     this.answerFollowUps(topicId, itemId, event);
@@ -310,6 +313,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // item is `failed` ("Try again" resumes the same session), whichever of the two this module hears first.
       const agents = this.ctx.services.agents;
       const processFailed = item.state === 'failed' || (!isStubService(agents) && agents.get(event.sessionId)?.status === 'failed');
+      // DESIGN 0.7.0 D15: what smurg continues by itself. A person's stop never; a process that is gone once (a crash);
+      // a usage limit when the account is back; any other error twice; a logged-out account or a model the API refused
+      // never (a person must act first).
+      const account = isStubService(agents) ? 'ok' : agents.account().state;
+      const cause =
+        event.outcome !== 'error' ? null : processFailed ? 'crash' : account === 'usage-limit' ? 'usage-limit' : account === 'logged-out' || event.modelRefused === true ? null : 'error';
+      this.scheduler.noteBreak(topicId, itemId, cause);
       if (registered === null && !processFailed) this.stall(topic, item, event.outcome === 'interrupted' ? 'stopped' : 'error');
       else {
         // DESIGN 0.7.0 D6 row 6: a later turn after a version did not finish (R-SAFE S7): that version is not merged.
@@ -468,6 +478,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     this.core.updateItem(topic.id, item.id, (draft) => {
       draft.snapshotOwed = true;
     });
+    // DESIGN 0.7.0 D15: smurg continues it once, a minute later (the next completed turn takes the snapshot again).
+    this.scheduler.noteBreak(topic.id, item.id, 'snapshot');
     try {
       this.ctx.services.agents.append(sessionId, noticeEvent('warning', msg('report.changes.failed')));
     } catch (failure) {
@@ -575,9 +587,11 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       delete draft.fix;
       delete draft.changesAsked;
       delete draft.snapshotOwed;
-      // A new version ends whatever the merge queue held or waited for (DESIGN 0.7.0 D8), and any unfinished later turn.
+      // A new version ends whatever the merge queue held or waited for (DESIGN 0.7.0 D8), and any unfinished later turn;
+      // the count of smurg's automatic continues starts again (D15).
       delete draft.autoMerge;
       delete draft.lastTurn;
+      delete draft.autoContinue;
       if (changes !== undefined) draft.merge = { requestId: changes.requestId, status: 'draft', ready: false };
       // Its changes are in the folder already: what depends on it may start (once the folder is free), when its report
       // is complete and verified and was checked in this turn (D10). Each version decides again.
@@ -850,6 +864,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       }
       // An item that is merged and reviewed but could not be finished yet (its worktree held something unmerged).
       void this.scheduler.finishPending().catch((err: unknown) => this.ctx.log.error('finishing items failed', { error: err instanceof Error ? err.name : 'unknown' }));
+      // smurg's own continues whose time has come (DESIGN 0.7.0 D15).
+      try {
+        this.scheduler.sweepContinues();
+      } catch (err) {
+        this.ctx.log.error('automatic continues not looked at', { error: err instanceof Error ? err.name : 'unknown' });
+      }
       // The shared folder's `.git`, looked at again (file calls only while nothing changed): a repository the host made
       // while sharing counts without a restart, and the topics' `versioned` follows (0.5.2).
       const worktrees = this.ctx.services.worktrees;

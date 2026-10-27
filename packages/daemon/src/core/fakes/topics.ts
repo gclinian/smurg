@@ -32,6 +32,7 @@ import type {
   McpToolContext,
   MemberChange,
   PlanService,
+  PlansAtStart,
   Principal,
   ReportService,
   Req,
@@ -390,6 +391,23 @@ export class FakePlanService implements PlanService {
   async resume(input: Req<'plan.resume'>, principal: Principal): Promise<PlanInfo> {
     this.log.record('resume', input, principal);
     return this.putPlan({ ...this.need(input.topicId), paused: false });
+  }
+
+  async pause(input: Req<'plan.pause'>, principal: Principal): Promise<PlanInfo> {
+    this.log.record('pause', input, principal);
+    return this.putPlan({ ...this.need(input.topicId), paused: true });
+  }
+
+  /** What `atStart()` answers (a test sets it: what a start found that goes on, and the topics a person paused). */
+  nextAtStart: PlansAtStart = { continues: [], paused: [] };
+  atStart(): PlansAtStart {
+    return structuredClone(this.nextAtStart);
+  }
+
+  /** What `goOnAtNextStart()` answers. */
+  nextGoOn = 0;
+  goOnAtNextStart(): number {
+    return this.nextGoOn;
   }
 
   async retryItem(input: Req<'plan.item.retry'>, principal: Principal): Promise<PlanInfo> {

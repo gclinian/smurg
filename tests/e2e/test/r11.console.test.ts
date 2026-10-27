@@ -220,7 +220,7 @@ describe('R11 host console', () => {
         'session.message', 'smurg.message', 'session.interrupt', 'session.retry', 'session.restart', 'session.responsible', 'session.mode', 'session.model', 'session.rule.remove', 'session.handover', 'responsible.fallback',
         'question.submit', 'question.remind', 'permission.decide', 'permission.auto', 'permission.auto-deny', 'agent.command', 'agent.command.blocked',
         'topic.create', 'topic.rename', 'topic.archive', 'topic.delete', 'topic.discussion.restart', 'topic.spec.request', 'topic.rule.add', 'topic.rule.remove', 'topic.agent',
-        'plan.generate', 'plan.start', 'plan.resume', 'plan.assign', 'plan.mode', 'plan.item.retry', 'plan.item.continue', 'plan.item.resolve', 'scheduler.start', 'scheduler.disarm',
+        'plan.generate', 'plan.start', 'plan.resume', 'plan.pause', 'plan.assign', 'plan.mode', 'plan.item.retry', 'plan.item.continue', 'plan.item.resolve', 'scheduler.start', 'scheduler.disarm',
         'report.register', 'report.review', 'spec.commit',
       ];
       const expected: readonly AuditAction[] = [
@@ -237,20 +237,18 @@ describe('R11 host console', () => {
         'auth.join', 'auth.connect', 'auth.disconnect', 'auth.rejected', 'authz.denied', 'path.denied',
         'member.role', 'member.kick', 'invite.create', 'invite.revoke', 'device.revoke', 'settings.change', 'claude-config.decide', 'transcript.redact',
       ]);
-      // Protocol 6 names the actions of 0.7.0 before this smurg writes them (DESIGN 0.7.0 D4): automatic merging, its
-      // holds and undo, the end of a topic, Pause, the carers' and the host's new actions on a work item, the automatic
-      // continues and the setting's turn to the host. Each joins the lists above with the step that writes it.
-      const notWrittenYet = new Set<AuditAction>([
-        'topic.check', 'plan.pause', 'plan.item.leaveOut',
-        'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue',
+      // The actions of 0.7.0 this story of the host's merges does not run (its workspace says the host merges each
+      // item), each proven by the daemon's tests: smurg's own merge, its holds and the setting's turn to the host since
+      // S2 and S3 (DESIGN 0.7.0 D7, D8, D3: test/worktree/auto-merge.test.ts, test/topics/auto-merge.test.ts,
+      // test/topics/plan.test.ts, and the stand-in story test/integration/release-flow.unattended.test.ts); the end of a
+      // topic and what a person decides about a work item since S4 (D9 to D13: test/topics/decisions.test.ts); the
+      // host's undo since S5 (D14: test/worktree/undo.test.ts, test/topics/undo.test.ts); smurg's own continues since S6
+      // (D15: test/topics/keep-running.test.ts). "Pause" (S6) is in this story, before the restart.
+      const notInThisStory = new Set<AuditAction>([
+        'worktree.merge.auto', 'worktree.merge.held', 'plan.merging.host', 'worktree.merge.undo',
+        'topic.check', 'plan.item.leaveOut', 'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue',
       ]);
-      // Written since 0.7.0 S2 and S3 by smurg's own merge (DESIGN 0.7.0 D7, D8, D3), which this story of the host's
-      // merges does not run (its workspace says the host merges each item): the daemon's tests prove each
-      // (test/worktree/auto-merge.test.ts, test/topics/auto-merge.test.ts, test/topics/plan.test.ts, and the stand-in
-      // story test/integration/release-flow.unattended.test.ts). The host's undo since 0.7.0 S5 (DESIGN 0.7.0 D14:
-      // test/worktree/undo.test.ts, test/topics/undo.test.ts), which this story does not run either.
-      const notInThisStory = new Set<AuditAction>(['worktree.merge.auto', 'worktree.merge.held', 'plan.merging.host', 'worktree.merge.undo']);
-      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notWrittenYet.has(action) && !notInThisStory.has(action)).sort());
+      expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notInThisStory.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {
         const actions = new Set<string>();
         let before: number | undefined;
@@ -595,7 +593,9 @@ async function agentSessionsAndATopic(stack: Stack, people: { host: Member; caro
   for (const one of everyone) await one.watch(page);
   await permissionAt(host, (request) => request.sessionId === page && request.status === 'open', 'the command of work item 2');
 
-  // ==== the host's smurg stops and starts again: the plan is paused until "Continue all" ===============================
+  // ==== Carol pauses the plan; the host's smurg stops and starts again: the plan stays paused until "Continue all" =====
+  // (0.7.0, DESIGN D15: a restart no longer pauses a plan by itself; a person's Pause is the brake that stays.)
+  await carol.conn.request('plan.pause', { topicId });
   await claude.setScenario(agentScenario(PAGE_ASKS_AGAIN));
   await stack.restartDaemon();
   for (const one of everyone) await one.client.waitFor((state) => state.kind === 'online', 30_000);

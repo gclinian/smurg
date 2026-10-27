@@ -272,6 +272,7 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
     stack.add(router.handle('plan.start', async (payload, req) => ({ plan: await s.plans.start(payload, req.principal) })));
     stack.add(router.handle('plan.changes', (payload, req) => s.plans.changes(payload, req.principal)));
     stack.add(router.handle('plan.resume', async (payload, req) => ({ plan: await s.plans.resume(payload, req.principal) })));
+    stack.add(router.handle('plan.pause', async (payload, req) => ({ plan: await s.plans.pause(payload, req.principal) })));
     stack.add(router.handle('plan.item.retry', async (payload, req) => ({ plan: await s.plans.retryItem(payload, req.principal) })));
     stack.add(
       router.handle('plan.item.continue', async (payload, req) => {

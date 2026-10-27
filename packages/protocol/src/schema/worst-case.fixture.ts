@@ -524,6 +524,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   },
   'plan.changes': { payload: { topicId: id('tp') }, result: { files: [{ target: 'spec', diff: big(L.PLAN_CHANGES_DIFF_MAX_BYTES), truncated: true }, { target: 'plan', diff: big(L.PLAN_CHANGES_DIFF_MAX_BYTES), truncated: true }] } },
   'plan.resume': { payload: { topicId: id('tp') }, result: { plan: worstPlan } },
+  'plan.pause': { payload: { topicId: id('tp') }, result: { plan: worstPlan } },
   'plan.item.retry': { payload: itemPayload, result: { plan: worstPlan } },
   'plan.item.continue': { payload: itemPayload, result: {} },
   'plan.item.resolve': { payload: itemPayload, result: {} },

@@ -607,6 +607,12 @@ export class FakeAgentSessions implements AgentSessions {
     return { ...this.accountState };
   }
 
+  /** What `canLaunch()` answers (a test of a daemon that cannot start agent processes sets it false). */
+  launchable = true;
+  canLaunch(): boolean {
+    return this.launchable;
+  }
+
   claude(): NonNullable<DaemonStatus['claude']> | null {
     return this.claudeStatus === null ? null : { ...this.claudeStatus };
   }
@@ -720,7 +726,7 @@ export class FakeAgentSessions implements AgentSessions {
   }
 
   /** The turn ends: a `turn.finished` event, status back to `idle`, bus `agent.turn.finished`. */
-  finishTurn(sessionId: string, result: { readonly outcome?: TurnOutcome; readonly finalText?: string; readonly stoppedBy?: UserRef } = {}): void {
+  finishTurn(sessionId: string, result: { readonly outcome?: TurnOutcome; readonly finalText?: string; readonly stoppedBy?: UserRef; readonly modelRefused?: true } = {}): void {
     const record = this.need(sessionId);
     const turnId = record.turnOpen ?? this.startTurn(sessionId);
     const outcome = result.outcome ?? 'completed';
@@ -741,6 +747,7 @@ export class FakeAgentSessions implements AgentSessions {
       ...(result.stoppedBy === undefined ? {} : { stoppedBy: result.stoppedBy }),
       messages,
       edited,
+      ...(result.modelRefused === true ? { modelRefused: true as const } : {}),
     });
   }
 

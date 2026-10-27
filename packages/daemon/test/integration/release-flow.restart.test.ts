@@ -3,11 +3,15 @@
 // modules together on a real git repository with the stand-in `claude` (release-flow.support.ts).
 //
 // The daemon stops in the middle of a topic: one work item waits for a permission, one waits for another item, one
-// has a report to review, the discussion has an open question with votes and a pending suggestion. After the start:
-// everything is readable, the open cards are withdrawn and asked again with NEW ids, the plan is paused and nothing
-// runs by itself until a member with agent access presses "Continue all". Then one session's process is killed:
-// "Try again" continues the same session. On the way the host's own `smurg` command (the real CLI through the control
-// socket: REQUESTS-P12 "From P6" item 3) shows the agent sessions of the composition, and in the end stops sharing.
+// has a report to review, the discussion has an open question with votes and a pending suggestion, and Mei has
+// pressed "Pause" in the plan. After the start: everything is readable, the open cards are withdrawn and asked again
+// with NEW ids, the plan is still paused and nothing runs by itself until a member with agent access presses
+// "Continue all". Then one session's process is killed: "Try again" continues the same session. On the way the host's
+// own `smurg` command (the real CLI through the control socket: REQUESTS-P12 "From P6" item 3) shows the agent
+// sessions of the composition, and in the end stops sharing.
+//
+// 0.7.0 (DESIGN D15) changed this story on purpose: a restart no longer pauses a plan by itself (it goes on once the
+// start has looked at it: M4 of release-flow.unattended.test.ts); a person's Pause is the brake that stays across it.
 import { describe, expect, it } from 'vitest';
 import type { AgentSession, ConversationEvent, PlanInfo } from '@smurg/protocol';
 import type { FakeClaudeScenario, FakeClaudeStep } from '../../src/testing/index.ts';
@@ -105,7 +109,7 @@ async function untilTheMiddle(flow: Flow): Promise<{ topicId: string; discussion
 }
 
 describe('the release composition across a restart of the host\'s smurg and a crashed agent process', { timeout: 480_000 }, () => {
-  it('the daemon restarts in the middle of a topic: everything is readable, open cards are withdrawn and asked again, the plan is paused until "Continue all"; a killed process: "Try again" continues the session', async () => {
+  it('the daemon restarts in the middle of a topic a person paused: everything is readable, open cards are withdrawn and asked again, the plan stays paused until "Continue all"; a killed process: "Try again" continues the session', async () => {
     // (The folder has Claude Code settings of its own that the host has not looked at: one more thing in his inbox.)
     const flow = await startFlow({ files: { 'README.md': '# Bookshop\n', '.claude/settings.json': JSON.stringify({ permissions: { deny: ['Bash(rm -rf *)'] } }) } });
     await flow.claude.setScenario(scenario([PNPM_TEST, ...reportSteps('cart-api', 'Cart API')]));
@@ -165,7 +169,7 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     expect(status.stdout).toContain('  Connections: 4, members online: 4\n');
     expect(status.stdout).toContain('  Claude Code: 2.1.288 (verified with this smurg), logged in\n');
     expect(status.stdout).toContain('  Agent sessions: 0 running, 2 waiting for a person, 0 stopped without a report or failed, 1 idle\n');
-    expect(status.stdout).toContain('  Topics: 1 (0 paused)\n');
+    expect(status.stdout).toContain('  Topics: 1 (1 running)\n');
     expect(status.stdout).toContain('  Claude Code project settings: not confirmed');
     // `smurg attach` lists the conversations and says where they open; one cannot be attached like a terminal.
     const list = await flow.smurg(['attach']);
@@ -177,6 +181,9 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     const launchesBefore = await launches(flow);
     expect(launchesBefore).toBe(3);
     expect((await flow.processes()).length).toBeGreaterThanOrEqual(3);
+    // Mei pulls the brake before the host stops sharing: nothing of the plan goes on by itself until someone continues it.
+    expect((await mei.conn.request('plan.pause', { topicId })).plan.paused).toBe(true);
+    // (smurg stop says what would go on at the next start: nothing, the only topic is paused)
 
     // ================================================================================================================
     // The host's smurg stops and starts again
@@ -198,7 +205,7 @@ describe('the release composition across a restart of the host\'s smurg and a cr
 
     // ---- everything is readable: the topic, the plan (paused), the sessions, the conversations
     const topics = (await leo.conn.request('topic.list', {})).topics;
-    expect(topics).toMatchObject([{ id: topicId, phase: 'executing', discussion: 'live', plan: { paused: true, items: 3, started: 3 } }]);
+    expect(topics).toMatchObject([{ id: topicId, phase: 'executing', discussion: 'live', plan: { paused: true, pausedBy: { userId: MEI }, items: 3, started: 3 } }]);
     const planAfter = (await leo.conn.request('plan.get', { topicId })).plan as PlanInfo;
     // The session that was in the middle of a turn is stalled by the restart, what was armed still waits, what was
     // done is done; nothing holds a process.

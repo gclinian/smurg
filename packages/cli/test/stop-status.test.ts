@@ -13,7 +13,7 @@ import { waitFor } from '@smurg/daemon/testing';
 import { MAIN_ROOT, type AgentStatus } from '@smurg/protocol';
 import { runCli } from '../src/cli/run.ts';
 import { agentsPausedNotice, claudeState, liveAgentSessions } from '../src/cli/agents-text.ts';
-import { renderText } from '../src/i18n/index.ts';
+import { m, renderText } from '../src/i18n/index.ts';
 import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { makeDirs, testIo, type Dirs } from './helpers.ts';
@@ -216,7 +216,20 @@ describe('smurg status: Claude Code and the agents (DESIGN v0.5.0 §6)', () => {
     const io = testIo({ env });
     expect(await runCli(['status'], io)).toBe(0);
     expect(io.out()).toContain('Workspace ws_status_standin0001\n');
-    expect(io.out()).toContain('  Claude Code: 2.1.288 (verified with this smurg), logged in\n  Agent sessions: 1 running, 0 waiting for a person, 0 stopped without a report or failed, 2 idle\n  Topics: 1 (0 paused)\n');
+    // (0.7.0, DESIGN D18: the parts that are 0 are left out; this daemon says nothing of running or ready topics)
+    expect(io.out()).toContain('  Claude Code: 2.1.288 (verified with this smurg), logged in\n  Agent sessions: 1 running, 0 waiting for a person, 0 stopped without a report or failed, 2 idle\n  Topics: 1\n');
+  });
+
+  it('0.7.0 (DESIGN D18): what the topics do, once each, the parts that are 0 left out, in both languages', () => {
+    const line = (topics: { total: number; running?: number; decisions?: number; ready?: number; paused: number }, lang: 'en' | 'zh-TW' = 'en'): string => renderText(lang, m('status.topics', topics));
+    expect(line({ total: 5, running: 1, decisions: 1, ready: 1, paused: 1 })).toBe('5 (1 running, 1 waiting for a decision, 1 ready to check, 1 paused)');
+    expect(line({ total: 5, running: 1, decisions: 1, ready: 1, paused: 1 }, 'zh-TW')).toBe('5 個（1 個執行中、1 個在等決定、1 個待驗收、1 個已暫停）');
+    expect(line({ total: 3, running: 2, paused: 0 })).toBe('3 (2 running)');
+    expect(line({ total: 3, ready: 1, paused: 0 }, 'zh-TW')).toBe('3 個（1 個待驗收）');
+    // A daemon of 0.6.0 says only how many are paused.
+    expect(line({ total: 3, paused: 1 })).toBe('3 (1 paused)');
+    expect(line({ total: 2, paused: 0 })).toBe('2');
+    expect(line({ total: 0, paused: 0 })).toBe('none');
   });
 
   it('the agent sessions a stop pauses are the ones that have not ended', () => {

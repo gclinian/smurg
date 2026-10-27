@@ -7,7 +7,9 @@
 //   item-stopped      an item's session was ended on purpose
 //                       → the item's responsible person; nobody assigned: the member who started it; else the host
 //   item-not-started  an armed item could not start, or was disarmed → the member who started it and the host
-//   plan-paused       the host's smurg restarted and the topic has armed or interrupted items (one per topic)
+//   plan-paused       the plan is paused (one per topic): a person pressed "Pause" (0.7.0), or a restart of the host's
+//                     smurg interrupted an item that runs directly in the shared folder (until 0.6.0 every restart
+//                     paused a topic with armed or interrupted items); `count`: what waits for "Continue all"
 //                       → the host and every member with agent access
 //   discussion-lost   the topic's discussion ended or failed for good → the host and the topic's creator
 //

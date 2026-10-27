@@ -9,7 +9,7 @@
 //    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done
 //    2. its current request is merged; an undo of its topic claims it                                       → none
 //    3. the plan is paused                                                                                   → wait
-//    4. its session is in a turn, has a card open or a message waiting, or an automatic continue is to come  → wait
+//    4. its session is in a turn, has a card open or a message waiting, or an automatic continue is owed     → wait
 //    5. somebody wrote to its agent since this version: the answer is to come → wait; it came without one   → hold
 //    6. a later turn did not finish (a person stopped it, or it ended on an error)                           → hold
 //    7. no report → none; a report smurg cannot read                                                         → hold
@@ -28,17 +28,43 @@ import type { StoredAutoMerge, StoredItem } from './store.ts';
 /** Resolve turns smurg asks an item's own agent for, at most, since its Start (DESIGN 0.7.0 D8; the lead's answer 6). */
 export const AUTO_MERGE_TRIES = 3;
 
-/** How many automatic continues of each cause an item gets (DESIGN 0.7.0 D15; S6 sends them): a usage limit has no bound. */
-export const AUTO_CONTINUE_BOUNDS: Readonly<Record<NonNullable<StoredItem['autoContinue']>['cause'], number>> = Object.freeze({
+export type AutoContinueCause = NonNullable<StoredItem['autoContinue']>['cause'];
+
+/** How many automatic continues of each cause an item gets (DESIGN 0.7.0 D15; the scheduler sends them): a usage limit has no bound. */
+export const AUTO_CONTINUE_BOUNDS: Readonly<Record<AutoContinueCause, number>> = Object.freeze({
   'usage-limit': Number.POSITIVE_INFINITY,
   error: 2,
   crash: 1,
   snapshot: 1,
 });
 
-/** An automatic continue of D15 is still to come for the item (its record is there and its bound is not spent). */
+/**
+ * How long after the stall each continue is sent (DESIGN 0.7.0 D15; the lead's answer 6): after a broken turn 1
+ * minute, then 5 minutes; a crash and a failed snapshot 1 minute; a usage limit when the account is back.
+ */
+export const AUTO_CONTINUE_DELAYS_MS: Readonly<Record<Exclude<AutoContinueCause, 'usage-limit'>, readonly number[]>> = Object.freeze({
+  error: Object.freeze([60_000, 300_000]),
+  crash: Object.freeze([60_000]),
+  snapshot: Object.freeze([60_000]),
+});
+
+/** The record's bound is not spent (whatever the item does now). */
 export function autoContinueDue(record: StoredItem['autoContinue']): boolean {
   return record !== undefined && record.count < AUTO_CONTINUE_BOUNDS[record.cause];
+}
+
+/**
+ * An automatic continue of D15 is OWED to the item: its record's bound is not spent and the item is still in the
+ * state the continue goes on from (a later turn that ended on an error, `lastTurn`; without a version: stalled by the
+ * error, or failed for a crash; a snapshot still owed). The record stays after a completed turn (only a person or a new
+ * version resets the count), so the record alone does not say that something is still to come.
+ */
+export function autoContinueOwed(item: Pick<StoredItem, 'autoContinue' | 'state' | 'stalledBy' | 'lastTurn' | 'snapshotOwed'>): boolean {
+  const record = item.autoContinue;
+  if (!autoContinueDue(record) || record === undefined) return false;
+  if (record.cause === 'snapshot') return item.snapshotOwed === true;
+  if (item.lastTurn?.outcome === 'error') return true;
+  return record.cause === 'crash' ? item.state === 'failed' : item.state === 'stalled' && item.stalledBy === 'error';
 }
 
 /** The reasons of the state `held` (D9). */
@@ -81,7 +107,7 @@ export interface AutoMergeVerdictInput {
   readonly topic: { readonly archived: boolean; readonly paused: boolean };
   /** An undo of this topic claims the item while it runs (D14): nothing of it merges meanwhile. */
   readonly claimed: boolean;
-  readonly item: Pick<StoredItem, 'state' | 'merged' | 'leftOut' | 'changesAsked' | 'merge' | 'autoMerge' | 'lastTurn' | 'autoContinue'>;
+  readonly item: Pick<StoredItem, 'state' | 'stalledBy' | 'merged' | 'leftOut' | 'changesAsked' | 'merge' | 'autoMerge' | 'lastTurn' | 'autoContinue' | 'snapshotOwed'>;
   /** The item's current request as the worktree module has it: `requested` when someone asked for its merge. */
   readonly request: { readonly id: string; readonly status: MergeRequestStatus; readonly requested: boolean } | null;
   readonly report: {
@@ -123,7 +149,7 @@ export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict
   if (input.topic.paused) return { kind: 'wait', reason: 'paused' };
   // 4. the agent is at work, or a person is asked something, or smurg continues it by itself later
   if (input.session !== null && (input.session.turnOpen || input.session.openCards > 0)) return { kind: 'wait', reason: 'busy' };
-  if (autoContinueDue(item.autoContinue)) return { kind: 'wait', reason: 'busy' };
+  if (autoContinueOwed(item)) return { kind: 'wait', reason: 'busy' };
   // 5. somebody wrote to the agent since this version (R-SAFE S7)
   if (report !== null && report.pendingFollowUps > 0) return { kind: 'wait', reason: 'asked' };
   if (item.changesAsked !== undefined) return hold('asked');
