@@ -330,7 +330,7 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     // ---- The Result: every report, what the items changed; "I've checked the result" completes the topic.
     await inbox(host, 'ready').locator('.inbox-item__main').click();
     const result = column(host, 'result:');
-    await result.getByText('2 項中 2 項已合併 · 2 項通過 · 0 項失敗 · 0 項沒有驗證').waitFor({ timeout: STEP_MS });
+    await result.getByText('2 項中 2 項已合併 · 2 項通過 · 0 項失敗 · 0 項未驗證').waitFor({ timeout: STEP_MS });
     for (const heading of ['通過', '各項目合起來的變更', '工作項目']) await result.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
     await stop('result');
     const checked = host.locator('.ui-toast__title', { hasText: `${TOPIC}：成果已驗收，主題完成。` }).first().waitFor({ timeout: STEP_MS });

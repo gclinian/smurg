@@ -89,7 +89,7 @@
       </div>
 
       <div class="win-wrap">
-        <div class="win" role="img" data-nosnippet aria-label="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
+        <div class="win" role="img" data-nosnippet aria-label="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests, and the first item, its report complete and verified, is merged by itself. Review: Amy reads the result report of the first item, already in the main workspace, and marks it as reviewed.">
           <svg class="visually-hidden" aria-hidden="true" focusable="false">
             <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
             <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
@@ -143,7 +143,7 @@
 
               <div class="scene in2 m-three" data-part="Build">
                 <div class="m-card">
-                  <div class="m-h"><b class="m-said">1 · Cart API</b><i class="av av-amy">AM</i><span class="m-swap"><span class="m-bdg m-run a-out t39">Running</span><span class="m-bdg m-okb a-in t39">Report to review</span></span></div>
+                  <div class="m-h"><b class="m-said">1 · Cart API</b><i class="av av-amy">AM</i><span class="m-swap"><span class="m-bdg m-run a-out t39">Running</span><span class="m-bdg m-okb a-in t39">Merged</span></span></div>
                   <span class="m-where m-x">Worktree: <span class="m-said">checkout-1</span></span>
                   <div class="m-tool m-x a-rise t03"><span>Edited</span><code class="m-said">src/cart/api.ts</code></div>
                   <div class="m-tool m-x a-rise t16"><span>Created</span><code class="m-said">tests/cart.test.ts</code></div>
@@ -168,7 +168,7 @@
               <div class="scene in3" data-part="Review">
                 <div class="m-card m-rep">
                   <div class="m-h"><i class="m-g m-g-done"></i><b>Result report: <span class="m-said">1 · Cart API</span></b>
-                    <span class="m-swap"><span class="m-bdg m-okb a-out t19">Report to review</span><span class="a-in t19"><span class="m-bdg m-okb a-out t29">Reviewed</span></span><span class="m-bdg m-okb a-in t29">Reviewed · merged</span></span>
+                    <span class="m-swap"><span class="m-bdg m-okb a-out t19">Merged</span><span class="m-bdg m-okb a-in t19">Merged · reviewed</span></span>
                   </div>
                   <div class="m-cols">
                     <div>
@@ -185,7 +185,7 @@
                   </div>
                   <div class="m-foot">
                     <span class="m-act m-swap"><span class="m-act a-out t19"><span class="m-btn m-pri a-press t16">I've reviewed this</span><svg class="m-cur a-cur t11" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-done a-in t19">Marked as reviewed.</span></span>
-                    <span class="m-merged a-rise t29"><i class="av av-ian">IA</i><svg class="ic" aria-hidden="true"><use href="#i-merge"/></svg>Merged into the main workspace.</span>
+                    <span class="m-merged"><svg class="ic" aria-hidden="true"><use href="#i-merge"/></svg>Merged into the main workspace.</span>
                   </div>
                 </div>
               </div>
@@ -211,8 +211,8 @@
         <p>Every work item gets its own Claude Code session and git worktree; Claude Code's auto mode decides which of its commands run.</p>
       </li>
       <li class="in3">
-        <h2>Review, then merge</h2>
-        <p>Each finished item comes with a result report; a person reads it, and the host merges.</p>
+        <h2>Merged by itself, then checked</h2>
+        <p>Each finished item comes with a result report; smurg merges what its report says is complete and verified, and you check the result.</p>
       </li>
     </ul>
   </div>

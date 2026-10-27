@@ -28,7 +28,7 @@ export const ZH_TW: Words = {
   note: ['「開始」會為每個項目開一個 agent session，', '各自在自己的 worktree。'],
   start: '開始 3 個項目',
   started: '已開始 3 個項目。',
-  toReview: '報告待看',
+  mergedAuto: '已合併',
   worktree: 'worktree：',
   edited: '編輯',
   created: '建立',
@@ -42,7 +42,6 @@ export const ZH_TW: Words = {
   changes: '變更',
   reviewBtn: '我已看過',
   marked: '已標成看過。',
-  reviewed: '已看過',
-  reviewedMerged: '已看過 · 已合併',
+  mergedReviewed: '已合併 · 已看過',
   merged: '已合併到主工作區。',
 };

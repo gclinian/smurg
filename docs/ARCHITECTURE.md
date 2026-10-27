@@ -20,7 +20,16 @@ built.
 Code's auto mode by default, the host alone may let a workspace ask for nothing, and the two asking modes of 0.5.x
 stay (§5.5, §7.6 "Permission modes", §7.7 G11, G12); a folder without `.git` gets smurg's own history in
 `.smurg/git`, and without the git program work items run directly in the shared folder (§7.8 "Without .git"). §11
-D-25 to D-28 record why; §0 rule 8 names the one upgrade step that sets a value on the open side.
+D-25 to D-28 record why; §0 rule 8 names the upgrade step that set a value on the open side then.
+
+**0.7.0** (protocol 6, workspace shapes 3) follows the owner's words of 2026-10-26 ("discuss, then leave it running,
+come back when it's done to check the results, unless a decision is really needed"): a work item whose result report
+says complete, at least one check passed and none failed merges into the main workspace by itself, on the host's
+standing consent (the workspace setting `merging`, `auto` for new workspaces and for existing ones at the update);
+what needs a person is a decision that stops only its item and what depends on it; a topic whose items are all
+settled is ready to check; the host can undo where smurg keeps history; and plans go on by themselves after a restart
+(§2 rule 11, §5.10, §7.6 "Restart", §7.8 "Automatic merging"). §11 D-29 and D-30 record why; §0 rule 8 names the
+second upgrade step that sets a value on the open side. The design is kept in `docs/design/v0.7.0/`.
 
 ---
 
@@ -69,11 +78,13 @@ the process table).
    version wrote. A step is never removed. Nothing is reset, repaired or given a default, and nothing a smurg cannot
    read is ever written over. Whoever changes a persisted shape adds the step, raises `WORKSPACE_SHAPES` and lets
    the tests of `packages/daemon/test/upgrade/` say so (§7.1 "What a published smurg wrote", `CONTRIBUTING.md`).
-   A new security-relevant value gets its closed side in a step, with one exception: one step sets a value on the
-   open side, by the owner's decision of 2026-10-20 (0.6.0): workspaces and agent sessions of 0.5.x follow the new
-   default, auto mode, at the update (`stateStepFromV050`, `agentSessionsStepFromV050`); the host is told by
-   `smurg host` and in the console (DECISIONS 2; §11 D-25). Every other step gives a new security-relevant value its
-   closed side.
+   A new security-relevant value gets its closed side in a step, with two exceptions: by the owner's decision of
+   2026-10-20 (0.6.0), workspaces and agent sessions of 0.5.x follow the new default, auto mode, at the update
+   (`stateStepFromV050`, `agentSessionsStepFromV050`); the host is told by `smurg host` and in the console (DECISIONS
+   2; §11 D-25); and, by the owner's words of 2026-10-26 (0.7.0), workspaces of 0.6.0 and earlier merge work items by
+   themselves after the update (`stateStepFromV060`: `merging: 'auto'`); the host is told by `smurg host` and in the
+   console. Items armed before the update keep the host's merge (their pins; §11 D-29). Every other step gives a new
+   security-relevant value its closed side.
 
 ---
 
@@ -233,7 +244,10 @@ Rules that follow (and that reviewers check):
    - the workspace's permission mode, `ask-nothing` included: the host (`admin`); work items that run directly in the
      shared folder (no usable git program, §7.8): started and retried by the host only;
    - vote, comment, be the responsible person, submit one of the agent's own options as the decider, review a result
-     report: `discuss` (Host, Agent access, Editor);
+     report, mark a topic's result as checked (0.7.0): `discuss` (Host, Agent access, Editor);
+   - (0.7.0) pause a plan, leave a work item out, let a held item merge as it is: `session.drive`; whether work items
+     merge by themselves (`merging`), undo a merge, accept a direct item as it is, ask an agent to take host-only
+     paths out of its change: the host (`admin`, `worktree.merge.decide`);
    - an Editor's message is a suggestion; a Viewer watches.
 6. **Nothing a person without agent access writes reaches an agent unseen.** An Editor's text reaches an agent only
    (a) as a suggestion a member with agent access accepted, in exactly the characters the card showed (§5.6);
@@ -266,6 +280,25 @@ Rules that follow (and that reviewers check):
     regardless: its refusals hold, and a shell command that may change a script of project settings in use asks a
     person whatever rule would have let it run (§7.7 G10). The host's own MCP servers are not offered to agents
     unless the host switches that on (never to a discussion agent; §7.6 "The host's own Claude Code").
+11. **A work item's change reaches the main workspace by the host's consent** (0.7.0, §7.8 "Automatic merging", §11
+    D-29): the host's own merge, or smurg's merge on the host's standing consent (the workspace setting `merging:
+    'auto'`, the default, and for workspaces of 0.6.0 and earlier at the update) when the item is in order: its
+    report says complete, at least one check passed and none failed, and the agent checked it in the turn that made
+    it; nobody wrote to the agent or stopped a turn of it since; nothing of it waits for a person; the merge policy
+    allows its files; nobody requested its merge; the main workspace is on the branch its Start committed on, with
+    nothing staged; the trial merge is clean. All of it is computed again inside the merge queue and just before
+    `git merge`. The commit's author is the host, its committer smurg, its trailer and its audit entry
+    (`worktree.merge.auto`) say so, and with whose consent. Under automatic merging nobody reads the diff first: the
+    merge review that 0.6.0's auto mode counted for worktrees (D-25) is gone for items that are in order, and what a
+    prompt injection got an item's agent to write reaches the host's folder, in the folder's own git as a commit on
+    the host's branch. What never merges by itself: host-only paths and the scripts the trust gate records, the
+    topic's own spec and plan, links out of the project, smurg's directory, a conflict with a person's change, a
+    merge that stays unclean after the item's agent tried, a report that is not complete and verified, a merge
+    someone requested, and a hand edit by a member without agent access. That does not widen what a teammate can
+    do: a member with `file.write` already writes any file that is not host-only in the main folder directly, where
+    it stays an uncommitted change until the host commits it; an Editor's hand edit in a work item's checkout, which
+    would otherwise reach the host's branch as a commit with nobody in between, waits for the host (`by-hand`); a
+    member with agent access could have had the agent make the same edit. The checks are the agent's claims (§12).
 
 ---
 
@@ -1091,8 +1124,17 @@ type WorktreeInfo = { id; ownerUserId; ownerName; branch; sessionId?: string; ke
 type MergeRequest = { id; worktreeId; requestedBy?: { userId; displayName }; message?; commit: string /* git object id */;
                       topicId?; itemId?; reviewed: boolean;   // a work item's changes; its report was reviewed
                       status: 'draft'|'pending'|'merged'|'rejected'|'conflict';
-                      conflictFiles?: string[]; createdAt; decidedAt?; rejectReason? };
+                      conflictFiles?: string[]; createdAt; decidedAt?; rejectReason?;
+                      auto?: true;                            // protocol 6: smurg merged it (no requestedBy)
+                      undone?: { commit; at; by: UserRef } };  // protocol 6: the host undid it (§5.10 topic.undo)
 ```
+
+**Protocol 6.** smurg merges a work item's `draft` (or a `conflict` nobody requested) by itself on the host's
+standing consent (§7.8 "Automatic merging"): the same body as `worktree.merge.approve` (`decide` in
+`worktree-manager.ts`), recorded `auto: true` with the audit action `worktree.merge.auto` (actor smurg, `onBehalfOf`
+the host); a `pending` request, or a `conflict` that keeps its `requestedBy`, is the host's alone. Both refuse over a
+staged index (`git` refuses any staged change): the host's merge with `merge.staged`, smurg's with a hold. The diff
+of a merged request is against `mergeCommit^1`, so the Result column (§5.10) shows each item's change as it merged.
 
 **Protocol 4.** A work item's changes are a merge request too: when its agent finishes, the daemon snapshots the item
 worktree into a request in the state `draft` (nobody requested it: no `requestedBy`), which the result report shows
@@ -1476,7 +1518,8 @@ A **topic** is one piece of work the team discusses and then has agents carry ou
 ```ts
 type Topic = {
   id; name; slug;                      // the folder is specs/<slug>; [a-z0-9][a-z0-9-]{0,47}
-  phase: 'discussing' | 'spec' | 'plan' | 'executing' | 'complete';
+  phase: 'discussing' | 'spec' | 'plan' | 'executing' | 'ready' | 'complete';   // protocol 6: `ready` (every item settled)
+  checked?: { by: UserRef; at };       // protocol 6: "I've checked the result" (topic.check)
   archived: boolean; createdBy: UserRef; createdAt;
   versioned: boolean;                  // the shared folder has a git repository of its own; since 0.6.0 it decides nothing
   agent: { model: ModelId | null; permissionMode: SessionModeChoice | null };   // protocol 5: the model of the topic's
@@ -1485,8 +1528,9 @@ type Topic = {
   spec: { exists: boolean; changedAt?; changedBy?: Actor; lastAgentChange?: { sessionId; seq; at; askedBy?: UserRef } };
   handEdits: { spec: HandEdit[]; plan: HandEdit[] };          // HandEdit = { by: UserRef | 'outside'; at }
   plan: { exists; valid; error?: FileError; generating; stale; mode: 'assigned' | 'everyone'; paused;
+          pausedBy?: UserRef;                                 // protocol 6: a person's Pause (survives restarts)
           changedAt?; changedBy?: Actor;                      // the last change of PLAN.md, whoever made it
-          items: number; started: number; reviewed: number; merged: number };
+          items: number; started: number; reviewed: number; merged: number; leftOut: number; undone: number };
   rules: RememberedRule[];             // kinds always allowed for every session of the topic
 };
 
@@ -1496,7 +1540,7 @@ type PlanInfo = {
   items: WorkItem[];                                          // ≤ 40 in the plan (+ items that left it but have a session)
   split?: { source: 'agent' | 'smurg'; reason? };
   warnings: WireText[];
-  waitingFor: { user: UserRef; questions; permissions; reports; since }[];
+  waitingFor: { user: UserRef; questions; permissions; reports; decisions; since }[];   // decisions: protocol 6
   slots: { inUse: number; max: number; waitingForPeople: number };
 };
 type WorkItem = {
@@ -1511,6 +1555,13 @@ type WorkItem = {
   changesAsked?: { by: UserRef; at };
   report?: ReportSummary;
   merge?: { requestId; status: MergeRequest['status']; ready: boolean };
+  // protocol 6 (§7.8 "Automatic merging"):
+  merging?: 'auto' | 'host';                                  // how a started item that is not direct merges now
+  autoMerge?: { state: 'waiting' | 'resolving' | 'held'; reason: AutoMergeReason; since; tries; hostOnly; escalated;
+                paths?; branch?: { expected; current }; people?: { path; by: UserRef[]; outside }[]; asked?: UserRef };
+  merged?: { at; by: 'smurg' | UserRef };                     // who merged it (an accepted direct item: the host)
+  leftOut?: { by: UserRef; at }; undone?: { by: UserRef; at };
+  waiting?: 'question' | 'permission';                        // its session waits for a person
 };
 
 type ReportSummary = {
@@ -1518,12 +1569,12 @@ type ReportSummary = {
   state: 'to-review' | 'reviewed' | 'changed-after-review' | 'invalid';
   reviewers: UserRef[]; escalatedAt?;
   review?: { by: UserRef; at; version; insteadOf?: UserRef };
-  checks: { passed: number; notVerified: number }; error?: FileError;
+  checks: { passed: number; notVerified: number; failed?: number }; error?: FileError;   // failed: protocol 6
 };
 type ReportInfo = ReportSummary & {
   topicId; itemId; file: FileRef;
-  sections: { done; why; verified: { text; passed: boolean; note? }[]; watchOut; followUps? };
-  changes?: { requestId; files; additions; deletions; byHand: { path; by: UserRef[] }[] };
+  sections: { done; why; verified: { text; passed: boolean; failed?: true; note? }[]; watchOut; followUps? };
+  changes?: { requestId; files; additions; deletions; byHand: { path; by: UserRef[] }[]; byHandTruncated?: true };
   noChanges?: 'host-only-paths' | 'spec-files' | 'conflict-markers' | 'no-history';   // no-history: a direct item (§7.8)
   questions: { id; from: UserRef; at; text; truncated?: true; answer?: { text; truncated?: true; at } }[];
 };
@@ -1545,6 +1596,9 @@ type WireText = { text: WireRef; fallback: string };          // FileError = Wir
 | `topic.spec.request` [session.drive] | c→d | `{ topicId: string }` → `{}` | "Write the spec now" |
 | `topic.rule.add` [session.drive] | c→d | `{ topicId: string, tool: 'Bash' \| 'WebFetch', pattern: string }` → `{ topic: Topic }` | the checked forms only (`rules.ts`); applies to every session of the topic |
 | `topic.rule.remove` [session.drive] | c→d | `{ topicId: string, ruleId: string }` → `{ topic: Topic }` |  |
+| `topic.check` [discuss] | c→d | `{ topicId: string }` → `{ topic: Topic }` | protocol 6, "I've checked the result": refused unless the phase is `ready` (`topic.check.notReady`). Sets `checked`, ends the sessions of the merged items and releases their worktrees; a later Start, or a report version registered after the check, clears it. Checks `topic-open`; audit `topic.check` |
+| `topic.undo.preview` [worktree.merge.decide] | c→d | `{ topicId: string, itemIds: string[] \| null }` → `{ preview: UndoPreview }` | protocol 6, the host's: what an undo of these items (null: the whole topic) does, tried with objects only: `history`, `undone` (each with `why`: `asked`, `built-on`, `same-lines`, named with its topic), `leftOut`, the `blockers` (a running dependent, a person's later change of the same lines, typing, uncommitted, staged, busy, another branch, `unavailable`) and `ok`, under a `token` over what it does. In smurg's own history the folder is snapshotted first. The page waits 5 minutes |
+| `topic.undo` [worktree.merge.decide] | c→d | `{ topicId: string, itemIds: string[] \| null, token: string }` → `{ plan: PlanInfo }` | protocol 6: the preview's steps again, refused with `undo.changed` when the token differs and with `undo.notOk`; then one revert commit as the host (the reports stay), the items `undone`, their sessions ended and worktrees released, the `leftOut` ones left out. A record in worktrees.json lets the next start finish or hold an undo a crash cut (§7.8 "Undo"). Checks `topic-open`; audit `worktree.merge.undo` |
 
 | Type | Dir | Payload | Notes |
 |---|---|---|---|
@@ -1555,20 +1609,25 @@ type WireText = { text: WireRef; fallback: string };          // FileError = Wir
 | `plan.assign` [session.drive] | c→d | `{ topicId: string, itemId: string, userId: string \| null }` → `{ plan: PlanInfo }` | before the item has a session the plan holds who is responsible; afterwards this writes through the session |
 | `plan.suggest` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Suggest again": smurg's even split, for items that are not started and not `chosen` |
 | `plan.preflight` [session.create] | c→d | `{ topicId: string, itemIds?: string[] }` → `{ preflight: StartPreflight }` | what the Start dialog shows; its three pins go back in `plan.start` |
-| `plan.start` [session.create] | c→d | `{ topicId: string, itemIds?: string[], planRevision: number, specHash: string, planHash: string, agent?: { model?: ModelId \| null, permissionMode?: SessionModeChoice \| null }, direct?: true }` → `{ plan: PlanInfo }` | without ids: every item of that revision that is not started. Refused with `conflict`, reason `plan-changed`, when a pin differs from the files now. `agent` (protocol 5) is applied to the topic in the same update that arms the items, after the checkpoint (a refused Start changes neither). `direct: true` is required when the preflight says `history: 'direct'` (`plan.start.directUnconfirmed`) and accepted from the host only (`plan.start.directHostOnly`, reason `direct-host-only`); sent while the history is not direct: `plan.start.historyChanged` |
+| `plan.start` [session.create] | c→d | `{ topicId: string, itemIds?: string[], planRevision: number, specHash: string, planHash: string, agent?: { model?: ModelId \| null, permissionMode?: SessionModeChoice \| null }, direct?: true, merging?: 'host' }` → `{ plan: PlanInfo }` | protocol 6: `merging: 'host'` is "The host merges each item" for this Start (each pin records `merging` and the checkpoint's branch; `auto` only when the workspace says so, history is not direct and HEAD is on a branch). Without ids: every item of that revision that is not started. Refused with `conflict`, reason `plan-changed`, when a pin differs from the files now. `agent` (protocol 5) is applied to the topic in the same update that arms the items, after the checkpoint (a refused Start changes neither). `direct: true` is required when the preflight says `history: 'direct'` (`plan.start.directUnconfirmed`) and accepted from the host only (`plan.start.directHostOnly`, reason `direct-host-only`); sent while the history is not direct: `plan.start.historyChanged` |
 | `plan.changes` [session.view] | c→d | `{ topicId: string }` → `{ files: { target: 'spec' \| 'plan', diff: string, truncated: boolean }[] }` | "Show the changes": unified diffs of SPEC.md and PLAN.md as they are now against what the last Start pinned (against the last commit before the first Start), each cut at `PLAN_CHANGES_DIFF_MAX_BYTES` (`truncated`), through `mask()`; one entry per file that differs |
-| `plan.resume` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Continue all" after a restart of the host's smurg |
+| `plan.resume` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | "Continue all": clears a pause (a person's, or the restart's of a topic with an interrupted direct item) and continues the interrupted items |
+| `plan.pause` [session.drive] | c→d | `{ topicId: string }` → `{ plan: PlanInfo }` | protocol 6, "Pause": `paused`, `pausedBy`; nothing starts, merges or continues by itself until `plan.resume`, also across restarts; turns that run finish, and so does a merge already inside `git merge`. Checks `topic-open`; audit `plan.pause` |
+| `plan.item.leaveOut` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{ plan: PlanInfo }` | protocol 6, "Leave it out": the item and every item that depends on it and is not merged get `leftOut`, are disarmed and their live sessions end (worktrees kept); waits for a merge in flight; refused for a merged item (`plan.item.leaveOut.merged`). Start and Try again clear it. Checks `topic-open`; audit `plan.item.leaveOut` |
+| `plan.item.accept` [worktree.merge.decide] | c→d | `{ topicId: string, itemId: string, version: number }` → `{ plan: PlanInfo }` | protocol 6, "Accept as it is": a held direct item counts as merged (`plan.item.accept.notHeld` otherwise; an old version: `report.changed`). Checks `topic-open`; audit `plan.item.accept` |
+| `plan.item.release` [session.drive] | c→d | `{ topicId: string, itemId: string, version: number }` → `{ plan: PlanInfo }` | protocol 6, "Merge it as it is": an item held for `asked`, `stopped` or `stale-report` merges its current version if it is otherwise in order (`plan.item.release.notHeld` otherwise). Checks `topic-open`; audit `plan.item.release` |
+| `plan.item.removePaths` [worktree.merge.decide] | c→d | `{ topicId: string, itemId: string }` → `{}` | protocol 6, "Ask the agent to take them out": the message `remove-paths` with the files only the host may merge (`plan.item.removePaths.notHeld` otherwise). Checks `topic-open`; audit `plan.item.removePaths` |
 | `plan.item.retry` [session.create] | c→d | `{ topicId: string, itemId: string }` → `{ plan: PlanInfo }` | a failed item resumes its session (also one whose process had failed before smurg was restarted); a stopped item gets a new session in the same worktree, with the model of its previous session. An item pinned `history: 'direct'`: the host only |
 | `plan.item.continue` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | tells a stalled execution session to go on |
-| `plan.item.resolve` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | after a merge conflict: smurg merges the main workspace into the item's worktree and asks the agent to resolve |
+| `plan.item.resolve` [session.drive] | c→d | `{ topicId: string, itemId: string }` → `{}` | after a merge conflict: smurg merges the main workspace into the item's worktree and asks the agent to resolve (since protocol 6 also what smurg does by itself against other items' changes, §7.8; a person's request is not counted as a try) |
 | `report.get` [session.view] | c→d | `{ topicId: string, itemId: string }` → `{ report: ReportInfo }` |  |
 | `report.updated` | d→c | `{ topicId: string, itemId: string, report: ReportSummary }` | to everyone: the summary |
 | `report.followUp` [suggest.create] | c→d | `{ topicId: string, itemId: string, text: string, mentions?: string[] }` → `{ messageId: string } \| { suggestion: Suggestion }` | like `topic.revise`, to the item's session (origin `follow-up`). Rate bucket: `suggestion` |
 | `report.review` [discuss] | c→d | `{ topicId: string, itemId: string, version: number, acknowledgeUnfinished?: boolean }` → `{ report: ReportSummary }` | "I've reviewed this": one of the reviewers; once escalated, every member with `session.drive`. `version` must be the current one; an outcome other than `complete` needs `acknowledgeUnfinished` |
 
 **A work item's worktree** is the item's, not its session's: created when the item starts, reused by a retry, and
-removed only when the item is merged and reviewed with nothing unmerged left in the worktree (§7.8 "After the
-merge"), or when its topic is archived (`WorktreeManager.releaseItem`); the end of a session, `keepWorktree` or not,
+removed only when the item is merged and reviewed (since protocol 6: or its topic checked) with nothing unmerged left
+in the worktree (§7.8 "After the merge"), when it is undone, or when its topic is archived (`WorktreeManager.releaseItem`); the end of a session, `keepWorktree` or not,
 never removes it. When the member who started an item goes, the worktree passes to the host with the session. `PlanInfo.slots` is the scheduler's own count: item sessions that hold a process (`inUse`)
 of the host setting `maxLiveAgents` (`max`); the agent runtime knows only its own limits.
 
@@ -1580,7 +1639,10 @@ the topic's rules, the shared directories, and `blockers` (why Start is refused)
 (`history`: `folder`, `smurg` or `direct`; `commit` only with `folder`), `direct: { reason, hostOnly } | null` (with
 `direct`: why git cannot be used, and whether the caller is not the host), `agent` (the topic's model and mode and
 the mode its items will run with), `nestedRepos` (≤ 20 folders that are repositories of their own, with `smurg`) and
-`cloudSynced` (the folder lies in a folder a cloud service syncs, with `smurg`).
+`cloudSynced` (the folder lies in a folder a cloud service syncs, with `smurg`). Protocol 6 adds `merging: { workspace,
+proposed, detached } | null` (null with `direct`): the workspace's setting, what the dialog selects first (`host`
+when the workspace says so, HEAD is on no branch, or the topic's last Start chose it) and whether HEAD is detached
+(then only the host merges).
 
 **Who edited by hand.** `Topic.handEdits` (and with it the Start dialog and the checkpoint's `Edited-by:`) names a
 member under BOTH files when they renamed or deleted a folder that holds them (`specs/<slug>`, `specs`); what a
@@ -1598,10 +1660,12 @@ notes and seen marks are stored.
 ```ts
 type InboxItem = {
   key: string;                         // `<kind>:<id>`; `attention:<subject>:<id>`
-  kind: 'question' | 'vote' | 'permission' | 'attention' | 'suggestion' | 'report' | 'merge' | 'mention' | 'result';
+  kind: 'question' | 'vote' | 'permission' | 'attention' | 'suggestion' | 'report' | 'merge' | 'mention' | 'result'
+      | 'decision' | 'ready';                                                          // protocol 6
   subject?: 'item-stalled' | 'item-failed' | 'item-stopped' | 'item-not-started' | 'plan-paused' | 'discussion-lost'
           | 'account' | 'project-settings' | 'host-rules' | 'storage'                  // of an `attention` item
-          | 'agents-auto';                     // protocol 5: the update to 0.6.0 switched the workspace to auto mode (host only; does not wait)
+          | 'agents-auto'                      // protocol 5: the update to 0.6.0 switched the workspace to auto mode (host only; does not wait)
+          | 'auto-merge';                      // protocol 6: the update to 0.7.0 made work items merge by themselves (host only; does not wait)
   at; unread: boolean; waiting: boolean;                                               // `waiting`: work stands still for it
   topicId?; sessionId?; itemId?;
   item?: { number: number; title: string };                                            // wherever itemId is: "1 · Cart API"
@@ -1612,9 +1676,10 @@ type InboxItem = {
   outcome?; checks?;                                                                   // a report
   result?: 'rejected' | 'accepted-edited';                                             // what became of my suggestion
   ready?; unblocks?: number[]; conflict?;                                              // a merge
+  reason?: AutoMergeReason; tally?: { items; merged; leftOut; undone };                // protocol 6: a decision, a topic ready to check
 };
 type ColumnTarget = { kind: 'session'; sessionId } | { kind: 'spec'; topicId } | { kind: 'plan'; topicId }
-                  | { kind: 'report'; topicId; itemId } | { kind: 'changes'; requestId }
+                  | { kind: 'report'; topicId; itemId } | { kind: 'changes'; requestId } | { kind: 'result'; topicId }   // result: protocol 6
                   | { kind: 'console'; section: 'members' | 'sessions' | 'suggestions' | 'merges' | 'invites' | 'audit'
                                                | 'settings' | 'claude-config' | 'host-rules' };   // CONSOLE_SECTIONS
 ```
@@ -1633,7 +1698,9 @@ required field is there, a field the kind does not carry is refused). Every item
 | `merge` | `ready`, `conflict` | `topicId`, `itemId`, `item`, `from` (who asked; none for a reviewed draft), `unblocks` | the request's message, or empty |
 | `mention` | `from` | `topicId`, `sessionId`, `itemId`, `item`, `anchor` | the text around the mention |
 | `result` | `sessionId`, `anchor.cardId` (the suggestion), `from` (who decided), `result` | `topicId`, `itemId`, `item` | the suggestion's text |
-| `attention` | `subject` | `topicId`, `sessionId`, `itemId`, `item`, `count` | the topic's name for `plan-paused` and `discussion-lost`, else empty |
+| `attention` | `subject` | `topicId`, `sessionId`, `itemId`, `item`, `count`, `unblocks` | the topic's name for `plan-paused` and `discussion-lost`, else empty |
+| `decision` (protocol 6, waits) | `topicId`, `itemId`, `item`, `reason` | `sessionId`, `unblocks`, `outcome`, `checks`, `waitsFor`, `waitsForOffline`, `escalated`, `alsoFor`, `alsoForMore` | empty |
+| `ready` (protocol 6, does not wait) | `topicId`, `tally`, `checks` | | the topic's name |
 
 `voted` counts the members who voted on every part; `leading` is `leadingLabel(question)` (§5.9 "Votes"): the leading
 option of the first part, absent on a tie. A row names a work item from `item`, never from `excerpt`. The host's
@@ -1654,8 +1721,9 @@ tells the sender with a notification (`mention.inboxFull`). "Ask them to submit"
 | `inbox.seen` | c→d | `{ keys: string[] }` | clears `unread`; opening a mention or a result this way also removes it |
 | `inbox.dismiss` | c→d | `{ key: string }` → `{}` | mentions and results only (`inbox.notDismissable` otherwise) |
 
-An item that waits (a question to decide, a permission request, a report to review, a merge) leaves when it is
-settled, never by dismissal. `inbox.changed` goes to the member's own interactive channels only; the control socket
+An item that waits (a question to decide, a permission request, a report to review, a merge, a decision) leaves when
+it is settled, never by dismissal; a topic ready to check leaves when it is checked or archived. `question` and
+`permission` may carry `unblocks` too (protocol 6). `inbox.changed` goes to the member's own interactive channels only; the control socket
 gets none of it (§8).
 
 ---
@@ -1919,7 +1987,16 @@ a schema, no strip, no passthrough.
   open side, by the owner's decision, §0 rule 8) and `agentSessionsStepFromV050` (the record's `mode` becomes
   `modeChoice`: a person's `ask-all` for a work item or a worktree session stays with who chose it, every other
   session follows (null); every `model` is null, the host's default). A folder of 0.4.0 runs both chains of
-  `state.json` (each step's output is checked against the next step's frozen shape). A file that matched an earlier shape and whose upgraded value fails today's
+  `state.json` (each step's output is checked against the next step's frozen shape). 0.7.0 adds one step from 0.6.0
+  with `sinceShapes: 3` (`src/frozen/v0.6.0.ts`): `stateStepFromV060` (`version` 3, `settings.merging: 'auto'` and
+  the notice `auto-merge` in `hostNotices`: the second step that sets a value on the open side, by the owner's words
+  of 2026-10-26, §0 rule 8). Its first start writes ONE audit entry (`settings.change` by smurg, `{ merging: 'auto',
+  reason: 'update-0.7.0', from }`). Every other change of 0.7.0 is an optional key: in `topics.json` an item's
+  `autoMerge`, `mergeTries`, `turns`, `checked[].turn`, `lastTurn`, `mergedAs`, `leftOut`, `undone`, `autoContinue`,
+  the pin's `merging` and `branch`, a topic's `checked` and a plan's `pausedBy`; in `reports.json` a check's `failed`,
+  `checks.failed`, `checkedInTurn` and `changes.byHandTruncated`; in `worktrees.json` a merge's `auto` and `undone`
+  and the `undo` record; wider enums for the audit and the transcripts. `inbox.json` keeps 0.6.0's shape (its stored
+  mention target has its own schema without `result`). A file that matched an earlier shape and whose upgraded value fails today's
   schema is refused naming the entry and the rule, and no entry is dropped (the one known case: a path or a name
   with more than 30 combining marks in a row, which 0.4.0 accepted). The same refusal (`carried-value-refused`) is
   given in EVERY document, with or without a step, when a file fails today's schema ONLY because of rules that got
@@ -1951,7 +2028,7 @@ a schema, no strip, no passthrough.
 - **The stamp `written-by.json`**: `{ "smurg": "X.Y.Z", "shapes": 1, "at": <ms> }`, and `"pending": [{ document,
   from, copy }]` while an upgrade is under way. Not a document (older versions ignore the file). Written first in
   phase 2 of every start with the store's atomic write, and never lowered (neither `shapes` nor `smurg`).
-  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1, 2 since 0.6.0) is ONE integer for everything persisted under the workspace, documents
+  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1, 2 since 0.6.0, 3 since 0.7.0) is ONE integer for everything persisted under the workspace, documents
   or not; a version raises it whenever any persisted shape changes. A stamp whose `shapes` is above this smurg's
   refuses the WHOLE folder as `newer` before any document is read, and that number decides ALONE: it is taken from
   any stamp that is a regular file (no link, within the size cap) holding a JSON object with a number there,
@@ -2976,9 +3053,10 @@ process; after 300 turns the `claude` process alone is 420–600 MB; after park 
 as in "End", but the records stay: a turn that was running gets `turn.finished{interrupted}` and the line
 `conversation.interrupted.restart`, and a message that waited for a turn still waits (`pending`, "The record"). At
 the next start every record that was not `ended` is an idle session without a process; the conversation module
-withdraws the cards that were still open (`restarted`); nothing is restarted by itself and every plan with armed or
-interrupted items is paused until a member with agent access continues it (§7.8). The next message starts a process
-with `--resume`, and what waited is delivered first, in order.
+withdraws the cards that were still open (`restarted`). Until 0.6.0 nothing was restarted by itself and every plan
+with armed or interrupted items was paused until a member with agent access continued it; since 0.7.0 (§11 D-30)
+plans go on by themselves (§7.8 "After a restart"). The next message starts a process with `--resume`, and what
+waited is delivered first, in order.
 
 When the daemon DIES, its children are orphans. Their next tool call, whatever the tool, is refused by the tool
 gate, which fails closed when the daemon does not answer (§7.7 G1), so no command runs unattended; an orphan can at
@@ -3608,12 +3686,15 @@ says by then. None of this happens while smurg itself is stopping.
 - **Follow-ups** (`report.followUp`) go to the item's session (a parked, idle or failed session resumes); the final
   text of the turn that took the message becomes the follow-up's answer; the item is marked `changesAsked` until the
   next version.
-- **Review** (`report.review`, by one of the reviewers of §3): marks the version; the item is `reviewed`; when every
-  item of the plan is reviewed the phase is `complete`. Reviewing is not merging: a reviewed draft is in the host's
-  inbox by itself as ready to merge, with the items it unblocks (§7.9); "Request merge" stays for work nobody
-  reviewed; the host merges as before (the merge commit reads `Merge smurg/<slug>/<item> (<who started it>)`).
-- **After the merge** an item that is merged and reviewed is finished ONCE NOTHING UNMERGED IS LEFT IN ITS
-  WORKTREE: its session ends with the reason `merged`, its worktree is released (`releaseItem`), its conversation
+- **Review** (`report.review`, by one of the reviewers of §3): marks the version; the item is `reviewed`. For an
+  item the host merges (`merging: 'host'`, every item of a 0.6.0 Start, "I merge each item myself") reviewing is not
+  merging: a reviewed draft is in the host's inbox by itself as ready to merge, with the items it unblocks (§7.9);
+  "Request merge" stays for work nobody reviewed; the host merges as before (the merge commit reads `Merge
+  smurg/<slug>/<item> (<who started it>)`). Under automatic merging (0.7.0) the review is a mark: no condition of the
+  merge, of the phase or of the host's inbox, and such items have no report row (a held one has its decision row).
+  The phase is `complete` when the topic is checked, or every item is settled and reviewed (below).
+- **After the merge** an item that is merged and reviewed (since 0.7.0: or whose topic is checked) is finished ONCE
+  NOTHING UNMERGED IS LEFT IN ITS WORKTREE: its session ends with the reason `merged`, its worktree is released (`releaseItem`), its conversation
   and report stay readable. Releasing the worktree deletes what it holds, so `finishIfDone` finishes an item only
   when its CURRENT request is the merged one and `WorktreeManager.unmerged` does not list its worktree (a question
   that cannot be answered counts as "it holds something"). Two cases keep an item open: a follow-up after a merge
@@ -3642,11 +3723,67 @@ has a marker line. After it the host's trial merge is clean unless the main work
 `git merge` could not do this: git refuses it over uncommitted work, and without a two-parent commit the host's
 trial merge reports the same conflict for ever.)
 
-**After a restart** of the host's smurg nothing runs by itself (§7.6 "Restart"). `armed` and the pins are persisted.
-Every topic that has armed or interrupted items is **paused** (`Topic.plan.paused`): the scheduler checks no pins and
-starts nothing, a merge only moves `waiting → queued`, sessions that were mid-turn are `stalled` (`restart`), and the
-host and every member with agent access have one attention item per topic (`plan-paused`). `plan.resume` ("Continue
-all") clears the pause, runs the pin check, and sends `continue-item` to the interrupted sessions.
+**Automatic merging** (0.7.0, §11 D-29; `topics/auto-merge-verdict.ts`, `auto-merge.ts`, `worktree-manager.ts
+autoMerge`). The workspace setting `merging` (`auto`, `host`) is the host's; a Start pins it with the checkpoint's
+branch (`auto` only when the setting says so, the Start did not choose "The host merges each item", the history is
+not direct and HEAD is on a branch); `mergingOf(item, settings)` needs both the pin's and the setting's `auto`.
+Turning the setting to `host` rewrites every open item's pin to `host` (audit `plan.merging.host`), so it applies at
+once and for good; turning it on applies to later Starts. One pure function, `autoMergeVerdict`, says per item
+whether it merges, waits (nobody needed: paused, busy, someone's answer to come, typing, git busy, behind another
+item's resolve, a retry), goes back to its agent (`verify-again` once for a version not checked in its turn, or
+update and resolve) or is held for a person; the wire's `WorkItem.autoMerge` is that verdict. One queue per
+workspace (`AutoMerger`, inside `core.serialize`) merges the oldest registered report first, one at a time on the
+worktree module's `main` queue, and asks the verdict again (`stillInOrder`) at the queue's entry and just before it
+spawns `git merge`, with the branch guard (`symbolic-ref` is the pin's branch and contains the pin's commit) and
+HEAD unchanged since the trial. Waiting items are looked at again when what they wait for changes (a lock, a file of
+the main root, `workspace.git`), at the latest every 60 s, never on every sweep. A trial that is not clean asks who
+changed the other side (`people-changes.ts`: first-parent commits that are not recorded merges of work items, by their
+author or, in smurg's own history, by the activity log's writers): only other work items → `updateFromMain` and the
+item's own agent resolves (at most three tries, recorded before each, taken up again after a restart); a person's
+change → held for the item's carers at once. The merge commit's author is the host, its committer smurg, its message
+ends with `Merged-by: smurg (automatic merging, the host's setting)`; `worktree.merge.auto` records the consent
+(`update-default` while the host has not seen the update's notice, else `host-setting`); every change into `held` is
+audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one writer of the item's `mergedAs`.
+- **Decisions** (D9). A hold is the inbox kind `decision` for `decisionRecipients` (the permission routing: the host
+  for `HOST_HOLDS`, else the responsible person while they hold `session.drive`, after `escalateAfterMs` also the host
+  and every member with agent access); it stops only its item, and the per-dependency gate keeps only its dependents
+  waiting. What clears it: a new report version, Start again or Try again, "Leave it out", "Merge it as it is"
+  (`asked`, `stopped`, `stale-report`), the host's merge or rejection, the setting turned to `host`, an archive, and
+  for the holds of the main workspace a re-check that finds it no longer in the way.
+- **Without git** (D10): a direct item counts as merged at registration only when its report is complete and verified
+  and was checked in its turn; otherwise it is held for its carers, and the host may "Accept as it is".
+- **The end** (D13). An item is settled when it is left out or undone, or merged with its current request merged and
+  nothing of it in progress (no open decision, turn, card, follow-up to answer, nothing unmerged in its worktree). A
+  started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
+  `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
+  or a new version registered after the check, makes it `executing` again.
+- **Undo** (D14; `worktree/undo.ts`, the host's). The merge commits (recorded, else `mergedAs.commit`, else found by
+  their second parent), what goes with them (plan dependents, later merges of the same lines of any topic), what
+  blocks it (a running dependent, a person's later change of the same lines, typing, uncommitted, staged, busy,
+  another branch), tried with `merge-tree` and `commit-tree` only; in smurg's own history after a snapshot first, so
+  a saved edit nobody recorded yet stays. The apply claims the items in the topics module, writes the record
+  `worktrees.json.undo` (`pre`, `target`), runs `read-tree -m -u` and ONE commit as the host (`This reverts commit <M>,
+  reversing changes made to <M^1>.` per merge); a crash between them is settled at the next start by what the folder
+  holds (recorded, committed now, nothing changed, or in the folder's own git held for the host:
+  `undo-interrupted`). The reports stay. It cannot take back what the agents' commands did outside the folder, nor a
+  branch already pushed.
+- **Automatic continues** (D15), each bounded and audited (`plan.item.autoContinue`): after a usage limit when the
+  account is back; after a broken turn, twice (1 and 5 minutes later); after a crash, once (`retry` as smurg); after
+  a failed snapshot, once. Never for an item a person stopped. While a continue is due the item waits; once spent, a
+  turn after a version leaves the item held (`stopped`).
+- **Slots** (D16): a queued item may start while the working sessions are under `maxLiveAgents` and all of them under
+  twice that (and `maxAgentProcesses`), so sessions that wait for a person do not keep unrelated items from starting.
+
+**After a restart** of the host's smurg (§7.6 "Restart"; since 0.7.0, §11 D-30) plans go on by themselves. `armed`
+and the pins are persisted; sessions that were mid-turn are `stalled` (`restart`). A topic stays **paused** only when
+a person paused it (`plan.pausedBy`, `plan.pause`) or it has an interrupted item that runs directly in the shared
+folder (its half-done change is in a folder without history; 0.6.0's pause, with one attention item per topic,
+`plan-paused`); any other pause, 0.6.0's restart pause included, is lifted. The pin and history checks run before
+anything starts. The interrupted items of topics that go on get `continue-item` (line `conversation.continued.restart`)
+only after `smurg host` printed which topics go on (`Daemon.goOn()` after `host.plansContinue`); a daemon started
+without the CLI goes on at the end of its start. A continue that cannot be sent leaves the item `stalled(restart)`.
+`plan.resume` ("Continue all") clears a pause, runs the pin check, and sends `continue-item` to the interrupted
+sessions.
 
 **When a member goes** (§3): the kinds they allowed for whole topics are removed, the items they armed that have not
 started are disarmed (`TopicService.memberRemoved`), and the sessions and item worktrees of their topics pass to the
@@ -3670,8 +3807,10 @@ can never disagree:
 | `vote` | in a session nobody is responsible for: every member holding `discuss` who has not voted on every part and does not hold the question item already | they vote; the question settles |
 | `permission` | a host-only request: the host. Else the responsible person, while they hold `session.drive` and it has not escalated; else the host and every member with agent access | decided by anyone who may; withdrawn |
 | `suggestion` | as a permission request that is not host-only; ONE item per author and session (`count`), opening at the oldest | every pending suggestion of that author in that session is settled |
-| `report` | the reviewers; once escalated, also the host and every member with agent access | reviewed; a change after the review brings it back |
-| `merge` | the host: a `pending` or `conflict` request, and a `draft` whose report is reviewed (`ready`) | merged or rejected |
+| `report` | the reviewers of an item the host merges (0.7.0: not for items smurg merges); once escalated, also the host and every member with agent access | reviewed; a change after the review brings it back |
+| `decision` | as a permission request: the host for a hold only the host can settle (`HOST_HOLDS`, never escalated); else the item's responsible person while they hold `session.drive`; else, and once escalated also, the host and every member with agent access | the hold goes (§7.8 "Decisions") |
+| `ready` | every active member, Viewers included | the topic is checked or archived, or no longer `ready` |
+| `merge` | the host: a `pending` or `conflict` request, and a `draft` whose report is reviewed (`ready`); not a `draft` or an unrequested `conflict` of an item smurg merges (its decision row covers it) | merged or rejected |
 | `attention` | the recipients its fact names | the fact ends |
 | `mention`, `result` | the mentioned member (whatever their role); the author of a suggestion that was rejected or accepted after an edit | opened (`inbox.seen`) or dismissed |
 
@@ -3706,20 +3845,23 @@ receives it and announces `attention.changed`; the inbox copies the facts into i
 |---|---|---|---|
 | `item-stalled`, `item-failed`, `item-stopped` | a work item's session stopped without a report, failed, or was ended on purpose | topics | the item's responsible person; nobody assigned: the member who started it; else the host |
 | `item-not-started` | an armed item could not start, or was disarmed | topics | the member who started it and the host |
-| `plan-paused` | smurg restarted and the topic has armed or interrupted items (one per topic) | topics | the host and every member with agent access |
+| `plan-paused` | the topic is paused: by a person (0.7.0, `pausedBy`), or after a restart with an interrupted direct item (one per topic) | topics | the host and every member with agent access |
+| `auto-merge` | the update to 0.7.0 made work items merge by themselves, and the host has not pressed "Got it" nor set `merging` | settings | the host |
 | `discussion-lost` | the topic's discussion ended or failed to start three times in a row | topics | the host and the topic's creator |
 | `account` | the workspace's account state is not `ok` (one item, `count` sessions) | sessions | the host |
 | `project-settings` | a root has project settings the host has not decided, or that changed | the trust gate | the host |
 | `host-rules` | the host's own allow rules were found, or changed, and the host has not looked | the host's rules | the host |
 | `storage` | the transcripts exceed their budget (§7.1) | sessions | the host |
 
-`waiting` (the amber count) is true for a question, a vote, a permission request, and every attention subject but
-`host-rules` and `storage` (`inboxKindWaits`).
+`waiting` (the amber count) is true for a question, a vote, a permission request, a decision, and every attention
+subject but `host-rules`, `storage`, `agents-auto` and `auto-merge` (`inboxKindWaits`); a topic ready to check does
+not wait.
 
 **Escalation: what waits too long reaches the others who may settle it** (`conversation/escalation.ts`,
 `report-service.ts`). A question or a permission request gets `escalatedAt` after the host setting `escalateAfterMs`
 (default 5 min, 1 min – 1 h), or at once when the ONE person it waits for has been offline for a minute
-(`escalateOfflineMs`); a report after six times `escalateAfterMs`. From then on it is ALSO in the inboxes of the
+(`escalateOfflineMs`); a decision that is not the host's alone after `escalateAfterMs` (0.7.0, `autoMerge.escalatedAt`,
+compared on the same sweep); a report of an item the host merges after six times `escalateAfterMs`. From then on it is ALSO in the inboxes of the
 host and every member with agent access, and stays in the first person's; they may submit for the decider
 (`onBehalfOf`, the line `conversation.submittedFor`) or review instead of the reviewer, without becoming
 responsible. There is no timer per card: stored times are compared with `ctx.clock.now()` on the sweep of
@@ -4408,15 +4550,15 @@ the R7.1 (two Y.Docs) and R4.1 (terminal state) acceptance tests. Roles in both 
 
 Each of these keeps the intent of the requirement and is backed by a verified finding.
 
-**Status: D-1 to D-11 were reviewed and approved by the maintainers on 2026-09-28.** A departure added after that
-is marked in its row until it is confirmed. D-15 (2026-10-01) removed the guest sandbox and with it D-12 and D-14
-(both withdrawn) and the guests' half of D-4 and D-9. D-24 (2026-10-08) records 0.5.1: it departs from no
-requirement of SPEC.md but from the rule 0.5.0 was built under. D-25 to D-28 (2026-10-20) record 0.6.0: the owner's
-decisions on permission modes, git and models (`docs/design/v0.6.0/DECISIONS.md`, beside the design they were built
-from). D-16 to D-23 (2026-10-05) record 0.5.0: the owner's brief (`docs/design/v0.5.0/OWNER-BRIEF.md`,
-`OWNER-DECISIONS.md`) supersedes SPEC.md's wording of R4 (agent sessions) and R6 (suggestions), and SPEC.md itself is
-not edited. Rows written before 0.5.0 keep their wording where it still holds;
-where 0.5.0 changed what a row says, the row says so ("0.5.0:").
+**Status: D-1 to D-11 were reviewed and approved by the maintainers on 2026-09-28.** A departure added after that is
+marked in its row until it is confirmed. D-15 (2026-10-01) removed the guest sandbox and with it D-12 and D-14 (both
+withdrawn) and the guests' half of D-4 and D-9. D-24 (2026-10-08) records 0.5.1: it departs from no requirement of
+SPEC.md but from the rule 0.5.0 was built under. D-25 to D-28 (2026-10-20) record 0.6.0: the owner's decisions on
+permission modes, git and models (`docs/design/v0.6.0/DECISIONS.md`, beside the design they were built from). D-29 and
+D-30 (2026-10-27) record 0.7.0: the owner's words of 2026-10-26 (`docs/design/v0.7.0/`). D-16 to D-23 (2026-10-05)
+record 0.5.0: the owner's brief (`docs/design/v0.5.0/OWNER-BRIEF.md`, `OWNER-DECISIONS.md`) supersedes SPEC.md's wording
+of R4 (agent sessions) and R6 (suggestions), and SPEC.md itself is not edited. Rows written before 0.5.0 keep their
+wording where it still holds; where 0.5.0 changed what a row says, the row says so ("0.5.0:").
 
 | # | SPEC says | We do | Why (evidence) |
 |---|---|---|---|
@@ -4444,9 +4586,11 @@ where 0.5.0 changed what a row says, the row says so ("0.5.0:").
 | D-22 **(0.5.0, the brief's decisions 5 and 10)** | (the brief) the spec and the plan are files in the project that people edit together; executing the plan opens one agent session per work item | **A Start pins the spec and the plan.** `plan.start` must repeat the plan revision and the hashes of both files that the Start dialog showed; inside the request the daemon commits exactly those two files and stores the pin; the scheduler starts an armed item only while both files, in the working tree and at HEAD, still hash as pinned, never commits, and disarms the item otherwise; an item that appears in the plan later is never armed by an earlier Start (§7.8 "Start", "Execution"). Any change after a Start costs a "Start again", whose dialog shows the change | An Editor can edit those files, and an item may start hours after the click, when what it depends on is merged: without the pin an Editor's later sentence would reach an agent that no member with agent access had seen (§2 rule 6; the security review's SEC-02). Tests: daemon `topics/scheduler.test.ts` › T4.1 a changed spec or plan starts nothing, › S3 an Editor's edit of an armed item's summary or dependency starts nothing and reaches no agent, › S3 the checkpoint commits two files |
 | D-23 **(0.5.0)** | R4: the host's own Claude Code runs the agents (no version is named; until 0.4.0 any version started, with a warning below the oldest verified one) | **Claude Code 2.1.288 is the floor** for agent sessions, and the one verified version: an older Claude Code is refused before the spawn with its own sentence (`session.claude.tooOld`); a newer one, or one whose version cannot be read, runs, and the host is told once (§7.6 "Claude Code version"). Terminals are not affected. **0.6.0** keeps 2.1.288 as the floor and the one verified version (no newer binary was downloaded). Making a newer one the verified one is a release of its own (RELEASING §4.5): the real-Claude suite against it, and these looked at again. **For every newer version, whatever its changelog says**: that the `--settings` file is read once, at the start, and not reloaded while the session runs (an agent can read and overwrite its own launch file; R8); that absolute deny rules still refuse a Bash command that names the path, in auto mode and in bypass (§7.6 "Deny rules beyond the session's folder"; R2, R5); that auto mode's fast path still covers only the agent's own folder (§7.7; R2, R4), and whether it still runs a command whose target is a variable with no check (R4: 2.1.288 does, hence `GATE_ASKS_WHEN_UNSURE = true`; the stand-in sends every `$` to its classifier and would not notice the change). **For the versions its changelog names** (read for 0.6.0 up to 2.1.304): 2.1.293 (the `haiku` alias becomes Haiku 5.5: its `supportsAutoMode`, the fallback when auto cannot run, the model list), 2.1.296 ("Not run" rows: new stream shapes for a call auto mode could not check, `normalise.ts`), 2.1.299 (after `set_model` to a model without auto mode Claude Code moves the session to `default` and a `status` line arrives: smurg's fallback must agree), 2.1.301 (the `fable` alias may retry on the previous Fable model: the substituted-model notice), 2.1.302 (`-p` without a mode starts in Manual, while smurg always passes one; `CLAUDE_CODE_AUTO_MODE_MODEL`; the check's compaction on the server), 2.1.304 (`/auto-mode-setup`) | The release is verified on one version. One security property holds only from there (a read deny rule hides a file from Grep on 2.1.288 and not on 2.1.220), and the structured protocol is defined by what the binary does, not by a documented contract. A newer version must not lock anyone out, because Claude Code updates itself: the explicit tool list (a new tool does nothing until a smurg release lists it), the tolerant normaliser and the replay test bound what an update can change. 0.6.0 relies on three behaviours of 2.1.288 that no contract states (above; §12); a newer Claude Code may change any of them without a word in its changelog. Tests: daemon `sessions/agent-sessions.test.ts` (refusals; an unverified version), `workspace.test.ts` (the policy); since 0.6.0 `sessions/models-claude-real.test.ts` and `sessions/modes-claude-real.test.ts` (R1 to R8) |
 | D-24 **(0.5.1)** | (no requirement of SPEC.md) the rule 0.5.0 was built under: "nobody has installed any version, no compatibility code"; `smurg host` of 0.5.0 refused every workspace 0.4.0 had shared and advised moving its folder away | **What a published smurg wrote is read by every later one (§0 rule 8).** A start reads the whole workspace folder before it writes anything; a document a published version wrote is brought to today's strict shape by a named step from that version's frozen shape; a kept copy and a stamp are written first; a refusal has a kind, changes nothing while the start only reads, and never advises a new workspace except as the last resort for an unreadable file that cannot be set aside alone, with its cost said first. The wire and every shape 0.5.0 writes are unchanged, so 0.5.0 and 0.5.1 connect to each other and open each other's folders. Mechanism, kinds and what could not be repaired without the wire: §7.1 "What a published smurg wrote"; the command and the page: §8 "Another version of smurg", §9 "A page across an update" | The rule was false the day 0.5.0 was published: the owner updated their own computer from 0.4.0, `smurg host` refused to start, and following the printed advice throws away the members, the invite links and the daemon key. A real 0.4.0 state was made with the published executable and tried against 0.5.0: it is refused at exactly two files (`state.json`: three new required settings; `suggestions.json`: `origin`) and read everywhere else; resetting or "repairing" the state instead was shown to admit a kicked member, a revoked device and strangers through used-up links (admission run over the carried and the repaired documents). The fixtures of both published versions and the tests that open them are `packages/daemon/test/fixtures/published/` and `packages/daemon/test/upgrade/` |
-| D-25 **(0.6.0, the owner's decisions 1 and 2 of 2026-10-20)** | R4 / D-21: agents ask before commands (0.5.x: every command asked but read-only and simple file commands inside a worktree, and what the host's own allow rules allow); an upgrade step gives a new security-relevant value its closed side (§0 rule 8) | **Agents run in Claude Code's auto mode by default, and existing workspaces switch to it at the update.** smurg's four permission modes (`auto`, `ask-commands`, `ask-all`, `ask-nothing`, §5.5, §7.6 "Permission modes"); `auto` is the default of every new workspace and, by the owner's decision, of every 0.5.x workspace at the update (`stateStepFromV050`: the one step that sets a value on the open side, §0 rule 8; a person's stricter session choice stays). The host is told three ways: `smurg host`'s line, the inbox item `agents-auto`, the console's banner. `ask-nothing` (Claude Code's `bypassPermissions`) is the host's alone, workspace-wide, behind a warning, launched only after four checks, and refused as root; while it is on every member sees a badge and `smurg host` says so at every start. What smurg adds in auto: deny rules beyond the session's folder in every mode (§7.6), G11 in the main workspace and G12 for a teammate's writes outside its folder (§7.7), and the merge review in worktrees. The guides say what auto mode does not check, in both languages. | The owner (2026-10-20): "nobody wants to keep pressing confirm", and the host may open permissions to the maximum. Measured with 2.1.288 against the fake API (U2, R-SEC, `test/sessions/modes-claude-real.test.ts` R2–R6, R8): the fast path, the classifier's two stages, the three refusals that ask a person, bypass with and without the disable key, the deny rules that hold in auto and in bypass, the settings file read once. |
+| D-25 **(0.6.0, the owner's decisions 1 and 2 of 2026-10-20)** | R4 / D-21: agents ask before commands (0.5.x: every command asked but read-only and simple file commands inside a worktree, and what the host's own allow rules allow); an upgrade step gives a new security-relevant value its closed side (§0 rule 8) | **Agents run in Claude Code's auto mode by default, and existing workspaces switch to it at the update.** smurg's four permission modes (`auto`, `ask-commands`, `ask-all`, `ask-nothing`, §5.5, §7.6 "Permission modes"); `auto` is the default of every new workspace and, by the owner's decision, of every 0.5.x workspace at the update (`stateStepFromV050`: the one step that sets a value on the open side, §0 rule 8; a person's stricter session choice stays). The host is told three ways: `smurg host`'s line, the inbox item `agents-auto`, the console's banner. `ask-nothing` (Claude Code's `bypassPermissions`) is the host's alone, workspace-wide, behind a warning, launched only after four checks, and refused as root; while it is on every member sees a badge and `smurg host` says so at every start. What smurg adds in auto: deny rules beyond the session's folder in every mode (§7.6), G11 in the main workspace and G12 for a teammate's writes outside its folder (§7.7), and the merge review in worktrees (0.7.0: for items the host merges; under automatic merging, D-29, an item that is in order merges without anyone reading its diff, and the guides say so). The guides say what auto mode does not check, in both languages. | The owner (2026-10-20): "nobody wants to keep pressing confirm", and the host may open permissions to the maximum. Measured with 2.1.288 against the fake API (U2, R-SEC, `test/sessions/modes-claude-real.test.ts` R2–R6, R8): the fast path, the classifier's two stages, the three refusals that ask a person, bypass with and without the disable key, the deny rules that hold in auto and in bypass, the settings file read once. |
 | D-26 **(0.6.0, the owner's decision 3)** | R9 / D-22: work items need a git repository with a commit | **smurg's own history when the folder has no `.git`**: `<share>/.smurg/git`, never a `.git` in the user's folder; worktrees, the report's diff, merge and reject as with a repository (§7.8 "Without .git"). Created crash-safely, never adopted without its record, checked before every command, merged against the base the review recorded, bounded (1 GiB, 50,000 files), excluding host-private files at any depth (generated) and nested repositories (named in the Start dialog). | Not everyone uses git (the users' report, 2026-10-20). Measured with git 2.49 (U3, R-SEC): a git dir outside the folder works, a plain `git rev-parse` there still fails, a person's uncommitted edit survives the merge, a conflict is named and the folder untouched, an exclude line with a slash is anchored (so the lines are generated unanchored), `info/grafts` and `shallow` change history (so they are refused). |
 | D-27 **(0.6.0, the owner's decision 3)** | R9: every agent works in a worktree or a session of its own and a person merges | **Without the git program, work items run directly in the shared folder**: only the host starts or retries them, after the Start dialog's tick; one agent holds the folder at a time, later turns included; the report has no diff (`no-history`), nothing waits for a merge, nothing can be undone; an item runs directly only because its own confirmed Start said so (§7.8). | The owner: it must run where git does not. Never silent: the dialog names it before anything runs, the plan and the report say it, the guides say it; and the host's alone, since members with agent access could otherwise change the folder with no review. |
+| D-29 **(0.7.0, the owner's words of 2026-10-26)** | R9: the owner requests the merge, the host sees the full diff, then confirms (0.6.0: a person reviews the report, the host merges each item, and an item that depends on another starts only after that merge) | **Work items merge by themselves when they are in order, on the host's standing consent.** The workspace setting `merging` (`auto` by default, and for workspaces of 0.6.0 and earlier at the update: `stateStepFromV060`, the second open-side step of §0 rule 8; items armed before the update keep the host's merge) is the host's, off in the console ("I merge each item myself", which gives back 0.6.0's flow at once); a Start may choose "The host merges each item"; a detached HEAD is the host's. "In order" (§2 rule 11, §7.8 "Automatic merging") is computed again just before `git merge`; only into the Start's branch; a conflict against other work items is resolved by the item's own agent (three tries), one against a person's change is a decision; what needs a person is a decision that stops only its item and what depends on it; the review is a mark; the topic is ready to check at the end, and the host can undo. Author the host, committer smurg, a trailer and an audit entry with the consent. | The owner (2026-10-26): "I don't want progress to stop because of a review report; let it merge automatically." Measured with the stand-in through the release composition (U1: a team that left after Start found its plan stopped 1.2 s later and still stopped 8 hours later; with automatic merging the same plan is ready to check about 2 s after Start, `release-flow.unattended.test.ts` M1–M16) and with real git 2.49 (U2, R-SAFE: the trailer and the split author, the branch guard, a staged index, update and resolve, undo by revert, an undo that snapshots first keeps a person's saved edits). The checks are the agent's claims (§12). |
+| D-30 **(0.7.0, the owner's words of 2026-10-26)** | AD-10 of 0.5.0 (§7.6 "Restart", the host guide §10.5): after a restart of `smurg host` nothing runs by itself; every plan with work in progress is paused until someone presses "Continue all" | **Plans go on by themselves after a restart**, once `smurg host` has printed which topics go on (`Daemon.goOn()`); a person's Pause (`plan.pause`, survives restarts) and a topic with an interrupted direct item stay paused; the pin and history checks run first. `smurg host` and `smurg stop` say at a stop how many topics will go on. Automatic continues after a usage limit, a broken turn (twice), a crash (once) and a failed snapshot (once), each audited; never for an item a person stopped. | A restart is not a decision about the work, and every update needs one (`smurg update` refuses while a host runs). The brake that Ctrl-C was is now Pause, and the stop line says what goes on. Tests: `release-flow.restart.test.ts` (changed on purpose), `release-flow.unattended.test.ts` M4, M5, M6, M16. |
 | D-28 **(0.6.0, the owner's decision 4)** | R4: the host's own Claude Code runs the agents with its own default model (0.5.x never passed `--model`) | **The model is chosen per session and per topic** by the host and every member with Agent access, from the list the host's own Claude Code offers (a probe of its `initialize`, hooks off), at start and live (`set_model`); null is the host's default (every 0.5.x session). A model that may bill usage credits says so where it is chosen, and the console lists the sessions on one; a member who goes takes such a choice back with them. A refused or substituted model is said in the conversation; the strip shows the model that runs. | Users could not choose a model. Measured with 2.1.288 (U1, `test/sessions/models-claude-real.test.ts` R1, R7): only `--model` on every start is deterministic, `set_model` applies from the next turn, a 404 leaves the process usable, the probe runs no hook of the host's and sends no model request. |
 
 ## 12. Known limits of the prototype
@@ -4530,11 +4674,13 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   requests), which the host's allow rules can weaken. The real-Claude suite is the alarm; it runs on the verified
   version only. And the gate cannot see what a shell command DOES: it reads which files a command names, and only in
   a folder whose project settings in use name scripts (§7.7 G10). The rest is what permission requests, the deny
-  rules and the merge review are for.
+  rules and the merge review are for (since 0.7.0 the merge review only for items the host merges, D-29).
 - **Injection through the spec, the plan and the repository.** An Editor's sentence in `SPEC.md`, or text in any file
   or web page an agent reads, can ask the agent to do things. What stands in the way is the gate, a person reading
   each command in the modes that ask (in auto mode: Claude Code's check, a model's judgement that reads the
-  conversation and the command, not its output), the pin (D-22) and the reviewed merge. The discussion agent reads its
+  conversation and the command, not its output), the pin (D-22) and the reviewed merge (since 0.7.0 only where the host
+  merges each item: under automatic merging an injected change that the agent reports as complete and verified
+  merges unread, D-29; the audit, the Result column and undo are what remain). The discussion agent reads its
   topic's files on every turn, whoever edited them (§2 rule 6).
 - **Auto mode (0.6.0, D-25).** File edits and simple file commands inside the agent's folder run with no check at
   all; in the main workspace they change the shared folder at once, except G11's two cases. Claude Code's check is a
@@ -4638,8 +4784,15 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   `task` verb and `parentToolUseId`, and the web's nested steps for them, stay unused.
 - **A folder whose path has a backslash or a control character** takes no agent session (`session.folderNotNameable`):
   no permission rule of Claude Code can name it. Files and terminals work there; `smurg host` does not warn about it.
-- **The host is the bottleneck of a dependent plan**: an item waits until what it depends on is MERGED, and only the
-  host merges. A reviewed change is in the host's inbox with what it unblocks; the wait itself stays.
+- **The checks in a report are the agent's claims (0.7.0, D-29).** "Complete and verified" is what the report says;
+  smurg runs none of the checks. The parser refuses `complete` with a failed check, and a version merges only when the
+  agent checked its report in the turn that made it, but a model that writes `complete` over unfinished work is
+  merged. Items that merge cleanly can still break each other: nothing verifies the combination before the topic is
+  ready to check (the Result column lists every change and every check that was not verified; undo takes it back).
+  How a real model writes its report was never measured (no account).
+- **The host is the bottleneck of a dependent plan where the host merges each item**: an item waits until what it
+  depends on is MERGED. A reviewed change is in the host's inbox with what it unblocks; the wait itself stays. Under
+  automatic merging (0.7.0) the plan waits only for decisions.
 - **Merge conflicts between parallel items.** Items start from the same commit. The plan prompt, the `touches`
   warning and dependencies reduce them; the daemon-side merge with the agent resolving the markers (§7.8 "A
   conflict") is proven with plain git, not with a real model's resolving. A terminal's or a free session's worktree

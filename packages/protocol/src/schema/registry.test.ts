@@ -154,7 +154,7 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['plan.item.retry', 'c→d', '[session.create]'],
   ['plan.item.continue', 'c→d', '[session.drive]'],
   ['plan.item.resolve', 'c→d', '[session.drive]'],
-  // protocol 6 (DESIGN 0.7.0 Appendix A; ARCHITECTURE §5.10 gains these rows with the docs of 0.7.0)
+  // protocol 6 (DESIGN 0.7.0 Appendix A)
   ['topic.check', 'c→d', '[discuss]'],
   ['plan.item.leaveOut', 'c→d', '[session.drive]'],
   ['plan.item.accept', 'c→d', '[worktree.merge.decide]'],

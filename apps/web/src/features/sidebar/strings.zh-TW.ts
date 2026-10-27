@@ -32,7 +32,7 @@ export const zhTW = {
   'fact.notReviewed': '{name} 已經 {time} 沒有看',
   'fact.offline': '{name} 不在線上',
   'fact.checks': '{passed} 項通過 · {notVerified} 項未驗證',
-  'fact.checks.failed': '{passed} 項通過 · {failed} 項失敗 · {notVerified} 項沒有驗證',
+  'fact.checks.failed': '{passed} 項通過 · {failed} 項失敗 · {notVerified} 項未驗證',
   'fact.notDecided': '{name} 已經 {time} 沒有決定',
   'fact.tally': '{total} 項中 {merged} 項已合併',
   'fact.conflict': '衝突',

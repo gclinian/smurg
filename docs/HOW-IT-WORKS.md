@@ -37,10 +37,12 @@ A topic is one feature or task ([every step](JOINING.md#6-topics-from-discussion
    none). In auto mode, the default, it edits files there and runs commands without asking: simple file commands at
    once, the others when Claude Code's check allows them
    ([what it asks first](HOSTING.md#52-what-agents-do-by-themselves-and-what-they-ask-first)).
-4. **Review.** Each item ends with a result report: what was done, how it was verified, every diff. A person
-   reads it and marks it reviewed.
-5. **Merge.** Reviewing does not merge: only you (the host) can merge, after reading the diff
-   ([merging](HOSTING.md#103-merging-and-what-waits-for-it)).
+4. **Merge.** Each item ends with a result report: what was done, how it was verified, every diff. smurg merges
+   it into your folder, without anyone reading the diff first, when its report says it is complete and verified;
+   anything else waits for a person ([merging](HOSTING.md#103-merging-and-what-waits-for-it)).
+5. **Check.** When every item is merged, everyone is told that the topic is ready to check: the reports, the
+   combined change, what the agents say they verified. You (the host) can undo an item, or turn automatic merging
+   off.
 
 ## What it is today
 

@@ -36,7 +36,7 @@ the source; this table is what the documents and the site use, and what a new me
 | Concept | English (UI label / prose) | zh-TW | Wire id |
 |---|---|---|---|
 | A feature or task with its discussion, spec, plan and sessions | **Topic** / a topic | 主題 | `topic` |
-| Phases of a topic | Discussing, Spec, Plan, Executing, Complete | 討論中、spec、計畫、執行中、已完成 | |
+| Phases of a topic | Discussing, Spec, Plan, Executing, Ready to check (since 0.7.0), Complete | 討論中、spec、計畫、執行中、待驗收（0.7.0 起）、已完成 | |
 | The main screen | **Sessions** (mode switch) / "the sessions view" in documents | session | |
 | The workbench behind the switch | **Code mode** | 手寫 code 模式 | |
 | Things that wait for me | **Inbox** | 收件夾 | `inbox` |
@@ -75,13 +75,13 @@ the source; this table is what the documents and the site use, and what a new me
 | Recompute the split | Suggest again | 重新建議 | |
 | What the agent writes when an item is done | **Result report** | 結果報告 | `report` |
 | How a work item ended | Complete / Partial / Blocked | 完成 / 部分完成 / 受阻 | `complete` / `partial` / `blocked` |
-| A report that waits for its reviewer | Report to review / "Waiting for your review" | 報告待看 / 等你看 | |
+| A report that waits for its reviewer (a work item the host merges, 0.7.0) | Report to review / "Waiting for your review" | 報告待看 / 等你看 | |
 | Its sections (the web app's headings; the file's own are fixed English) | What was done / Why it was done this way / How it was verified / What to watch out for / Changes / Follow-ups the agent suggests / Asked about this result | 做了什麼 / 為什麼這樣做 / 怎麼驗證的 / 要注意什麼 / 變更 / agent 建議的後續工作 / 關於這個結果的追問 | |
 | A question about a result | follow-up ("Ask about this result, or tell Claude what to change") | 追問（「追問這個結果，或告訴 Claude 要改什麼」） | |
 | A request to rework a result | "Changes asked by Ian" | Ian 要求修改 | |
-| The reviewer's confirmation | "I've reviewed this" / Reviewed | 我已看過 / 已看過 | |
+| The reviewer's confirmation (since 0.7.0 a mark: it gates only the merge of a work item the host merges) | "I've reviewed this" / Reviewed | 我已看過 / 已看過 | |
 | A report's snapshot before anyone asked to merge | (no label; the report's "Changes") | 變更 | `draft` |
-| A reviewed report's changes in the host's inbox | Reviewed, ready to merge | 已看過，可以合併 | |
+| A reviewed report's changes in the host's inbox (a work item the host merges, 0.7.0) | Reviewed, ready to merge | 已看過，可以合併 | |
 | One of the side-by-side panes | column / "Close column" / "Open to the side" | 欄 / 關閉這一欄 / 在旁邊開啟 | |
 | Keep a column from being replaced | Pin column / Unpin | 釘選這一欄 / 取消釘選 | |
 | The session list's filter | All / Mine / Waiting | 全部 / 我的 / 等待中 | |
@@ -129,6 +129,38 @@ follows it (`tests/lint/docs-quotes.test.ts` holds the guides to the catalogs).
 
 The four role labels are the messages `role.host`, `role.agent`, `role.editor`, `role.viewer` of
 `@smurg/protocol/i18n` (`roleLabel(locale, role)`); no other file spells them out for display.
+
+## Terms of 0.7.0
+
+Work items that merge by themselves, decisions, the end of a topic and undo.
+
+| Concept | English (UI label / prose) | zh-TW | Wire id |
+|---|---|---|---|
+| smurg merges a work item for the host (prose) | automatic merging | 自動合併 | `merging: 'auto'` |
+| The host's setting | Merging work items | 合併工作項目 | `merging` |
+| Its automatic option | smurg merges what its report says is complete and verified | 報告寫著完成且驗證過的，由 smurg 合併 | `auto` |
+| Its other option, and the Start's stricter choice | I merge each item myself / The host merges each item | 每個項目都由我自己合併 / 每個項目都由主人合併 | `host` |
+| What a report must say for smurg to merge it | complete and verified: the report says complete, at least one check passed, none failed | 完成且驗證過：報告寫著完成、至少一項驗證通過、沒有驗證失敗 | |
+| A check that did not pass | Failed | 失敗 | `- [!]` |
+| A check the agent did not run | Not verified | 未驗證 | `- [ ]` |
+| Every item settled | Ready to check (phase) | 待驗收 | `ready` |
+| Completing it | I've checked the result / Checked | 我已驗收 / 已驗收 | `topic.check` |
+| The column of the end | Result | 成果 | `result` |
+| What stops one work item for a person | decision / Waiting for a decision | 決定 / 在等一個決定 | `decision` |
+| Why smurg did not merge it | Not merged: … | 沒有合併：… | `badge.held` |
+| Drop an item and what depends on it | Leave it out / Left out | 略過這個項目 / 已略過 | `plan.item.leaveOut` |
+| Take a merge back out | Undo / Undone | 復原 / 已復原 | `topic.undo` |
+| Stop a plan until someone continues it | Pause | 暫停 | `plan.pause` |
+| An item's agent merges the main workspace's changes and resolves | Bringing its work up to date | 正在跟上主工作區 | `resolving` |
+
+**The checks are what the agent reports**: smurg runs none of them. No text says "smurg verifies", "smurg tests" or
+"smurg runs the checks" (「smurg 驗證」「smurg 測試」「smurg 執行檢查」), and none says that the work itself is complete
+and verified: every sentence about what smurg merges says it is the report's claim ("what its report says is complete
+and verified", 「報告寫著完成且驗證過的」). The row above that defines the term is the one place it stands alone.
+Outside the passages about "The host merges each item", no text says that the host merges each item as what happens.
+`tests/lint/auto-merge-words.test.ts` holds the first two rules. Kept on purpose: "I've reviewed this" / 我已看過 (now a mark),
+"main workspace" / 主工作區, and the headings the CLI and the site link to (HOSTING §10.3 "Merging, and what waits for
+it", JOINING §6 "Topics: from discussion to reviewed result", HOW-IT-WORKS "From discussion to merged work").
 
 ## Language-neutral names
 

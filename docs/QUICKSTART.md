@@ -1,8 +1,8 @@
 # Quick start: your first topic
 
 The shortest way from nothing to a first topic (a feature or a task): you share a project folder from your own
-computer, a teammate joins in a browser, and an agent does a piece of work that you review and merge. This guide in
-[繁體中文](zh-TW/QUICKSTART.md).
+computer, a teammate joins in a browser, and agents do a piece of work that merges by itself and that you check. This
+guide in [繁體中文](zh-TW/QUICKSTART.md).
 
 - **You (the host)** need macOS or Linux, Claude Code installed and logged in, and a project folder (with git
   installed, work items get worktrees and diffs; which versions: [host guide](HOSTING.md#1-install), §1).
@@ -69,11 +69,12 @@ computer, a teammate joins in a browser, and an agent does a piece of work that 
     commands in an agent's own folder run without it. When an agent asks (a card
     "Claude asks for permission to run a command" in your inbox, top left), read the command, then press
     "Allow once" or "Deny".
-11. **Review.** When a work item is done, its result report comes to your inbox. Read it, then press
-    "I've reviewed this".
-12. **Merge.** The change comes to your inbox as "Reviewed, ready to merge". Open it, press "Merge…", read the
-    diff, then press "Merge into the main workspace", then "Confirm merge". The plan shows the item as
-    "Reviewed · merged": its changes are in your folder. Without git there is nothing to merge: they are in it already.
+11. **Let it run.** Work items whose report says complete and verified merge into your folder by themselves, and
+    what waits for them starts. A question or a decision comes to your inbox; everything else goes on.
+12. **Check the result.** When every item is merged, your inbox says "Ready to check: <topic>". Open it: every
+    report, every changed file and what the agents say they verified; then press "I've checked the result". There
+    the host can undo an item ("Undo…"). Without git there is nothing to merge or undo: the changes are in your
+    folder already.
 
 ## Where to go next
 

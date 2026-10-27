@@ -168,10 +168,14 @@ describe('the built site', () => {
       // included, had 176 KB. 0.6.0: about 162 KB, since §5.2 says what each of the four permission modes runs, what
       // auto mode does not check, where smurg still asks and what holds in every mode, §8 has the rows of smurg's own
       // history and of the models, and §10.2 says how work items run with a repository, without `.git` and without
-      // git (DESIGN 0.6.0 D20): the page's bound is 168 KB, and 210 KB with what it loads.
-      expect(size(path), `${path} itself`).toBeLessThan(168 * 1024);
+      // git (DESIGN 0.6.0 D20): the page's bound was 168 KB, and 210 KB with what it loads. 0.7.0: about 187 KB,
+      // since §8 has one row per reason a work item is not merged, §9.2 says what the update to 0.7.0 changes, §10.3
+      // says how work items merge by themselves, what stops them and who decides, the end of a topic and undo with its
+      // limits, and §10.5 what goes on by itself after a restart (DESIGN 0.7.0 D21): the page's bound is 192 KB, and
+      // 234 KB with what it loads.
+      expect(size(path), `${path} itself`).toBeLessThan(192 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
-      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(210 * 1024);
+      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(234 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);
@@ -768,8 +772,9 @@ describe('the two home pages', () => {
       for (const card of cards) {
         const [title, sentence] = card.children().map((c) => c.text()) as [string, string];
         expect(words(title), title).toBeLessThanOrEqual(6);
-        // (22 since 0.6.0: the third card names whose auto mode decides which commands run, DESIGN 0.6.0 D20)
-        expect(words(sentence), sentence).toBeLessThanOrEqual(22);
+        // (22 since 0.6.0: the third card names whose auto mode decides which commands run, DESIGN 0.6.0 D20; 23
+        // since 0.7.0: the fourth says that smurg merges what its report says is complete and verified, DESIGN 0.7.0 D21)
+        expect(words(sentence), sentence).toBeLessThanOrEqual(23);
         // one sentence: one full stop, at its end
         expect(sentence.replace(/\b(?:SPEC|PLAN)\.md\b/g, '').match(/\./g), sentence).toHaveLength(1);
       }
@@ -888,6 +893,21 @@ describe('the two home pages', () => {
     expect(card).not.toMatch(/asks before commands|執行指令前會先問/);
   });
 
+  it.each(Object.entries(HOME_PAGES))('%s: the fourth card says that smurg merges what its report says is complete and verified, and that the team checks the result', (lang, path) => {
+    // Since 0.7.0 a finished item whose report says complete and verified merges by itself (DESIGN 0.7.0 D21): the card
+    // no longer says that a person reads the report first and the host merges. It says it is the report's claim (smurg
+    // runs none of the checks: D20), never that the work is complete and verified.
+    const p = page(path);
+    const [title, sentence] = (inside(p, withClass(p, 'cards')[0]).filter((el) => el.tag === 'li')[3]?.children() ?? []).map((el) => el.text());
+    expect(title).toBe(lang === 'en' ? 'Merged by itself, then checked' : '自動合併，最後驗收');
+    expect(sentence).toBe(
+      lang === 'en'
+        ? 'Each finished item comes with a result report; smurg merges what its report says is complete and verified, and you check the result.'
+        : '完成的項目附有一份結果報告；報告寫著完成且驗證過的，由 smurg 自動合併，最後再由你們驗收成果。',
+    );
+    expect(sentence).not.toMatch(/the host merges|由主人合併|a person reads it|有人看過之後/);
+  });
+
   it.each(Object.entries(HOME_PAGES))('%s: claims no sandbox anywhere: the word is not on the page, in its title, labels or descriptions, and nothing describes one', (lang, path) => {
     const p = page(path);
     const text = bodyText(path);
@@ -951,8 +971,11 @@ describe('the two home pages', () => {
     // result report and the merge.
     const expected =
       l === 'en'
-        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Ran', 'Report to review', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Reviewed', 'Reviewed · merged']
-        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '執行', '報告待看', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已看過', '已看過 · 已合併'];
+        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Ran', 'Merged', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Merged · reviewed']
+        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '執行', '已合併', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已合併 · 已看過'];
+    // Since 0.7.0 smurg merges the first item by itself when its report says complete and verified (DESIGN 0.7.0 D21):
+    // the picture shows no report waiting for a review before the merge, and nobody pressing merge.
+    for (const label of l === 'en' ? ['Report to review', 'Reviewed · merged'] : ['報告待看', '已看過 · 已合併']) expect(labels, label).not.toContain(label);
     for (const label of expected) expect(labels, label).toContain(label);
     // Nobody is asked in the picture: a scene that showed a request would have to show a session whose mode asks.
     for (const label of l === 'en' ? ['Waiting for permission', 'Claude asks for permission to run a command', 'Allow once'] : ['等待許可', 'Claude 請求許可執行指令', '允許一次']) expect(labels, label).not.toContain(label);
@@ -1154,8 +1177,11 @@ describe('the generated pages', () => {
       // No version number, of smurg or of anything it needs: the host guide's §1 has them.
       expect(text(main), lang).not.toMatch(/\bv?\d+\.\d+\.\d+\b/);
       // Quick: about two screens of a laptop. In words (English) and in characters (Chinese has no spaces to count).
-      if (lang === 'en') expect(text(main).split(' ').length, 'words').toBeLessThan(750);
-      else expect([...text(main)].length, 'characters').toBeLessThan(1900);
+      // 0.7.0 raised the bound by what its steps 11 and 12 grew by when work items began to merge by themselves and
+      // the team to check the result at the end, word for word as the design holds them (DESIGN 0.7.0 D21): 18 words,
+      // 30 characters.
+      if (lang === 'en') expect(text(main).split(' ').length, 'words').toBeLessThan(768);
+      else expect([...text(main)].length, 'characters').toBeLessThan(1930);
       shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$/.test(el.tag)).map((el) => el.tag), counts, links.length];
     }
     // The same guide in both languages: the same headings, lists, blocks and box in the same order, as many steps and links.
@@ -1222,7 +1248,9 @@ describe('the generated pages', () => {
             'Give Agent access only to people you fully trust',
             'A prototype.',
             'verified against a scripted stand-in for the model, not with a real Claude account: how a real model behaves in it is not verified yet',
-            'Reviewing does not merge: only you (the host) can merge, after reading the diff',
+            // (since 0.7.0 the host's merge is no longer the gate: smurg merges what its report says is complete and
+            // verified, unread, unless the host turns it off; DESIGN 0.7.0 D21)
+            'smurg merges it into your folder, without anyone reading the diff first, when its report says it is complete and verified',
           ],
           'zh-TW': [
             'agent就是ClaudeCode：',
@@ -1231,7 +1259,7 @@ describe('the generated pages', () => {
             '只把「可使用agent」給你完全信任的人',
             '還是原型：',
             '是用照劇本回應的模型替身驗證的，沒有用真正的Claude帳號，所以真正的模型在這個流程裡的表現還沒有驗證過',
-            '看過不等於合併。只有你（主人）能合併，而且要先讀過diff',
+            '報告寫著完成且驗證過的，smurg會直接把它合併到你的資料夾，不會先有人讀過diff',
           ],
         },
         noOutsideAudit: 0,
@@ -1359,8 +1387,11 @@ describe('the generated pages', () => {
         // and link texts included, and in Chinese every character, a Latin letter too (so a file name or a command
         // weighs more there than a word does in English). 0.6.0 raised the bound by the one sentence each page had to
         // grow by (DESIGN 0.6.0 D20): what decides which commands run, now that agents run in auto mode by default.
-        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(500);
-        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1250);
+        // 0.7.0 raised it once more by the sentence each had to gain (DESIGN 0.7.0 D21): how it works says that the
+        // team checks the result at the end and the host can undo, the security model that a work item's change
+        // reaches the host's folder unread unless automatic merging is off (about 30 words, 60 characters).
+        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(520);
+        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1300);
         const lists = inMain.filter((el) => el.tag === 'ol' || el.tag === 'ul');
         shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$|^table$/.test(el.tag)).map((el) => el.tag), lists.map((list) => list.children().filter((li) => li.tag === 'li').length), links.length, inMain.filter((el) => el.tag === 'strong').length];
       }
@@ -1588,11 +1619,12 @@ describe('being found: what a search engine, a link preview or an assistant is t
     expect(said('en', QUICK_START)).toContain('nothing to install, no Claude account');
     expect(TEAM_GUIDE['zh-TW'].description).toContain('不必安裝，也不需要 Claude 帳號');
     expect(said('zh-TW', TEAM_GUIDE)).toContain('不需要Claude帳號');
-    // How it works: who can message the agent, the votes, review and merge.
-    expect(HOW_IT_WORKS.en.description).toContain('who can message it, how the team votes on its questions, and how work is reviewed and merged');
-    for (const phrase of ['You and members with agent access message any agent', 'Everyone but Viewers votes', 'A person reads it and marks it reviewed', 'only you (the host) can merge']) expect(said('en', HOW_IT_WORKS), phrase).toContain(phrase);
-    expect(HOW_IT_WORKS['zh-TW'].description).toContain('誰可以直接傳訊息給它、團隊怎麼對它的選擇題投票，做出來的成果又是怎麼看過、合併的');
-    for (const phrase of ['可以傳訊息給任何agent', '每個人都可以投票', '標成已看過', '只有你（主人）能合併']) expect(said('zh-TW', HOW_IT_WORKS), phrase).toContain(phrase);
+    // How it works: who can message the agent, the votes, and how work merges and is checked (0.7.0: smurg merges what
+    // its report says is complete and verified, and the team checks the result at the end; DESIGN 0.7.0 D21).
+    expect(HOW_IT_WORKS.en.description).toContain('who can message it, how the team votes on its questions, and how work is merged and checked');
+    for (const phrase of ['You and members with agent access message any agent', 'Everyone but Viewers votes', 'when its report says it is complete and verified', 'the topic is ready to check', 'You (the host) can undo an item']) expect(said('en', HOW_IT_WORKS), phrase).toContain(phrase);
+    expect(HOW_IT_WORKS['zh-TW'].description).toContain('誰可以直接傳訊息給它、團隊怎麼對它的選擇題投票，做出來的成果又是怎麼自動合併、最後再驗收的');
+    for (const phrase of ['可以傳訊息給任何agent', '每個人都可以投票', '報告寫著完成且驗證過的', '這個主題待驗收', '你（主人）可以復原某個項目']) expect(said('zh-TW', HOW_IT_WORKS), phrase).toContain(phrase);
     // The security model: a relay that cannot read, and that encryption does not limit the people one invites. Its
     // title promises the limits of the encryption, which the page has a section for.
     expect(SECURITY_MODEL.en.description).toContain('a relay that cannot read your files or conversations. Encryption does not limit what teammates can see and do.');

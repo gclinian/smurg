@@ -15,7 +15,8 @@ Four things to know first:
   with the host's Claude account, and everyone in the workspace sees what it is doing, live.
 - **Work is organized in topics.** A topic is one feature or task. Everyone discusses it with an agent that asks
   the team multiple-choice questions and writes a spec; the agent turns the spec into a plan of work items; one
-  agent per work item does the work; people read each result report and mark it reviewed (§6).
+  agent per work item does the work; smurg merges each item whose report says it is complete and verified (unless
+  the host merges each item), and at the end the team checks the result (§6).
 - The connection between you and the host's computer is **end-to-end encrypted**: the server in between (the relay)
   cannot see file contents, conversations, terminal output or commands (it knows which account you logged in with and
   the IP address you connect from).
@@ -99,6 +100,8 @@ The host chooses your role with the invite link and can change it later in the h
 | Vote and comment on an agent's questions; mention people | ❌ | ✅ | ✅ |
 | Send suggestions to an agent (it gets them only when someone with agent access accepts) | ❌ | ✅ | ✅ |
 | Be the responsible person of a session or a work item; review a result report | ❌ | ✅ | ✅ |
+| Mark a topic's result as checked ("I've checked the result") | ❌ | ✅ | ✅ |
+| Decide what a work item that was not merged needs ("Merge it as it is", "Leave it out…"); pause a plan | ❌ | ❌ | ✅ |
 | Start a topic, ask for the plan, start work items, open agent sessions and terminals (**they run as the host**) | ❌ | ❌ | ✅ |
 | Send messages to any agent, stop it, answer an agent's question in your own words | ❌ | ❌ | ✅ |
 | Allow or deny what an agent asks to run; accept or reject suggestions | ❌ | ❌ | ✅ |
@@ -107,7 +110,8 @@ The host chooses your role with the invite link and can change it later in the h
 | Ask the host to merge a worktree | ❌ | ❌ | ✅ |
 
 Only the host can: invite members, change roles, remove members, read the audit log, force a file lock open, merge
-a worktree, allow a request that reaches beyond the project, confirm the folder's Claude Code settings, delete a
+a worktree and choose whether work items merge by themselves, undo a merged work item, allow a request that reaches
+beyond the project, confirm the folder's Claude Code settings, delete a
 topic, choose the workspace's permission mode (only the host can let agents ask for nothing), and start work items
 when the host's computer has no usable git (they then run directly in the shared folder).
 
@@ -136,10 +140,12 @@ The screen you arrive at is the sessions view (the "Sessions" side of the switch
 **The inbox** (top left) holds what waits for you, in two groups:
 
 - "Agents are waiting": an agent, or a whole plan, is stopped until someone acts. These are an agent's question you
-  decide, a vote that is open, a permission request you may answer, and work that stopped and needs someone (an
-  agent that stopped without its report, a work item that failed or did not start, a plan paused after a restart).
-- "For you to look at": suggestions for sessions you look after, result reports for you to review, changes ready to
-  merge (the host), mentions of you, and what became of your own suggestions.
+  decide, a vote that is open, a permission request you may answer, a decision on a work item that was not merged
+  ("<item> was not merged: <reason>", §6), and work that stopped and needs someone (an agent that stopped without
+  its report, a work item that failed or did not start, a plan that is paused).
+- "For you to look at": suggestions for sessions you look after, topics ready to check ("Ready to check: <topic>",
+  §6), result reports for you to review of the work items the host merges, changes ready to merge (the host),
+  mentions of you, and what became of your own suggestions.
 
 The inbox shows two counts, how many items are waiting and how many are to look at. While you are in code mode the
 same two counts are on the "Sessions" side of the switch; the browser tab's title shows only how many are waiting.
@@ -150,10 +156,12 @@ What you should know about it:
   be dismissed, and these two also leave as soon as you open them. Opening any other item only takes its bold away.
 - **Whose inbox**: an agent's question goes to the person who decides it (§5.3); a permission request and a
   suggestion to the session's responsible person when that person may answer them, otherwise to the host and every
-  member with agent access; a result report to whoever reviews it (§6). When the person who must answer a question
-  or a permission request does not (5 minutes by default, or they have been offline for a minute), it also appears
-  for the host and the members with agent access, who can act in that person's place. A result report does the same
-  after six times that long (30 minutes by default). A suggestion stays in the inbox it went to; the host and every
+  member with agent access; a decision on a work item like a permission request (the host alone gets the ones only
+  the host can settle); a result report of a work item the host merges to whoever reviews it (§6); and
+  "Ready to check" to every member, Viewers too. When the person who must answer a question, a permission request
+  or a decision does not (5 minutes by default, or they have been offline for a minute), it also appears for the
+  host and the members with agent access, who can act in that person's place. A result report does the same after
+  six times that long (30 minutes by default). A suggestion stays in the inbox it went to; the host and every
   member with agent access can still accept it on its card.
 - A Viewer gets mentions and topics ready to check: "Nothing is waiting for you. As a viewer you get mentions and topics ready to check here."
 - A new item in "Agents are waiting" also shows a short notice with "Open" when its session is not on your screen.
@@ -175,7 +183,7 @@ Each session shows what it is doing:
 | "Idle" | The agent finished its turn and waits for the next message. A discussion is in this state most of the time. |
 | "Done" | The work item is finished and its result report is written. |
 | "Failed" | The agent's process ended with an error. It can be tried again. |
-| "Ended" | Someone ended the session, or it ended by itself: a work item's session ends when the item is merged and reviewed, and a topic's sessions end when the topic is archived. Its conversation stays readable (for a session without a topic: for 30 days). |
+| "Ended" | Someone ended the session, or it ended by itself: a work item's session ends when the item is merged and reviewed, when its topic's result is checked, or when it is left out or undone, and a topic's sessions end when the topic is archived. Its conversation stays readable (for a session without a topic: for 30 days). |
 
 **Columns** (the right side) are your own view; nobody else sees what you have open.
 
@@ -409,8 +417,8 @@ code mode under "Terminal" at the bottom. Everything typed there runs as the hos
 
 ## 6. Topics: from discussion to reviewed result
 
-A topic takes one feature or task from the first conversation to work that someone has read and understood. Each
-step is a row of the topic in the session list.
+A topic takes one feature or task from the first conversation to merged work that the team has checked. Each step is
+a row of the topic in the session list.
 
 1. **New topic** (host and Agent access): "New topic" asks for a name and, if you like, what you want to build. It
    says what it does: "Start discussion" opens an agent on the host's computer, with the host's Claude account,
@@ -433,38 +441,58 @@ step is a row of the topic in the session list.
    Viewers read who is responsible. The responsible person of an item gets its agent's
    questions, permission requests and result report in their inbox. Being responsible gives no extra rights: an
    Editor who is responsible decides questions among the agent's options and reviews the report, while commands
-   are still allowed by members with agent access.
-6. **Start** (host and Agent access): before anything runs, a dialog lists what Start will do: which items start
-   now and which wait for others, who is responsible, who edited the spec and the plan by hand since the last
-   Start, the model of the items and what their agents may do without asking (the topic's settings), and how the
-   items run. In a folder that is a git repository, smurg commits the two files to the host's repository and each
-   item gets a worktree of it. In a folder without `.git`, smurg records the folder in its own history (in
-   `.smurg`, never a `.git` in the folder) and each item gets a worktree of that. Without git on the host's computer,
-   the items run one at a time directly in the shared folder, with no diff and no undo, and only the host can start
-   them. A repository without a commit stops Start with what the host can do.
+   are still allowed, and decisions on the item taken, by members with agent access.
+6. **Start** (host and Agent access): before anything runs, a dialog lists what Start will do: which items start now and
+   which wait for others, who is responsible, who edited the spec and the plan by hand since the last Start, the model
+   of the items and what their agents may do without asking (the topic's settings), how the items run, and how they are
+   merged ("How its items are merged": by smurg, the workspace's setting, or "The host merges each item", a stricter
+   choice whoever starts may make). In a folder that is a git repository, smurg commits the two files to the host's
+   repository and each item gets a worktree of it. In a folder without `.git`, smurg records the folder in its own
+   history (in `.smurg`, never a `.git` in the folder) and each item gets a worktree of that. Without git on the host's
+   computer, the items run one at a time directly in the shared folder, with no diff and no undo, and only the host can
+   start them. A repository without a commit stops Start with what the host can do.
 7. **Execution**: every started work item is an agent session of its own, in its own worktree (§7), and shows up
    as a row of the topic. Its agent edits files and runs the commands its check allows without asking (§5.4). The
-   plan column stays the overview: what runs, what waits for a person, what waits for a merge. An item that waits
-   for others starts by itself when those are merged, and only while the spec and the plan are still the ones that
-   were confirmed at Start; if they changed, it waits for someone to look at the change and choose "Start again".
+   plan column stays the overview: what runs, what waits for a person, what was merged. An item that waits for
+   others starts by itself when those are merged, and only while the spec and the plan are still the ones that were
+   confirmed at Start; if they changed, it waits for someone to look at the change and choose "Start again". The host
+   and the members with agent access can "Pause" the plan: nothing new starts or merges until someone chooses
+   "Continue all".
 8. **Result report**: when a work item is done, its agent writes a report with fixed sections: "What was done",
-   "Why it was done this way", "How it was verified" (each check either passed or not verified),
+   "Why it was done this way", "How it was verified" (each check passed, failed or was not verified),
    "What to watch out for" and "Changes" (every changed file, with its diff). A report also says how the work
    ended: "Complete", "Partial" or "Blocked". Under it you can ask about the result or say what to change
    ("Ask about this result, or tell Claude what to change"); the question goes to the item's session and the answer
-   shows in both places. When the item is finished (merged and reviewed), the box is gone:
+   shows in both places. When the item is finished (merged and reviewed, or its topic checked), the box is gone:
    "This item is merged and its session has ended. Ask in the discussion."
-9. **Review**: "I've reviewed this" is for the item's responsible person; when nobody is assigned, anyone but a
-   Viewer can press it, once, for all. It means: I read the report and understand the change. A report that says
-   "Partial" or "Blocked" asks once more before it counts ("Mark as reviewed"). If the agent changes the report
-   afterwards, it asks for a review again.
-10. **Merge**: reviewing does not merge. A reviewed item's changes go to the host's inbox by themselves
-    ("Reviewed, ready to merge"), and the host merges them into the main workspace after reading the diff (§7).
-11. **Topic complete**: when every work item is reviewed, the topic is "Complete". "Archive topic" puts it away;
-    its files stay in the project and its conversations stay readable ("Show archived topics").
+9. **Merge**: smurg merges an item into the main workspace by itself when its report says it is complete and
+   verified: the outcome "Complete", at least one check passed and none failed. The checks are what the agent
+   reports: smurg runs none of them. What waits for the item then starts from the merged workspace. Anything else
+   is a decision for a person (below). When the topic's Start chose "The host merges each item", or the host turned
+   automatic merging off, the host merges each item after reading its diff (§7).
+10. **Review**: "I've reviewed this" is for the item's responsible person; when nobody is assigned, anyone but a
+    Viewer can press it, once, for all. It means: I read the report and understand the change. A report that says
+    "Partial" or "Blocked" asks once more before it counts ("Mark as reviewed"). If the agent changes the report
+    afterwards, it asks for a review again. For an item smurg merged it is a mark and changes nothing in the folder;
+    for an item the host merges, a reviewed item's changes go to the host's inbox by themselves
+    ("Reviewed, ready to merge").
+11. **Ready to check, and complete**: when every work item is merged (or left out, or undone), the topic is
+    "Ready to check", and everyone's inbox says so ("Ready to check: <topic>"). Its "Result" row shows every report,
+    every file the items changed with its diff, and the checks that were not verified first. Anyone but a Viewer
+    presses "I've checked the result": the topic is complete and its work items' sessions end. To change something,
+    ask in the discussion: the plan can get a new item, which runs the same way. Only the host can undo a merged
+    item ("Undo…"). "Archive topic" puts a topic away; its files stay in the project and its conversations stay
+    readable ("Show archived topics").
 
 When something stops, it shows, and someone gets it in their inbox:
 
+- A decision ("<item> was not merged: <reason>"): smurg did not merge a work item by itself, because its report is
+  not complete and verified, it conflicts with a person's change or still conflicts after its agent tried to resolve
+  it, someone wrote to its agent or stopped it after its report, or it changes files only the host may merge. Only
+  that item and what depends on it wait; everything else goes on. Its report's foot says why and what each person
+  may do: "Ask the agent to fix it", "Ask the agent to resolve", "Merge it as it is" (the version stands as it is),
+  or "Leave it out…" (it and what depends on it are left out, without editing the plan). Members with agent access
+  decide; the host decides what only the host can.
 - "Stopped without a report": an agent ended its turn without its report, although smurg asked it once more.
   "Continue" asks it to go on. The plan and the inbox say so when the reason was another one: a person stopped
   the agent, smurg was restarted, or an error. One such error is that smurg could not record the item's changes
@@ -474,7 +502,7 @@ When something stops, it shows, and someone gets it in their inbox:
   failed starts in a row only the host can try again.
 - The host's Claude account ran out of usage, or Claude Code on the host's computer is logged out: the sessions
   say so and wait; only the host can fix it.
-- After the host's smurg was restarted, nothing runs by itself (§8).
+- After the host's smurg was restarted, plans go on by themselves, except a plan someone paused (§8).
 - A discussion that has grown long offers "Start a fresh conversation": a new discussion that starts from the spec
   and the plan as they are. The earlier one stays in the list as "Earlier discussion".
 
@@ -490,8 +518,8 @@ there without disturbing the main workspace that everyone shares. A worktree is 
 restriction: what runs in it runs as the host all the same.
 
 - **Every work item has its own worktree**; smurg creates it when the item starts (for an item that waits for
-  others: once those are merged) and removes it when the item is merged and reviewed, once nothing unmerged is
-  left in it. While the worktree still holds changes that no merge carried (a follow-up after the merge, edits
+  others: once those are merged) and removes it when the item is merged and reviewed or its topic's result is
+  checked, once nothing unmerged is left in it. While the worktree still holds changes that no merge carried (a follow-up after the merge, edits
   made after the last report), the item keeps its session and its worktree. A single agent session without a
   topic can work in a worktree too, or in the main workspace.
 - **In a folder without `.git`** the worktrees come from smurg's own history of the folder (in `.smurg`) and work
@@ -507,16 +535,22 @@ restriction: what runs in it runs as the host all the same.
   one copy in the main workspace.
 - **You read a work item's changes in its result report**: every file with its diff, as one change. A file that
   teammates cannot see (§2) is listed there without its content.
-- **Merging is the host's decision.** A reviewed report's changes are in the host's inbox by themselves. For a work
-  item whose report nobody reviewed yet, a member with agent access chooses "Request merge" under the report. For
+- **Merging is the host's decision**, and by default the host lets smurg merge each work item whose report says it
+  is complete and verified, without anyone reading its diff first (the host's setting in the host console; §6). For
+  a work item the host merges, a reviewed report's changes are in the host's inbox by themselves, and for one whose
+  report nobody reviewed yet, a member with agent access chooses "Request merge" under the report. A merge someone
+  requested is always the host's. For
   the worktree of your own session without a topic, switch "Viewing" in code mode to that worktree and choose
   "Ask the host to merge" (only the member who owns the worktree has this button). The host reads the full diff and
   then chooses "Merge into the main workspace" or "Reject" (a rejected worktree stays as it is, and the reason is
   shown).
-- **When a merge conflicts** with the main workspace, it stops and the main workspace is unchanged. The host or a
-  member with agent access can then choose "Ask the agent to resolve": smurg brings the main workspace's changes
-  into the item's worktree, the item's agent resolves the conflicting places and writes a new version of its
-  report. That report has to be reviewed again; then the change is back in the host's inbox.
+- **When a merge conflicts** with the main workspace, it stops and the main workspace is unchanged. When the other
+  side is only other work items' changes, smurg brings the main workspace's changes into the item's worktree by
+  itself and asks the item's agent to resolve the conflicting places and verify again, up to three times; when it is
+  a person's change, a person decides at once. The host or a member with agent access can also choose
+  "Ask the agent to resolve": the item's agent resolves and writes a new version of its report, which merges like
+  the first one; for an item the host merges, that report has to be reviewed again, and then the change is back in
+  the host's inbox.
 - When you end an agent session without a topic that worked in a worktree, you are asked whether to keep its
   worktree; deleting it deletes the changes that were not merged, and that cannot be undone.
 
@@ -538,10 +572,13 @@ or the host's network is down. Once the host goes offline, everyone sees "Host o
   computer; after you reconnect you see everything that happened.
 - "The host stopped sharing this workspace" means the host ran `smurg stop`: terminal sessions have ended, and
   agent sessions are paused. When the host shares again, the page reconnects by itself.
-- **After the host's smurg was restarted**, every conversation is readable and every agent is idle, but nothing
-  runs by itself: plans are paused ("smurg was restarted on the host's computer."), and the host or a member with
-  agent access chooses "Continue all". A question that was open is asked again when its session continues, and a
-  message that was still waiting for its agent ("Claude reads it when it starts again") is delivered then.
+- **After the host's smurg was restarted**, every conversation is readable, and plans go on by themselves: the
+  agents that were interrupted are told to continue, and work items that were waiting start when they may. A plan
+  that someone paused ("Pause" in the plan) stays paused until the host or a member with agent access chooses
+  "Continue all", and so does a plan with an item that ran directly in the shared folder
+  ("smurg was restarted on the host's computer."). A question that was open is asked again when its session
+  continues, and a message that was still waiting for its agent ("Claude reads it when it starts again") is
+  delivered then.
 - "Server unreachable" is something else: a network problem between you and the relay.
 
 **When smurg was updated: the screens about versions.** The page you use comes from the relay and is replaced there

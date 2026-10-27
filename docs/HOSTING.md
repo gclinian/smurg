@@ -7,7 +7,8 @@ New here? Start with the [quick start](QUICKSTART.md).
 
 What your team does in a workspace: you start a **topic** (a feature or a task), everyone discusses it with an agent
 that asks multiple-choice questions and writes a spec, the agent turns the spec into a plan of work items, one agent
-per work item does the work in its own git worktree, and people read each result report and mark it reviewed. The
+per work item does the work in its own git worktree, smurg merges each item whose report says it is complete and
+verified into your folder (unless you merge each item yourself, §10.3), and the team checks the result at the end. The
 agents are Claude Code, running on your computer with your Claude account. The guide for teammates describes the
 flow step by step; this guide is about what it means for you and your computer.
 
@@ -42,7 +43,8 @@ no `sudo`, no system packages.
   in** to your Claude account: every agent session uses this computer's login, whoever in the workspace it works for
   (§4, §5.1). An older Claude Code is refused for agent sessions; with a newer one than this smurg was verified
   with, agent sessions run and you get one notification that says so. `smurg status` shows which it is (§7).
-- Work items run in worktrees, with a diff you review and merge, when this computer has git 2.42 or later. A folder
+- Work items run in worktrees, each with a diff that smurg merges when its report says complete and verified (or
+  that you merge yourself, §10.3), when this computer has git 2.42 or later. A folder
   without `.git` works too: smurg keeps its own history of it in `.smurg` (§10.2). Without git, work items run one at
   a time directly in the folder, with no diff and no undo (§10.2).
 - **Language**: smurg's interface comes in English and Traditional Chinese, and everyone sees their own language. The
@@ -186,9 +188,10 @@ details while sharing, use `smurg status` (§7): the daemon key fingerprint, Cla
 keep-awake, and where the log is. The terminal speaks up only when you need to act: **the computer cannot be kept
 awake** (§6), the connection to the relay is lost, the relay refuses your login, or the state file cannot be written
 (§7); when a new version exists, one more line appears under the links (§9.1). The first time you share after an
-update, one line above the links says that the workspace was carried over (§9.2), and after the update to 0.6.0 one
-more says that agents now run in auto mode (§5.2). While you let agents ask for nothing, a line above the links says
-so at every start (§5.2).
+update, one line above the links says that the workspace was carried over (§9.2), after the update to 0.6.0 one
+more says that agents now run in auto mode (§5.2), and after the update to 0.7.0 one more that work items merge by
+themselves (§9.2). While you let agents ask for nothing, a line above the links says so at every start (§5.2). Under
+the links, before anything goes on, a line says which topics go on by themselves (§10.5).
 
 **Daemon key fingerprint**: the first time a teammate joins, they can check this fingerprint with you over another
 channel (in person, on the phone) to make sure nobody, the relay included, is posing as you. `smurg status` shows it
@@ -200,7 +203,7 @@ send messages to agents, allow what agents ask to run and open terminals on your
 you can manage members, roles, invites and sessions, and read the audit log, in the host console of the web app.
 
 When you share a folder again later, its topics and the agent sessions of last time are still there, with their
-conversations; nothing runs by itself until someone continues it (§7, §10.5).
+conversations, and their plans go on by themselves where they stopped, except a plan a person paused (§7, §10.5).
 
 ## 4. Before you share
 
@@ -243,6 +246,11 @@ conversations; nothing runs by itself until someone continues it (§7, §10.5).
   Choose a mode that asks (§5.2) for a folder or a team you are not sure of. When you are asked, read a command
   before you allow it, think before you always allow a kind of command, and watch files that teammates changed
   recently. Teammates with agent access can also answer those requests.
+- **Work items merge into your folder by themselves.** By default smurg merges a work item for you when its report
+  says it is complete and verified, without anyone reading its diff first: in a repository it becomes a commit on
+  your branch. The checks in a report are the agent's own claims, and a prompt injection that reached a work item's
+  agent reaches your folder the same way. You can turn this off ("I merge each item myself" under
+  "Merging work items" in the host console's settings), and you can undo a merged item (§10.3).
 - **Give Agent access only to people you fully trust** (§5.1): this role lets someone make an agent run any command
   on your computer, read your home folder and use your Claude account. Other teammates can take part as Editors:
   they edit with you, vote, comment, review and send suggestions to agents.
@@ -273,7 +281,9 @@ Agent access (`agent`) is the highest role you can give a teammate. A teammate w
   your Claude Code offers, and any mode but "Asks for nothing";
 - type into **any** terminal session, including the ones you opened and the ones other teammates opened;
 - accept or reject the suggestions any agent session receives, answer an agent's question in their own words, and
-  ask you to merge any worktree (only you decide a merge).
+  ask you to merge any worktree (merging is yours: by default smurg merges for you what a work item's report says is
+  complete and verified, §10.3);
+- **decide what a work item that was not merged needs** ("Merge it as it is", "Leave it out…"), and pause a plan.
 
 These sessions **run on your computer as you**, exactly like the ones you start in your own terminal:
 
@@ -293,7 +303,10 @@ These sessions **run on your computer as you**, exactly like the ones you start 
 - **use your Claude account**: spend your subscription's quota, or run up cost on your API key. They also choose
   the model of the sessions they open or drive: on some plans a model is billed to usage credits, and Claude Code
   does not ask before it bills one in an agent session (the host console's settings list the sessions that run on
-  such a model).
+  such a model);
+- **reach your folder through a work item**: a work item they start, or whose agent they write to, merges into your
+  folder by itself when its report says complete and verified, without anyone reading the diff first, unless you turn
+  automatic merging off (§10.3).
 
 smurg cannot limit any of this: a teammate with agent access can open a terminal, and can allow whatever an agent
 asks for. Everyone in the workspace sees every session live, and the audit log records who opened each session,
@@ -425,7 +438,9 @@ and holds whatever your Claude Code settings allow. What then runs without a per
   - a command's output (the check does not see it);
   - anything a check allowed: it is a model's judgement, not a sandbox.
 - **In a worktree** (a work item, or a session you open in one): what the fast path lets through stays in the
-  worktree, and the result report's diff shows it before you merge (§10.3). What a command changes outside the
+  worktree, and the result report's diff shows it. It reaches the main workspace with the item's merge: under
+  automatic merging, the default, without anyone reading it first, when the item's report says it is complete and
+  verified (§10.3); with "I merge each item myself", only after you read the diff. What a command changes outside the
   worktree is not in that diff (the next points).
 - **In the main workspace** (a session without a topic that works there, and work items without git, §10.2): what
   runs there changes the shared folder at once. In auto mode smurg holds back two kinds of shell writes. A command of
@@ -451,8 +466,9 @@ and holds whatever your Claude Code settings allow. What then runs without a per
   names one of those places. A command that reaches them another way (a script, a program, a variable, a `cd` first)
   is not refused by them: in auto mode Claude Code's check decides it, in the modes that ask it asks, and in "Asks for
   nothing" it runs. They are not a sandbox. Another work item's checkout has no such rule (it lies beside the
-  session's own folder): a teammate's item that writes there asks you (above), and what your own item writes there
-  shows in that other item's diff before any merge.
+  session's own folder): a teammate's item that writes there asks you (above), and what your own item writes into
+  another item's checkout becomes part of that item's change and merges with it, under automatic merging without
+  anyone reading it first.
 - **"Asks for nothing"**: only you can choose it, for the whole workspace, in the host console's settings. smurg
   first shows "Let agents ask for nothing?" with this warning, and saves the choice only when you press
   "Ask for nothing":
@@ -649,9 +665,10 @@ agent session in smurg never shows that question, so smurg asks you instead:
 
 **`CLAUDE.md` is yours to edit.** Claude Code reads `CLAUDE.md` and `CLAUDE.local.md` as instructions, and agents
 here run as you. Through smurg only you can change these files, at any depth of the folder; teammates see them
-(not `CLAUDE.local.md`) and cannot change them, and no agent of a teammate's session can. A work item whose changes
-touch such a file is not offered for merging from its report; you can still merge it yourself after reading the
-diff (§10.3). The review of the project settings does not show these files: agents read them whenever the folder's
+(not `CLAUDE.local.md`) and cannot change them, and no agent of a teammate's session can. smurg never merges a work
+item whose changes touch such a file by itself, and does not offer it for merging from its report: it waits for you
+with the files named, and you can ask its agent to take them out, or request the merge yourself and merge it after
+reading the diff (§10.3). The review of the project settings does not show these files: agents read them whenever the folder's
 settings are in use or the folder has none. Read the `CLAUDE.md` of a repository that came from somewhere else
 yourself before you share it.
 
@@ -749,7 +766,8 @@ smurg stop            # stop sharing: disconnects everyone, ends terminal sessio
 - "Claude Code": its version, whether this smurg was verified with it or it is too old for agent sessions, and
   whether it is logged in ("not checked yet (smurg checks it when the first agent session starts)" until then);
 - "Agent sessions": how many are running, waiting for a person, stopped without a report or failed, and idle;
-- "Topics": how many there are, and how many are paused (§10.5);
+- "Topics": how many there are, and how many of them run, wait for a decision, are ready to check or are paused, for
+  example "3 (1 running, 1 waiting for a decision, 1 ready to check)" (§10.3, §10.5);
 - "Claude Code project settings": "confirmed (agents use them)", "not confirmed (agents run without them; confirm them in the web app)" or "none in this folder" (§5.3);
 - "Your own Claude Code allow rules": how many apply to agent sessions (§5.3);
 - where the daemon's log is: `~/.smurg/logs/<workspace code>.log` (mode 0600, no invite links in it). When
@@ -762,11 +780,14 @@ before everything has stopped).
 **What a stop does to sessions.** Terminal sessions end. Agent sessions are paused: their agents stop, what their
 commands started and left running (a dev server, a watcher) is ended as well, their conversations are kept, and
 smurg says how many there are, for example
-`3 agent sessions are paused. They continue when you share this folder again.` When you share the folder again,
-every conversation is readable and every agent is idle; a plan that had work running or waiting to start is paused.
-Nothing runs by itself: a paused plan goes on when you or a member with agent access presses "Continue all"
-(§10.5), and a discussion or a session without a topic goes on with its next message. A message that was still
-waiting for its agent is kept and is delivered, in order, when that session next starts. An agent that was in the
+`3 agent sessions are paused. They continue when you share this folder again.` It also says how many topics will go
+on by themselves at the next start; to keep one stopped, press "Pause" in its plan first (§10.5). When you share the
+folder again, every conversation is readable, and plans go on by themselves after `smurg host` has said which: the
+work items that were interrupted are told to continue, and the ones that were waiting start when they may. A plan
+that a person paused stays paused until you or a member with agent access presses "Continue all", and so does one
+with a work item that ran directly in the shared folder (§10.5); a discussion or a session without a topic goes on
+with its next message. A message that was still waiting for its agent is kept and is delivered, in order, when that
+session next starts. An agent that was in the
 middle of its work says so:
 "smurg was restarted on the host's computer. The agent's turn was interrupted"
 
@@ -813,13 +834,29 @@ they open in the browser, not in a terminal.
 | "Anthropic rejected the host's Claude Code login. The host must log in again in their own terminal." | The login on this computer is no longer accepted. Run `claude` in your own terminal, log out and log in again. |
 | An agent session cannot be started, and the sentence ends with "The host should update Claude Code." | Agent sessions need Claude Code 2.1.288 or later (§1); the sentence names the version it found. Update Claude Code (`claude update`, or the way you installed it). `smurg status` shows the version smurg sees. |
 | "The claude command was not found on the host." / "Claude Code did not answer when the session started. The host should check that `claude` runs in a terminal on their computer." | Claude Code is not installed for your account, is not in the `PATH` that `smurg host` was started with, or does not start. Run `claude` in the terminal you start `smurg host` from. A session that failed has "Try again"; after three failed starts only you can try again. |
-| "The host's Claude account has reached a usage limit." (your inbox: "The host's Claude account reached a usage limit") | The account `claude` is logged in to has no usage left for now. Every agent waits, and the web app says when the limit resets if Claude Code reports it. Whether the work then goes on by itself is up to Claude Code (smurg starts nothing again, and this was not tried with a real account): if an agent stays where it was, send it a message. Many agents working at once use a subscription's allowance quickly (§10.4). |
+| "The host's Claude account has reached a usage limit." (your inbox: "The host's Claude account reached a usage limit") | The account `claude` is logged in to has no usage left for now. Every agent waits, and the web app says when the limit resets if Claude Code reports it. When the account works again, smurg asks each work item that stopped on the limit to continue ("The host's usage limit has reset: smurg asked Claude to continue"; this was not tried with a real account); another session goes on with its next message. Many agents working at once use a subscription's allowance quickly (§10.4). |
 | A work item says "Stopped without a report" or "Stopped by a person, no report" | Its agent ended its turn without writing the result report, although smurg asked it once more ("smurg asked Claude for the result report"); or someone stopped it before it had written one. Open the session to see where it stands; "Continue" asks the agent to go on. |
-| A work item says "Stopped on an error, no report", and its conversation says "smurg could not read this item's changes, so its report is not registered yet. It tries again when the agent's next turn ends." | The agent wrote its report, but smurg could not record the item's changes with it: someone kept typing in the worktree, there is a git repository inside it, or git took too long. No report appears until it can. "Continue" lets the agent go on; the report is registered when its next turn ends. A later version of a report that cannot be recorded leaves the earlier version in place and shows the same sentence. |
+| A work item says "Stopped on an error, no report", and its conversation says "smurg could not read this item's changes, so its report is not registered yet. It tries again when the agent's next turn ends." | The agent wrote its report, but smurg could not record the item's changes with it: someone kept typing in the worktree, there is a git repository inside it, or git took too long. No report appears until it can. smurg lets a work item's agent go on once by itself, a minute later ("smurg could not record this work item's changes: it asked Claude to continue and records them after that turn"); otherwise "Continue" lets it go on. The report is registered when its next turn ends. A later version of a report that cannot be recorded leaves the earlier version in place and shows the same sentence. |
 | An agent session cannot be started: "The path of this session's folder has a backslash or a control character in it. Claude Code's permission rules cannot name such a folder, so no agent session can be started there. The host should rename the folder." | Rename the shared folder, or the folder above it that has the character, and share again. Files and terminals work in such a folder; only agent sessions are refused. Spaces, parentheses, brackets and other signs in a path are fine. |
-| A work item says "Failed" (your inbox: "the agent's process failed"), or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
+| A work item says "Failed" (your inbox: "the agent's process failed"), or its session shows "The agent's process ended unexpectedly" | Claude Code's process ended. smurg starts a work item's agent again once by itself, a minute later ("Claude's process stopped: smurg started it again once and asked it to continue"); after that, "Try again" continues the same conversation. If it keeps failing, look at the daemon's log (§7). |
 | A work item says "The plan changed: Start again" (your inbox: "did not start"): "The spec or the plan changed since Start. This item did not start." | A work item starts only from the spec and the plan that someone confirmed when they pressed Start (§10.2). Open the plan, look at what changed and press "Start again" on the item. |
 | A work item did not start: "How smurg keeps this folder's history changed since Start. Look at the plan and start the item again." | The history its Start chose cannot be used now: git went missing or stopped working, the folder's `.git` went away or appeared, or smurg's own history was refused (the rows below). An item runs only in the history its own Start said; it never moves to another one, and never runs directly in the folder by itself. Put right what changed and press "Start again" (§10.2). |
+| A work item says "Not merged: not complete (partial)", "Not merged: not complete (blocked)" or "Not merged: the report cannot be read" (the inbox of whoever decides: "… was not merged: …") | Its report says the work is not finished, or smurg could not read the report after asking the agent to fix it: smurg merges only what its report says is complete and verified (§10.3). The item's responsible person decides when they have agent access, otherwise you and the members with agent access; after the waiting time (§10.6) all of you. Write what to change under the report ("Ask the agent to fix it"), or "Leave it out…"; you can also read the diff with "Merge…" and merge it as it is. Only this item and what depends on it wait. Without git (§10.2) such an item keeps what depends on it from starting, and you can press "Accept as it is". |
+| "Not merged: a check failed" or "Not merged: no check passed" | The report lists a check that failed, or none that passed. The same choices as in the row above: usually a follow-up that asks the agent to make the check pass and to say so in its report. |
+| "Not merged: it does not merge cleanly" | The item's change conflicts with what other work items merged since it started, and its agent did not resolve it in three tries (§10.3). "Ask the agent to resolve" tries again (it is not counted), "Merge…" shows the conflict, or "Leave it out…". |
+| "Not merged: it conflicts with Amy's change of src/app.ts" or "Not merged: it conflicts with a change of src/app.ts made outside smurg" | The other side of the conflict is a person's change (yours, a teammate's, or a commit made outside smurg), not a work item's. smurg never lets an agent resolve over a person's lines by itself: the item's foot names each file and who changed it, and whose lines stay is a person's decision. "Ask the agent to resolve" (its message says which files hold a person's change, and that it stays), merge it yourself after reading the diff, or "Leave it out…". |
+| "Not merged: Amy wrote to the agent after its report", "Not merged: its last turn did not finish" or "Not merged: its report was not checked again after its last change" | Someone wrote to the item's agent after its report and no new version came, a later turn was stopped (or ended on errors smurg did not continue any more, §10.5), or the agent changed files and did not check its report again, although smurg asked it once. Its version merges only when a person says it stands: "Merge it as it is" (agent access), a follow-up, "Continue" for a turn that did not finish, or "Leave it out…". |
+| "Not merged: the host did not merge it" | You rejected its merge request. Write a follow-up under the report, or "Leave it out…". |
+| "Not merged: it changes files only the host may merge" | Its change touches files only you may change (§5.3), the topic's own `SPEC.md` or `PLAN.md`, a link pointing out of the project, or smurg's `.smurg`; the item's foot names them. Only you decide: "Ask the agent to take them out" (it undoes its changes to them and keeps the rest), "Request merge" on the item and merge it after reading the diff, or "Leave it out…". |
+| "Not merged: Amy edited files of it by hand" | A member without agent access (an Editor) edited files in the item's worktree: smurg does not merge such edits unread. A member with agent access could have had the agent make the same edit, so theirs merge like the agent's. Read the diff with "Merge…" and merge it, or "Leave it out…". |
+| "Not merged: uncommitted changes in the main workspace are in the way" | In the folder's own git, a file the merge touches has uncommitted edits (they may be a teammate's), and smurg never overwrites them. Commit or undo them: smurg merges the item by itself once that is done (it looks again when those files change, at the latest every minute). |
+| "Not merged: files in the main workspace are in the way" | Files git does not track lie where the item adds its own. Move them away (smurg never overwrites them), or leave the item out; smurg merges it by itself once they are moved. |
+| "Not merged: changes are staged in the main workspace" | Something is staged in the main workspace (`git add`), and git does not merge over it. Commit or unstage it; smurg merges the item by itself then. Your own merge says "Changes are staged in the main workspace (git add), and git does not merge over them. Commit or unstage them, then merge." |
+| "Not merged: the main workspace is on another branch" | The main workspace was switched to another branch (or to none) after the Start: smurg merges an item only into the branch its Start committed on, while that branch still holds the Start's commit (§10.3). Switch back to it (the item's foot names it); smurg merges by itself then. |
+| "Not merged: git has been busy in the main workspace for a while", or a work item says "Waits to merge: git is busy in the main workspace" | A merge, a rebase or a similar git operation is in progress in the main workspace (for ten minutes, in the first case). Finish or abort it; smurg merges by itself then. When it is a merge smurg was making when it stopped (its message ends with `Merged-by: smurg (automatic merging, the host's setting)`), finish it with `git commit` or run `git merge --abort`. |
+| "Not merged: an undo was interrupted in the main workspace" | smurg stopped in the middle of an undo (§10.3), and the main workspace is between the two. Commit what is staged as the undo, or put the files back with `git restore --staged --worktree -- <paths>`. smurg goes on by itself then; until it can, nothing merges or is undone by itself. |
+| "Not merged: smurg's own history of the folder changed" or "Not merged: smurg cannot merge it" | smurg's own history was changed by something other than smurg (the rows below say what to do), or `git merge` failed twice for another reason. "Merge…" shows the error in words; or "Leave it out…". |
+| A work item says "Waits to merge: Amy is editing" | Someone is typing in a file the item changes. It merges by itself when they stop. |
 | Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | The folder has a `.git` that git does not take as a repository (an empty `.git` folder, for example), and smurg keeps no history of its own beside a `.git`. Look at that `.git`: if it was a repository a moment ago, put that one back; if it is empty, remove it, and the next Start uses smurg's own history (§10.2); or run `git init` in the shared folder and commit once (next row). No need to stop sharing. If a folder above is a repository, share that one. |
 | Start is refused: "The shared folder's git repository has no commit yet, so no worktree can be created." | Commit the project's files as in §10.2: a worktree holds only what is committed. If git asks who you are, run `git config --global user.name 'Your Name'` and `git config --global user.email you@example.com`, then commit again. No need to stop sharing. |
 | Start is refused: "The shared folder's .git is gone, so worktrees cannot be used." | The folder's `.git` was moved or deleted while there are worktrees or merge requests that still wait; Merge, the diff and a session that asks for a worktree are refused with the same sentence. Put that `.git` back: everything works again, without sharing again (§10.2). Do not run `git init` instead: a new repository cannot merge those requests. If that `.git` is lost for good, `git init` and a commit make Start work again, without those requests. |
@@ -843,7 +880,7 @@ they open in the browser, not in a terminal.
 | In auto mode a session's commands are all stopped: "Claude Code's check stopped a command: …", with a reason that says the check could not evaluate the command | Claude Code's check itself did not answer (your account, or the model of the check). Set the session to "Asks before commands" (its strip), and a person answers its commands instead (§5.2). |
 | Under the two links: "smurg's own .smurg folder is committed in this repository: run `git rm -r --cached .smurg` in the shared folder and commit." | A commit, a `git add -A` while sharing with smurg 0.5.1 or earlier for example, took smurg's share lock (`.smurg/daemon-lock.json`), which holds the path of your state folder. Do what the line says (§10.2): the files stay on disk, and `.smurg/.gitignore` keeps them out from then on. Until then git shows the lock as changed: `git rebase` refuses, and discarding changes (`git checkout -- .`, `git stash`, `git reset --hard`) puts back an old lock that lets a second smurg share the folder. Printed once per run. |
 | Start is refused: "The spec and the plan could not be committed: git is in the middle of another operation in the main workspace." | Finish or abort the merge or rebase in the shared folder, then press Start again. |
-| A work item waits although nothing seems to run (the plan says "Waiting for a free agent") | The limit of work items that run at once is reached (§10.4), often because several of them wait for a person: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings ("Work items running at the same time"). |
+| A work item waits although nothing seems to run (the plan says "Waiting for a free agent") | The limit of work items that work at once is reached (§10.4). Items that wait for a person count only once twice the limit is in use: answer the questions and permission requests in the inbox, or raise the limit in the host console's settings ("Work items running at the same time"). |
 | An agent session cannot be started, and the sentence ends with "Try again when one is idle." | This computer already runs 32 agent processes, the fixed limit of one `smurg host`; it is not a setting. smurg puts an idle agent's process aside by itself to make room, but an agent that is working or waiting for a person keeps its process: answer what waits in the inbox, or end sessions you no longer need. |
 | A teammate cannot start a topic or open a session | Only Agent access can (§5.1). To give it, change their role in the host console; read the risk in §5.1 first. |
 | Files an agent changed with a shell command show as "Outside program" in the activity feed | You started sharing with `--no-bash-attribution`, or two or more agents were running shell commands at the same time, so smurg cannot tell which one it was (§5.5). |
@@ -989,10 +1026,32 @@ Your inbox has "Agents now run in auto mode", and the host console's settings sa
 - the line above names the smurg that last shared the workspace (for example "This workspace was last shared with
   smurg 0.5.2").
 
+**The update to 0.7.0: work items merge by themselves.** This update, too, changes one setting the other way, on
+purpose: "Merging work items" becomes "smurg merges what its report says is complete and verified" (§10.3), from
+every earlier version alike. Before it, every work item waited for you to read its diff and merge it; now smurg
+merges a work item into the shared folder for you when its report says complete, at least one check passed and none
+failed, and the merge is clean. `smurg host` says so once, under the lines above:
+
+```text
+Work items now merge by themselves: when a work item's report says complete, at least one check passed and none failed, smurg merges it into the shared folder for you, and everyone's inbox says when a topic is ready to check. Work items started before this update still wait for you. To merge each item yourself, choose "I merge each item myself" in the host console's settings. Guide: https://smurg.ai/docs/hosting/#103-merging-and-what-waits-for-it
+```
+
+Your inbox has "Work items now merge by themselves", and the host console's settings say the same until you press
+"Got it" or choose a setting there. To merge each item yourself, choose "I merge each item myself" under
+"Merging work items". Also after this update:
+
+- the work items an earlier Start started keep waiting for you to merge them; the ones started from now on merge by
+  themselves;
+- the audit log has one entry for the change of the setting, made by the update, and each automatic merge says
+  whether you chose the setting or the update set it;
+- plans go on by themselves after a restart (§10.5): a plan that the earlier version paused at its restart goes on at
+  the first start of 0.7.0, unless it has a work item that ran directly in the shared folder and was interrupted.
+
 **The copies smurg keeps.** Before it writes a file in a new form, smurg keeps the file as it was beside it, named
 after the step that rewrote it: `state.json.before-upgrade-from-0.4.0`,
 `suggestions.json.before-upgrade-from-0.4.0` for a workspace of 0.4.0, `state.json.before-upgrade-from-0.5.0` and
-`agent-sessions.json.before-upgrade-from-0.5.0` for one of 0.5.0, 0.5.1 or 0.5.2 (the three wrote the same form). A copy is never written again, only you can read it (mode 600; a start
+`agent-sessions.json.before-upgrade-from-0.5.0` for one of 0.5.0, 0.5.1 or 0.5.2 (the three wrote the same form), and
+`state.json.before-upgrade-from-0.6.0` for one of 0.6.0. A copy is never written again, only you can read it (mode 600; a start
 checks that as it does for the state file), and smurg never reads it. If a file of the older form that is not the copy is ever upgraded again (you went back to the
 older smurg, worked there and updated once more), smurg keeps that file too, under the same name with `-2` at its
 end (then `-3`, and so on). It is there so that you can look up what the workspace held. It holds the keys
@@ -1166,28 +1225,34 @@ When you run smurg from source: delete the three places above yourself.
 
 ## 10. Topics from the host's side
 
-The guide for teammates (§6 there) walks through a topic from the discussion to the reviewed result. This section
-is what a topic asks of you as the host.
+The guide for teammates (§6 there) walks through a topic from the discussion to the result the team checks. This
+section is what a topic asks of you as the host.
 
 ### 10.1 What only you can do
 
-- **Merge.** Every work item's changes reach the main workspace only when you merge them (§10.3), except without
-  git, where work items change the folder directly (§10.2).
+- **Merge.** Merging is yours: by default smurg merges for you each work item whose report says it is complete and
+  verified, and what else needs a merge waits for you (§10.3); without git, work items change the folder directly
+  (§10.2). Whether work items merge by themselves is your setting ("Merging work items").
+- **Undo** a merged work item or a whole topic, where smurg keeps history (§10.3).
+- **Decide what only you can**: a work item that changes files only you may merge, a hand edit by a member without
+  agent access, the main workspace in the way of a merge (§10.3), and "Accept as it is" for an unfinished work item
+  without git (§10.2).
 - **Confirm the folder's Claude Code project settings** (§5.3), edit `CLAUDE.md` and the scripts those settings
   run, and rename or delete a folder that holds a file only you may change (§4).
 - **Allow the requests that reach beyond the project**, a command that writes where one of those scripts is, and
   in auto mode what smurg asks of a teammate's session (§5.2, §5.3).
 - **Change the host settings** in the host console: what agents may do without asking (the workspace's permission
-  mode, "Asks for nothing" included, §5.2), how many agents may work at once (§10.4), how long a question or a
-  request waits before the others are asked too (§10.6), whether agents may use your own MCP servers (§5.3), the
-  folders shared into worktrees.
+  mode, "Asks for nothing" included, §5.2), whether work items merge by themselves (§10.3), how many agents may work
+  at once (§10.4), how long a question, a request or a decision waits before the others are asked too (§10.6),
+  whether agents may use your own MCP servers (§5.3), the folders shared into worktrees.
 - **Start and retry work items without git**: when this computer's git cannot be used, work items run directly in
   the shared folder, and only you start them (§10.2).
 - **Try again after three failed starts** of a session, terminate any session, delete an archived topic, remove one
   entry of a conversation (§5.4).
 
 You, and every member with agent access, can also do everything a topic needs from day to day: create it, ask for
-the plan, press Start, answer permission requests, continue after a restart. A question an agent asks is decided by
+the plan, press Start, answer permission requests, pause a plan and continue it, leave a work item out, and let one
+merge as it is. A question an agent asks is decided by
 the session's responsible person, or, when nobody is assigned, by whoever opened the session or pressed Start; as
 the host you can always submit an answer too.
 
@@ -1224,8 +1289,10 @@ the three it is before anything runs:
   ("I understand that these changes land in the shared folder directly"); a teammate's dialog says
   "Without git, only the host can start work items: they run directly in the shared folder." One agent works in the
   folder at a time, its later turns included: a message to an item while another one works waits ("This message waits: another work item is working in the shared folder. It is sent when that one is done"). Each item writes its report in the folder,
-  without a diff, and its session ends once someone has reviewed the report. To get worktrees, install git 2.42 or
-  later and share again (§8).
+  without a diff. What depends on an item starts only when its report says complete and verified (and was checked in
+  the turn that made it); otherwise the item waits for a decision: a follow-up, "Continue", "Leave it out…", or your
+  "Accept as it is". Its session ends once someone has reviewed the report or the topic's result was checked. To get
+  worktrees, install git 2.42 or later and share again (§8).
 - An item runs only in the history its own Start chose. When that history cannot be used any more (git went missing,
   `.git` went away or appeared, smurg's own history was refused), the item does not start, also on "Try again", and
   says why (§8); it never moves to another history or into the folder by itself.
@@ -1258,14 +1325,16 @@ git commit -m "Stop tracking smurg's own folder"
   back. Put it back rather than run `git init`: a new repository cannot merge those requests.
 - **Start shows what it will do before it does it**: which items start now and which wait for others, who is
   responsible for each, who edited the spec and the plan by hand since the last Start, and the commit below. Read
-  it: it is the moment the team's text becomes instructions for agents that run as you. A member who renamed or
+  it: it is the moment the team's text becomes instructions for agents that run as you. It also says how the items
+  are merged: by smurg (the workspace's setting), or "The host merges each item", which whoever presses Start may
+  choose (§10.3). A member who renamed or
   deleted the topic's folder, or `specs` itself, is named there for both files. A change of `SPEC.md` or `PLAN.md`
   that a program outside smurg made is listed as such; a whole folder that such a program swapped is not listed,
   though smurg reads the two files again at once and Start confirms what they hold then.
 - **smurg commits the spec and the plan for you** (in a repository of the folder; with smurg's own history, Start
   records the whole folder, above). A worktree contains only what is committed, so when someone presses Start, smurg
   commits exactly two files, the topic's `SPEC.md` and `PLAN.md`, to the branch you have checked
-  out in the shared folder (the dialog names it), in the name of the member who pressed Start, with the message
+  out in the shared folder (the dialog names it; smurg merges the items into that branch, and only into it), in the name of the member who pressed Start, with the message
   `smurg: spec and plan of <topic folder>` and one `Edited-by:` line per person who edited them by hand. Nothing
   else in the folder is committed, staged or changed, and none of your repository's git hooks runs. Start is
   refused while the repository is in the middle of a merge or a rebase, or when git ignores the topic's folder.
@@ -1282,74 +1351,183 @@ git commit -m "Stop tracking smurg's own folder"
 
 ### 10.3 Merging, and what waits for it
 
-- When a result report has been reviewed, its changes are in your inbox by themselves, as
-  "Reviewed, ready to merge", with the items that wait for it. A member with agent access can also ask you to merge
-  work that nobody reviewed.
-- The row in your inbox opens the item's result report. "Merge…" there shows the complete diff; you read it, then
-  choose "Merge into the main workspace" or "Reject". (A request that someone made after the report, or for a
-  worktree without a report, opens the list of its changes instead, with the same two choices.) The merge commit
-  is yours and says whose work it was (`Merge smurg/<topic folder>/<item id> (<name>)`: the member who asked for
-  the merge, else the one who started the item).
-- **Work items that depend on others start only after you merged those.** In a plan with dependencies, you are the
-  one everybody waits for: the plan says which items wait for a merge, and the inbox puts the merges that unblock
-  something first. Without git nothing waits for a merge (the plan says "Without git, work items run one at a time directly in the shared folder; nothing waits for a merge."):
-  an item counts as merged when its report is in, and what depends on it starts once the folder is free.
-- Changes that smurg will not offer from a report: ones that contain files only you may change (`CLAUDE.md`,
-  `.claude/`, `.envrc` and the like, and the scripts your confirmed project settings run, §5.3), that touch the
-  topic's own `SPEC.md` or `PLAN.md`, or that contain a link pointing out of the project. The report says why, for
+Merging is yours. By default you give smurg your standing consent: "Merging work items" in the host console's settings
+says "smurg merges what its report says is complete and verified", and smurg merges each work item into the main
+workspace for you, without anyone reading its diff first, when it is in order. To read and merge every item yourself,
+choose "I merge each item myself" there (below). Turning it off applies at once (a merge already under way finishes)
+and gives every work item already started to you, for good; turning it on applies to the work items started from
+then on.
+
+- **Complete and verified** is what the report says: its outcome is "Complete", at least one of its checks passed, and
+  none failed. The checks are what the agent reports: smurg runs none of them. A check the report lists as not
+  verified does not stop the merge; the Result column lists those first (below).
+- **When smurg merges an item by itself**: its turn ended normally and no later turn was stopped; nobody wrote to its
+  agent since its report; the report is the current version, the agent checked it in the turn that made it (smurg
+  asks it once when it did not: "Checking its report again"), and it says complete and verified; no file of it was
+  edited by hand by a member without agent access; nothing of the item waits for a person; smurg's merge policy
+  allows its files (below); nobody asked for its merge (a merge someone requested stays yours); the main workspace is
+  on the branch its Start committed on, with nothing staged; and the merge is clean. smurg looks at all of this
+  again just before `git merge` runs: a Pause, the setting turned off or "Leave it out…" that comes first wins.
+  One merge at a time, the oldest report first; what waits for an item starts from the merged workspace.
+- **The merge** is a commit on that branch whose author is you (your consent) and whose committer is smurg, with
+  `Merge smurg/<topic folder>/<item id> (<name>)` and a last line `Merged-by: smurg (automatic merging, the host's setting)`
+  (in a folder without `.git`, the same in smurg's own history). The audit log records it as "smurg merged a work
+  item for you", with whether you chose the setting or the update set it (§9.2). smurg never merges onto another
+  branch: a Start on a detached HEAD is yours to merge, and its dialog says so
+  ("The main workspace is not on a branch (a detached HEAD), so the host merges each item of this Start.").
+- **A merge that is not clean.** When the other side is only other work items' changes, smurg brings the item's
+  checkout up to date with the main workspace itself (no agent runs git, and none of your git hooks or git settings
+  is used) and asks the item's own agent to resolve and verify again ("Bringing its work up to date"); its next
+  version is tried like the first. After three tries it is a decision. When the other side is a person's change
+  (yours, a teammate's, or a commit made outside smurg), it is a decision at once, naming the file and who changed
+  it: smurg never lets an agent resolve over a person's lines by itself. Files of the checkout that git does not
+  track are never overwritten.
+- **What waits by itself**: a file someone is typing in ("Waits to merge: Amy is editing"), and git busy in the main
+  workspace for a moment. **What waits for you, and goes on by itself once you have done it**: uncommitted edits in a
+  file the merge touches, files in the way where the item adds its own, something staged, the main workspace on
+  another branch, git busy there for ten minutes, an undo that was interrupted. smurg looks again when those files or
+  git change, at the latest every minute; §8 says what to do for each.
+- **What stops, and who decides.** A decision stops only its item and what depends on it; everything else goes on.
+  It is a waiting item in the inbox ("… was not merged: …"), the item's foot says why and what each person may do,
+  and §8 has a row for each reason. A report that is not complete and verified, a conflict, a person's message to
+  the agent or a stopped turn after its report: the item's responsible person decides when they have agent access,
+  otherwise you and the members with agent access, and after the waiting time (§10.6) all of you. What only you
+  decide: files only you may merge, a hand edit by a member without agent access, the main workspace in the way.
+  What a decision offers: "Ask the agent to fix it" (a follow-up under the report), "Ask the agent to resolve",
+  "Merge it as it is" (the version stands as it is), "Continue", "Ask the agent to take them out" and "Merge…" (yours),
+  and "Leave it out…".
+- **"Leave it out…"** (you and the members with agent access) drops an item and every item that depends on it
+  without editing the plan: their changes are not merged, their sessions end and their worktrees are kept.
+- **The turns smurg asks for by itself** (to resolve, to verify again, to continue after a restart, a usage limit or
+  an error) run with nobody watching, in the item's own permission mode: its file edits stay in its checkout, and its
+  commands reach as far as any turn's (§5.2).
+- **Ready to check.** When every item is merged with nothing of it still in progress, left out or undone, the topic
+  is "Ready to check": every member's inbox says "Ready to check: <topic>", open pages show a notice, and
+  `smurg host` prints one line:
+
+```text
+Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared folder. Look at the result in the workspace.
+```
+
+- The topic's "Result" column shows how many items were merged and how many checks passed, failed or were not
+  verified, the checks that were not verified first, every file each item changed with its diff as smurg merged it,
+  what to watch out for, and every item with its report. Items that merge cleanly can still break each other:
+  nothing verifies the combination before the end. Look at the result (run the project's tests in the main
+  workspace yourself), then anyone but a Viewer presses "I've checked the result": the topic is complete and its
+  work items' sessions end. Until then a follow-up from a report still reaches the agent that did the work, and a
+  change it makes merges like the first one. "I've reviewed this" stays as a mark on each report: it changes nothing
+  in the folder.
+- **Undo and its limits** (only you): where smurg keeps history (the folder's own git, or smurg's own history), "Undo…"
+  on a merged item, or "Undo the whole topic…" in the Result column. smurg shows first what the undo does, without
+  touching the folder: the items built on it go with it, and so do later merges of the same lines (of any topic,
+  named with their topic, whose sessions end too); a dependent that is running, a person's later change on the same
+  lines (named), someone typing, uncommitted edits in a touched file, something staged, git busy or another branch
+  keep it from running. Then one new commit takes the change back out, as you; the reports and conversations stay,
+  and an undone item can be started again. In smurg's own history the folder is recorded first, so nobody's saved
+  edit is taken back. What undo cannot take back: what the agents' commands did outside this folder (other folders,
+  installed tools, services they called), and a branch you pushed keeps the merge until you push the undo too. To
+  bring an undone change back in the folder's own git, run `git revert` of the undo commit in your terminal. Without
+  git there is nothing to undo (§10.2).
+- **Files smurg never merges by itself**: files only you may change (`CLAUDE.md`, `.claude/`, `.envrc` and the like,
+  and the scripts your confirmed project settings run, §5.3), the topic's own `SPEC.md` or `PLAN.md`, a link
+  pointing out of the project, and smurg's `.smurg`. Such an item waits for you with the files named: "Ask the agent
+  to take them out", or request the merge yourself and read the diff before you decide. Its report says why, for
   example
   "The changes cannot be shown: the worktree contains files only the host may change."
-  You can still request the merge yourself in the web app and read the diff before you decide.
-- **A conflict** stops the merge and leaves the main workspace as it was. You or a member with agent access can
-  then ask the item's agent to resolve it: smurg itself merges the main workspace into the item's worktree (no agent
-  runs git, and none of your git hooks or git settings is used), the agent resolves the marked places and writes a
-  new version of the report, and the merge is offered again. Files of the worktree that git does not track are
-  never overwritten by this.
-- Everyone can read the diff of a report. A file that teammates cannot see (§4) is listed there without its content
-  for everyone but you, and text that looks like a credential is shown as `[masked]` to everyone.
-- A work item that is merged and reviewed is finished once nothing unmerged is left in its worktree: its session
-  ends, its worktree is removed, its conversation and its report stay readable. Two cases keep it open. A
-  follow-up after your merge made the agent change something more: the new change waits for your merge like the
-  first one ("Reviewed · waits for the host to merge"), and the item is finished when you have merged it. Or the
-  worktree holds changes that no merge carried (edits made after the last report, for example): the item keeps its
-  session and its worktree until those changes are merged too or you remove the worktree. Archiving a topic lists the work
-  items whose changes were never merged and asks whether to keep or delete them.
+- **A teammate's hand edit**: an Editor's edit in a work item's checkout waits for you
+  ("Not merged: Amy edited files of it by hand"); read the diff with "Merge…". A member with agent access could have
+  had the agent make the same edit, so theirs merge like the agent's.
+- Everyone can read the diff of a report and of the Result column. A file that teammates cannot see (§4) is listed
+  there without its content for everyone but you, and text that looks like a credential is shown as `[masked]` to
+  everyone.
+- **When an item is finished**: a work item that is merged and reviewed, or whose topic was checked, is finished once
+  nothing unmerged is left in its worktree: its session ends, its worktree is removed, its conversation and its
+  report stay readable. Until then its session and its worktree stay, so that a follow-up from its report reaches
+  the agent that did the work. When the worktree holds changes that no merge carried (edits made after the last
+  report, for example), the item keeps them until they are merged too or you remove the worktree. Archiving a topic
+  lists the work items whose changes were never merged and asks whether to keep or delete them.
+- **When you merge each item yourself** (the setting "I merge each item myself", a Start that chose
+  "The host merges each item", a Start on a detached HEAD, and every work item started before the update to 0.7.0):
+  - When a result report has been reviewed, its changes are in your inbox by themselves, as
+    "Reviewed, ready to merge", with the items that wait for it. A member with agent access can also ask you to
+    merge work that nobody reviewed.
+  - The row in your inbox opens the item's result report. "Merge…" there shows the complete diff; you read it, then
+    choose "Merge into the main workspace" or "Reject". (A request that someone made after the report, or for a
+    worktree without a report, opens the list of its changes instead, with the same two choices.) The merge commit
+    is yours and says whose work it was (`Merge smurg/<topic folder>/<item id> (<name>)`: the member who asked for
+    the merge, else the one who started the item). It merges where the main workspace is now.
+  - **Work items that depend on others start only after you merged those.** In such a plan you are the one
+    everybody waits for: the plan says which items wait for a merge, and the inbox puts the merges that unblock
+    something first.
+  - **A conflict** stops the merge and leaves the main workspace as it was. You or a member with agent access can
+    then ask the item's agent to resolve it ("Ask the agent to resolve"), and the merge is offered again once its
+    new report is reviewed.
+  - A follow-up after your merge that made the agent change something more waits for your merge like the first
+    one ("Reviewed · waits for the host to merge").
+- **Without git** nothing waits for a merge (the plan says "Without git, work items run one at a time directly in the shared folder; nothing waits for a merge."):
+  an item counts as merged when its report is in and says complete and verified, and what depends on it starts
+  once the folder is free. Otherwise it is a decision, and you can also press "Accept as it is" (§10.2).
 
 ### 10.4 How many agents work at once, and memory
 
 - One Claude Code process runs per agent that is working or waiting for a person. On the development machine a
   fresh one took about 260 MB of memory, and one with a long conversation 400 to 600 MB.
-- smurg therefore limits how many work items run at once: 8 by default, fewer on a computer with little memory
+- smurg therefore limits how many work items work at once: 8 by default, fewer on a computer with little memory
   (about one per 3 GB, at least 2). You change the limit in the host console's settings
   ("Work items running at the same time"). A work item that waits for a free agent says so in the plan, with how
   many of the working agents are waiting for a person.
 - An agent that is idle gives up its process after a while and gets a new one with its next message; the
-  conversation continues where it was. An agent that waits for an answer or for permission keeps its process: an
-  unanswered inbox holds agents, and memory, back.
+  conversation continues where it was. An agent that waits for an answer or for permission keeps its process.
+  Such waiting work items do not keep unrelated ones from starting: up to twice the limit (and never more than 32)
+  can then be alive at once, so an unanswered inbox can double the memory the agents take. Lower the limit if this
+  computer cannot afford that.
 - smurg shows no token counts and no cost. Several agents working at once use your Claude account several times as
   fast as one; look at the usage where your Claude account shows it.
 
-### 10.5 After a restart: "Continue all"
+### 10.5 After a restart: what goes on by itself
 
-After `smurg host` was stopped and started again (also after a crash or a restart of the computer), nothing runs
-by itself:
+After `smurg host` was stopped and started again (also after a crash or a restart of the computer), plans go on by
+themselves:
 
-- every conversation is readable, every agent session is idle;
-- every plan that had work in progress is paused: the web app shows it on top of the sessions view
-  ("smurg was restarted on the host's computer."), and you and the members with agent access have one inbox item
-  per topic. Whoever looks after a work item that was interrupted has one more for that item, with "Continue" for
-  it alone;
-- "Continue all" lets the plan go on: the agents that were interrupted are told to continue, and work items that
-  were waiting can start again. A question or a permission request that was open before the restart is asked again
-  when its session continues; the votes and comments of the earlier card stay readable.
+- **Before anything goes on**, `smurg host` prints which topics go on, under the links:
+
+```text
+2 topics go on where they stopped: Checkout (2 work items), Search (1). To pause one, press Pause in its plan.
+```
+
+- Then the agents that were interrupted are told to continue (their conversation says "smurg was restarted on the
+  host's computer and asked Claude to continue"), the work items that were waiting start when they may, and smurg
+  merges what is in order. A question or a permission request that was open before the restart is asked again when
+  its session continues; the votes and comments of the earlier card stay readable.
+- **When it stops** (Ctrl-C, or `smurg stop`), it says how many topics will go on at the next start:
+
+```text
+When smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.
+```
+
+- **"Pause"** in a plan (you and the members with agent access) is the brake that stays across restarts: nothing new
+  starts, nothing merges and nothing continues by itself until someone presses "Continue all". Turns that run
+  finish, and so does a merge already under way; to stop an agent that is working, stop its session. If you stopped
+  `smurg host` because an agent misbehaved, pause its plan before you start again: the turns that go on run with
+  nobody watching (§10.3).
+- **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
+  and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
+  half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view
+  ("smurg was restarted on the host's computer."), and you and the members with agent access have one inbox item per
+  topic. "Continue all" lets such a plan go on.
+- smurg also goes on by itself after other interruptions, each a bounded number of times: when your usage limit has
+  reset, after a turn that ended on an error (twice: a minute and five minutes later), after an agent's process
+  stopped (once, a minute later), and after it could not record an item's changes (once). Never for an item a person
+  stopped, nor while the plan is paused or Claude Code is logged out.
 
 ### 10.6 When someone does not answer, leaves or is removed
 
 - **Nobody answers.** A question or a permission request that has waited for the waiting time (5 minutes by
   default; 1 to 60 minutes in the host console's settings), or whose person has been offline for a minute, also
   appears in your inbox and in that of every member with agent access. You can then answer in that person's place
-  ("Submit for Ian"); the conversation records that you did. A result report nobody reviewed does the same after
-  six times that long.
+  ("Submit for Ian"); the conversation records that you did. A decision on a work item that was not merged reaches
+  you and them the same way (§10.3), except the ones only you can settle, which are yours from the start. A result
+  report of an item you merge yourself that nobody reviewed does the same after six times that long.
 - **A member leaves the workspace, or you change their role** so that they can no longer use agents: their
   terminals and their agent sessions without a topic end. The sessions of topics pass to you and keep running
   ("Amy left. This session now runs for the host"). When they left or are now a Viewer, whatever they were
@@ -1384,10 +1562,10 @@ A topic's discussion is one conversation that everyone shares, and it can get lo
 
 ### 10.8 What was verified, and what was not
 
-The flow of this version (discussion with questions and votes, spec, plan, work items, result reports, review,
-merge) was verified by smurg's developers against a scripted stand-in for the model. Real Claude Code (version
-2.1.288, the oldest that agent sessions accept) was run with smurg only against a fake API on the development
-machine, never against the real model. No real Claude account was used for testing. That machine is a Mac:
+The flow of this version (discussion with questions and votes, spec, plan, work items, result reports, merging by
+smurg, decisions, ready to check, undo, the restart) was verified by smurg's developers
+against a scripted stand-in for the model. Real Claude Code (version 2.1.288, the oldest that agent sessions accept)
+was run with smurg only against a fake API on the development machine, never against the real model. No real Claude account was used for testing. That machine is a Mac:
 real Claude Code was not run with smurg on Linux at all for this version; on Linux only the stand-in was tested.
 So how a real model behaves in this flow is not verified yet: whether it asks its questions as cards as it is
 told, writes the plan and the report in the format smurg checks, and proposes a sensible split of the work. This
@@ -1398,6 +1576,12 @@ real Claude Code 2.1.288 against the fake API, which also gave auto mode's check
 judges a command, and the check that may run on Anthropic's side instead, have never been seen with smurg; no real
 account was used here either. Watch what your first agents in auto mode run.
 
+Automatic merging, decisions, undo and the restart of 0.7.0 were verified the same way, with the stand-in and with
+real git (2.49 on the development machine). What a real model writes in its report (whether it writes "Complete"
+only when the work is done, and a check that did not pass as failed) decides what smurg merges without anyone
+reading it, and has never been seen. Watch the reports and the merges of your first topics, and turn automatic
+merging off (§10.3) until you trust them.
+
 What bounds the damage when an agent does not behave: smurg checks the plan and the report format itself and asks
 the agent to fix them (at most twice in a row), asks once for a missing report, and puts work that stopped into
 someone's inbox instead of letting it stop unseen. Watch your first topic with a real project closely, and if a
@@ -1406,6 +1590,9 @@ step of the flow does not work with your Claude Code, report it at https://githu
 Limits of this version that are known:
 
 - Agents start no subagents, and agent definitions in `.claude/agents` are not used (§5.2).
+- The checks in a result report are what the agent says it ran: smurg runs none of them. Work items that merge
+  cleanly can still break each other, and nothing verifies the combination before the topic is ready to check
+  (§10.3).
 - Auto mode's check is a model's judgement. smurg's own rows in auto mode see only what smurg can read in a command,
   and its deny rules refuse only commands that name a place (§5.2). smurg also relies on Claude Code 2.1.288 for this:
   a session's settings file is read once, at its start; a deny rule refuses a shell command that names its place, in

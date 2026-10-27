@@ -116,7 +116,8 @@ export interface Words {
   readonly note: readonly [string, string];
   readonly start: string;
   readonly started: string;
-  readonly toReview: string;
+  /** The state of an item smurg merged by itself (its report says complete and verified). */
+  readonly mergedAuto: string;
   readonly worktree: string;
   readonly edited: string;
   readonly created: string;
@@ -131,8 +132,7 @@ export interface Words {
   readonly changes: string;
   readonly reviewBtn: string;
   readonly marked: string;
-  readonly reviewed: string;
-  readonly reviewedMerged: string;
+  readonly mergedReviewed: string;
   readonly merged: string;
 }
 
@@ -161,7 +161,7 @@ const EN: Words = {
   note: ['Start opens one agent session per item,', 'each in its own worktree.'],
   start: 'Start 3 items',
   started: 'Started 3 items.',
-  toReview: 'Report to review',
+  mergedAuto: 'Merged',
   worktree: 'Worktree: ',
   edited: 'Edited',
   created: 'Created',
@@ -175,8 +175,7 @@ const EN: Words = {
   changes: 'Changes',
   reviewBtn: "I've reviewed this",
   marked: 'Marked as reviewed.',
-  reviewed: 'Reviewed',
-  reviewedMerged: 'Reviewed · merged',
+  mergedReviewed: 'Merged · reviewed',
   merged: 'Merged into the main workspace.',
 };
 
@@ -558,12 +557,12 @@ export function build(options: BuildOptions): string {
       out.push(rect(x, cy - height / 2, width, height, height / 2, 'ch'));
       out.push(text(x + 9 * unit, cy + 4.2 * unit, String(no), { size: round2(12 * unit), fill: 'mu' }));
       out.push(tag('circle', { cx: dx, cy, r: r - 0.75 * unit, class: 'c0', 'stroke-width': num(1.5 * unit) }));
-      // started (Plan); the first is done (Build); reviewed, then merged (Review)
+      // started (Plan); the first is done and merged by itself (Build), then reviewed (Review)
       out.push(tag('circle', { cx: dx, cy, r, class: `c1 ${A.in(SCENE + 3.7)}` }));
       if (no === 1) {
         out.push(tag('circle', { cx: dx, cy, r, class: `c3 ${A.in(2 * SCENE + REPORTED)}` }));
         out.push(group(A.in(3 * SCENE + 1.9), [tag('circle', { cx: dx, cy, r: r + 1.5 * unit, class: 'c4' }), tick(dx - 4.25 * unit, cy + 0.25 * unit, unit)]));
-        out.push(rect(x, cy - height / 2, width, height, height / 2, `chm ${A.in(3 * SCENE + 2.9)}`));
+        out.push(rect(x, cy - height / 2, width, height, height / 2, `chm ${A.in(2 * SCENE + REPORTED)}`));
       }
     });
     // They come when the plan has its items, and go with the last scene. At rest the chips say how the story ends, so
@@ -738,10 +737,10 @@ export function build(options: BuildOptions): string {
       const body = [...(withDots ? dots(ix, y0 + h - 18.5) : []), text(ix + (withDots ? 26 : 0), y0 + h - 14, label, { size: 12.5, fill: 'su' })];
       return cls === '' ? body.join('\n') : group(cls, body);
     };
-    // 1: the agent finishes, and its report waits for a reader
+    // 1: the agent finishes, its report says complete and verified, and smurg merges the item by itself
     {
       const [ix, ir] = head(0);
-      out.push(badge(ir, y0 + 22, L.running, 'run', A.out(t0 + REPORTED)), badge(ir, y0 + 22, L.toReview, 'ok', A.after(t0 + REPORTED)));
+      out.push(badge(ir, y0 + 22, L.running, 'run', A.out(t0 + REPORTED)), badge(ir, y0 + 22, L.mergedAuto, 'ok', A.after(t0 + REPORTED)));
       out.push(...where(ix, y0 + 40, 0), tool(ix, y0 + 86, L.edited, SAID.cartApi, 0.3), tool(ix, y0 + 110, L.created, SAID.cartTest, 1.6));
       out.push(line(ix, y0 + h - 37.5, ir), status(ix, L.working, A.out(t0 + REPORTED)));
     }
@@ -762,7 +761,7 @@ export function build(options: BuildOptions): string {
     wide.push(group(A.scene(2), out));
   }
 
-  // ---- 4 Review: the result report, and the merge ----
+  // ---- 4 Review: the result report of the item smurg merged, marked as reviewed ----
   {
     const t0 = 3 * SCENE;
     const w = 660;
@@ -774,7 +773,7 @@ export function build(options: BuildOptions): string {
     const rx = ix + 380;
     const title = `${L.report}1 · ${L.names[0]}`;
     const out = [rect(x0 + 0.5, y0 + 0.5, w - 1, h - 1, 9, 'cd'), tag('circle', { cx: ix + 5, cy: y0 + 28, r: 5, class: 'okf' }), text(ix + 19, y0 + 33.5, title, { size: 15, weight: 600 })];
-    out.push(badge(ir, y0 + 28, L.toReview, 'ok', A.out(t0 + 1.9)), badge(ir, y0 + 28, L.reviewed, 'ok', A.between(t0 + 1.9, t0 + 2.9)), badge(ir, y0 + 28, L.reviewedMerged, 'ok', A.after(t0 + 2.9)));
+    out.push(badge(ir, y0 + 28, L.mergedAuto, 'ok', A.out(t0 + 1.9)), badge(ir, y0 + 28, L.mergedReviewed, 'ok', A.after(t0 + 1.9)));
     out.push(text(ix, y0 + 64, L.whatDone, { size: 12, weight: 600, fill: 'su' }), text(ix, y0 + 86, L.doneText, { cls: A.rise(t0 + 0.3) }));
     out.push(text(ix, y0 + 113, L.howVerified, { size: 12, weight: 600, fill: 'su' }), group(A.rise(t0 + 0.5), [tick(ix + 1, y0 + 131.5), ...term(ix + 17, y0 + 130.5, SAID.test)]));
     out.push(text(rx, y0 + 64, L.changes, { size: 12, weight: 600, fill: 'su' }));
@@ -785,8 +784,9 @@ export function build(options: BuildOptions): string {
     const bw = Math.round(textWidth(L.reviewBtn, 13, 500) + 28);
     out.push(group(A.out(t0 + 1.9), [button(ix, y0 + 171, bw, 30, L.reviewBtn, true, A.press(t0 + 1.6))]), done(ix, y0 + 186, L.marked, A.after(t0 + 1.9)));
     out.push(pointer(ix + bw - 14, y0 + 187, t0 + 1.1, grownBox(1.16, VW / 2, ST + SH / 2)));
+    // (merged before anyone read it: the line stands from the scene's start, and nobody's picture is beside it)
     const mx = ix + Math.max(bw, doneWidth(L.marked)) + 22;
-    out.push(group(A.rise(t0 + 2.9), [avatar(mx + 11, y0 + 186, 11, 'ian'), tag('use', { href: '#i-merge', x: mx + 29, y: y0 + 178.5, width: 15, height: 15, class: 'im' }), text(mx + 50, y0 + 190.5, L.merged, { size: 13, weight: 600, fill: 'ok' })]));
+    out.push(tag('use', { href: '#i-merge', x: mx, y: y0 + 178.5, width: 15, height: 15, class: 'im' }), text(mx + 21, y0 + 190.5, L.merged, { size: 13, weight: 600, fill: 'ok' }));
     wide.push(group(A.scene(3), [grown(1.16, VW / 2, ST + SH / 2, out)]));
   }
 
@@ -892,7 +892,7 @@ export function build(options: BuildOptions): string {
     {
       const y = CY;
       row(0, y, small);
-      out.push(badge(NIR, y + 12.5, L.running, 'run', A.out(t0 + REPORTED), 10.5), badge(NIR, y + 12.5, L.toReview, 'ok', A.after(t0 + REPORTED), 10.5));
+      out.push(badge(NIR, y + 12.5, L.running, 'run', A.out(t0 + REPORTED), 10.5), badge(NIR, y + 12.5, L.mergedAuto, 'ok', A.after(t0 + REPORTED), 10.5));
       out.push(tool(y, L.edited, SAID.cartApi, A.span(t0 + 0.3, t0 + 1.6)), tool(y, L.created, SAID.cartTest, A.after(t0 + 1.6)), group(A.out(t0 + REPORTED), dots(NIR - 16, y + 28.5, 1.8)));
     }
     {
@@ -913,14 +913,14 @@ export function build(options: BuildOptions): string {
     const t0 = 3 * SCENE;
     const title = `${L.report}1 · ${L.names[0]}`;
     const out = [rect(CX + 0.5, CY + 0.5, CW - 1, CH - 1, 7, 'cd'), tag('circle', { cx: NIX + 4.5, cy: CY + 16.5, r: 4.5, class: 'okf' }), text(NIX + 15, CY + 21.4, title, { size: 12.5, weight: 600 })];
-    out.push(badge(NIR, CY + 16.5, L.toReview, 'ok', A.out(t0 + 1.9), 10.5), badge(NIR, CY + 16.5, L.reviewed, 'ok', A.between(t0 + 1.9, t0 + 2.9), 10.5), badge(NIR, CY + 16.5, L.reviewedMerged, 'ok', A.after(t0 + 2.9), 10.5));
+    out.push(badge(NIR, CY + 16.5, L.mergedAuto, 'ok', A.out(t0 + 1.9), 10.5), badge(NIR, CY + 16.5, L.mergedReviewed, 'ok', A.after(t0 + 1.9), 10.5));
     out.push(text(NIX, CY + 41, L.whatDone, { size: 10.5, weight: 600, fill: 'su' }), text(NIX, CY + 57.5, L.doneText, { size: 12.5, cls: A.rise(t0 + 0.3) }));
     out.push(text(NIX, CY + 76, L.howVerified, { size: 10.5, weight: 600, fill: 'su' }), group(A.rise(t0 + 0.5), [tick(NIX + 1, CY + 92, 0.9), ...term(NIX + 15, CY + 91, SAID.test, 11)]));
     out.push(line(NIX, CY + 105.5, NIR));
     const bw = Math.round(textWidth(L.reviewBtn, 12, 500) + 24);
     out.push(group(A.out(t0 + 1.9), [button(NIX, CY + 112, bw, 24, L.reviewBtn, true, A.press(t0 + 1.6), 12)]), done(NIX, CY + 124, L.marked, A.after(t0 + 1.9), 12));
     out.push(pointer(NIX + bw - 13, CY + 124.5, t0 + 1.1, NARROW_BOX, 1.1));
-    out.push(group(A.rise(t0 + 2.9), [avatar(NIX + 8.5, CY + 151, 8.5, 'ian'), tag('use', { href: '#i-merge', x: NIX + 22, y: CY + 144.5, width: 13, height: 13, class: 'im' }), text(NIX + 40, CY + 155.2, L.merged, { size: 12, weight: 600, fill: 'ok' })]));
+    out.push(tag('use', { href: '#i-merge', x: NIX, y: CY + 144.5, width: 13, height: 13, class: 'im' }), text(NIX + 18, CY + 155.2, L.merged, { size: 12, weight: 600, fill: 'ok' }));
     narrow.push(group(A.scene(3), out));
   }
 

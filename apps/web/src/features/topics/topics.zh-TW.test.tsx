@@ -249,7 +249,7 @@ describe('the topic screens in zh-TW', () => {
     renderInColumn(<ReportColumn topicId="tp_1" itemId="cart-api" />, { target: { kind: 'report', topicId: 'tp_1', itemId: 'cart-api' }, conn, admit: false });
     admitAs(conn, world);
     await settle(4);
-    expect(screen.getByText('2 項通過 · 1 項失敗 · 1 項沒有驗證')).toBeTruthy();
+    expect(screen.getByText('2 項通過 · 1 項失敗 · 1 項未驗證')).toBeTruthy();
     const row = screen.getByText('pnpm lint').closest('li') as HTMLElement;
     expect(within(row).getByText('失敗')).toBeTruthy();
     expect(within(row).getByText('2 errors')).toBeTruthy();
@@ -347,7 +347,7 @@ describe('the topic screens in zh-TW: work items smurg merges by itself (protoco
     renderInColumn(<ResultColumn topicId="tp_1" />, { target: { kind: 'result', topicId: 'tp_1' }, conn, admit: false });
     admitAs(conn, world);
     await settle(5);
-    expect(screen.getByText('2 項中 1 項已合併 · 1 項通過 · 0 項失敗 · 0 項沒有驗證 · 1 項已略過')).toBeTruthy();
+    expect(screen.getByText('2 項中 1 項已合併 · 1 項通過 · 0 項失敗 · 0 項未驗證 · 1 項已略過')).toBeTruthy();
     for (const name of ['通過', '各項目合起來的變更', '工作項目', '已略過和已復原的項目']) expect(screen.getByRole('heading', { level: 3, name })).toBeTruthy();
     expect(screen.getByRole('button', { name: '我已驗收' })).toBeTruthy();
   });

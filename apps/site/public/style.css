@@ -769,7 +769,7 @@ p.copy-hint {
   font-size: 12px;
 }
 
-/* an item's state, one over the other: not started, running, asking, report ready, reviewed */
+/* an item's state, one over the other: not started, running, asking, merged (its report in), reviewed */
 .m-chip i {
   grid-area: 1 / 2;
   width: 9px;
@@ -808,8 +808,8 @@ p.copy-hint {
   margin-left: -1px;
 }
 
-/* reviewed and merged: the whole chip */
-.c-ok::after {
+/* merged: the whole chip (smurg merges an item when its report is in, before anyone reviews it) */
+.c-done::after {
   content: '';
   position: absolute;
   inset: -1px;
@@ -1605,13 +1605,12 @@ html:lang(zh-Hant) .cards p {
 
     /* The chips of the top bar live through several scenes, so their keyframes are parts of the whole loop: they
      * come with the plan (7.2 s), run from Start (8.7 s), the second asks while its permission card is open (10.3
-     * to 12.7 s), the first has its report (13.9 s), is reviewed (16.9 s) and merged (17.9 s). */
+     * to 12.7 s), the first has its report and is merged by itself (13.9 s), and is reviewed (16.9 s). */
     .m-chips,
     .m-chip .c-run,
     .m-chip .c-ask,
     .m-chip .c-done,
-    .m-chip .c-ok,
-    .c-ok::after {
+    .m-chip .c-ok {
       animation: var(--loop) ease-out infinite;
     }
 
@@ -1620,7 +1619,6 @@ html:lang(zh-Hant) .cards p {
     .m-chip .c-ask { animation-name: chip-ask; }
     .m-chip .c-done { animation-name: chip-done; }
     .m-chip .c-ok { animation-name: chip-ok; }
-    .c-ok::after { animation-name: chip-merged; }
 
     @keyframes chips {
       0%, 36%, 100% { opacity: 0; }
@@ -1645,11 +1643,6 @@ html:lang(zh-Hant) .cards p {
     @keyframes chip-ok {
       0%, 84.5% { opacity: 0; }
       85.5%, 100% { opacity: 1; }
-    }
-
-    @keyframes chip-merged {
-      0%, 89.5% { opacity: 0; }
-      90.5%, 100% { opacity: 1; }
     }
 
     /* an agent at work: three dots, a slow pulse (far from a flash) */

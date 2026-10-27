@@ -23,7 +23,7 @@
   <a href="https://smurg.ai/">
     <picture>
       <source media="(prefers-color-scheme: dark)" srcset=".github/assets/readme-picture-dark.svg">
-      <img src=".github/assets/readme-picture-light.svg" width="830" alt="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests. Review: Amy reads the result report of the first item and marks it as reviewed, and Ian, the host, merges the change into the main workspace.">
+      <img src=".github/assets/readme-picture-light.svg" width="830" alt="Illustration of a smurg workspace in a browser, in four scenes. Decide: Claude asks where the cart should be kept; Ian, Amy and Ben vote, and Ian submits the leading answer. Plan: Claude writes a spec and a plan with three work items, and Ian starts them. Build: three agents work side by side, one per work item, each in its own worktree; one runs the project's tests, and the first item, its report complete and verified, is merged by itself. Review: Amy reads the result report of the first item, already in the main workspace, and marks it as reviewed.">
     </picture>
   </a>
 </p>
@@ -52,7 +52,7 @@
 
 4. Open your own link, press "New topic", and the team's discussion with the agent starts.
 
-Every step, up to a first topic that is reviewed and merged: [Quick start](https://smurg.ai/docs/quick-start/).
+Every step, up to a first topic whose work is merged and checked: [Quick start](https://smurg.ai/docs/quick-start/).
 
 > [!WARNING]
 > **Status: prototype.** Developed and tested on macOS (Apple silicon). The topics flow was verified against a
@@ -67,7 +67,8 @@ Every step, up to a first topic that is reviewed and merged: [Quick start](https
 - **A spec and plan, as files.** Claude writes `SPEC.md` and `PLAN.md` into your project; people edit them together.
 - **One agent per work item.** Every work item gets its own Claude Code session and git worktree; Claude Code's auto
   mode decides which of its commands run.
-- **Review, then merge.** Each finished item comes with a result report; a person reads it, and the host merges.
+- **Merged by itself, then checked.** Each finished item comes with a result report; smurg merges what its report says
+  is complete and verified, and you check the result.
 
 Also: an inbox for each person, up to four columns side by side, three roles (Viewer, Editor, Agent access), and a
 code mode with a shared editor and terminals. The interface is in English or Traditional Chinese. The
@@ -85,10 +86,9 @@ The trust model on one page: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#2-tru
 
 ## Documentation
 
-- [Quick start](docs/QUICKSTART.md): step by step, from installing to a first topic that is reviewed and merged
+- [Quick start](docs/QUICKSTART.md): step by step, from installing to a first topic whose work is merged and checked
 - [How it works](docs/HOW-IT-WORKS.md): one page on how several people work with coding agents in one workspace
-- [Host guide](docs/HOSTING.md): installing, sharing, what to know before you share, what agents may do,
-  troubleshooting, updating
+- [Host guide](docs/HOSTING.md): installing, sharing, before you share, what agents may do, troubleshooting, updating
 - [Guide for teammates](docs/JOINING.md): roles, the inbox, talking to agents, topics from discussion to reviewed result
 - [Security model](docs/SECURITY-MODEL.md): what the relay sees, what teammates can do, what encryption does not protect
 - [Changelog](CHANGELOG.md): what changed in each version

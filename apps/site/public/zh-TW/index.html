@@ -89,7 +89,7 @@
       </div>
 
       <div class="win-wrap">
-        <div class="win" role="img" data-nosnippet aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個執行了專案的測試。檢視：Amy 讀完第一個項目的結果報告，標成已看過，再由主人 Ian 把變更合併到主工作區。">
+        <div class="win" role="img" data-nosnippet aria-label="smurg 工作區在瀏覽器裡的示意圖，分成四個場景。決定：Claude 問購物車要存在哪裡；Ian、Amy 和 Ben 投票，Ian 送出領先的答案。計畫：Claude 寫出 spec 和一份有三個工作項目的計畫，Ian 按下開始。實作：三個 agent 並排工作，每個工作項目一個，各自在自己的 worktree；其中一個執行了專案的測試，第一個項目的報告寫著完成且驗證過，自動合併了。檢視：Amy 讀完第一個項目的結果報告（它已經在主工作區裡），標成已看過。">
           <svg class="visually-hidden" aria-hidden="true" focusable="false">
             <symbol id="i-agent" viewBox="0 0 16 16"><rect x="2.75" y="5.25" width="10.5" height="8" rx="2"/><path d="M8 2.25v3M6 9.25v.01M10 9.25v.01M6.25 11.5h3.5"/></symbol>
             <symbol id="i-cursor" viewBox="0 0 16 16"><path d="M3 1.5v11.4l3.1-2.7 1.9 4.4 2.1-.9-1.9-4.4 4.1-.3z"/></symbol>
@@ -143,7 +143,7 @@
 
               <div class="scene in2 m-three" data-part="實作">
                 <div class="m-card">
-                  <div class="m-h"><b class="m-said">1 · 購物車 API</b><i class="av av-amy">AM</i><span class="m-swap"><span class="m-bdg m-run a-out t39">執行中</span><span class="m-bdg m-okb a-in t39">報告待看</span></span></div>
+                  <div class="m-h"><b class="m-said">1 · 購物車 API</b><i class="av av-amy">AM</i><span class="m-swap"><span class="m-bdg m-run a-out t39">執行中</span><span class="m-bdg m-okb a-in t39">已合併</span></span></div>
                   <span class="m-where m-x">worktree：<span class="m-said">checkout-1</span></span>
                   <div class="m-tool m-x a-rise t03"><span>編輯</span><code class="m-said">src/cart/api.ts</code></div>
                   <div class="m-tool m-x a-rise t16"><span>建立</span><code class="m-said">tests/cart.test.ts</code></div>
@@ -168,7 +168,7 @@
               <div class="scene in3" data-part="檢視">
                 <div class="m-card m-rep">
                   <div class="m-h"><i class="m-g m-g-done"></i><b>結果報告：<span class="m-said">1 · 購物車 API</span></b>
-                    <span class="m-swap"><span class="m-bdg m-okb a-out t19">報告待看</span><span class="a-in t19"><span class="m-bdg m-okb a-out t29">已看過</span></span><span class="m-bdg m-okb a-in t29">已看過 · 已合併</span></span>
+                    <span class="m-swap"><span class="m-bdg m-okb a-out t19">已合併</span><span class="m-bdg m-okb a-in t19">已合併 · 已看過</span></span>
                   </div>
                   <div class="m-cols">
                     <div>
@@ -185,7 +185,7 @@
                   </div>
                   <div class="m-foot">
                     <span class="m-act m-swap"><span class="m-act a-out t19"><span class="m-btn m-pri a-press t16">我已看過</span><svg class="m-cur a-cur t11" aria-hidden="true"><use href="#i-cursor"/></svg></span><span class="m-done a-in t19">已標成看過。</span></span>
-                    <span class="m-merged a-rise t29"><i class="av av-ian">IA</i><svg class="ic" aria-hidden="true"><use href="#i-merge"/></svg>已合併到主工作區。</span>
+                    <span class="m-merged"><svg class="ic" aria-hidden="true"><use href="#i-merge"/></svg>已合併到主工作區。</span>
                   </div>
                 </div>
               </div>
@@ -211,8 +211,8 @@
         <p>每個工作項目<wbr>有自己的 Claude&nbsp;Code session <wbr>和 git worktree；<wbr>由 Claude&nbsp;Code 的自動模式<wbr>決定它的哪些指令<wbr>可以執行。</p>
       </li>
       <li class="in3">
-        <h2>先看過，再合併</h2>
-        <p>完成的項目<wbr>附有一份結果報告；<wbr>有人看過之後，<wbr>由主人合併。</p>
+        <h2>自動合併，最後驗收</h2>
+        <p>完成的項目<wbr>附有一份結果報告；<wbr>報告寫著完成且驗證過的，<wbr>由 smurg 自動合併，<wbr>最後再由你們<wbr>驗收成果。</p>
       </li>
     </ul>
   </div>

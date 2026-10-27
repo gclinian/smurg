@@ -43,7 +43,9 @@ or is revoked: send it privately ([Share](HOSTING.md#3-share)).
   the others after its check), and smurg itself still asks before a few
   ([§5.2](HOSTING.md#52-what-agents-do-by-themselves-and-what-they-ask-first)); your own allow rules apply
   ([§5.3](HOSTING.md#53-your-own-claude-code-allow-rules-mcp-servers-project-settings-claudemd)); what is
-  allowed runs as you, and a teammate's file can hide instructions for the agent.
+  allowed runs as you, and a teammate's file can hide instructions for the agent. A work item's change reaches your
+  folder without you reading it first, unless you turn automatic merging off; an Editor's hand edit in a work item
+  still waits for you.
 - **Agent access is your account.** A teammate with this role can run any command on your computer, read your home
   folder and use your Claude account; smurg cannot limit this. Give the role only to people you fully trust
   ([§5.1](HOSTING.md#51-the-agent-access-role-read-this-first)); make everyone else an Editor

@@ -272,8 +272,8 @@ const QUOTES: readonly Quote[] = [
   webQuote('topics.plan.generate', ['JOINING', 'QUICKSTART']),
   webQuote('topics.assign.mode.everyone', ['JOINING']),
   webQuote('topics.followUp.label', ['JOINING']),
-  webQuote('topics.review.action', ['JOINING', 'QUICKSTART']),
-  webQuote('topics.item.resolve', ['JOINING']),
+  webQuote('topics.review.action', ['JOINING']),
+  webQuote('topics.item.resolve', ['JOINING', 'HOSTING']),
   webQuote('topics.review.request', ['JOINING']),
   webQuote('topics.report.closed', ['JOINING']),
   webQuote('worktree.active.requestMerge', ['JOINING']),
@@ -313,7 +313,7 @@ const QUOTES: readonly Quote[] = [
   { what: 'wire session.folderNotNameable', guides: ['HOSTING'], render: (locale) => wire(locale, 'session.folderNotNameable') },
   webQuote('topics.badge.stalled.error', ['HOSTING']),
   webQuote('topics.badge.reviewedWaitsMerge', ['HOSTING']),
-  webQuote('topics.review.merge', ['HOSTING', 'QUICKSTART']),
+  webQuote('topics.review.merge', ['HOSTING']),
   webQuote('conversation.message.delivery.queued', ['JOINING']),
   // What a teammate is told about a text that is shown as written, removed characters and an upload that is too large.
   webQuote('markdown.plain.note', ['JOINING']),
@@ -483,23 +483,95 @@ const QUOTES: readonly Quote[] = [
   webQuote('topics.foot.startAll', ['QUICKSTART'], { count: 3 }),
   webQuote('topics.start.go', ['QUICKSTART']),
   webQuote('conversation.perm.deny', ['QUICKSTART']),
+  // (0.7.0, DESIGN D21: the quick start no longer walks through the review and the host's merge, which work items no
+  // longer wait for; the host guide's "I merge each item myself" still does, and quotes them)
   {
     // The row of the host's inbox goes on with what is to merge (an item's title).
     what: 'web sidebar.title.merge.ready',
-    guides: ['HOSTING', 'QUICKSTART'],
+    guides: ['HOSTING'],
     render: (locale, web) => web.text(locale, 'sidebar.title.merge.ready', { what: 'Cart API' }),
     part: { en: 'Reviewed, ready to merge', 'zh-TW': '已看過，可以合併' },
   },
-  webQuote('worktree.review.approve', ['HOSTING', 'QUICKSTART']),
-  webQuote('worktree.review.confirm', ['QUICKSTART']),
-  webQuote('topics.badge.merged', ['QUICKSTART']),
+  webQuote('worktree.review.approve', ['HOSTING']),
+  // ---- 0.7.0 (DESIGN D18-D21): work items that merge by themselves, decisions, ready to check, undo, the restart
+  // The row every member's inbox has when a topic is ready to check, the button that completes it, and the host's undo
+  // (the guides write the topic's name as a placeholder).
+  {
+    what: 'web sidebar.title.ready',
+    guides: ['QUICKSTART', 'HOSTING', 'JOINING'],
+    render: (locale, web) => web.text(locale, 'sidebar.title.ready', { topic: locale === 'en' ? '<topic>' : '<主題>' }),
+  },
+  webQuote('topics.result.check', ['QUICKSTART', 'HOSTING', 'JOINING']),
+  webQuote('topics.undo.action', ['QUICKSTART', 'HOSTING', 'JOINING']),
+  webQuote('topics.result.undoTopic', ['HOSTING']),
+  // A decision's row (the guide for teammates names its parts as placeholders), and what its foot offers.
+  {
+    what: 'web sidebar.title.decision',
+    guides: ['JOINING'],
+    render: (locale, web) => web.text(locale, 'sidebar.title.decision', locale === 'en' ? { item: '<item>', reason: '<reason>' } : { item: '<項目>', reason: '<原因>' }),
+  },
+  webQuote('topics.decision.fix', ['HOSTING', 'JOINING']),
+  webQuote('topics.decision.asIs', ['HOSTING', 'JOINING']),
+  webQuote('topics.decision.leaveOut', ['HOSTING', 'JOINING']),
+  webQuote('topics.decision.removePaths', ['HOSTING']),
+  webQuote('topics.decision.accept', ['HOSTING']),
+  // The host's setting, the Start's stricter choice and the line of a Start on a detached HEAD.
+  webQuote('console.settings.merging', ['HOSTING']),
+  webQuote('console.settings.merging.auto', ['HOSTING']),
+  webQuote('console.settings.merging.host', ['HOSTING']),
+  webQuote('topics.start.agent.merge', ['JOINING']),
+  webQuote('topics.start.merge.option.host', ['HOSTING', 'JOINING']),
+  webQuote('topics.start.merge.detached', ['HOSTING']),
+  // What the plan says while an item is on its way into the main workspace.
+  webQuote('topics.badge.resolving', ['HOSTING']),
+  webQuote('topics.badge.verifying', ['HOSTING']),
+  webQuote('topics.badge.waitsToMerge', ['HOSTING'], { name: 'Amy' }),
+  webQuote('topics.badge.waitsToMerge.busy', ['HOSTING']),
+  // Why an item was not merged (HOSTING §8 has a row for each reason a person decides), as the plan's badge says it.
+  ...(['partial', 'blocked', 'report-invalid', 'check-failed', 'not-verified', 'conflict', 'stopped', 'stale-report', 'rejected', 'policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'git-busy', 'undo-interrupted', 'history-changed', 'merge-failed'] as const).map(
+    (reason): Quote => ({ what: `web topics.badge.held (${reason})`, guides: ['HOSTING'], render: (locale, web) => web.text(locale, 'topics.badge.held', { reason: web.text(locale, `stores.hold.${reason}`) }) }),
+  ),
+  {
+    what: 'web topics.badge.held (conflict with a person)',
+    guides: ['HOSTING'],
+    render: (locale, web) => web.text(locale, 'topics.badge.held', { reason: web.text(locale, 'stores.hold.conflict.people', { names: 'Amy', path: 'src/app.ts' }) }),
+  },
+  {
+    what: 'web topics.badge.held (conflict outside smurg)',
+    guides: ['HOSTING'],
+    render: (locale, web) => web.text(locale, 'topics.badge.held', { reason: web.text(locale, 'stores.hold.conflict.outside', { path: 'src/app.ts' }) }),
+  },
+  { what: 'wire merge.staged', guides: ['HOSTING'], render: (locale) => wire(locale, 'merge.staged') },
+  // The update to 0.7.0: the line of smurg host, the inbox row and the console's banner's button.
+  cliQuote('host.mergesAuto', undefined, ['HOSTING'], {
+    en: 'Work items now merge by themselves: when a work item\'s report says complete, at least one check passed and none failed',
+    'zh-TW': '工作項目現在會自動合併：報告寫著完成、至少一項驗證通過、沒有驗證失敗時',
+  }),
+  { what: 'wire attention.autoMerge', guides: ['HOSTING'], render: (locale) => wire(locale, 'attention.autoMerge') },
+  webQuote('console.settings.agentsAuto.dismiss', ['HOSTING']),
+  // While smurg host runs, when it stops and when it starts again (HOSTING §7, §10.3, §10.5), and smurg status.
+  cliQuote('host.topicReady', { name: 'Checkout', merged: 3, total: 3 }, ['HOSTING']),
+  {
+    what: 'CLI host.plansContinue',
+    guides: ['HOSTING'],
+    render: (locale) => cli(locale, 'host.plansContinue', { topics: [{ name: 'Checkout', items: 2 }, { name: 'Search', items: 1 }] }),
+  },
+  cliQuote('host.stopping.goOn', { n: 2 }, ['HOSTING']),
+  cliQuote('host.plansPaused', { names: ['Checkout'] }, ['HOSTING'], { en: 'Paused by a person, and still paused:', 'zh-TW': '有人暫停、仍在暫停中的主題：' }),
+  cliQuote('status.topics', { total: 3, running: 1, decisions: 1, ready: 1, paused: 0 }, ['HOSTING']),
+  // What a work item's conversation says when smurg continues it by itself (HOSTING §8, §10.5).
+  { what: 'wire conversation.continued.restart', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.continued.restart') },
+  { what: 'wire conversation.continued.usageLimit', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.continued.usageLimit') },
+  { what: 'wire conversation.continued.crash', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.continued.crash') },
+  { what: 'wire conversation.continued.snapshot', guides: ['HOSTING'], render: (locale) => wire(locale, 'conversation.continued.snapshot') },
   // ---- the activity feed's sentences (the wire catalog)
   { what: 'wire activity.agentBashChange', guides: ['HOSTING'], render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }) },
 ];
 
 /**
  * The labels of the product page's picture of the app (the four scenes of its window: a question card, the plan, the
- * agents at work, one running the project's tests, a result report and its merge), as the catalogs render them.
+ * agents at work, one running the project's tests and the first item merged by itself, its result report marked as
+ * reviewed), as the catalogs render them.
  */
 const PICTURE_QUOTES: readonly {
   what: string;
@@ -536,16 +608,16 @@ const PICTURE_QUOTES: readonly {
   // (0.6.0, DESIGN D20: what auto mode runs without a request in a work item's own worktree; nobody is asked in the picture)
   { what: 'web conversation.tool.run', render: (locale, web) => web.text(locale, 'conversation.tool.run') },
   { what: 'web conversation.status.working', render: (locale, web) => web.text(locale, 'conversation.status.working') },
-  { what: 'web topics.badge.report', render: (locale, web) => web.text(locale, 'topics.badge.report') },
-  // ---- 4: the result report, the review and the merge
+  // (0.7.0, DESIGN D21: the first item's report says complete and verified, and smurg merges it by itself)
+  { what: 'web topics.badge.mergedAuto', render: (locale, web) => web.text(locale, 'topics.badge.mergedAuto') },
+  // ---- 4: the result report of the item smurg merged, and the review that marks it
   { what: 'web stores.column.reportOf', render: (locale, web) => web.text(locale, 'stores.column.reportOf', { item: wire(locale, 'session.title.item', { number: 1, title: locale === 'en' ? 'Cart API' : '購物車 API' }) }) },
   { what: 'web topics.report.section.done', render: (locale, web) => web.text(locale, 'topics.report.section.done') },
   { what: 'web topics.report.section.verified', render: (locale, web) => web.text(locale, 'topics.report.section.verified') },
   { what: 'web topics.report.section.changes', render: (locale, web) => web.text(locale, 'topics.report.section.changes') },
   { what: 'web topics.review.action', render: (locale, web) => web.text(locale, 'topics.review.action') },
   { what: 'web topics.review.done', render: (locale, web) => web.text(locale, 'topics.review.done') },
-  { what: 'web topics.badge.reviewed', render: (locale, web) => web.text(locale, 'topics.badge.reviewed') },
-  { what: 'web topics.badge.merged', render: (locale, web) => web.text(locale, 'topics.badge.merged') },
+  { what: 'web topics.badge.mergedReviewed', render: (locale, web) => web.text(locale, 'topics.badge.mergedReviewed') },
   { what: 'web topics.review.merged', render: (locale, web) => web.text(locale, 'topics.review.merged') },
 ];
 

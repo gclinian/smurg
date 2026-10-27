@@ -87,8 +87,9 @@ title starts with the same name ("Host guide: …") and goes on with the words p
   thumb because letters differ in width: 120 to 146 characters in English, 100 to 133 of width in Chinese (50 to
   66 characters). Measure a new one, and one whose words changed, in any browser's console:
   `c = document.createElement('canvas').getContext('2d'); c.font = '14px Arial'; c.measureText('…').width`.
-  The eighteen measure 772 to 921 px in Chrome on macOS; one is over 920, by a pixel (the English home page's,
-  since its words last changed), and the four of the two short pages are 794 to 909 px.
+  The eighteen measure 794 to 921 px in Chrome on macOS; one is over 920, by a pixel (the English home page's,
+  since its words last changed), and the four of the two short pages are 794 to 914 px (measured again for 0.7.0,
+  whose words changed those of the quick start and of how it works).
 - The words come from what people type: "multiplayer" and "coding agents" in the home page's title, "work with
   coding agents as a team", "a team, coding agents, one workspace" for the page that says how it works, and in
   Chinese the words for several people working together (the titles in `DOC_PAGES`). The security model's title
@@ -379,8 +380,9 @@ depth, tested), and the pages name `https://smurg.ai/` (or their own URL) as the
 
 Under the install line stands one browser window drawn in HTML (`.win`), in which a topic plays as four scenes:
 **Decide** (a question card, three votes, the answer is submitted), **Plan** (the spec and the plan as two files,
-three work items, Start), **Build** (one agent per work item side by side, one runs the project's tests)
-and **Review** (the result report is marked as reviewed, the host merges). Over it a strip names the four parts and
+three work items, Start), **Build** (one agent per work item side by side, one runs the project's tests, and
+the first item, its report complete and verified, is merged by itself) and **Review** (the result report of that
+item, already in the main workspace, is marked as reviewed). Over it a strip names the four parts and
 holds the Pause button (`.tabs`); under it four cards say each part in one sentence. It is an illustration, not a
 screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in words, and the caption under it says so.
 
@@ -406,8 +408,9 @@ screenshot: `.win` is `role="img"`, its `aria-label` tells the whole story in wo
   the left (the report), a `.m-act` wraps the button and its pointer alone, so the pointer
   meets its button in both languages, whatever their widths. Keep every moment before 4.6 s: the scene fades at
   4.8 s, and what a scene ends on should stand for about a second before that. The three chips in the window's top bar (the work items, from the plan to
-  the merge) live through several scenes, so their keyframes (`chips`, `chip-run`, `chip-ask`, `chip-done`,
-  `chip-ok`, `chip-merged`) are written in percent of the whole loop: move them when the moments they follow move.
+  the merge) live through several scenes, so their keyframes (`chips`, `chip-run`, `chip-ask`, `chip-done`, which
+  is also the merge since 0.7.0, and `chip-ok`, the review) are written in percent of the whole loop: move them when
+  the moments they follow move.
 - **Changing a scene.** The markup IS the finished scene: without any animation each part stands as it does at the
   end of its scene (what is gone by then carries `a-out`), which is what reduced motion shows. Edit the English page,
   give each new part its moment, add the `tNN` rule if the value is new, then make the same change in the Chinese
