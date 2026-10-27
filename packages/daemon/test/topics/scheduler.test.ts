@@ -393,7 +393,8 @@ describe('one item: its process dies in the middle of a turn', () => {
     await settle(test);
     expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed' });
     expect(itemOf(test.plan(topic.id), 'a').stalledBy).toBeUndefined();
-    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+    // (0.7.0 review: smurg resumes a crash once by itself a minute later, DESIGN 0.7.0 D15: nobody is asked meanwhile)
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual([]);
     // No nudge and no fix was sent into a session without a process.
     expect(smurgSent(test, sessionId).map((message) => message.purpose)).toEqual(['start-item']);
     const retried = (await test.mei.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' })).plan;
@@ -413,7 +414,8 @@ describe('one item: try again, continue, resolve a conflict', () => {
     // ---- the process dies ----
     test.fakes.agents.fail(sessionId);
     expect(itemOf(test.plan(topic.id), 'a').state).toBe('failed');
-    expect(test.t.ctx.services.topics.attention()).toMatchObject([{ subject: 'item-failed', sessionId, recipients: [expect.any(String)], target: { kind: 'session', sessionId } }]);
+    // (0.7.0 review: smurg resumes a crash once by itself a minute later, DESIGN 0.7.0 D15: nobody is asked meanwhile)
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
     expect(await refusal(test.amy.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' }))).toMatchObject({ code: 'forbidden' });
     const retried = (await test.mei.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' })).plan;
     expect(itemOf(retried, 'a')).toMatchObject({ state: 'running', sessionId, attempt: 1 });
@@ -792,6 +794,57 @@ describe('after a restart: what a hard death between two records left out of ste
   });
 });
 
+describe('0.7.0 review: a daemon that stops in the middle of a pass', () => {
+  it('disarms nothing for what it reads while stopping (headBlobs answers nothing): the armed item is still armed after the restart', async () => {
+    const root = await createTempDir('review-stop-pass');
+    const stateDir = await createTempRunDir();
+    after.push(async () => {
+      await removeTempDir(root);
+      await removeTempRunDir(stateDir);
+    });
+    await writeFile(join(root, 'README.md'), '# project\n');
+    const workspaceId = 'ws_test_review_stop_0001';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'c', dependsOn: ['a'] }]);
+    await startPlan(test, topic.id);
+    expect(itemOf(test.plan(topic.id), 'c')).toMatchObject({ state: 'waiting', armed: true });
+    const session = test.fakes.agents.get(itemOf(test.plan(topic.id), 'a').sessionId as string) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    // The next pass reads the heads of the history when the daemon is already stopping: it answers nothing.
+    let release: () => void = () => {};
+    let asked = false;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    test.fakes.worktrees.headBlobs = async (paths: readonly string[]) => {
+      asked = true;
+      await blocked;
+      return Object.fromEntries(paths.map((path) => [path, null]));
+    };
+    test.t.ctx.bus.emit('agent.process', { sessionId: session.id, purpose: 'item', topicId: topic.id, hasProcess: false, reason: 'parked' });
+    await waitFor(() => asked, { what: 'the pass to read the heads' });
+    const heads = new Map(test.fakes.worktrees.head);
+    const stopped = test.cleanup();
+    expect(test.t.ctx.stopping.aborted).toBe(true);
+    release();
+    await stopped;
+
+    test = await setupTopics({
+      root,
+      stateDir,
+      workspaceId,
+      seed: (fakes) => {
+        fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+        // (the folder's HEAD still holds the Start's spec and plan)
+        for (const [path, blob] of heads) fakes.worktrees.head.set(path, blob);
+      },
+    });
+    const stored = (await test.t.ctx.state.document(TOPICS_DOCUMENT, topicsDocumentSchema, initialTopicsDocument)).get().topics[0]?.items.find((candidate) => candidate.id === 'c');
+    expect(stored).toMatchObject({ armed: true });
+    expect(stored?.disarmed).toBeUndefined();
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).not.toContain('item-not-started');
+  });
+});
+
 describe('after a restart: an item whose process had failed before it', () => {
   it('is still failed, stays failed whatever its idle session is told, and "Try again" continues the same session', async () => {
     const root = await createTempDir('p4-restart-failed');
@@ -817,7 +870,8 @@ describe('after a restart: an item whose process had failed before it', () => {
     // What the agent runtime does at a start: a record that had failed is an idle session without a process.
     test.fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
     expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed', sessionId, attempt: 1 });
-    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+    // (0.7.0 review: smurg resumes a crash once by itself a minute later, DESIGN 0.7.0 D15: nobody is asked meanwhile)
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual([]);
 
     // The idle session is updated for reasons that have nothing to do with work (the topic is renamed, the item is
     // given to someone else): the item is not "running", and its "Try again" stays.
@@ -826,7 +880,7 @@ describe('after a restart: an item whose process had failed before it', () => {
     expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'idle', responsible: { userId: 'dev:host' } });
     await settle(test);
     expect(itemOf(test.plan(topic.id), 'a')).toMatchObject({ state: 'failed', responsible: { userId: 'dev:host' } });
-    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual([]);
 
     // "Try again": the runtime no longer calls the session failed, so it is simply told to go on.
     const retried = (await test.mei.conn.request('plan.item.retry', { topicId: topic.id, itemId: 'a' })).plan;
@@ -852,7 +906,8 @@ describe('a failed item and its session', () => {
     expect(test.fakes.agents.get(sessionId)?.status).toBe('idle');
     await settle(test);
     expect(itemOf(test.plan(topic.id), 'a').state).toBe('failed');
-    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual(['item-failed']);
+    // (0.7.0 review: smurg resumes a crash once by itself a minute later, DESIGN 0.7.0 D15: nobody is asked meanwhile)
+    expect(test.t.ctx.services.topics.attention().map((fact) => fact.subject)).toEqual([]);
     // A person writes to the session: the turn that takes the message is work on the item.
     test.fakes.agents.startTurn(sessionId);
     expect(itemOf(test.plan(topic.id), 'a').state).toBe('running');

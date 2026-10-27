@@ -31,6 +31,7 @@ export const tStores = defineStrings(
     'status.question': 'Waiting for an answer',
     'status.permission': 'Waiting for permission',
     'status.stalled': 'Stopped without a report',
+    'status.decision': 'Waiting for a decision',
     'status.idle': 'Idle',
     'status.done': 'Done',
     'status.failed': 'Failed',

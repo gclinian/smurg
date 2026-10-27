@@ -43,6 +43,11 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   // 2.
   ['2 its current request is merged', (input) => ({ ...input, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'none' }],
   ['2 an undo claims it', (input) => ({ ...input, claimed: true }), { kind: 'none' }],
+  // (0.7.0 review: a merged item whose later turn did not finish and left work in its checkout is the carers' decision)
+  ['2 merged, a later turn did not finish, its checkout holds work no merge carried', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged, edits since are owed a snapshot, its checkout holds them', (input) => ({ ...input, item: { ...input.item, snapshotOwed: true }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged, a later turn did not finish, its checkout holds nothing more', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false }), { kind: 'none' }],
+  ['2 merged with half of a change left: while its agent is at work, it waits', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true, session: { turnOpen: true, openCards: 0 } }), { kind: 'wait', reason: 'busy' }],
   // 3.
   ['3 the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true } }), { kind: 'wait', reason: 'paused' }],
   // 4.

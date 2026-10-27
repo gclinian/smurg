@@ -29,6 +29,7 @@ const AGENT_TONE: Readonly<Record<GlyphStatus, Tone>> = {
   question: 'warning',
   permission: 'warning',
   stalled: 'warning',
+  decision: 'warning',
   failed: 'danger',
   idle: 'neutral',
   done: 'neutral',

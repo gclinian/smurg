@@ -23,6 +23,7 @@ export const zhTW = {
   'status.question': '等待回答',
   'status.permission': '等待許可',
   'status.stalled': '沒寫報告就停下了',
+  'status.decision': '在等一個決定',
   'status.idle': '待命',
   'status.done': '完成',
   'status.failed': '失敗',

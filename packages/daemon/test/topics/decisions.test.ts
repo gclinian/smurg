@@ -357,3 +357,51 @@ describe('DESIGN 0.7.0 D13: ready to check, and "I\'ve checked the result"', () 
     await waitFor(() => test.topic(run.topicId).phase === 'complete', { what: 'complete' });
   });
 });
+
+describe('0.7.0 review: what reaches more people, and when', () => {
+  it('a decision whose one recipient has been offline a minute reaches the host and agent access too, as a question does (not only after five minutes)', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const run = await started([{ id: 'a' }]);
+    await handInReport(test, run.slug, 'a', { text: reportText('a', { outcome: 'partial' }) });
+    await waitFor(() => item(run.topicId, 'a').autoMerge?.state === 'held', { what: 'a held for Mei' });
+    test.mei.close();
+    await waitFor(() => !test.t.ctx.hub.isOnline(MEI.userId), { what: 'Mei offline' });
+    await settle(test);
+    expect(item(run.topicId, 'a').autoMerge?.escalated).toBe(false);
+    test.t.advanceClock(test.t.ctx.config.agents.escalateOfflineMs + 1_000);
+    await waitFor(() => item(run.topicId, 'a').autoMerge?.escalated === true, { what: 'the decision to escalate' });
+    expect(test.t.ctx.config.agents.escalateOfflineMs + 1_000).toBeLessThan(test.t.ctx.settings.get().escalateAfterMs);
+    expect(decisionsOf(run.topicId)).toEqual({ [MEI.userId]: 1, [HOST.userId]: 1 });
+  });
+
+  it('an item whose agent could not finish is a decision too: it reaches the host and agent access once it has waited, or at once when its one carer is offline, and the plan counts it', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }, { id: 'b', dependsOn: ['a'] }]);
+    const sessionId = run.session('a');
+    // The agent stops in prose, and again after the nudge: stalled (`agent`), for Mei.
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(() => smurgSent(test, sessionId).some((message) => message.purpose === 'nudge-report'), { what: 'the nudge' });
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(() => item(run.topicId, 'a').state === 'stalled', { what: 'a to stall' });
+    expect(test.t.ctx.services.topics.attention().map((fact) => [fact.subject, fact.recipients])).toEqual([['item-stalled', [MEI.userId]]]);
+    expect(decisionsOf(run.topicId)).toEqual({ [MEI.userId]: 1 });
+    test.t.advanceClock(test.t.ctx.settings.get().escalateAfterMs + 1);
+    await waitFor(() => decisionsOf(run.topicId)[HOST.userId] === 1, { what: 'the plan to count it for the host' });
+    expect(test.t.ctx.services.topics.attention().map((fact) => [fact.subject, [...fact.recipients].sort()])).toEqual([['item-stalled', [HOST.userId, MEI.userId].sort()]]);
+  });
+
+  it('the same at once when its one carer has been offline a minute', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    const sessionId = run.session('a');
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(() => smurgSent(test, sessionId).some((message) => message.purpose === 'nudge-report'), { what: 'the nudge' });
+    test.fakes.agents.finishTurn(sessionId);
+    await waitFor(() => item(run.topicId, 'a').state === 'stalled', { what: 'a to stall' });
+    test.mei.close();
+    await waitFor(() => !test.t.ctx.hub.isOnline(MEI.userId), { what: 'Mei offline' });
+    await settle(test);
+    test.t.advanceClock(test.t.ctx.config.agents.escalateOfflineMs + 1_000);
+    await waitFor(() => test.t.ctx.services.topics.attention().some((fact) => fact.recipients.includes(HOST.userId)), { what: 'the host to have it' });
+  });
+});

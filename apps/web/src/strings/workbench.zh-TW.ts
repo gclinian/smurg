@@ -70,7 +70,7 @@ export const zhTW = {
   'notice.plan-ready': '{name}：計畫好了',
   'notice.plan-updated': '{name}：計畫更新了',
   'notice.complete': '{name}：所有項目都看過了，主題已完成。',
-  'notice.ready': '{name}：所有項目都合併了，待驗收。',
+  'notice.ready': '{name}：所有項目都已合併、略過或復原，待驗收。',
   'notice.checked': '{name}：成果已驗收，主題完成。',
   'notice.open': '開啟',
 } as const;

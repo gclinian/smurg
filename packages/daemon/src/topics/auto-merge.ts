@@ -35,12 +35,6 @@ export const AUTO_MERGE_RECHECK_MS = 60_000;
 /** git busy in the main workspace this long: a hold for the host (the host's terminal is mid-merge or rebase). */
 export const AUTO_MERGE_BUSY_HOLD_MS = 10 * 60_000;
 
-/** What the merge queue needs of the report service: what a restart cut in a resolve turn is registered by it. */
-export interface AutoMergeReports {
-  /** A report checked in the turn the restart cut: registered with the snapshot forced (DESIGN 0.7.0 D8). */
-  checkAfterRestart(topicId: string, itemId: string, options?: { readonly cutTurnOnly?: boolean }): Promise<boolean>;
-}
-
 /** When an item that waits (or is held by the main workspace) is looked at again. */
 interface Recheck {
   /** The daemon's clock: due from then on. */
@@ -75,7 +69,6 @@ interface RecordInput {
 export class AutoMerger {
   private readonly ctx: DaemonContext;
   private readonly core: TopicsCore;
-  private reports: AutoMergeReports | null = null;
   private loop: Promise<void> | null = null;
   private again = false;
   /** The module's start has looked at what a restart left (`begin`): until then no pass does anything. */
@@ -92,10 +85,6 @@ export class AutoMerger {
   constructor(ctx: DaemonContext, core: TopicsCore) {
     this.ctx = ctx;
     this.core = core;
-  }
-
-  attach(reports: AutoMergeReports): void {
-    this.reports = reports;
   }
 
   // ===================================================================================================================
@@ -427,7 +416,16 @@ export class AutoMerger {
     await this.core.flush();
     let conflicted: readonly string[];
     try {
-      conflicted = (await this.ctx.services.worktrees.updateFromMain(worktreeId)).conflicted;
+      // (the main workspace as it is NOW: a person's change of a conflicted file since the trial, or since a stop between
+      // the record and this update, is a decision for the carers, never the agent's to resolve; 0.7.0 review)
+      const update = await this.ctx.services.worktrees.updateFromMain(worktreeId, { people: true });
+      if (update.people !== undefined && update.people.length > 0) {
+        const held = update.conflicted.length > 0 ? update.conflicted : paths;
+        this.store(topicId, itemId, { state: 'held', reason: 'conflict', ...(requestId === undefined ? {} : { requestId }), ...(held.length === 0 ? {} : { paths: held }), people: update.people.map((change) => ({ path: change.path, by: change.by.map((user) => ({ userId: user.userId, displayName: user.displayName })), outside: change.outside })) }, this.ctx.clock.now());
+        this.core.publish(topicId);
+        return;
+      }
+      conflicted = update.conflicted;
     } catch (err) {
       if (this.ctx.stopping.aborted) return;
       this.ctx.log.warn('a checkout could not be brought up to date for its agent to resolve', { module: 'topics', topic: topicId, item: itemId, error: err instanceof Error ? err.name : 'unknown' });
@@ -606,8 +604,8 @@ export class AutoMerger {
       this.core.publish(topicId);
       return;
     }
-    // The report the agent checked in the turn the restart cut: registered now (a new version ends the record).
-    if (record.reason !== 'stale-report' && this.reports !== null && (await this.reports.checkAfterRestart(topicId, itemId, { cutTurnOnly: true }))) return;
+    // (the report the agent checked in the turn the restart cut was registered at the start, scheduler.ts afterRestart:
+    // a new version ended the record)
     const after = this.core.item(this.core.need(topicId), itemId);
     if (after?.autoMerge?.state !== 'resolving') return;
     const restarted = msg('conversation.continued.restart');

@@ -176,7 +176,8 @@ describe("the Start dialog: the topic's model and the mode its items run with", 
     const mode = within(dialog).getByRole('combobox', { name: 'What their agents may do without asking' }) as HTMLSelectElement;
     expect(model.value).toBe('sonnet');
     expect(mode.selectedOptions[0]?.textContent).toBe('Workspace default (Auto: runs what a check allows)');
-    expect(within(dialog).getByText("Both are the topic's settings: its later items use them too.")).toBeTruthy();
+    // (0.7.0 review: the note sits under three pickers; it names the two it is about)
+    expect(within(dialog).getByText("The model and the permission mode are the topic's settings: its later items use them too.")).toBeTruthy();
     expect(within(dialog).getByText("Auto mode checks commands with extra requests to Claude, which may count toward the host's usage.")).toBeTruthy();
     // Nothing changed: no `agent`.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
@@ -541,7 +542,8 @@ describe('the Start dialog: how the items are merged (protocol 6, DESIGN 0.7.0 D
     expect([...choice.options].map((option) => option.textContent)).toEqual(['smurg merges what its report says is complete and verified (workspace setting)', 'The host merges each item']);
     expect(within(dialog).getByText(/^smurg merges each item into the main workspace for Ian when its report says complete/)).toBeTruthy();
     expect(within(dialog).getByText(/^The run stops where a person must decide/)).toBeTruthy();
-    expect(within(dialog).getByText(/^When every item is merged, every member's inbox says the topic is ready to check/)).toBeTruthy();
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    expect(within(dialog).getByText(/^When every item is merged, left out or undone, every member's inbox says the topic is ready to check/)).toBeTruthy();
     expect(within(dialog).getByText("You can close this page: the work goes on while smurg host runs on Ian's computer, also after it was restarted.")).toBeTruthy();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Start' }));
     expect(conn.lastRequest('plan.start')?.payload).not.toHaveProperty('merging');

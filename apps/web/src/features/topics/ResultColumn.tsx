@@ -97,6 +97,7 @@ function Result({ topic, items }: { topic: Topic; items: WorkItem[] }) {
   const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
   const merged = useMemo(() => items.filter(isMerged), [items]);
   const out = items.filter((item) => item.leftOut !== undefined || item.undone !== undefined);
+  const kept = items.filter((item) => item.leftOut === undefined && item.undone === undefined);
   const reportIds = merged.filter((item) => item.report !== undefined).map((item) => item.id);
   const idsKey = reportIds.join(',');
   useEffect(() => {
@@ -156,6 +157,9 @@ function Result({ topic, items }: { topic: Topic; items: WorkItem[] }) {
           <Section icon={<IconGitBranch size={14} />} title={t('result.changes')}>
             {noHistory ? (
               <p className="report__none">{t('result.direct')}</p>
+            ) : merged.length === 0 ? (
+              // (everything was left out or undone: no heading over nothing, 0.7.0 review)
+              <p className="report__none">{t('result.noneMerged')}</p>
             ) : (
               <>
                 <p className="report__none">{t('result.changes.note')}</p>
@@ -184,16 +188,16 @@ function Result({ topic, items }: { topic: Topic; items: WorkItem[] }) {
             </Section>
           ) : null}
 
-          <Section icon={<IconCheckCircle size={14} />} title={t('result.items')}>
-            <ul className="result-items">
-              {items
-                .filter((item) => item.leftOut === undefined && item.undone === undefined)
-                .map((item) => (
+          {kept.length > 0 ? (
+            <Section icon={<IconCheckCircle size={14} />} title={t('result.items')}>
+              <ul className="result-items">
+                {kept.map((item) => (
                   <ResultItem key={item.id} topic={topic} item={item} items={items} direct={direct} onReport={() => openSide({ kind: 'report', topicId: topic.id, itemId: item.id })} />
                 ))}
-            </ul>
-            {!isHost && undoable ? <p className="report__none">{t('undo.askHost')}</p> : null}
-          </Section>
+              </ul>
+              {!isHost && undoable ? <p className="report__none">{t('undo.askHost')}</p> : null}
+            </Section>
+          ) : null}
 
           {out.length > 0 ? (
             <Section icon={<IconHistory size={14} />} title={t('result.leftOutUndone')}>

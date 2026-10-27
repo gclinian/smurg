@@ -417,7 +417,8 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
 
   it('held for a report that is not complete: why, who decides, what waits; the follow-up, Request merge, Leave it out for agent access', async () => {
     const { dialog } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('partial'), report: buildReportSummary({ outcome: 'partial', reviewers: [MEI] }) }), report: { ...REPORT, outcome: 'partial' } });
-    expect(within(foot()).getByText('Not merged: not complete (partial). Mei decides. Items 2 wait for it.')).toBeTruthy();
+    // (0.7.0 review: Mei is the one who decides, and reads it as "You decide", not her own name)
+    expect(within(foot()).getByText('Not merged: not complete (partial). You decide. Items 2 wait for it.')).toBeTruthy();
     fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to fix it' }));
     expect(document.activeElement?.tagName).toBe('TEXTAREA');
     expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
@@ -439,23 +440,37 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
 
   it('a later message or a stopped turn: "Merge it as it is" for the version on screen, and Continue', async () => {
     const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped') }) });
-    expect(within(foot()).getByText('Not merged: its last turn did not finish. Mei decides. Items 2 wait for it.')).toBeTruthy();
+    expect(within(foot()).getByText('Not merged: its last turn did not finish. You decide. Items 2 wait for it.')).toBeTruthy();
     fireEvent.click(within(foot()).getByRole('button', { name: 'Merge it as it is' }));
     expect(conn.lastRequest('plan.item.release')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', version: 1 });
     fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
     expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
   });
 
+  it('0.7.0 review: a merged item whose later turn did not finish: Continue, but nothing to merge "as it is" and nothing to leave out', async () => {
+    await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
+    expect(within(foot()).getByRole('button', { name: 'Continue' })).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Merge it as it is' })).toBeNull();
+    expect(within(foot()).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+  });
+
+  it('0.7.0 review: files only the host may merge and no draft (the snapshot was refused): the host can still request the merge', async () => {
+    await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.vscode/settings.json'] }), merge: undefined }), requests: [] });
+    expect(within(foot()).getByText(/Files only the host may merge: \.vscode\/settings\.json\.$/)).toBeTruthy();
+    expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
+  });
+
   it('a conflict with a person\'s change names it; the agent may be asked to resolve', async () => {
     const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('conflict', { people: [{ path: 'src/cart.ts', by: [AMY], outside: false }, { path: 'README.md', by: [], outside: true }] }) }) });
-    expect(within(foot()).getByText(/^Not merged: it conflicts with Amy's change of src\/cart\.ts\. Mei decides\. Items 2 wait for it\. src\/cart\.ts: the other side is Amy's change\. Whose lines stay is a person's decision\. README\.md: the other side was changed outside smurg\. Whose lines stay is a person's decision\.$/)).toBeTruthy();
+    expect(within(foot()).getByText(/^Not merged: it conflicts with Amy's change of src\/cart\.ts\. You decide\. Items 2 wait for it\. src\/cart\.ts: the other side is Amy's change\. Whose lines stay is a person's decision\. README\.md: the other side was changed outside smurg\. Whose lines stay is a person's decision\.$/)).toBeTruthy();
     fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to resolve' }));
     expect(conn.lastRequest('plan.item.resolve')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
   });
 
   it('files only the host may merge: the host asks the agent to take them out; a member is not offered it', async () => {
     const { conn } = await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.github/workflows/ci.yml'] }) }) });
-    expect(within(foot()).getByText('Not merged: it changes files only the host may merge. Ian decides. Items 2 wait for it.')).toBeTruthy();
+    // (0.7.0 review: the foot names the files, the report hides its diff; the host's own request passes the policy)
+    expect(within(foot()).getByText('Not merged: it changes files only the host may merge. You decide. Items 2 wait for it. Files only the host may merge: .github/workflows/ci.yml.')).toBeTruthy();
     fireEvent.click(within(foot()).getByRole('button', { name: 'Ask the agent to take them out' }));
     expect(conn.lastRequest('plan.item.removePaths')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
     expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();

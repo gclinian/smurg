@@ -548,7 +548,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.keepAwake.notice': (p) => `\n⚠ 防止睡眠：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.keepAwake.lost': (p) => `\n⚠ 防止睡眠已失效：${p.state}。電腦睡眠時組員會看到「主人已離線」。`,
   'host.stopped': () => '已停止分享。',
-  'host.stopping.goOn': (p) => `\n下次 smurg host 啟動時，${p.n} 個主題會自己繼續；要讓${p.n === 1 ? '它' : '其中一個'}保持停下，請先在它的計畫裡按「暫停」。`,
+  'host.stopping.goOn': (p) => `\n下次 smurg host 啟動時，${p.n} 個主題會自己繼續。要讓計畫保持停下，請在停止 smurg host 之前，先在計畫裡按「暫停」。`,
   'host.topicReady': (p) => `主題「${p.name}」待驗收：${p.total} 個工作項目中有 ${p.merged} 個已合併到分享的資料夾。請到工作區查看成果。`,
   'host.topicWaits': (p) => `主題「${p.name}」在等你：工作項目 ${p.number}（${p.title}）沒有合併（${HOST_HOLD[p.reason]}）。它在你的收件夾裡；不依賴它的工作項目會繼續。`,
   'host.agentsPaused': (p) => `${p.count} 個 agent session 已暫停，下次分享這個資料夾時會繼續。`,

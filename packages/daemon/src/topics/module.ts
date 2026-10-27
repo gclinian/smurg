@@ -46,7 +46,6 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       plans.attach(reports);
       plans.attachMerger(merger);
       reports.attachMerger(merger);
-      merger.attach(reports);
       core.requestSchedule = () => scheduler.request();
       // "I've checked the result" finishes the topic's merged items at once (DESIGN 0.7.0 D13).
       topics.attachFinish(() => scheduler.finishPending());
@@ -79,12 +78,19 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       stack.add(ctx.bus.on('agent.tool.pre', (event) => topics.onToolPre(event)));
 
       // ---- sessions ----
-      stack.add(ctx.bus.on('agent.turn.started', (event) => scheduler.onTurnStarted(event.sessionId)));
+      stack.add(
+        ctx.bus.on('agent.turn.started', (event) => {
+          // (in hand from its start: the plan never reads the item as idle between the turn's end and its handling)
+          if (!ctx.stopping.aborted) reports.onTurnStarted(event);
+          scheduler.onTurnStarted(event.sessionId);
+        }),
+      );
       stack.add(
         ctx.bus.on('agent.turn.finished', (event: DaemonEvents['agent.turn.finished']) => {
           // The host's smurg is stopping: the agent runtime (which stops after this module) ends every running turn as
           // `interrupted`. That is not a person's stop and nothing may be decided from it now: what the turn left is
-          // looked at when smurg starts again (Scheduler.afterRestart: `stalled` by `restart`, the plan paused).
+          // looked at when smurg starts again (Scheduler.noteStop marked it; afterRestart: `stalled` by `restart`, or the
+          // version held for its carers).
           if (!core.started || ctx.stopping.aborted) return;
           const hit = core.bySession(event.sessionId);
           if (hit === null) return;
@@ -109,6 +115,7 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       );
       stack.add(
         ctx.bus.on('session.exited', (event) => {
+          reports.onSessionExited(event.session.id);
           topics.onSession(event.session, true);
           scheduler.onSessionExited(event.session, event.reason);
           itemStatuses.delete(event.session.id);
@@ -251,6 +258,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
         // What is under way (the end of a turn being looked at, an item being finished) writes the records: it ends
         // before they are flushed, so nothing is written after this module has stopped.
         await parts.core.idle();
+        // The later turns of items with a version that the stop is about to cut (0.7.0 review): looked at after the start.
+        parts.scheduler.noteStop();
         await parts.core.flush();
       } catch (err) {
         ctx.log.error('topics stop failed', { module: 'topics', error: err instanceof Error ? err.name : 'unknown' });

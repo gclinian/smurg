@@ -16,12 +16,12 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   the way, a merge that stays unclean after the item's agent brought its work up to date, or a conflict with a person's
   change. Each goes to the right person's inbox, and everything that does not depend on it goes on.
   "Leave it out" drops one work item and what depends on it without editing the plan.
-- **Ready to check.** When every item is merged, every member's inbox says so, and the new Result column shows every
-  report, every changed file and what was not verified; "I've checked the result" completes the topic. Where smurg
-  keeps history, the host can undo an item or the whole topic: one new commit, the reports kept, and what was built on
-  it named first ([host guide](docs/HOSTING.md) §10.3).
-- **A result report says what failed**: a check that failed is written `- [!] …: failed: …`, and a report with one
-  cannot say complete.
+- **Ready to check.** When every item is merged, left out or undone, every member's inbox says so, and the new Result
+  column shows every report, every changed file and what was not verified; "I've checked the result" completes the
+  topic. Where smurg keeps history, the host can undo an item or the whole topic: one new commit, the reports kept,
+  and what was built on it named first ([host guide](docs/HOSTING.md) §10.3).
+- **A result report says what failed**: a check that failed is written `- [!] …: failed: …` (a ticked box cannot say
+  so), and a report with one cannot say complete.
 - **Workspaces shared with an earlier smurg merge by themselves after the update**: `smurg host` says so in one line,
   and "Merging work items" in the host console's settings turns it off, which gives back the host's merge of every
   item. Work items started before the update still wait for the host. Whoever starts a topic can choose "The host

@@ -46,6 +46,8 @@ const NOT_PUBLISHED_YET: Readonly<Record<string, readonly string[]>> = {
     'topics[].items[].turns',
     'topics[].items[].checked[].turn',
     'topics[].items[].lastTurn',
+    // (the 0.7.0 review: a later turn the stop of the host's smurg cut)
+    'topics[].items[].lastTurn.restart',
     'topics[].items[].mergedAs',
     'topics[].items[].mergedAs.requestId',
     'topics[].items[].mergedAs.commit',

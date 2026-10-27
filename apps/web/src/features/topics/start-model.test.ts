@@ -169,7 +169,8 @@ describe('how the items of a Start reach the main workspace (protocol 6, DESIGN 
     expect(textOf(lines, 'merge')).toEqual([
       "smurg merges each item into the main workspace for Ian when its report says complete, at least one check passed and none failed (the host's setting). What waits for it then starts from the merged workspace.",
       "The run stops where a person must decide: a question, a request its mode asks, a report that is not complete and verified, work a person stopped or wrote to the agent about, files only the host may merge, the host's folder in the way, or a merge smurg cannot make cleanly by itself. Everything that does not depend on it goes on.",
-      "When every item is merged, every member's inbox says the topic is ready to check: each report, the combined change and what the agents say they verified, with a way to undo an item.",
+      // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+      "When every item is merged, left out or undone, every member's inbox says the topic is ready to check: each report, each item's change and what the agents say they verified, with a way to undo an item.",
     ]);
     expect(textOf(lines, 'leave')).toEqual(["You can close this page: the work goes on while smurg host runs on Ian's computer, also after it was restarted."]);
     expect(textOf(startLines(preflight(), plan, IAN.userId, { merging: 'auto', host: null }), 'leave')).toEqual(['You can close this page: the work goes on while smurg host runs on your computer, also after it was restarted.']);

@@ -592,6 +592,14 @@ describe('a new "agents are waiting" item', () => {
     expect(await screen.findByText('An agent is waiting: pnpm lint')).toBeTruthy();
   });
 
+  it('0.7.0 review: a decision is announced as one: its agent is done, and the merge waits for a person', async () => {
+    const view = await mountSidebar({ ui: <InboxNotices sessionsShown /> });
+    act(() => view.conn.emit('inbox.changed', { upsert: [buildInboxItem('decision', { key: 'decision:t1.cart-api', topicId: 't1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, reason: 'partial', target: { kind: 'report', topicId: 't1', itemId: 'cart-api' } })], remove: [] }));
+    expect(document.querySelector('[data-inbox-announcer]')?.textContent).toMatch(/^New in your inbox, it waits for your decision: 1 · Cart API was not merged: /);
+    expect(await screen.findByText(/^Waits for your decision: 1 · Cart API was not merged: /)).toBeTruthy();
+    expect(screen.queryByText(/An agent is waiting/)).toBeNull();
+  });
+
   it('what does not stop an agent is not announced', async () => {
     const view = await mountSidebar({ ui: <InboxNotices sessionsShown /> });
     act(() => view.conn.emit('inbox.changed', { upsert: [buildInboxItem('report'), buildInboxItem('merge'), buildInboxItem('merge', { key: 'merge:mr_2', ready: false, conflict: true })], remove: [] }));

@@ -58,7 +58,7 @@ import {
 import { msg } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
-import { directVerdict, type DirectVerdict } from './auto-merge-verdict.ts';
+import { autoContinueOwed, directVerdict, type DirectVerdict } from './auto-merge-verdict.ts';
 import type { FileCheck, McpToolContext, Principal, ReportService, Req, SnapshotResult, TurnMessage } from '../core/interfaces.ts';
 import { newId, type Disposable, toDisposable } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR } from '../core/permissions.ts';
@@ -77,6 +77,7 @@ export const NOT_AN_ITEM = "This tool is for the session of a work item. This se
 
 interface TurnFinished {
   readonly sessionId: string;
+  readonly turnId?: string;
   readonly outcome: TurnOutcome;
   readonly finalText?: string;
   readonly messages: readonly TurnMessage[];
@@ -95,6 +96,14 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   private readonly scheduler: Scheduler;
   /** What `prepareCheck` read for an item session's next `check_report` (the contract's method is synchronous). */
   private readonly prepared = new Map<string, FileContent | null>();
+  /**
+   * The session's newest event when `check_report` last answered ok for a content (session and hash): an edit of the
+   * turn with a later tool card was made after that check (0.7.0 review: a version is checked in its turn only when
+   * nothing changed after its check). Kept in memory: a turn a restart cut is never one that completed.
+   */
+  private readonly checkSeqs = new Map<string, number>();
+  /** Turns of item sessions that started and whose end is not handled yet (`agent.turn.started`, R-ENG: no gap). */
+  private readonly openTurns = new Map<string, { readonly key: string; readonly sessionId: string }>();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
   private merger: AutoMerger | null = null;
 
@@ -178,12 +187,47 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       kept.push({ sessionId: mcp.sessionId, attempt, hash: content.hash, turn });
       draft.checked = kept.slice(-CHECKED_HASHES_MAX);
     });
+    const agents = this.ctx.services.agents;
+    const seq = isStubService(agents) ? undefined : agents.get(mcp.sessionId)?.lastSeq;
+    if (seq !== undefined) this.checkSeqs.set(checkKey(mcp.sessionId, content.hash), seq);
     return { ok: true };
   }
 
   // ===================================================================================================================
   // The end of a turn of an execution session
   // ===================================================================================================================
+
+  /**
+   * A turn of an item session began (`agent.turn.started`): from now until its end is handled the item counts as at
+   * work (core.ts `sessionAtWork`). The runtime publishes the session's new status before it announces the turn's end,
+   * so without this the plan read the item as idle with its old facts for a moment: "Ready to check" twice, a hold that
+   * came back (0.7.0 review).
+   */
+  onTurnStarted(event: { readonly sessionId: string; readonly turnId: string }): void {
+    if (!this.core.started) return;
+    const hit = this.core.bySession(event.sessionId);
+    if (hit === null || hit.item === null) return;
+    const id = turnKey(event.sessionId, event.turnId);
+    if (this.openTurns.has(id)) return;
+    const key = itemKey(hit.topic.id, hit.item.id);
+    this.openTurns.set(id, { key, sessionId: event.sessionId });
+    this.core.turnsInHand.set(key, (this.core.turnsInHand.get(key) ?? 0) + 1);
+  }
+
+  /** An item session ended: a turn of it whose end never came is in hand no more. */
+  onSessionExited(sessionId: string): void {
+    for (const [id, open] of [...this.openTurns]) {
+      if (open.sessionId !== sessionId) continue;
+      this.openTurns.delete(id);
+      this.releaseTurn(open.key);
+    }
+  }
+
+  private releaseTurn(key: string): void {
+    const left = (this.core.turnsInHand.get(key) ?? 1) - 1;
+    if (left <= 0) this.core.turnsInHand.delete(key);
+    else this.core.turnsInHand.set(key, left);
+  }
 
   onItemTurn(event: TurnFinished): Promise<void> {
     const hit = this.core.bySession(event.sessionId);
@@ -200,11 +244,13 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       });
     }
     const key = itemKey(topicId, itemId);
-    this.core.turnsInHand.set(key, (this.core.turnsInHand.get(key) ?? 0) + 1);
+    // (in hand since its start, when that was heard; else from now)
+    const started = event.turnId === undefined ? undefined : this.openTurns.get(turnKey(event.sessionId, event.turnId));
+    if (started !== undefined && event.turnId !== undefined) this.openTurns.delete(turnKey(event.sessionId, event.turnId));
+    const counted = started?.key ?? key;
+    if (started === undefined) this.core.turnsInHand.set(key, (this.core.turnsInHand.get(key) ?? 0) + 1);
     return this.core.serialize(`report:${topicId}:${itemId}`, () => this.itemTurn(topicId, itemId, event, turn)).finally(() => {
-      const left = (this.core.turnsInHand.get(key) ?? 1) - 1;
-      if (left <= 0) this.core.turnsInHand.delete(key);
-      else this.core.turnsInHand.set(key, left);
+      this.releaseTurn(counted);
       if (this.core.started && this.core.topic(topicId) !== null) this.core.publish(topicId);
       this.merger?.request();
     });
@@ -327,13 +373,23 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
           const at = this.ctx.clock.now();
           this.core.updateItem(topicId, itemId, (draft) => {
             draft.lastTurn = { outcome: event.outcome === 'interrupted' ? 'interrupted' : 'error', at };
+            // What it edited is in the checkout and in no version: the next completed turn takes the snapshot again
+            // whatever the report file says (0.7.0 review: else the change stayed unmerged and the topic never got to
+            // "ready").
+            if (event.edited.length > 0 && !isDirect(draft)) draft.snapshotOwed = true;
           });
+          // DESIGN 0.7.0 D10 (0.7.0 review): an item that ran in the folder has the unfinished turn's change in the
+          // folder already: it no longer counts as merged, so what depends on it does not start on half of a change.
+          if (isDirect(item)) this.directUnfinished(topicId, itemId, at);
         }
         this.core.publish(topicId);
       }
       return;
     }
-    // A completed turn: no later turn is unfinished any more.
+    // A completed turn: no later turn is unfinished any more. An item that ran in the folder has its version decided
+    // again (DESIGN 0.7.0 D10: the unfinished turn made it count as not merged); an item with a checkout whose
+    // unfinished turn edited files takes its snapshot again (`snapshotOwed`).
+    const afterUnfinished = item.lastTurn !== undefined && isDirect(item);
     if (item.lastTurn !== undefined) {
       this.core.updateItem(topicId, itemId, (draft) => {
         delete draft.lastTurn;
@@ -359,10 +415,11 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // also whenever the item is bringing its work up to date, or its worktree holds a merge parent no snapshot has
       // committed yet.
       const resolved = event.messages.some((message) => message.purpose === 'resolve-conflict') || this.resolving(item);
-      const unchanged = registered !== null && item.snapshotOwed !== true && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved;
+      const unchanged = registered !== null && item.snapshotOwed !== true && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved && !afterUnfinished;
       if (parse.ok && !unchanged) {
-        // checked in THIS turn (DESIGN 0.7.0 D6 row 13): what smurg's merge of this version needs
-        const inTurn = item.checked.some((entry) => entry.sessionId === event.sessionId && entry.hash === file.hash && entry.turn === turn);
+        // checked in THIS turn (DESIGN 0.7.0 D6 row 13), and nothing of the item edited after that check (0.7.0
+        // review: a change made after the check is one no check ran against): what smurg's merge of this version needs
+        const inTurn = item.checked.some((entry) => entry.sessionId === event.sessionId && entry.hash === file.hash && entry.turn === turn) && !this.editedAfterCheck(event, file.hash, path);
         await this.register(topic, item, event.sessionId, file, parse.report, inTurn);
         return;
       }
@@ -421,6 +478,31 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       this.ctx.log.warn('fix-report not sent', { topic: topic.id, item: item.id, error: err instanceof Error ? err.name : 'unknown' });
       this.stall(topic, item, 'agent');
     }
+  }
+
+  /**
+   * Whether the turn edited a file other than the report after `check_report` last answered ok for this content (an
+   * edit's tool card came later). Unknown (no check heard in this daemon's run): yes.
+   */
+  private editedAfterCheck(event: TurnFinished, hash: string, reportPath: string): boolean {
+    const seq = this.checkSeqs.get(checkKey(event.sessionId, hash));
+    if (seq === undefined) return true;
+    return event.edited.some((entry) => entry.seq > seq && entry.file.path !== reportPath);
+  }
+
+  /**
+   * An item that ran directly in the shared folder, a later turn of which did not finish (DESIGN 0.7.0 D10; 0.7.0
+   * review): it does not count as merged any more and is held (`stopped`) for its carers. "Continue" (a completed turn
+   * registers its version again and decides anew), the host's "Accept as it is" or "Leave it out" settle it. While
+   * smurg will continue it by itself (D15) nobody is asked yet.
+   */
+  private directUnfinished(topicId: string, itemId: string, at: number): void {
+    this.core.updateItem(topicId, itemId, (draft) => {
+      draft.merged = false;
+      delete draft.mergedAs;
+    });
+    const after = this.core.item(this.core.need(topicId), itemId);
+    if (after !== null && !autoContinueOwed(after)) this.merger?.store(topicId, itemId, { state: 'held', reason: 'stopped' }, at);
   }
 
   /**
@@ -639,17 +721,20 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   }
 
   /**
-   * After a restart: a session that was mid-turn may have left a report it had checked; it is registered right then.
-   * A check stamped with the turn the restart cut (`turns + 1`: its end never arrived) counts as checked in the turn
-   * that made the version (DESIGN 0.7.0 D6). `cutTurnOnly` (an item that was bringing its work up to date, D8): only a
-   * check of that cut turn counts, and the snapshot is taken again whatever the report file did.
+   * After a restart: a session that was mid-turn may have left a report it had checked; it is registered right then,
+   * never as checked in the turn that made it (0.7.0 review): the turn the stop cut did not finish, and what it did
+   * after its check is in the version too, so the merge queue asks the agent once to check it again (D6 row 13) and only
+   * a turn that completes decides. `cutTurnOnly` (an item that was bringing its work up to date, D8): only a check of
+   * that cut turn (`turns + 1`: its end never arrived) counts, and the snapshot is taken again whatever the report file
+   * did. An item that runs directly in the folder is not registered here: its half-done change is in the folder, it
+   * stays interrupted and its topic paused for the host (0.6.0 D15).
    */
   async checkAfterRestart(topicId: string, itemId: string, options: { readonly cutTurnOnly?: boolean } = {}): Promise<boolean> {
     return this.core.serialize(`report:${topicId}:${itemId}`, async () => {
       const topic = this.core.topic(topicId);
       const item = topic === null ? null : this.core.item(topic, itemId);
       const root = item === null ? null : reportRootOf(item);
-      if (topic === null || item === null || item.sessionId === undefined || root === null) return false;
+      if (topic === null || item === null || item.sessionId === undefined || root === null || isDirect(item)) return false;
       const sessionId = item.sessionId;
       const file = await this.core.readFile(root, topicReportPath(topic.slug, item.id));
       const cutTurn = (item.turns ?? 0) + 1;
@@ -662,7 +747,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       if (!parse.ok) return false;
       // (a snapshot that fails here has left the item stalled or with its earlier version: nothing more to do at the start)
       const before = registered?.version ?? 0;
-      await this.register(topic, item, sessionId, file, parse.report, entry.turn === cutTurn);
+      await this.register(topic, item, sessionId, file, parse.report, false);
       return (this.core.report(topicId, itemId)?.version ?? 0) > before || (registered !== null && !forced);
     });
   }
@@ -734,6 +819,44 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       return;
     }
     this.core.putReport({ ...report, pending: report.pending.filter((entry) => entry.suggestionId !== suggestion.id) });
+  }
+
+  /**
+   * After a restart, an item with a version whose later turn the stop cut (scheduler.ts `noteStop`, or a session the
+   * runtime found mid-turn after a hard death): that turn did not finish (`lastTurn`, `restart`), so the version is held
+   * for its carers (D6 row 6: Continue, "Merge it as it is", Leave it out); an item that ran in the folder no longer
+   * counts as merged (its topic stays paused for the host, D15). Its cut follow-ups get no answer.
+   */
+  cutByStop(topicId: string, itemId: string, at: number, stillWaiting: number): void {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    if (topic === null || item === null || this.core.report(topicId, itemId) === null) return;
+    // (what the cut turn edited is not known: for an item smurg merges, the next completed turn takes the snapshot again,
+    // so that nothing it left stays in the checkout unmerged; the host who merges each item reads the checkout's diff)
+    const retake = this.core.mergingOf(item) === 'auto';
+    this.core.updateItem(topicId, itemId, (draft) => {
+      draft.lastTurn = { outcome: 'interrupted', at, restart: true };
+      if (retake) draft.snapshotOwed = true;
+    });
+    if (isDirect(item)) this.directUnfinished(topicId, itemId, at);
+    this.cutFollowUps(topicId, itemId, stillWaiting);
+  }
+
+  /**
+   * After a restart that cut a turn of the item (0.7.0 review): the follow-ups whose message that turn had taken get no
+   * answer any more (its end never came): they join the report's questions without one, so that nothing waits for them
+   * for ever (D6 row 5). The newest `stillWaiting` messages are still in the session's queue and are kept.
+   */
+  cutFollowUps(topicId: string, itemId: string, stillWaiting: number): void {
+    const report = this.core.report(topicId, itemId);
+    if (report === null) return;
+    const messages = report.pending.filter((entry) => entry.messageId !== undefined);
+    const cut = new Set(messages.slice(0, Math.max(0, messages.length - stillWaiting)));
+    if (cut.size === 0) return;
+    const questions = [...report.questions];
+    for (const entry of cut) if (entry.question !== undefined && !questions.some((question) => question.id === entry.questionId)) questions.push({ id: entry.questionId, ...entry.question });
+    this.core.putReport({ ...report, questions: questions.slice(-REPORT_FOLLOW_UPS_MAX), pending: report.pending.filter((entry) => !cut.has(entry)) });
+    this.core.publishReport(topicId, itemId, this.core.summaryOf(report));
   }
 
   /** The turn that took a follow-up's message ended: its final text is the follow-up's answer. */
@@ -843,9 +966,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       this.core.putReport({ ...report, escalatedAt: now });
       this.core.publishReport(report.topicId, report.itemId, previous);
     }
-    // A decision on a work item escalates too (DESIGN 0.7.0 D9), and a topic whose phase moved quietly is announced.
+    // A decision on a work item escalates too (DESIGN 0.7.0 D9), and a topic whose phase moved quietly is announced;
+    // an item that stopped reaches more people once it has waited (attention.ts: the facts are compared with the clock).
+    this.core.trackPresence();
     this.core.escalateHolds();
     this.core.publishChangedPhases();
+    this.core.publishAttention();
   }
 
   startSweep(): Disposable {
@@ -884,6 +1010,9 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     this.sweepTimer = null;
   }
 }
+
+const checkKey = (sessionId: string, hash: string): string => `${sessionId}\u0000${hash}`;
+const turnKey = (sessionId: string, turnId: string): string => `${sessionId}\u0000${turnId}`;
 
 /** Where an item's report is read: its worktree, or the shared folder itself for an item that runs there (DESIGN 0.6.0 D15). */
 function reportRootOf(item: StoredItem): RootRef | null {

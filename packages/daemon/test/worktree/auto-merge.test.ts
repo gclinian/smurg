@@ -450,6 +450,29 @@ withGit('between the trial and the merge, and after a crash', { timeout: 60_000 
     expect(s.manager.pendingMergeParent(item.worktreeId)).toBeNull();
     expect(s.manager.pendingMergeParent('wt_000000000000000000000000')).toBeNull();
   });
+
+  it('0.7.0 review: the merge queue\'s own update finds a person\'s change of a conflicted file made since the trial: nothing is merged into the checkout, and who is named', async () => {
+    const s = await folderStack();
+    const pin = await folderPin(s);
+    const host = hostRef(s);
+    const a = await itemDraft(s, 'item-a', (dir) => writeFile(join(dir, 'config.txt'), 'title: Shop\nprice: 12\nfooter: (c) 2026\n'));
+    const b = await itemDraft(s, 'item-b', (dir) => writeFile(join(dir, 'config.txt'), 'title: Shop\nprice: 14\nfooter: (c) 2026\n'));
+    expect(await autoMerge(s, a.request.id, pin)).toMatchObject({ kind: 'merged' });
+    expect(await autoMerge(s, b.request.id, pin)).toMatchObject({ kind: 'conflict', paths: ['config.txt'], people: [] });
+    // Between the trial and the queue's update, a person commits a change of that line.
+    await writeFile(join(share(s), 'config.txt'), 'title: Shop\nprice: 15 (agreed with the client)\nfooter: (c) 2026\n');
+    await s.git(['commit', '-qam', 'the price', `--author=${host.displayName} <dev-host@users.smurg.invalid>`]);
+    const update = await s.manager.updateFromMain(b.worktreeId, { people: true });
+    expect(update).toMatchObject({ conflicted: ['config.txt'], people: [{ path: 'config.txt', by: [host], outside: false }] });
+    // The checkout is as it was: no markers, no merge parent (whose lines stay is a person's decision).
+    expect(await readFile(join(b.dir, 'config.txt'), 'utf8')).toBe('title: Shop\nprice: 14\nfooter: (c) 2026\n');
+    expect(s.manager.pendingMergeParent(b.worktreeId)).toBeNull();
+    // A person's own "Ask the agent to resolve" (no `people`) brings it up to date as before.
+    const asked = await s.manager.updateFromMain(b.worktreeId);
+    expect(asked.people).toBeUndefined();
+    expect(asked.conflicted).toEqual(['config.txt']);
+    expect(s.manager.pendingMergeParent(b.worktreeId)).toBe(asked.mergeParent);
+  });
 });
 
 withGit('an automatic merge in smurg\'s own history', { timeout: 60_000 }, () => {
@@ -504,6 +527,23 @@ withGit('an automatic merge in smurg\'s own history', { timeout: 60_000 }, () =>
     const other = await itemDraft(s, 'title', (dir) => writeFile(join(dir, 'notes.txt'), 'one (item)\ntwo\nthree\n'));
     await writeFile(join(share(s), 'notes.txt'), 'one (an editor outside smurg)\ntwo\nthree\n');
     expect(await autoMerge(s, other.request.id, pin)).toMatchObject({ kind: 'conflict', people: [{ path: 'notes.txt', by: [], outside: true }] });
+  });
+
+  it('0.7.0 review: a person saves a change of a conflicted file after the trial (R-SAFE\'s setup): the merge queue\'s update names them, and the checkout stays as it was', async () => {
+    const s = await hiddenStack();
+    await s.connect('dev:bo', 'editor');
+    const a = await itemDraft(s, 'item-a', (dir) => writeFile(join(dir, 'config.txt'), 'title: Shop\nprice: 12\nfooter: (c) 2026\n'));
+    const b = await itemDraft(s, 'item-b', (dir) => writeFile(join(dir, 'config.txt'), 'title: Shop\nprice: 14\nfooter: (c) 2026\n'));
+    const pin = { commit: (await hiddenGit(s, 'rev-parse', 'HEAD')).trim() };
+    expect(await autoMerge(s, a.request.id, pin)).toMatchObject({ kind: 'merged' });
+    expect(await autoMerge(s, b.request.id, pin)).toMatchObject({ kind: 'conflict', paths: ['config.txt'], people: [] });
+    await writeFile(join(share(s), 'config.txt'), 'title: Shop\nprice: 15 (Bo: agreed with the client)\nfooter: (c) 2026\n');
+    const bo = { userId: 'dev:bo', displayName: 'Bo' };
+    s.t.ctx.services.activity.record({ actor: { kind: 'user', ...bo }, kind: 'human.edit', file: { root: MAIN_ROOT, path: 'config.txt' }, text: msg('activity.humanEdit', { name: 'Bo', path: 'config.txt' }) });
+    const update = await s.manager.updateFromMain(b.worktreeId, { people: true });
+    expect(update).toMatchObject({ conflicted: ['config.txt'], people: [{ path: 'config.txt', by: [bo], outside: false }] });
+    expect(await readFile(join(b.dir, 'config.txt'), 'utf8')).toBe('title: Shop\nprice: 14\nfooter: (c) 2026\n');
+    expect(s.manager.pendingMergeParent(b.worktreeId)).toBeNull();
   });
 
   it('the base its review recorded moved: held for the host (smurg\'s own history changed), nothing merged', async () => {

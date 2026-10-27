@@ -146,20 +146,20 @@ describe('the release composition: a work item whose process died before the hos
     expect(await flow.killProcessOf(sessionId)).toBe(1);
     await statusIs(flow.leo, sessionId, 'failed');
     await planIs(flow.leo, topicId, (plan) => cart(plan)?.state === 'failed', 'the failed item');
-    await inboxItem(flow.mei, (item) => item.kind === 'attention' && item.subject === 'item-failed', 'the failed item');
+    // (0.7.0 review: smurg starts a crashed item's process again once by itself, a minute later (DESIGN 0.7.0 D15), so
+    // nobody's inbox asks for it meanwhile; the plan says it failed, and "Try again" is there)
+    expect((await flow.mei.inbox()).some((item) => item.kind === 'attention' && item.subject === 'item-failed')).toBe(false);
     await flow.restart();
     const { mei, leo } = flow;
 
     // ---- afterwards the session is merely idle (nothing restarts by itself); the item still says what happened
     expect((await leo.conn.request('session.list', { topicId })).sessions.find((session) => session.id === sessionId)).toMatchObject({ status: 'idle' });
     expect(cart((await leo.conn.request('plan.get', { topicId })).plan ?? undefined)).toMatchObject({ state: 'failed', sessionId, attempt: 1 });
-    const failedItem = await inboxItem(mei, (item) => item.kind === 'attention' && item.subject === 'item-failed', 'the failed item, after the restart');
-    expect(failedItem).toMatchObject({ waiting: true, topicId, itemId: 'cart-api', sessionId });
+    expect((await mei.inbox()).some((item) => item.kind === 'attention' && item.subject === 'item-failed')).toBe(false);
     // Renaming the topic relabels the item's session: an update of a session that works on nothing.
     await mei.conn.request('topic.rename', { topicId, name: 'Checkout redesign' });
     await waitFor(async () => (await leo.conn.request('session.list', { topicId })).sessions.some((session) => session.id === sessionId && session.kind === 'agent' && session.topicName === 'Checkout redesign'), { what: 'the renamed session' });
     expect(cart((await leo.conn.request('plan.get', { topicId })).plan ?? undefined)).toMatchObject({ state: 'failed' });
-    expect((await mei.inbox()).some((item) => item.key === failedItem.key)).toBe(true);
 
     // ---- "Try again", pressed in the session's own column (`session.retry`; for a work item it is the plan's
     // `plan.item.retry`): accepted, the same session and attempt, and the agent is told to go on
@@ -169,7 +169,6 @@ describe('the release composition: a work item whose process died before the hos
     expect(cart(await planIs(leo, topicId, (plan) => cart(plan)?.state !== 'failed', 'the item going on'))).toMatchObject({ sessionId, attempt: 1 });
     await planIs(leo, topicId, (plan) => cart(plan)?.state === 'done', 'the item done');
     expect((await told(flow, sessionId)).at(-1)?.replace(/^\[smurg [a-z0-9]{4}\]\n/, '')).toBe('Continue the work item where you stopped. Finish with the result report.');
-    await inboxWithout(mei, (item) => item.key === failedItem.key, 'the item that went on');
     expect((await audited(flow, 'plan.item.retry')).map((entry) => entry.detail)).toMatchObject([{ topicId, itemId: 'cart-api', was: 'failed', attempt: 1 }]);
     // The process was started by the message, not by a "retry" of a session that had not failed.
     expect(await audited(flow, 'session.retry')).toEqual([]);

@@ -17,6 +17,8 @@ export const zhTW = {
   'inbox.preview.open': '開啟',
   'inbox.announce': '收件夾有新項目，agent 在等：{title}。{where}',
   'inbox.toast': 'agent 在等：{title}',
+  'inbox.announce.decision': '收件夾有新項目，等你決定：{title}。{where}',
+  'inbox.toast.decision': '等你決定：{title}',
   'inbox.toast.open': '開啟',
 
   'where.topic': '{topic} › {session}',

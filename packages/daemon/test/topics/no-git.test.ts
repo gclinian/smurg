@@ -297,20 +297,23 @@ withGit('an item starts only in the history its Start used (DESIGN 0.6.0 D15)', 
 });
 
 describe('without a usable git program, an unfinished report no longer lets what depends on it start (DESIGN 0.7.0 D10)', { timeout: 240_000 }, () => {
-  /** A stack whose git is too old, a plan of two items (the second depends on the first), started by the host. */
-  async function directPlan(turns: { match?: string; steps: FakeClaudeStep[] }[]): Promise<{ s: Stack; topicId: string }> {
+  /** A stack whose git is too old, a plan of two items (the second depends on the first) or of these, started by the host. */
+  async function directPlan(
+    turns: { match?: string; once?: boolean; steps: FakeClaudeStep[] }[],
+    items: readonly { id: string; dependsOn?: string[] }[] = [{ id: 'cart-api' }, { id: 'checkout-page', dependsOn: ['cart-api'] }],
+  ): Promise<{ s: Stack; topicId: string; oldGit: string }> {
     const bin = await createTempDir('no-git-old');
     cleanups.push(() => removeTempDir(bin));
     const oldGit = join(bin, 'git');
     await writeFile(oldGit, '#!/bin/sh\nif [ "$1" = version ]; then echo "git version 2.39.5"; exit 0; fi\nexit 1\n', { mode: 0o755 });
     const s = await startStack({ git: false, gitPath: oldGit });
     await s.claude.setScenario({ turns: [...turns, { steps: [{ text: 'ok' }] }] });
-    const topicId = await topicWithPlan(s, [{ id: 'cart-api' }, { id: 'checkout-page', dependsOn: ['cart-api'] }]);
+    const topicId = await topicWithPlan(s, items);
     await s.ian.conn.request('plan.assign', { topicId, itemId: 'cart-api', userId: TEST_HOST_USER });
     const { preflight } = await s.ian.conn.request('plan.preflight', { topicId });
     expect(preflight.history).toBe('direct');
     await s.ian.conn.request('plan.start', { topicId, planRevision: preflight.planRevision, specHash: preflight.specHash, planHash: preflight.planHash, direct: true });
-    return { s, topicId };
+    return { s, topicId, oldGit };
   }
   const partial: FakeClaudeStep[] = [
     { tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } },
@@ -342,6 +345,65 @@ describe('without a usable git program, an unfinished report no longer lets what
     await planIs(s, topicId, (next) => next.items[1]?.state === 'done', 'the dependent item to run');
     expect(itemOf(s, topicId, 'checkout-page')?.autoMerge).toBeUndefined();
     expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(2);
+  });
+
+  it('0.7.0 review: a later turn of an item that counts as merged is stopped half-way: it counts as merged no more, its carers decide, and what depends on it does not start on half of a change', async () => {
+    const { s, topicId } = await directPlan(
+      [
+        { match: 'Start work item 1 ', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } }, ...handIn('cart-api')] },
+        { match: 'Start work item 2 ', steps: [{ sleep: 3_000 }, { tool: 'Write', input: { file_path: 'src/pay.ts', content: 'export const pay = 1;\n' } }, ...handIn('payment-form')] },
+        { match: 'Start work item 3 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'import { cart } from "./cart";\n' } }, ...handIn('checkout-page')] },
+        { match: 'rename cart to basket', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: '// half-way through renaming cart to basket\nexport const bas\n' } }, { sleep: 60_000 }, { text: 'never' }] },
+      ],
+      [{ id: 'cart-api' }, { id: 'payment-form' }, { id: 'checkout-page', dependsOn: ['cart-api', 'payment-form'] }],
+    );
+    await planIs(s, topicId, (plan) => plan.items[0]?.state === 'done' && plan.items[1]?.state === 'running', 'item 1 done, item 2 running');
+    expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(1);
+    const sessionOne = itemOf(s, topicId, 'cart-api')?.sessionId as string;
+    await s.ian.conn.request('session.message.send', { sessionId: sessionOne, text: 'Please rename cart to basket everywhere.' });
+    // (the later turn waits for the folder while item 2 works, and takes it before item 3 may start)
+    await waitFor(async () => (await readFile(join(s.root, 'src', 'cart.ts'), 'utf8').catch(() => '')).includes('half-way'), { timeoutMs: 60_000, what: 'item 1\'s later turn to write' });
+    await s.ian.conn.request('session.interrupt', { sessionId: sessionOne });
+    const held = await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held', 'item 1 to be held');
+    expect(held.items[0]?.autoMerge).toMatchObject({ state: 'held', reason: 'stopped', hostOnly: false });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(itemOf(s, topicId, 'checkout-page')).toMatchObject({ state: 'waiting', waitsFor: ['cart-api'] });
+    expect(await exists(join(s.root, 'src', 'page.ts'))).toBe(false);
+    // The host looks at the folder and accepts it as it is: item 3 starts.
+    await s.ian.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 1 });
+    await planIs(s, topicId, (plan) => plan.items[2]?.state === 'done', 'item 3 to run');
+  });
+
+  it('0.7.0 review: smurg host stops while an item works on after its check_report: nothing of it counts as merged, its topic is paused for the host, and what depends on it waits', async () => {
+    const { s, topicId, oldGit } = await directPlan([
+      {
+        match: 'Start work item 1 ',
+        once: true,
+        steps: [
+          { tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } },
+          { tool: 'Write', input: { file_path: topicReportPath(SLUG, 'cart-api'), content: reportText('cart-api') } },
+          { tool: 'mcp__smurg__check_report', input: {} },
+          { tool: 'Write', input: { file_path: 'src/cart.ts', content: '// half of a rewrite after the report\nexport const ca\n' } },
+          { sleep: 60_000 },
+          { text: 'never' },
+        ],
+      },
+      { match: 'You changed files after your report was last checked', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 2;\n' } }, ...handIn('cart-api', 'The rewrite.')] },
+      { match: 'Start work item 2 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'export const page = 1;\n' } }, ...handIn('checkout-page')] },
+    ]);
+    await waitFor(async () => (await readFile(join(s.root, 'src', 'cart.ts'), 'utf8').catch(() => '')).includes('half of a rewrite'), { timeoutMs: 30_000, what: 'item 1 to write after its check' });
+    await s.restart(oldGit);
+    const after = await planIs(s, topicId, (plan) => plan.items[0]?.state === 'stalled', 'item 1 to be interrupted');
+    expect(after).toMatchObject({ paused: true });
+    expect(after.items[0]).toMatchObject({ stalledBy: 'restart' });
+    expect(after.items[0]?.report).toBeUndefined();
+    expect(after.items[1]).toMatchObject({ state: 'waiting', waitsFor: ['cart-api'] });
+    expect(s.d.ctx.services.topics.get(topicId)?.plan.merged).toBe(0);
+    // "Continue all": the agent goes on; its report was checked in the turn the stop cut, so it is asked once to check
+    // it again, and only then does what depends on it start.
+    await s.ian.conn.request('plan.resume', { topicId });
+    await planIs(s, topicId, (plan) => plan.items[1]?.state === 'done', 'item 2 to run after item 1 counts as merged');
+    expect(await readFile(join(s.root, 'src', 'cart.ts'), 'utf8')).toBe('export const cart = 2;\n');
   });
 
   it('"Continue": the agent finishes the work, and the complete version counts as merged by itself', async () => {

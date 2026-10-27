@@ -66,7 +66,9 @@ import { EMPTY_HASH } from './text.ts';
 
 /** What the scheduler needs of the report service (reports are checked once when smurg starts; reviewers follow who is responsible). */
 export interface SchedulerReports {
-  checkAfterRestart(topicId: string, itemId: string): Promise<boolean>;
+  checkAfterRestart(topicId: string, itemId: string, options?: { readonly cutTurnOnly?: boolean }): Promise<boolean>;
+  /** A later turn of an item with a version was cut by the stop of the host's smurg (0.7.0 review): held, its follow-ups unanswered. */
+  cutByStop(topicId: string, itemId: string, at: number, stillWaiting: number): void;
   refreshReviewers(): void;
   isReviewed(topicId: string, itemId: string): boolean;
   hasReport(topicId: string, itemId: string): boolean;
@@ -206,6 +208,8 @@ export class Scheduler {
           state = await worktrees.historyState(history).catch(() => 'unknown' as const);
           states.set(history, state);
         }
+        // (a daemon that stops answers nothing true: what it says is not a reason to disarm, 0.7.0 review)
+        if (this.ctx.stopping.aborted) return;
         if (state === 'changed') this.disarm(topicId, item.id, 'start-failed', historyChanged());
       }
     }
@@ -219,6 +223,10 @@ export class Scheduler {
       const specPath = topicSpecPath(listed.slug);
       const planPath = topicPlanPath(listed.slug);
       const [spec, plan] = await Promise.all([this.core.readFile(MAIN_ROOT, specPath), this.core.readFile(MAIN_ROOT, planPath)]);
+      // A daemon that is stopping reads nothing true (headBlobs answers null for everything): an armed item is never
+      // disarmed for it, "The spec or the plan changed" would be false and the item would not start after the restart
+      // (0.7.0 review). The next start checks it again.
+      if (this.ctx.stopping.aborted) return;
       const heads = new Map<string, Record<string, string | null> | null>();
       for (const item of pinned) {
         const pin = item.pin;
@@ -226,6 +234,7 @@ export class Scheduler {
         let head: Record<string, string | null> | null = null;
         if (history !== 'direct') {
           if (!heads.has(history)) heads.set(history, await worktrees.headBlobs([specPath, planPath], { history }).catch(() => null));
+          if (this.ctx.stopping.aborted) return;
           head = heads.get(history) ?? null;
         }
         const asPinned =
@@ -259,8 +268,10 @@ export class Scheduler {
   private async startItem(topicId: string, itemId: string): Promise<void> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
-    // (an item a person is leaving out right now is not started: DESIGN 0.7.0 D11; nor one an undo claims: D14)
-    if (topic === null || item === null || !item.armed || item.leftOut !== undefined || this.core.claimed.has(itemKey(topicId, itemId))) return;
+    // (an item a person is leaving out right now is not started: DESIGN 0.7.0 D11; nor one an undo claims: D14; nor one
+    // whose dependency counts as merged no more since this pass looked, a later turn of an item in the folder that did
+    // not finish: D10)
+    if (topic === null || item === null || !item.armed || item.leftOut !== undefined || this.core.claimed.has(itemKey(topicId, itemId)) || this.core.unmergedDependencies(topic, item).length > 0) return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     // The session is opened as the member who pressed Start (or "Try again"): they must still be allowed to.
@@ -786,13 +797,41 @@ export class Scheduler {
   }
 
   /**
+   * The topics module stops (0.7.0 review): an item with a registered version whose session is in a turn now (a
+   * person's message, a follow-up, Continue) has that turn cut by the stop, and its end is not looked at. It is marked
+   * here, before the records are flushed: after the start it is held (`stopped`, D6 row 6) for its carers, and its
+   * version does not merge as if nobody had asked anything. (An item without a version is `running`, and one whose agent
+   * resolves is taken up by the merge queue: `afterRestart` and `takeUp` look at those.)
+   */
+  noteStop(): void {
+    if (!this.core.started) return;
+    const agents = this.ctx.services.agents;
+    if (isStubService(agents)) return;
+    const now = this.ctx.clock.now();
+    for (const topic of this.core.topics()) {
+      if (topic.archived) continue;
+      const cut = topic.items.filter((item) => (item.state === 'done' || item.state === 'reviewed') && item.sessionId !== undefined && item.autoMerge?.state !== 'resolving' && IN_A_TURN.has(agents.get(item.sessionId)?.status ?? ''));
+      if (cut.length === 0) continue;
+      const ids = new Set(cut.map((item) => item.id));
+      this.core.update(topic.id, (draft) => {
+        for (const item of draft.items) if (ids.has(item.id)) item.lastTurn = { outcome: 'interrupted', at: now, restart: true };
+      });
+    }
+  }
+
+  /**
    * After a restart of the host's smurg (DESIGN 0.7.0 D15; until 0.6.0 every plan with armed or interrupted items was
    * paused here). Sessions that were mid-turn are `stalled` (`restart`), unless the report the agent had checked is
-   * there (it is registered right then). Then the one rule of every start: a plan is paused when a person paused it
-   * (`pausedBy`) or when an item of it that runs directly in the shared folder was interrupted and nobody continued it
-   * yet (its half-done change is in the folder, which has no history: the host looks first); any other pause is lifted
-   * (0.6.0's after a restart). The history and pin checks of what is armed run now, before anything starts, and what
-   * goes on is known (`atStart`): nothing of it is done before `goOn()`.
+   * there (it is registered right then, as not checked in its turn: the merge queue asks the agent once to check it
+   * again). An item that runs directly in the folder is not registered: it stays interrupted. An item whose agent was
+   * resolving gets the report it checked in the cut turn registered the same way (D8). An item with a version whose
+   * later turn the stop cut (marked by `noteStop`, or a session the runtime found mid-turn after a hard death) is held
+   * for its carers (0.7.0 review). A cut turn is counted then, so that its checks are never taken for those of the
+   * turn that comes next. Then the one rule of every start: a plan is paused when a person paused it (`pausedBy`) or
+   * when an item of it that runs directly in the shared folder was interrupted and nobody continued it yet (its
+   * half-done change is in the folder, which has no history: the host looks first); any other pause is lifted (0.6.0's
+   * after a restart). The history and pin checks of what is armed run now, before anything starts, and what goes on is
+   * known (`atStart`): nothing of it is done before `goOn()`.
    */
   async afterRestart(): Promise<void> {
     const agents = this.ctx.services.agents;
@@ -801,22 +840,42 @@ export class Scheduler {
     const now = this.ctx.clock.now();
     for (const listed of this.core.topics()) {
       if (listed.archived) continue;
-      for (const item of listed.items) {
-        if (item.state !== 'running' || item.sessionId === undefined) continue;
-        const registered = (await this.reports?.checkAfterRestart(listed.id, item.id).catch(() => false)) ?? false;
-        if (registered) continue;
-        this.core.setItemState(listed.id, item.id, 'stalled', 'restart');
-        if (!isStubService(agents)) {
-          try {
-            agents.setItemState(item.sessionId, { reportRegistered: false, stalled: 'restart' });
-          } catch (err) {
-            this.ctx.log.debug('item state not set on the session', { session: item.sessionId, error: err instanceof Error ? err.name : 'unknown' });
+      for (const stored of listed.items) {
+        const item = this.core.item(this.core.need(listed.id), stored.id);
+        if (item === null || item.sessionId === undefined) continue;
+        const sessionId = item.sessionId;
+        const session = isStubService(agents) ? null : agents.get(sessionId);
+        if (item.state === 'running') {
+          const registered = (await this.reports?.checkAfterRestart(listed.id, item.id).catch(() => false)) ?? false;
+          if (!registered) {
+            this.core.setItemState(listed.id, item.id, 'stalled', 'restart');
+            if (!isStubService(agents)) {
+              try {
+                agents.setItemState(sessionId, { reportRegistered: false, stalled: 'restart' });
+              } catch (err) {
+                this.ctx.log.debug('item state not set on the session', { session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
+              }
+            }
           }
+        } else if (item.autoMerge?.state === 'resolving' && item.autoMerge.reason !== 'stale-report' && this.core.mergingOf(item) === 'auto') {
+          // The report its agent checked in the turn the restart cut (D8): registered now; the merge queue takes up the rest at `goOn`.
+          await this.reports?.checkAfterRestart(listed.id, item.id, { cutTurnOnly: true }).catch(() => false);
+        } else if ((item.state === 'done' || item.state === 'reviewed') && item.autoMerge?.state !== 'resolving' && (item.lastTurn?.restart === true || session?.status === 'stalled')) {
+          // (a session the runtime found mid-turn after a hard death says `stalled`; its item has a version: say so)
+          if (session?.status === 'stalled') {
+            try {
+              agents.setItemState(sessionId, { reportRegistered: true });
+            } catch (err) {
+              this.ctx.log.debug('item state not set on the session', { session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
+            }
+          }
+          this.reports?.cutByStop(listed.id, item.id, item.lastTurn?.at ?? now, isStubService(agents) ? 0 : (agents.facts(sessionId)?.pendingMessages ?? 0));
         }
+        this.countCutTurn(listed.id, item.id);
       }
       const topic = this.core.topic(listed.id);
       if (topic === null) continue;
-      const keep = topic.plan.pausedBy !== undefined || topic.items.some((item) => isDirect(item) && item.state === 'stalled' && item.stalledBy === 'restart');
+      const keep = topic.plan.pausedBy !== undefined || topic.items.some((item) => isDirect(item) && ((item.state === 'stalled' && item.stalledBy === 'restart') || item.lastTurn?.restart === true));
       if (keep && !topic.plan.paused) {
         this.core.update(topic.id, (draft) => {
           draft.plan.paused = true;
@@ -836,6 +895,22 @@ export class Scheduler {
       await this.checkArmed(topic.id).catch((err: unknown) => this.ctx.log.error('armed items not checked at the start', { topic: topic.id, error: err instanceof Error ? err.name : 'unknown' }));
     }
     this.found = this.lookAtStart();
+  }
+
+  /**
+   * A turn of the item's session whose end never arrived (the stop cut it, or the daemon died) and in which
+   * `check_report` answered (`checked[].turn === turns + 1`) is counted now: the next turn that ends is the one after
+   * it, and a check of the cut turn is never one "of the turn that made the version" (0.7.0 review).
+   */
+  private countCutTurn(topicId: string, itemId: string): void {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    if (item === null || item.sessionId === undefined) return;
+    const cut = (item.turns ?? 0) + 1;
+    if (!item.checked.some((entry) => entry.sessionId === item.sessionId && entry.turn === cut)) return;
+    this.core.updateItem(topicId, itemId, (draft) => {
+      draft.turns = cut;
+    });
   }
 
   /** What this start found (DESIGN 0.7.0 D18), as `afterRestart` left it: `smurg host` prints it before `goOn()`. */

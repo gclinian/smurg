@@ -22,7 +22,8 @@
 // 0.7.0 (DESIGN 0.7.0 D5): a third check line, `- [!] <what>: failed: <what happened>`, still format v1 (every report
 // of 0.6.0 parses to the same result as before). A report whose outcome is `complete` and that lists a failed check is
 // refused at the outcome line (`outcome-failed`): "complete and verified" is a complete outcome, at least one check that
-// passed and none that failed, and smurg merges by itself only what its report says is that.
+// passed and none that failed, and smurg merges by itself only what its report says is that. A ticked box whose words
+// say the check failed or was not verified (`- [x] pnpm test: failed: …`) is refused at its line (`verified-ticked`).
 import { ITEM_ID_PATTERN, REPORT_CHECKS_MAX, REPORT_CHECK_TEXT_MAX_CHARS, REPORT_SECTION_MAX_BYTES, mask, type ReportOutcome } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import { utf8Bytes, wireLarge, wireMultiline } from './text.ts';
@@ -48,6 +49,7 @@ export type ReportErrorKind =
   | 'verified-why'
   | 'verified-failed-why'
   | 'verified-too-many'
+  | 'verified-ticked'
   | 'outcome-failed';
 
 export interface ReportError {
@@ -96,6 +98,7 @@ export const REPORT_ERROR_SENTENCES: Readonly<Record<ReportErrorKind, string>> =
   'verified-why': 'A check that did not pass is written "- [ ] <what>: not verified: <why>" and must say why.',
   'verified-failed-why': 'A check that failed is written "- [!] <what>: failed: <what happened>" and must say what happened.',
   'verified-too-many': `Under "How it was verified" list at most ${REPORT_CHECKS_MAX} checks.`,
+  'verified-ticked': 'A ticked box "- [x]" is a check that passed. A check that failed is written "- [!] <what>: failed: <what happened>", one that did not run "- [ ] <what>: not verified: <why>".',
   'outcome-failed': 'A report with a failed check is not complete: set the outcome line to partial, or make the check pass and mark it "- [x]".',
 });
 
@@ -275,6 +278,12 @@ export function parseReport(source: string, itemId: string): ReportParse {
         return;
       }
       if (check[1] !== ' ') {
+        // A ticked box whose own words say the check failed or did not run (`- [x] pnpm test: failed: …`) is no check
+        // that passed: the agent writes the line it means (0.7.0 review; smurg merges by itself on a passed check).
+        if (lineMatch(FAILED, body) !== null || lineMatch(NOT_VERIFIED, body) !== null) {
+          errors.push(error('verified-ticked', lineNo));
+          return;
+        }
         verified.push({ text: wireMultiline(body, REPORT_CHECK_TEXT_MAX_CHARS), passed: true });
         return;
       }
@@ -287,7 +296,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
       }
       verified.push({ text: wireMultiline(what, REPORT_CHECK_TEXT_MAX_CHARS), passed: false, note: wireMultiline(whyNot, REPORT_CHECK_TEXT_MAX_CHARS) });
     });
-    if (verified.length === 0 && !errors.some((entry) => entry.kind === 'verified-why' || entry.kind === 'verified-failed-why')) errors.push(error('verified-none', verifiedSection.line));
+    if (verified.length === 0 && !errors.some((entry) => entry.kind === 'verified-why' || entry.kind === 'verified-failed-why' || entry.kind === 'verified-ticked')) errors.push(error('verified-none', verifiedSection.line));
     if (verified.length > REPORT_CHECKS_MAX) errors.push(error('verified-too-many', verifiedSection.line));
   }
   // A failed check and a complete outcome cannot both stand: the outcome line is what the agent fixes.

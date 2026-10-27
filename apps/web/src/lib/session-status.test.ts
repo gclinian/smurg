@@ -58,7 +58,8 @@ describe('session status', () => {
   });
 
   it('amber and red mean a person must act', () => {
-    expect(GLYPH_STATUSES.filter(waitsForPerson)).toEqual(['question', 'permission', 'stalled', 'failed']);
+    // (0.7.0 review: an item held for a decision is amber in the session list and its "Waiting" filter)
+    expect(GLYPH_STATUSES.filter(waitsForPerson)).toEqual(['question', 'permission', 'stalled', 'decision', 'failed']);
     expect(waitsForPerson(null)).toBe(false);
   });
 

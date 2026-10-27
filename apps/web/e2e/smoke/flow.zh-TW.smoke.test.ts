@@ -297,7 +297,8 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await expect.poll(() => secondMerging.locator('option:checked').textContent(), { timeout: STEP_MS }).toBe('每個項目都由主人合併');
     await secondMerging.selectOption('auto');
     await second.getByText(/^項目的報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替主人把它合併到主工作區/).waitFor({ timeout: STEP_MS });
-    await second.getByText(/^所有項目都合併之後，每位成員的收件夾都會顯示主題待驗收/).waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    await second.getByText(/^所有項目都合併、略過或復原之後，每位成員的收件夾都會顯示主題待驗收/).waitFor({ timeout: STEP_MS });
     await stop('start-dialog-auto');
     await second.getByRole('button', { name: '開始', exact: true }).click();
     await second.waitFor({ state: 'detached', timeout: STEP_MS });
@@ -312,7 +313,8 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
 
     // ---- Its report says complete and verified: smurg merges it, nobody presses review or merge. Every item is merged:
     // the topic is ready to check, everyone is told (DESIGN 0.7.0 D13).
-    const ready = host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都合併了，待驗收。` }).first().waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    const ready = host.locator('.ui-toast__title', { hasText: `${TOPIC}：所有項目都已合併、略過或復原，待驗收。` }).first().waitFor({ timeout: STEP_MS });
     await waitUntil(async () => (await readFile(join(env.stack.root, 'src', 'checkout', 'page.ts'), 'utf8').catch(() => '')).includes('page'), STEP_MS, "item 2's change in the main workspace, merged by smurg");
     const gitHome = await mkdtemp(join(process.env['TMPDIR'] as string, 'flow-zh-git-'));
     const { stdout: lastCommit } = await promisify(execFile)('git', ['log', '-1', '--format=%cn%n%B'], { cwd: env.stack.root, env: isolatedGitEnv(gitHome) });
@@ -331,7 +333,8 @@ describe.skipIf(chrome === null)('the flow in Traditional Chinese, in real brows
     await inbox(host, 'ready').locator('.inbox-item__main').click();
     const result = column(host, 'result:');
     await result.getByText('2 項中 2 項已合併 · 2 項通過 · 0 項失敗 · 0 項未驗證').waitFor({ timeout: STEP_MS });
-    for (const heading of ['通過', '各項目合起來的變更', '工作項目']) await result.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: the Result shows each item's own change, not one combined one)
+    for (const heading of ['通過', '各項目改了什麼', '工作項目']) await result.getByRole('heading', { name: heading }).waitFor({ timeout: STEP_MS });
     await stop('result');
     const checked = host.locator('.ui-toast__title', { hasText: `${TOPIC}：成果已驗收，主題完成。` }).first().waitFor({ timeout: STEP_MS });
     await result.getByRole('button', { name: '我已驗收' }).click();

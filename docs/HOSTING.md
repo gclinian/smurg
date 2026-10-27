@@ -781,7 +781,8 @@ before everything has stopped).
 commands started and left running (a dev server, a watcher) is ended as well, their conversations are kept, and
 smurg says how many there are, for example
 `3 agent sessions are paused. They continue when you share this folder again.` It also says how many topics will go
-on by themselves at the next start; to keep one stopped, press "Pause" in its plan first (§10.5). When you share the
+on by themselves at the next start; to keep one stopped, press "Pause" in its plan before you stop `smurg host`
+(§10.5). When you share the
 folder again, every conversation is readable, and plans go on by themselves after `smurg host` has said which: the
 work items that were interrupted are told to continue, and the ones that were waiting start when they may. A plan
 that a person paused stays paused until you or a member with agent access presses "Continue all", and so does one
@@ -1422,7 +1423,9 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
   touching the folder: the items built on it go with it, and so do later merges of the same lines (of any topic,
   named with their topic, whose sessions end too); a dependent that is running, a person's later change on the same
   lines (named), someone typing, uncommitted edits in a touched file, something staged, git busy or another branch
-  keep it from running. Then one new commit takes the change back out, as you; the reports and conversations stay,
+  keep it from running, and so does an undone item's checkout that holds changes no merge carried (a member's saved
+  edit there, a later turn of its agent): the undo would delete them, so they are merged first, or you remove that
+  checkout on purpose. Then one new commit takes the change back out, as you; the reports and conversations stay,
   and an undone item can be started again. In smurg's own history the folder is recorded first, so nobody's saved
   edit is taken back. What undo cannot take back: what the agents' commands did outside this folder (other folders,
   installed tools, services they called), and a branch you pushed keeps the merge until you push the undo too. To
@@ -1502,14 +1505,19 @@ themselves:
 - **When it stops** (Ctrl-C, or `smurg stop`), it says how many topics will go on at the next start:
 
 ```text
-When smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.
+When smurg host starts again, 2 topics go on by themselves. To keep a plan stopped, press Pause in it before you stop smurg host.
 ```
 
 - **"Pause"** in a plan (you and the members with agent access) is the brake that stays across restarts: nothing new
   starts, nothing merges and nothing continues by itself until someone presses "Continue all". Turns that run
-  finish, and so does a merge already under way; to stop an agent that is working, stop its session. If you stopped
-  `smurg host` because an agent misbehaved, pause its plan before you start again: the turns that go on run with
-  nobody watching (§10.3).
+  finish, and so does a merge already under way; to stop an agent that is working, stop its session. If you stop
+  `smurg host` because an agent misbehaves, pause its plan first, while `smurg host` still runs: while it is stopped
+  nobody can pause anything (the web app shows Pause and "Continue all" turned off), and at the next start the turns
+  that go on run with nobody watching (§10.3).
+- **A later turn of a work item whose report was in** (a person's message to its agent, a follow-up) that the stop cut
+  is not told to continue: what it was asked is not known after the start. The item waits for its responsible
+  person's decision ("its last turn did not finish": Continue, "Merge it as it is" or "Leave it out"), and nothing of
+  it merges until then.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view
@@ -1518,7 +1526,9 @@ When smurg host starts again, 2 topics go on by themselves; to keep one stopped,
 - smurg also goes on by itself after other interruptions, each a bounded number of times: when your usage limit has
   reset, after a turn that ended on an error (twice: a minute and five minutes later), after an agent's process
   stopped (once, a minute later), and after it could not record an item's changes (once). Never for an item a person
-  stopped, nor while the plan is paused or Claude Code is logged out.
+  stopped, nor while the plan is paused or Claude Code is logged out. Until then nobody is asked for it (a usage
+  limit is still the item in your inbox for the account); once they are spent, the item waits for its responsible
+  person.
 
 ### 10.6 When someone does not answer, leaves or is removed
 
@@ -1526,7 +1536,8 @@ When smurg host starts again, 2 topics go on by themselves; to keep one stopped,
   default; 1 to 60 minutes in the host console's settings), or whose person has been offline for a minute, also
   appears in your inbox and in that of every member with agent access. You can then answer in that person's place
   ("Submit for Ian"); the conversation records that you did. A decision on a work item that was not merged reaches
-  you and them the same way (§10.3), except the ones only you can settle, which are yours from the start. A result
+  you and them the same way (§10.3), except the ones only you can settle, which are yours from the start, and so does
+  a work item whose agent could not finish (it stopped without a report, its process failed, or it was stopped). A result
   report of an item you merge yourself that nobody reviewed does the same after six times that long.
 - **A member leaves the workspace, or you change their role** so that they can no longer use agents: their
   terminals and their agent sessions without a topic end. The sessions of topics pass to you and keep running

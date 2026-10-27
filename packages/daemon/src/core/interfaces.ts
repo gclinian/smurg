@@ -2570,8 +2570,12 @@ export interface WorktreeManager {
    * seconds).
    */
   refreshGitState(options?: { readonly timer?: boolean }): Promise<void>;
-  /** After a merge conflict: snapshot, merge the main HEAD without committing, record the second parent and the conflicted files. */
-  updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }>;
+  /**
+   * After a merge conflict: snapshot, merge the main HEAD without committing, record the second parent and the conflicted
+   * files. `people` (the merge queue's own update, 0.7.0 review): when the merge would conflict on a file a person or a
+   * program outside smurg changed since the item's base, nothing is merged and `people` names who (not empty).
+   */
+  updateFromMain(worktreeId: string, options?: { readonly people?: boolean }): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[]; readonly people?: readonly PeopleChange[] }>;
   /**
    * `plan.changes`: unified diffs of files of the MAIN workspace as they are in the working tree now, against the
    * blobs given per path (`null`: the file did not exist then), or against HEAD. Only the paths that differ are

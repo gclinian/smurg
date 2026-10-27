@@ -24,6 +24,8 @@ export const t = defineStrings(
     'inbox.preview.open': 'Open',
     'inbox.announce': 'New in your inbox, an agent is waiting: {title}. {where}',
     'inbox.toast': 'An agent is waiting: {title}',
+    'inbox.announce.decision': 'New in your inbox, it waits for your decision: {title}. {where}',
+    'inbox.toast.decision': 'Waits for your decision: {title}',
     'inbox.toast.open': 'Open',
 
     // ---- what a row says

@@ -477,7 +477,8 @@ describe('the workspace shell: overlays, focus, empty states, notices', () => {
     const { conn } = await open();
     act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'executing' } }));
     act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'ready' } }));
-    const toast = (await screen.findByText('Checkout redesign: every item is merged. Ready to check.')).closest('.ui-toast') as HTMLElement;
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    const toast = (await screen.findByText('Checkout redesign: every item is merged, left out or undone. Ready to check.')).closest('.ui-toast') as HTMLElement;
     await userEvent.click(within(toast).getByRole('button', { name: 'Open' }));
     expect(columnNames()).toContain('Result · Checkout redesign');
     act(() => conn.emit('topic.updated', { topic: { ...TOPIC, phase: 'complete', checked: { by: { userId: 'dev:mei', displayName: 'Mei' }, at: 1 } } }));

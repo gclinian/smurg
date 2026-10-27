@@ -352,11 +352,16 @@ export function itemActions(item: WorkItem, plan: Pick<PlanInfo, 'items'>): Item
  * escalates; else the host and every member with agent access.
  */
 export function decidersOf(item: Pick<WorkItem, 'autoMerge' | 'responsible'>, members: readonly Person[]): string {
-  const auto = item.autoMerge;
-  const routing = members.map((member) => ({ userId: member.userId, role: member.role }));
-  const ids = decisionRecipients({ hostOnly: auto?.hostOnly ?? false, escalated: auto?.escalated ?? false }, { responsible: item.responsible?.userId ?? null }, routing);
+  const ids = deciderIdsOf(item, members);
   const names = ids.map((id) => members.find((member) => member.userId === id)?.displayName).filter((name): name is string => name !== undefined);
   return names.length === 0 ? t('people.host') : formatAnd(names);
+}
+
+/** Who decides a held item (routing.ts `decisionRecipients`): the viewer who is the only one reads "You decide". */
+export function deciderIdsOf(item: Pick<WorkItem, 'autoMerge' | 'responsible'>, members: readonly Person[]): string[] {
+  const auto = item.autoMerge;
+  const routing = members.map((member) => ({ userId: member.userId, role: member.role }));
+  return decisionRecipients({ hostOnly: auto?.hostOnly ?? false, escalated: auto?.escalated ?? false }, { responsible: item.responsible?.userId ?? null }, routing).filter((id) => members.some((member) => member.userId === id));
 }
 
 /** The items of the plan that wait for this one, transitively (in plan order): what a decision about it holds up. */

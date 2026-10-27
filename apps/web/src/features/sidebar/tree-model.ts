@@ -14,7 +14,7 @@
 import { isSessionOver, type AgentSession, type PlanInfo, type SessionInfo, type Topic, type UserRef } from '@smurg/protocol';
 import { itemLabel } from '../../lib/columns/describe.ts';
 import { columnId, type ColumnRef } from '../../lib/columns/target.ts';
-import { itemGlyph, mostUrgent, sessionGlyph, waitsForPerson } from '../../lib/session-status.ts';
+import { heldGlyph, itemGlyph, mostUrgent, sessionGlyph, waitsForPerson } from '../../lib/session-status.ts';
 import { isUnseen, type ColumnsState, type SessionFilter } from '../../lib/stores/columns.ts';
 import { sessionTitle, type SessionsState } from '../../lib/stores/sessions.ts';
 import { selectTopicList, type TopicsState } from '../../lib/stores/topics.ts';
@@ -186,15 +186,18 @@ export function buildSessionTree(input: TreeInput): TreeGroup[] {
         const session = (item.sessionId === undefined ? undefined : sessions.sessions.get(item.sessionId)) ?? newestOf(item.id);
         const report: TreeRow['report'] | undefined =
           item.report === undefined ? undefined : { target: { kind: 'report', topicId: topic.id, itemId: item.id }, waiting: item.report.state !== 'reviewed' };
+        // (an item held for a decision is amber, also when its session is done: the merge waits for a person)
+        const held = heldGlyph(item);
         if (session) {
-          rows.push({ ...sessionRow(session, (session.title ?? '').trim() === '' ? label : sessionTitle(session)), ...(report ? { report } : {}) });
+          const row = sessionRow(session, (session.title ?? '').trim() === '' ? label : sessionTitle(session));
+          rows.push({ ...row, ...(held === null ? {} : { glyph: held }), ...(report ? { report } : {}) });
         } else {
           rows.push({
             id: `item:${topic.id}:${item.id}`,
             kind: 'item',
             target: planTarget,
             title: label,
-            glyph: itemGlyph(item),
+            glyph: held ?? itemGlyph(item),
             responsible: item.responsible === null ? null : { userId: item.responsible.userId, displayName: item.responsible.displayName },
             ...(report ? { report } : {}),
             unread: false,

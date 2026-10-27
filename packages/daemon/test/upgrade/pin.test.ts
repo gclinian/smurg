@@ -103,7 +103,7 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
   'sessions/session-manager.ts': '8a2bbeb0680450666c80d80926e2366fbb8c50686835e1adb4334e9170786d6f',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
-  'topics/store.ts': '04ed46353379e52b828b1fa91c7da974118b4f131886814a9b424327ef0ab6c5',
+  'topics/store.ts': '8839f4f0d7e2e477e2f13b4474a38773f00760a5a1e93e567f79ce4c61ca3f45',
   'worktree/store.ts': '8b34200008b0ae9280e70b950240a4c172dd4c413bb8ccbd4fcdbef82ddbe615',
 };
 

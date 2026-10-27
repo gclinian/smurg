@@ -185,8 +185,9 @@ export const storedItemSchema = z.strictObject({
   /** `fix-report` was sent for this content, this many times in a row. */
   fix: z.strictObject({ hash: sha256HexSchema, count: indexSchema }).optional(),
   /**
-   * A report the agent had checked could not be registered because the snapshot of its worktree failed: the next
-   * completed turn of the item's session takes the snapshot again, whatever the report file says by then.
+   * A report the agent had checked could not be registered because the snapshot of its worktree failed, or (0.7.0) a
+   * later turn that did not finish edited files of it: the next completed turn of the item's session takes the
+   * snapshot again, whatever the report file says by then.
    */
   snapshotOwed: z.literal(true).optional(),
   /** It ran directly in the shared folder (no git, DESIGN 0.6.0 D15). */
@@ -198,8 +199,11 @@ export const storedItemSchema = z.strictObject({
   mergeTries: indexSchema.optional(),
   /** Finished turns of the item's sessions, counted when a turn's end arrives (absent: 0). */
   turns: indexSchema.optional(),
-  /** The newest turn after the current report version did not complete (a person stopped it, or it ended on an error). */
-  lastTurn: z.strictObject({ outcome: z.enum(['interrupted', 'error']), at: epochMsSchema }).optional(),
+  /**
+   * The newest turn after the current report version did not complete (a person stopped it, or it ended on an error).
+   * `restart`: the stop of the host's smurg cut it (0.7.0 review: what that turn was asked is not known after the start).
+   */
+  lastTurn: z.strictObject({ outcome: z.enum(['interrupted', 'error']), at: epochMsSchema, restart: z.literal(true).optional() }).optional(),
   /** Who merged it and the merge commit (worktrees.json keeps only the newest decided merges; direct and accepted items have no request). */
   mergedAs: z.strictObject({ requestId: opaqueIdSchema.optional(), commit: gitCommitSchema.optional(), at: epochMsSchema, by: z.union([z.literal('smurg'), userRefSchema]) }).optional(),
   /** "Leave it out": it and what depends on it are not merged. */

@@ -491,7 +491,8 @@ describe('the plan column: work items smurg merges by itself (protocol 6, DESIGN
     expect(screen.getByText('1 waits for a decision · 1 not started')).toBeTruthy();
     expect(screen.getByText(/Mei 1 decision/)).toBeTruthy();
     expect(screen.getByText('Running by itself: smurg merges each item whose report says complete and verified, and starts what waits for it.')).toBeTruthy();
-    expect(screen.getByText('2 · Payment form was not merged: not complete (partial). Mei decides. The items that do not depend on it go on.')).toBeTruthy();
+    // (0.7.0 review: Mei, the one who decides, reads "You decide")
+    expect(screen.getByText('2 · Payment form was not merged: not complete (partial). You decide. The items that do not depend on it go on.')).toBeTruthy();
     expect(within(row('Cart API')).getByText('Merged')).toBeTruthy();
     expect(within(row('Payment form')).getByText('Not merged: not complete (partial)')).toBeTruthy();
     expect(within(row('Checkout page')).getByText('Waits for a decision on 2')).toBeTruthy();
@@ -514,6 +515,17 @@ describe('the plan column: work items smurg merges by itself (protocol 6, DESIGN
     expect(paused.conn.lastRequest('plan.resume')?.payload).toEqual({ topicId: 'tp_1' });
   });
 
+  it('0.7.0 review: while the host\'s smurg is not reachable, "Pause" and "Continue all" are turned off and say why (a press would reach it only after its next start)', async () => {
+    const { conn } = await setup({ topic: RUNNING_AUTO, plan: AUTO });
+    act(() => conn.hostOffline('stopped'));
+    const pause = screen.getByRole('button', { name: 'Pause' }) as HTMLButtonElement;
+    expect(pause.disabled).toBe(true);
+    expect(pause.title).toBe("The host's smurg is not reachable: a plan can be paused or continued only while it runs.");
+    const paused = await setup({ topic: { ...RUNNING_AUTO, plan: planOf({ started: 2, merged: 1, paused: true, pausedBy: AMY }) }, plan: { ...AUTO, paused: true } });
+    act(() => paused.conn.hostOffline('stopped'));
+    expect((within(paused.container).getByRole('button', { name: 'Continue all' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
   it('an editor has no Pause and no Leave it out; the host undoes a merged item', async () => {
     await setup({ role: 'editor', topic: RUNNING_AUTO, plan: AUTO });
     expect(screen.queryByRole('button', { name: 'Pause' })).toBeNull();
@@ -533,7 +545,8 @@ describe('the plan column: work items smurg merges by itself (protocol 6, DESIGN
     });
     const { openColumn } = await setup({ topic: { ...TOPIC, phase: 'ready', plan: planOf({ items: 2, started: 2, merged: 1, leftOut: 1 }) }, plan: settled });
     expect(screen.getByText('Ready to check')).toBeTruthy();
-    expect(screen.getByText('Every item is merged into the main workspace. Look at the result: the reports, the combined change and what the agents say they verified.')).toBeTruthy();
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    expect(screen.getByText("Every item is merged, left out or undone. Look at the result: the reports, each item's change and what the agents say they verified.")).toBeTruthy();
     expect(within(row('Cart API')).getByText('Merged · reviewed')).toBeTruthy();
     expect(within(row('Payment form')).getByText('Left out')).toBeTruthy();
     expect(screen.queryByText('Who is responsible')).toBeNull();

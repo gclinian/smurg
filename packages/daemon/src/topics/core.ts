@@ -41,7 +41,7 @@ import type { AttentionFact, PersistentDocument, Principal, UserId } from '../co
 import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { attentionFacts } from './attention.ts';
+import { attentionFacts, stoppedItemRecipients } from './attention.ts';
 import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
 import { parsePlan, planFingerprint, type ParsedItem, type PlanParse } from './plan-format.ts';
 import { evenSplit, SIZE_WEIGHT, type SplitPerson } from './split.ts';
@@ -198,6 +198,10 @@ export class TopicsCore {
   readonly turnsInHand = new Map<string, number>();
   /** The files a refused snapshot of an item's current version named (D6 row 8), until a version is registered again. */
   readonly refused = new Map<string, readonly string[]>();
+  /** Since when a member has had no connection (a member offline at the first look counts from the module's start). */
+  private readonly offlineSince = new Map<UserId, number>();
+  private openedAt = 0;
+  private presenceLooked = false;
   private readonly lastTopics = new Map<string, Topic>();
   private readonly lastPlans = new Map<string, string>();
   private attentionSignature = '[]';
@@ -213,6 +217,7 @@ export class TopicsCore {
   // ===================================================================================================================
 
   async open(): Promise<void> {
+    this.openedAt = this.ctx.clock.now();
     this.topicsDoc = await this.ctx.state.document(TOPICS_DOCUMENT, topicsDocumentSchema, initialTopicsDocument);
     this.reportsDoc = await this.ctx.state.document(REPORTS_DOCUMENT, reportsDocumentSchema, initialReportsDocument);
     // What the records said before this start is what a later `topic.changed` names as `previous` (a topic that
@@ -622,7 +627,20 @@ export class TopicsCore {
       session,
       tries: item.mergeTries ?? 0,
       maxTries: AUTO_MERGE_TRIES,
+      // (asked only where row 2 needs it: a merged item whose later turn did not finish, or whose edits since are owed a snapshot)
+      ...((item.lastTurn !== undefined || item.snapshotOwed === true) && (known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.holdsUnmerged(topic, item) } : {}),
     };
+  }
+
+  /** The item's worktree holds work that no merge carried (a question that cannot be answered counts as yes). */
+  private holdsUnmerged(topic: StoredTopic, item: StoredItem): boolean {
+    const worktrees = this.ctx.services.worktrees;
+    if (item.worktreeId === undefined || isStubService(worktrees)) return false;
+    try {
+      return worktrees.unmerged(topic.id).some((worktree) => worktree.id === item.worktreeId);
+    } catch {
+      return true;
+    }
   }
 
   /** The items of the plan merged since this one's Start (numbers and ids: what a resolve message may name, D17). */
@@ -770,6 +788,11 @@ export class TopicsCore {
       if (item === null) continue;
       for (const userId of decisionRecipients({ hostOnly: hold.hostOnly, escalated: hold.escalated }, { responsible: this.responsibleOf(topic, item) }, members)) add(userId, 'decisions', hold.since);
     }
+    // So is an item whose agent could not finish (stalled, failed, stopped; 0.7.0 review): its attention row's people.
+    const now = this.ctx.clock.now();
+    for (const item of topic.items) {
+      for (const userId of stoppedItemRecipients(this, topic, item, now) ?? []) add(userId, 'decisions', item.since);
+    }
     return [...waits]
       .flatMap(([userId, entry]) => {
         const user = this.ctx.members.userRef(userId);
@@ -800,17 +823,46 @@ export class TopicsCore {
     });
   }
 
+  /** Who is offline since when (the reports' sweep looks; conversation/escalation.ts keeps the same for the cards). */
+  trackPresence(): void {
+    const now = this.ctx.clock.now();
+    const since = this.presenceLooked ? now : Math.min(now, this.openedAt);
+    this.presenceLooked = true;
+    const members = new Set<UserId>();
+    for (const member of this.ctx.members.routing()) {
+      members.add(member.userId);
+      if (this.ctx.hub.isOnline(member.userId)) this.offlineSince.delete(member.userId);
+      else if (!this.offlineSince.has(member.userId)) this.offlineSince.set(member.userId, since);
+    }
+    for (const userId of [...this.offlineSince.keys()]) if (!members.has(userId)) this.offlineSince.delete(userId);
+  }
+
+  /** How long a member has been offline (0 while online). */
+  offlineFor(userId: UserId, now: number = this.ctx.clock.now()): number {
+    if (this.ctx.hub.isOnline(userId)) return 0;
+    const since = this.offlineSince.get(userId);
+    // (not looked at yet: offline since the start when nothing was looked at; else from the next look on)
+    return since === undefined ? (this.presenceLooked ? 0 : now - this.openedAt) : now - since;
+  }
+
   /**
    * DESIGN 0.7.0 D9: a decision that is not the host's alone and has waited `escalateAfterMs` also reaches the host and
-   * every member with agent access (`autoMerge.escalatedAt`). A host-only hold never escalates: nobody else could
-   * settle it. Stored times compared with the clock, on the reports' sweep.
+   * every member with agent access (`autoMerge.escalatedAt`); so does one whose ONE recipient has been offline
+   * `escalateOfflineMs`, as a question or a permission request does (0.7.0 review). A host-only hold never escalates:
+   * nobody else could settle it. Stored times compared with the clock, on the reports' sweep.
    */
   escalateHolds(): void {
     const now = this.ctx.clock.now();
     const after = this.ctx.settings.get().escalateAfterMs;
+    const offlineAfter = this.ctx.config.agents.escalateOfflineMs;
+    const members = this.ctx.members.routing();
+    const away = (topic: StoredTopic, item: StoredItem): boolean => {
+      const waitsFor = decisionRecipients({ hostOnly: false, escalated: false }, { responsible: this.responsibleOf(topic, item) }, members);
+      return waitsFor.length === 1 && this.offlineFor(waitsFor[0] as UserId, now) >= offlineAfter;
+    };
     for (const listed of this.topics()) {
       if (listed.archived) continue;
-      const due = listed.items.filter((item) => item.autoMerge?.state === 'held' && !item.autoMerge.hostOnly && item.autoMerge.escalatedAt === undefined && now - item.autoMerge.since >= after);
+      const due = listed.items.filter((item) => item.autoMerge?.state === 'held' && !item.autoMerge.hostOnly && item.autoMerge.escalatedAt === undefined && (now - item.autoMerge.since >= after || away(listed, item)));
       if (due.length === 0) continue;
       const ids = new Set(due.map((item) => item.id));
       this.update(listed.id, (topic) => {
@@ -822,12 +874,14 @@ export class TopicsCore {
 
   /**
    * A topic whose phase moved without an event of its own (an item worktree the worktree module looked at only now, a
-   * session that settled): announced on the reports' sweep. Only the phase is computed for the others.
+   * session that settled): announced on the reports' sweep. Only the phase is computed for the others. So is a plan
+   * with an item that stopped: whom it waits for grows with the time it has waited (attention.ts, 0.7.0 review).
    */
   publishChangedPhases(): void {
     for (const topic of this.topics()) {
       if (topic.archived) continue;
-      if (this.lastTopics.get(topic.id)?.phase !== this.phaseOf(topic)) this.publish(topic.id);
+      const stopped = topic.items.some((item) => item.state === 'stalled' || item.state === 'failed' || item.state === 'stopped');
+      if (stopped || this.lastTopics.get(topic.id)?.phase !== this.phaseOf(topic)) this.publish(topic.id);
     }
   }
 

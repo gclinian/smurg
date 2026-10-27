@@ -110,10 +110,12 @@ export const t = defineStrings(
     // A person's "Pause" (protocol 6, DESIGN 0.7.0 D15): it stays across restarts of the host's smurg.
     'plan.paused.by': '{name} paused this plan: nothing starts, merges or continues by itself until someone continues it (a merge already under way finishes).',
     'plan.pause.action': 'Pause',
+    'plan.hostAway': "The host's smurg is not reachable: a plan can be paused or continued only while it runs.",
     'plan.pause.failed': 'Could not pause: {reason}',
     // ---- automatic merging (DESIGN 0.7.0 D19): what the plan says while it runs by itself, and where it waits for a person
     'plan.auto.running': 'Running by itself: smurg merges each item whose report says complete and verified, and starts what waits for it.',
     'plan.decision': '{item} was not merged: {reason}. {who} decides. The items that do not depend on it go on.',
+    'plan.decision.self': '{item} was not merged: {reason}. You decide. The items that do not depend on it go on.',
     'plan.decision.open': 'Open',
     'plan.removed.title': 'No longer in the plan',
     'plan.removed.body': 'These items were started and then removed from PLAN.md. They do not count for the topic.',
@@ -260,7 +262,7 @@ export const t = defineStrings(
     'complete.checked': 'Checked by {name} at {time}.',
     // ---- every item settled: the topic is ready to check (0.7.0, DESIGN D13)
     'ready.title': 'Ready to check',
-    'ready.body': 'Every item is merged into the main workspace. Look at the result: the reports, the combined change and what the agents say they verified.',
+    'ready.body': "Every item is merged, left out or undone. Look at the result: the reports, each item's change and what the agents say they verified.",
     'ready.open': 'Open the result',
     'archive.action': 'Archive topic',
     'archive.title': 'Archive "{topic}"?',
@@ -371,12 +373,12 @@ export const t = defineStrings(
     'start.cloudSynced': "This folder is synced by a cloud service: smurg's history in .smurg and every work item's worktree are synced too, and a file kept only online can make Start fail.",
     'start.agent.model': 'Model for these items',
     'start.agent.mode': 'What their agents may do without asking',
-    'start.agent.note': "Both are the topic's settings: its later items use them too.",
+    'start.agent.note': "The model and the permission mode are the topic's settings: its later items use them too.",
     // ---- how the items of this Start reach the main workspace (protocol 6, DESIGN 0.7.0 D3, D19)
     'start.merge.auto': 'smurg merges each item into the main workspace for {host} when its report says complete, at least one check passed and none failed (the host\'s setting). What waits for it then starts from the merged workspace.',
     'start.merge.stops':
       'The run stops where a person must decide: a question, a request its mode asks, a report that is not complete and verified, work a person stopped or wrote to the agent about, files only the host may merge, the host\'s folder in the way, or a merge smurg cannot make cleanly by itself. Everything that does not depend on it goes on.',
-    'start.merge.end': "When every item is merged, every member's inbox says the topic is ready to check: each report, the combined change and what the agents say they verified, with a way to undo an item.",
+    'start.merge.end': "When every item is merged, left out or undone, every member's inbox says the topic is ready to check: each report, each item's change and what the agents say they verified, with a way to undo an item.",
     'start.merge.detached': 'The main workspace is not on a branch (a detached HEAD), so the host merges each item of this Start.',
     'start.merge.host': 'Each item\'s change waits for {host} to read its diff and merge it. The items that depend on it start after that merge.',
     'start.leave': "You can close this page: the work goes on while smurg host runs on {host}'s computer, also after it was restarted.",
@@ -476,6 +478,9 @@ export const t = defineStrings(
     // ---- a work item that waits for a decision (DESIGN 0.7.0 D9, D10): the report column's foot
     'decision.foot': 'Not merged: {reason}. {who} decides. Items {items} wait for it.',
     'decision.foot.alone': 'Not merged: {reason}. {who} decides.',
+    'decision.foot.self': 'Not merged: {reason}. You decide. Items {items} wait for it.',
+    'decision.foot.self.alone': 'Not merged: {reason}. You decide.',
+    'decision.policy.paths': 'Files only the host may merge: {paths}.',
     'decision.fix': 'Ask the agent to fix it',
     'decision.removePaths': 'Ask the agent to take them out',
     'decision.accept': 'Accept as it is',
@@ -489,7 +494,7 @@ export const t = defineStrings(
     'decision.inTheWay.branch': 'The main workspace is on {current}. Switch back to {expected}, where this topic started; smurg merges the item by itself then.',
     'decision.inTheWay.git-busy': 'A merge, a rebase or a similar git operation is in progress in the main workspace. Finish it; smurg merges the item by itself then.',
     'decision.inTheWay.undo-interrupted':
-      'smurg was undoing a merge when it stopped, and the main workspace is between the two: commit what is staged as the undo, or put the files back with git restore --staged --worktree. smurg goes on by itself then.',
+      'smurg was undoing a merge when it stopped, and the main workspace is between the two: commit what is staged as the undo, or put the staged files back with git restore --staged --worktree -- <file> (git diff --cached --name-only lists them). smurg goes on by itself then.',
 
     // ---- the Result column (DESIGN 0.7.0 D13)
     'result.title': 'Result: {topic}',
@@ -502,6 +507,7 @@ export const t = defineStrings(
     'result.changes.note': 'Each item\'s change against the main workspace it was merged into. A line an item replaced shows as removed, also when a person had written it.',
     'result.items': 'Work items',
     'result.leftOutUndone': 'Left out and undone',
+    'result.noneMerged': 'No item is merged now.',
     'result.check': "I've checked the result",
     'result.check.lead': "Press it when you have looked at the result. The topic is then complete, its work items' sessions end, and it leaves everyone's inbox; reviewing each report is up to you.",
     'result.check.failed': 'Not marked as checked: {reason}',

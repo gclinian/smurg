@@ -116,6 +116,19 @@ describe('the Result column', () => {
     expect(within(checked.container).queryByRole('button', { name: "I've checked the result" })).toBeNull();
   });
 
+  it('0.7.0 review: after the whole topic was undone, no heading stands over nothing', async () => {
+    const undone = buildPlan({
+      items: [
+        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'not-started', attempt: 1, merging: 'auto', undone: { by: IAN, at: T0 } }),
+        buildWorkItem({ id: 'checkout-page', number: 2, title: 'Checkout page', state: 'stopped', attempt: 1, merging: 'auto', leftOut: { by: IAN, at: T0 } }),
+      ],
+    });
+    await setup({ plan: undone });
+    expect(headings()).toEqual(['What the items changed', 'Left out and undone']);
+    expect(screen.getByText('No item is merged now.')).toBeTruthy();
+    expect(screen.queryByRole('region', { name: 'Work items' })).toBeNull();
+  });
+
   it('items that ran directly in the shared folder: their changes cannot be shown', async () => {
     await setup({ direct: true });
     expect(screen.getByText('These items ran directly in the shared folder: smurg keeps no history of them and cannot show or undo their changes. Their reports say what they changed.')).toBeTruthy();

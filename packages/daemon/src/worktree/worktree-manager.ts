@@ -1620,7 +1620,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
     return toMergeRequest(updated);
   }
 
-  async updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {
+  async updateFromMain(worktreeId: string, options: { readonly people?: boolean } = {}): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[]; readonly people?: readonly PeopleChange[] }> {
     const known = this.record(worktreeId);
     if (!known) throw NOT_FOUND();
     const { git, repo } = await this.repoOf(known);
@@ -1647,6 +1647,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
       // 2. + 3. Merge the main workspace's HEAD without committing; git's merge state ends, files and markers stay.
       const dir = this.dirOf(record.id);
       const files = this.ctx.services.files;
+      // `people` (the merge queue's own update, DESIGN 0.7.0 D8; 0.7.0 review): the main workspace may have moved since
+      // the trial that found only work items on the other side. When the update would conflict on a file a person (or a
+      // program outside smurg) changed since the item's base, nothing is merged into the checkout and the caller is
+      // told who: whose lines stay is a person's decision (R-SAFE S2), never the agent's resolution.
+      let people: PeopleChange[] = [];
       let outcome;
       try {
         outcome = await mergeMainIntoWorktree({
@@ -1660,6 +1665,20 @@ export class WorktreeManagerImpl implements WorktreeManager {
             if (isStubService(files) || paths.length > 5_000) return;
             for (const path of paths) files.expectChange({ root: { kind: 'worktree', worktreeId: record.id }, path }, SYSTEM_ACTOR, 30_000);
           },
+          ...(options.people === true
+            ? {
+                beforeConflict: async (paths, base) => {
+                  try {
+                    people = await this.peopleOf(repo, base, mainCommit, paths);
+                  } catch (err) {
+                    // (who changed it cannot be told: nothing shows it was only work items, so a person decides)
+                    this.ctx.log.warn('who changed the other side of an update could not be read; a person decides', { module: 'worktree', worktree: record.id, error: err instanceof Error ? err.name : 'unknown' });
+                    people = paths.map((path) => ({ path, by: [], outside: true }));
+                  }
+                  return people.length === 0;
+                },
+              }
+            : {}),
         });
       } catch (err) {
         // Whatever state the failed merge left: the tree is no longer known to equal its last commit.
@@ -1668,6 +1687,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       }
       if (!outcome.merged) {
         await this.persist();
+        if ('held' in outcome) return { mergeParent: mainCommit, conflicted: outcome.held.slice(0, MERGE_FILES_MAX), people };
         return { mergeParent: mainCommit, conflicted: [] };
       }
       this.noteChange(record.id);
@@ -1927,11 +1947,14 @@ export class WorktreeManagerImpl implements WorktreeManager {
     }
 
     // 9b. Just before the merge (automatic; R-SAFE S3, R-ENG E1): the branch guard again and the head as the trial saw
-    //     it, then "still in order", then `git merge` is spawned with nothing awaited in between. What is left is the
-    //     time `git merge` itself runs: a Pause or a setting that lands then finds the merge done.
+    //     it, then the locks of the files it writes again (someone who began typing since step 8; synchronous) and
+    //     "still in order", then `git merge` is spawned with nothing awaited in between. What is left is the time `git
+    //     merge` itself runs: a Pause or a setting that lands then finds the merge done.
     if (auto !== null) {
       if (!hidden && (await this.branchGuard(repo, auto.pin)) !== null) return { kind: 'wait', reason: 'retry' };
       if ((await mainHead(repo)) !== pre) return { kind: 'wait', reason: 'retry' };
+      const typing = this.lockedOf(touched);
+      if (typing !== null) return typing;
       if (!auto.stillInOrder()) return GONE;
     }
 

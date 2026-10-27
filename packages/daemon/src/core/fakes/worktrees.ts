@@ -92,6 +92,8 @@ export class FakeWorktreeManager implements WorktreeManager {
   readonly autoMergeSteps = new Map<string, FakeAutoMergeStep[]>();
   /** The same per work item id, for the requests of every version of it (consulted after `autoMergeSteps`). */
   readonly autoMergeItemSteps = new Map<string, FakeAutoMergeStep[]>();
+  /** Who changed the conflicted files since the trial, as the merge queue's own `updateFromMain` finds them (empty: work items only). */
+  updatePeople: PeopleChange[] = [];
   /** The merge parent `updateFromMain` recorded per worktree, until the worktree's next snapshot (`pendingMergeParent`). */
   readonly mergeParents = new Map<string, string>();
   /** The `main` queue of the real module (one merge at a time): `autoMerge` waits in it, behind `holdMain` and each other. */
@@ -467,10 +469,12 @@ export class FakeWorktreeManager implements WorktreeManager {
     this.refreshes += 1;
   }
 
-  async updateFromMain(worktreeId: string): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[] }> {
+  async updateFromMain(worktreeId: string, options: { readonly people?: boolean } = {}): Promise<{ readonly mergeParent: string; readonly conflicted: readonly string[]; readonly people?: readonly PeopleChange[] }> {
     this.log.record('updateFromMain', worktreeId);
     this.needWorktree(worktreeId);
     const mergeParent = fakeCommit(`main:${this.commits}`);
+    // (a person's change a test put on the other side since the trial: nothing is merged into the checkout)
+    if (options.people === true && this.updatePeople.length > 0) return { mergeParent, conflicted: [...this.conflictedFiles], people: this.updatePeople.map((change) => structuredClone(change)) };
     this.mergeParents.set(worktreeId, mergeParent);
     return { mergeParent, conflicted: [...this.conflictedFiles] };
   }

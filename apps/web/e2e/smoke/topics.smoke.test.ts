@@ -286,7 +286,8 @@ describe.skipIf(chrome === null)('a topic from start to finish in a real browser
     await items.nth(1).getByText('Left out').waitFor({ timeout: STEP_MS });
 
     // Every item is settled: the topic is ready to check, and its Result is a row of the session list.
-    await plan.getByText('Every item is merged into the main workspace. Look at the result: the reports, the combined change and what the agents say they verified.').waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    await plan.getByText("Every item is merged, left out or undone. Look at the result: the reports, each item's change and what the agents say they verified.").waitFor({ timeout: STEP_MS });
     await treeRow(amy, /^Result/).waitFor({ timeout: STEP_MS });
     await plan.getByRole('button', { name: 'Open the result' }).click();
     const result = column(host, /^Result/);

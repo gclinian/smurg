@@ -229,8 +229,12 @@ export const topics = {
     'zh-TW': () => 'smurg 在主工作區的版本紀錄裡找不到這個項目的合併了。',
   }),
   'undo.unavailable.interrupted': message({}, {
-    en: () => 'An earlier undo was interrupted, and the main workspace is between the two: commit what is staged as that undo, or put its files back with git restore --staged --worktree, first.',
-    'zh-TW': () => '之前有一次復原被中斷了，主工作區停在中間：請先把已暫存的變更提交為那次復原，或用 git restore --staged --worktree 把它的檔案還原。',
+    en: () => 'An earlier undo was interrupted, and the main workspace is between the two: commit what is staged as that undo, or put its files back with git restore --staged --worktree -- <file> (git diff --cached --name-only lists them), first.',
+    'zh-TW': () => '之前有一次復原被中斷了，主工作區停在中間：請先把已暫存的變更提交為那次復原，或用 git restore --staged --worktree -- <檔案> 把它的檔案還原（git diff --cached --name-only 會列出它們）。',
+  }),
+  'undo.unavailable.unmerged': message({ items: 'list' }, {
+    en: (p) => `The checkout of ${joinList('en', p.items)} holds changes that were never merged (a person's edit, or a later turn of its agent). Undoing would delete them: let them be merged first, or remove that checkout on purpose.`,
+    'zh-TW': (p) => `${joinList('zh-TW', p.items)} 的 checkout 裡有從沒合併過的變更（某人的修改，或它的 agent 之後的回合做的）。復原會把它們刪掉：請先讓它們合併，或刻意移除那個 checkout。`,
   }),
   'undo.unavailable.tooMany': message({ max: 'number' }, {
     en: (p) => `One undo takes back at most ${p.max} work items, or ${p.max} merges.`,

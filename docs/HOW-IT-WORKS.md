@@ -40,9 +40,9 @@ A topic is one feature or task ([every step](JOINING.md#6-topics-from-discussion
 4. **Merge.** Each item ends with a result report: what was done, how it was verified, every diff. smurg merges
    it into your folder, without anyone reading the diff first, when its report says it is complete and verified;
    anything else waits for a person ([merging](HOSTING.md#103-merging-and-what-waits-for-it)).
-5. **Check.** When every item is merged, everyone is told that the topic is ready to check: the reports, the
-   combined change, what the agents say they verified. You (the host) can undo an item, or turn automatic merging
-   off.
+5. **Check.** When every item is merged, left out or undone, everyone is told that the topic is ready to check: the
+   reports, each item's change, what the agents say they verified. You (the host) can undo an item, or turn
+   automatic merging off.
 
 ## What it is today
 

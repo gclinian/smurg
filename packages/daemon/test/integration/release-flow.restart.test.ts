@@ -332,14 +332,13 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     expect(kinds(leo.events(pageId)).slice(-4)).toEqual(['tool.started', 'card:permission', 'turn.finished', 'notice']);
     expect(leo.events(pageId).findLast((event) => event.kind === 'turn.finished')).toMatchObject({ outcome: 'error' });
     expect(leo.events(pageId).at(-1)).toMatchObject({ kind: 'notice', level: 'error', text: { id: 'notice.processExited' }, action: 'retry' });
-    // The item is FAILED (not "stopped without a report"), and whoever looks after it is told: nobody is assigned, so
-    // the member who pressed Start.
+    // The item is FAILED (not "stopped without a report"). (0.7.0 review: smurg starts its process again once by itself,
+    // a minute later, DESIGN 0.7.0 D15, so nobody's inbox asks for it meanwhile; the member who pressed Start may.)
     const failed = await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'failed', 'the failed item');
     expect(itemOf(failed, 'checkout-page')).toMatchObject({ state: 'failed', sessionId: pageId, attempt: 1 });
     expect(itemOf(failed, 'checkout-page')?.stalledBy).toBeUndefined();
     expect(failed.slots).toMatchObject({ inUse: 0 });
-    const failedItem = await inboxItem(mei, (item) => item.kind === 'attention' && item.subject === 'item-failed', 'the failed item');
-    expect(failedItem).toMatchObject({ waiting: true, unread: true, topicId, itemId: 'checkout-page', sessionId: pageId, target: { kind: 'session', sessionId: pageId } });
+    expect((await mei.inbox()).some((item) => item.subject === 'item-failed')).toBe(false);
     expect((await ian.inbox()).some((item) => item.subject === 'item-failed')).toBe(false);
     expect((await mei.inbox()).some((item) => item.subject === 'item-stalled')).toBe(false);
 
@@ -352,7 +351,6 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     // The agent works again: it wants its command once more (a new card), and the plan says so.
     const buildAgain = await permissionAt(leo, (request) => request.sessionId === pageId && request.status === 'open' && request.id !== build.id, 'the command of work item 2, asked again after "Try again"');
     expect(itemOf(await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'running', 'work item 2 running again'), 'checkout-page')).toMatchObject({ state: 'running', sessionId: pageId, attempt: 1 });
-    await inboxWithout(mei, (item) => item.key === failedItem.key, 'the item that goes on');
     const afterFirstKill = leo.events(pageId).slice((exits()[0] ?? 0) + 1);
     expect(lineIds(afterFirstKill)).toEqual(['conversation.retry.resumed', 'conversation.continueRequested']);
     expect(afterFirstKill.find((event) => event.kind === 'smurg')).toMatchObject({ purpose: 'continue-item', by: { userId: MEI } });
@@ -364,13 +362,13 @@ describe('the release composition across a restart of the host\'s smurg and a cr
     await statusIs(leo, pageId, 'failed');
     expect(await permissionAt(leo, (request) => request.id === buildAgain.id && request.status === 'withdrawn', 'the second withdrawn request')).toMatchObject({ withdrawn: { reason: 'failed' } });
     await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'failed', 'the item failed again');
-    await inboxItem(mei, (item) => item.key === failedItem.key, 'the failed item, again');
+    // (Mei's "Try again" counted smurg's own resume from 0 again: still nobody is asked meanwhile)
+    expect((await mei.inbox()).some((item) => item.subject === 'item-failed')).toBe(false);
     expect(await refusal(amy.conn.request('plan.item.retry', { topicId, itemId: 'checkout-page' }))).toMatchObject({ code: 'forbidden' });
     const retried = (await mei.conn.request('plan.item.retry', { topicId, itemId: 'checkout-page' })).plan;
     expect(itemOf(retried, 'checkout-page')).toMatchObject({ state: 'running', sessionId: pageId, attempt: 1 });
     await waitFor(() => leo.got('report.updated').some((update) => update.itemId === 'checkout-page'), { timeoutMs: 30_000, what: 'the report of work item 2' });
     await planIs(leo, topicId, (plan) => itemOf(plan, 'checkout-page')?.state === 'done', 'work item 2 done');
-    await inboxWithout(mei, (item) => item.key === failedItem.key, 'the item that goes on');
     await eventOf(leo, pageId, (event) => event.kind === 'pointer' && event.target === 'report', "the report's card of work item 2");
     expect(exits()).toHaveLength(2);
     const afterKill = leo.events(pageId).slice((exits()[1] ?? 0) + 1);

@@ -105,7 +105,8 @@ describe('the topic screens in zh-TW', () => {
       // protocol 6 (DESIGN 0.7.0 D19): how the items reach the main workspace, what stops the run, the end
       '項目的報告寫著完成、至少一項驗證通過、沒有驗證失敗時，smurg 會替 Ian 把它合併到主工作區（主人的設定），等著它的項目接著從合併後的主工作區開始。',
       '需要人決定的地方才會停下：選擇題、它的模式要先問的請求、不是完成且驗證過的報告、有人停下或對 agent 說了話的工作、只有主人能合併的檔案、主人的資料夾擋住了，或是 smurg 沒辦法自己順利完成的合併。不依賴它的項目會繼續。',
-      '所有項目都合併之後，每位成員的收件夾都會顯示主題待驗收：可以看每一份報告、合起來的變更和 agent 說它們驗證了什麼，也可以復原某個項目。',
+      // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+      '所有項目都合併、略過或復原之後，每位成員的收件夾都會顯示主題待驗收：可以看每一份報告、各項目的變更和 agent 說它們驗證了什麼，也可以復原某個項目。',
       '你可以關掉這個頁面：只要 Ian 的電腦上 smurg host 在執行，工作就會繼續，重新啟動之後也一樣。',
       '負責人：Ian 1 · Mei 1。',
       'Mei 目前離線：他負責的項目會開始，然後等他。',
@@ -317,7 +318,8 @@ describe('the topic screens in zh-TW: work items smurg merges by itself (protoco
     await settle();
     expect(screen.getByText('3 項中 1 項已合併')).toBeTruthy();
     expect(screen.getByText('自動執行中：報告寫著完成且驗證過的項目由 smurg 合併，等著它的項目接著開始。')).toBeTruthy();
-    expect(screen.getByText('2 · 付款表單 沒有合併：沒有完成（部分完成）。由 Mei 決定。不依賴它的項目會繼續。')).toBeTruthy();
+    // (0.7.0 review: Mei, who decides, reads 「由你決定」)
+    expect(screen.getByText('2 · 付款表單 沒有合併：沒有完成（部分完成）。由你決定。不依賴它的項目會繼續。')).toBeTruthy();
     expect(within(screen.getByText('購物車 API').closest('li') as HTMLElement).getByText('已合併')).toBeTruthy();
     expect(within(screen.getByText('付款表單').closest('li') as HTMLElement).getByText('沒有合併：沒有完成（部分完成）')).toBeTruthy();
     expect(within(screen.getByText('結帳頁').closest('li') as HTMLElement).getByText('在等 2 的決定')).toBeTruthy();
@@ -332,7 +334,8 @@ describe('the topic screens in zh-TW: work items smurg merges by itself (protoco
     admitAs(conn, world);
     await settle(4);
     const foot = document.querySelector('.report-foot') as HTMLElement;
-    expect(within(foot).getByText('沒有合併：沒有完成（部分完成）。由 Mei 決定。項目 3 在等它。')).toBeTruthy();
+    // (0.7.0 review: Mei, who decides, reads 「由你決定」)
+    expect(within(foot).getByText('沒有合併：沒有完成（部分完成）。由你決定。項目 3 在等它。')).toBeTruthy();
     for (const name of ['請 agent 修正', '略過這個項目…']) expect(within(foot).getByRole('button', { name })).toBeTruthy();
   });
 
@@ -348,7 +351,8 @@ describe('the topic screens in zh-TW: work items smurg merges by itself (protoco
     admitAs(conn, world);
     await settle(5);
     expect(screen.getByText('2 項中 1 項已合併 · 1 項通過 · 0 項失敗 · 0 項未驗證 · 1 項已略過')).toBeTruthy();
-    for (const name of ['通過', '各項目合起來的變更', '工作項目', '已略過和已復原的項目']) expect(screen.getByRole('heading', { level: 3, name })).toBeTruthy();
+    // (0.7.0 review: the Result shows each item's own change, not one combined one)
+    for (const name of ['通過', '各項目改了什麼', '工作項目', '已略過和已復原的項目']) expect(screen.getByRole('heading', { level: 3, name })).toBeTruthy();
     expect(screen.getByRole('button', { name: '我已驗收' })).toBeTruthy();
   });
 });

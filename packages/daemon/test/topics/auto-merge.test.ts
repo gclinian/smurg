@@ -234,6 +234,21 @@ describe('DESIGN 0.7.0 D8: a merge that is not clean', () => {
     expect(smurgSent(test, run.session('a')).at(-1)?.text).toContain('In these files the other side is a change a person made in the main workspace, not another work item\'s: ["config.txt"]. Keep that change and fit yours to it, unless the person who asked you to resolve says otherwise.');
     expect((await storedItem(test, run.topicId, 'a')).mergeTries).toBeUndefined();
   });
+
+  it('0.7.0 review: a person\'s change found when the checkout is brought up to date (it landed after the trial): a decision for the carers, naming the person; the agent is not asked to resolve over it', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const run = await started([{ id: 'a' }]);
+    test.fakes.worktrees.conflictedFiles = ['config.txt'];
+    // The trial found only other work items on the other side; by the update, Amy's save is there too.
+    steps('a', { kind: 'conflict', paths: ['config.txt'] });
+    test.fakes.worktrees.updatePeople = [{ path: 'config.txt', by: [AMY], outside: false }];
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => item(run.topicId, 'a').autoMerge?.state === 'held', { what: 'a to be held' });
+    expect(item(run.topicId, 'a').autoMerge).toMatchObject({ state: 'held', reason: 'conflict', hostOnly: false, paths: ['config.txt'], people: [{ path: 'config.txt', by: [AMY], outside: false }] });
+    expect(test.fakes.worktrees.log.of('updateFromMain').map((call) => call[0])).toEqual([run.worktree('a')]);
+    expect(test.fakes.worktrees.pendingMergeParent(run.worktree('a'))).toBeNull();
+    expect(smurgSent(test, run.session('a')).some((message) => message.purpose === 'resolve-conflict')).toBe(false);
+  });
 });
 
 describe('DESIGN 0.7.0 D6 row 13: a version checked in the turn that made it', () => {

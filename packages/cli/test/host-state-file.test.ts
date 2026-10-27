@@ -1423,6 +1423,7 @@ describe('smurg host and the work that goes on by itself after a restart (0.7.0)
     // The stop: after its own lines, how many topics go on by themselves at the next start.
     io.signal('SIGTERM');
     expect(await done).toBe(0);
-    expect(io.out().endsWith('Stopped sharing.\n\nWhen smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.\n')).toBe(true);
+    // (0.7.0 review: Pause reaches nothing while smurg host is stopped, so the line names the brake that works)
+    expect(io.out().endsWith('Stopped sharing.\n\nWhen smurg host starts again, 2 topics go on by themselves. To keep a plan stopped, press Pause in it before you stop smurg host.\n')).toBe(true);
   }, 60_000);
 });

@@ -342,7 +342,10 @@ describe('T5.1 a report with its changes and a follow-up', () => {
     expect(itemOf(test.plan(run.topicId), 'a').merge).toBeUndefined();
     expect(test.fakes.agents.eventsOf(sessionId).filter((event) => event.kind === 'notice')).toMatchObject([{ level: 'warning', text: { id: 'report.changes.failed' } }]);
     expect(test.fakes.agents.eventsOf(sessionId).some((event) => event.kind === 'pointer')).toBe(false);
-    expect(test.t.ctx.services.topics.attention()).toMatchObject([{ subject: 'item-stalled', recipients: ['dev:mei'], sessionId }]);
+    // (changed in the 0.7.0 review: smurg continues it by itself a minute later, DESIGN 0.7.0 D15, so nobody is asked
+    // for it yet; keep-running.test.ts shows the row once that one continue is spent)
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
+    expect((await storedItem(test, run.topicId, 'a')).autoContinue).toMatchObject({ cause: 'snapshot', count: 0 });
     expect((await test.audit('report.register')).at(-1)).toMatchObject({ outcome: 'error', detail: { itemId: 'a', sessionId, code: 'conflict', reason: 'worktree-changed' } });
 
     // "Continue": the agent has nothing to add and changes nothing. The report file is the one it had checked.

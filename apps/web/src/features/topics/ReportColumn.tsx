@@ -44,7 +44,7 @@ import { Markdown } from '../markdown/index.ts';
 import { ChangedFiles } from '../worktree/index.tsx';
 import { AskBox } from './AskBox.tsx';
 import { topicDialogs } from './dialogs.ts';
-import { agentAccessNames, decidersOf, dependentsOf, isMerged, itemBadge, itemNumbers, mergesAuto, openChangesAsked, outcomeLabel } from './model.ts';
+import { agentAccessNames, deciderIdsOf, decidersOf, dependentsOf, isMerged, itemBadge, itemNumbers, mergesAuto, openChangesAsked, outcomeLabel } from './model.ts';
 import { Foot, LinkButton, Note, Scroll, formatClock, useAction, useMembers, useOpenSide, useSentNotice, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
 import './topics.css';
@@ -493,6 +493,9 @@ function inTheWayText(hold: AutoMergeInfo): string | null {
       return t('decision.inTheWay.git-busy');
     case 'undo-interrupted':
       return t('decision.inTheWay.undo-interrupted');
+    case 'policy':
+      // (the files the host is asked about: the report hides its diff, so the foot names them)
+      return paths === '' ? null : t('decision.policy.paths', { paths });
     default:
       return null;
   }
@@ -507,18 +510,31 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   const stores = useStores();
   const act = useAction();
   const members = useMembers();
+  const me = useMember();
   const isHost = useCan('worktree.merge.decide');
   const canDrive = useCan('session.drive');
   const canRequest = useCan('worktree.merge.request');
   const canAsk = useCan('suggest.create');
   const plan = useStore(stores.topics, (state) => selectPlan(state, topic.id));
   const direct = item.merging === undefined;
+  // (an item whose version is merged and whose later turn left half of a change in its checkout: nothing to merge
+  // "as it is", and nothing to leave out; Continue makes the change a version of its own)
+  const mergedAlready = isMerged(item);
   const reason = hold.reason;
   const byHand = reason === 'by-hand' ? [...new Set((report.changes?.byHand ?? []).flatMap((entry) => entry.by.map((user) => user.displayName)))] : [];
   const words = holdText(reason, hold, byHand);
   const who = decidersOf(item, members);
+  const deciders = deciderIdsOf(item, members);
+  const youDecide = me !== null && deciders.length === 1 && deciders[0] === me.userId;
   const waiting = plan ? dependentsOf(plan, item.id).filter((dependent) => !isMerged(dependent) && dependent.leftOut === undefined) : [];
-  const lead = waiting.length > 0 ? t('decision.foot', { reason: words, who, items: itemNumbers(plan ?? { items: [] }, waiting.map((dependent) => dependent.id)) }) : t('decision.foot.alone', { reason: words, who });
+  const items = itemNumbers(plan ?? { items: [] }, waiting.map((dependent) => dependent.id));
+  const lead = youDecide
+    ? waiting.length > 0
+      ? t('decision.foot.self', { reason: words, items })
+      : t('decision.foot.self.alone', { reason: words })
+    : waiting.length > 0
+      ? t('decision.foot', { reason: words, who, items })
+      : t('decision.foot.alone', { reason: words, who });
   const people = reason === 'conflict' ? (hold.people ?? []).map((change) => (change.outside || change.by.length === 0 ? t('decision.people.outside', { path: change.path }) : t('decision.people', { path: change.path, names: formatAnd(change.by.map((user) => user.displayName)) }))) : [];
   const inTheWay = isHost ? inTheWayText(hold) : null;
   const failed = (why: string): string => t('item.failed', { item: itemLabel(item), reason: why });
@@ -529,18 +545,19 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   const resolve = reason === 'conflict' && canDrive ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
   const continueTurn = reason === 'stopped' && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
   const asIs =
-    RELEASABLE.has(reason) && !direct && canDrive ? (
+    RELEASABLE.has(reason) && !direct && !mergedAlready && canDrive ? (
       <Button onClick={() => void act(() => stores.topics.release({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.asIs')}</Button>
     ) : null;
   const accept =
     direct && isHost ? <Button onClick={() => void act(() => stores.topics.accept({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.accept')}</Button> : null;
   const removePaths = reason === 'policy' && isHost ? <Button onClick={() => void act(() => stores.topics.removePaths(topic.id, item.id), failed)}>{t('decision.removePaths')}</Button> : null;
-  // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes.
+  // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes
+  // (its snapshot was refused, so there may be no draft at all: the host's request makes one, HOSTING §8).
   const requestMerge =
-    worktree !== undefined && request?.status === 'draft' && ((reportHold && canRequest && !isHost) || (reason === 'policy' && isHost)) ? <RequestMerge worktree={worktree} /> : null;
+    worktree !== undefined && ((reportHold && canRequest && !isHost && request?.status === 'draft') || (reason === 'policy' && isHost && (request === undefined || request.status === 'draft'))) ? <RequestMerge worktree={worktree} /> : null;
   const merge = isHost && !direct && !selfClearing && request !== undefined && request.status !== 'merged' && (reason !== 'policy' || request.status !== 'draft') ? <MergeButton requestId={request.id} secondary /> : null;
   const leaveOut =
-    canDrive && (!selfClearing || reason === 'in-the-way') ? (
+    canDrive && !mergedAlready && (!selfClearing || reason === 'in-the-way') ? (
       <Button variant="ghost" onClick={() => topicDialogs(stores).open({ kind: 'leaveOut', topicId: topic.id, itemId: item.id })}>
         {t('decision.leaveOut')}
       </Button>

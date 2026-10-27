@@ -660,7 +660,7 @@ Docs: https://smurg.ai/docs/
   'host.stopped': () => 'Stopped sharing.',
   // DESIGN 0.7.0 D18 (R-SAFE S16): where the brake is pulled, what goes on at the next start.
   'host.stopping.goOn': (p: { n: number }) =>
-    `\nWhen smurg host starts again, ${p.n} ${plural(p.n, 'topic goes on by itself; to keep it stopped', 'topics go on by themselves; to keep one stopped')}, press Pause in its plan first.`,
+    `\nWhen smurg host starts again, ${p.n} ${plural(p.n, 'topic goes on by itself', 'topics go on by themselves')}. To keep a plan stopped, press Pause in it before you stop smurg host.`,
   // DESIGN 0.7.0 D18: while it runs, one line per change.
   'host.topicReady': (p: { name: string; merged: number; total: number }) =>
     `Topic "${p.name}" is ready to check: ${p.merged} of ${p.total} work ${plural(p.total, 'item is', 'items are')} merged into the shared folder. Look at the result in the workspace.`,

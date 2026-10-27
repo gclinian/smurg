@@ -368,9 +368,11 @@ copy per step and document that occurs here.
 By the code of tag v0.6.0: the driver parsed every file of both variants with the schema of 0.6.0 it is an instance of,
 810 files of 35 kinds, none refused (`gaps.txt` empty: every point of a schema is visited or has its
 reason). `packages/daemon/test/upgrade/other-version.test.ts` (`TAG = 'v0.6.0'`) starts the tag's own daemon on a
-copy of `stopped`: it opens every document with no step and nothing put back, the stamp says 0.6.0 and shapes 2.
+copy of `stopped`: it opens it without a refusal and stamps it 0.6.0, shapes 2 (what the tag's side reports says no
+more: whether it took a step or put something back is not asked of it); this tree then opens what the tag left.
 By this tree, whose code is still the tag's when the fixture comes in (step S0 of 0.7.0 changes nothing in `src/`), so
 that these are the tag's check too (DESIGN 0.7.0 D1): `fixtures.test.ts` (every file of a kind, files.json, and
 coverage.json against today's schemas, exactly, since this is the newest fixture), `opens.test.ts`
-(`STORIES['0.6.0']`, `UPGRADES['0.6.0']`: the daemon opens both variants with no step and no kept copy, the stamp
-read) and `refusals.test.ts`.
+(`STORIES['0.6.0']`, `UPGRADES['0.6.0']`: when S0 brought the fixture in, the daemon opened both variants with no
+step and no kept copy, the stamp read; since 0.7.0's S1 it expects the state step from 0.6.0 and its kept copy
+`state.json.before-upgrade-from-0.6.0`) and `refusals.test.ts`.

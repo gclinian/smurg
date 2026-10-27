@@ -233,6 +233,8 @@ topics[].items[].lastTurn: optional
 topics[].items[].lastTurn: #32 object strict
 topics[].items[].lastTurn.outcome: enum "interrupted"|"error"
 topics[].items[].lastTurn.at: number format=safeint [greater_than value=0 inclusive=true]
+topics[].items[].lastTurn.restart: optional
+topics[].items[].lastTurn.restart: literal true
 topics[].items[].mergedAs: optional
 topics[].items[].mergedAs: #33 object strict
 topics[].items[].mergedAs.requestId: optional

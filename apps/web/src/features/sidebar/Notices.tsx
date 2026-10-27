@@ -117,13 +117,15 @@ export function InboxNotices({ sessionsShown }: InboxNoticesProps) {
       seen.current = arrival.id;
       const { item } = arrival;
       const row = describe(item);
-      setAnnouncement(t('inbox.announce', { title: row.title, where: row.where }));
+      // (a decision: the agent is done, the merge waits for a person; 0.7.0 review)
+      const decision = item.kind === 'decision';
+      setAnnouncement(t(decision ? 'inbox.announce.decision' : 'inbox.announce', { title: row.title, where: row.where }));
       const target = inboxTarget(item, stores.topics.getState());
       const onScreen = shown.current && isColumnRef(target) && stores.columns.getState().columns.some((column) => column.id === columnId(target));
       if (onScreen) continue;
       toast.show({
         tone: 'warning',
-        title: t('inbox.toast', { title: row.title }),
+        title: t(decision ? 'inbox.toast.decision' : 'inbox.toast', { title: row.title }),
         ...(row.where === '' ? {} : { description: row.where }),
         action: { label: t('inbox.toast.open'), onClick: () => open.current(item, false) },
       });

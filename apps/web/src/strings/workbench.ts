@@ -82,7 +82,7 @@ export const tWorkbench = defineStrings(
     'notice.plan-ready': '{name}: the plan is ready',
     'notice.plan-updated': '{name}: the plan was updated',
     'notice.complete': '{name}: every item is reviewed. The topic is complete.',
-    'notice.ready': '{name}: every item is merged. Ready to check.',
+    'notice.ready': '{name}: every item is merged, left out or undone. Ready to check.',
     'notice.checked': '{name}: the result was checked. The topic is complete.',
     'notice.open': 'Open',
   },

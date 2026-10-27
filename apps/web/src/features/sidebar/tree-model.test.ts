@@ -239,4 +239,21 @@ describe('the session list: protocol 6 (DESIGN 0.7.0 D13, D19)', () => {
     expect(complete?.rows.find((row) => row.kind === 'result')).toMatchObject({ quiet: true });
     expect(groupOf(buildSessionTree(input({ sessions: [discussion] })), 'topic:t1')?.rows.some((row) => row.kind === 'result')).toBe(false);
   });
+
+  it('0.7.0 review: an item held for a decision is amber whatever its session says, and "Waiting" lists it', () => {
+    const done = buildAgentSession({ id: 's_done', purpose: 'item', topicId: 't1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, status: 'done', responsible: IAN, openedBy: IAN, createdAt: 2, noteworthyAt: 500 });
+    const hold = { state: 'held', reason: 'partial', since: 1, tries: 0, hostOnly: false, escalated: false } as const;
+    const held = buildPlan({
+      topicId: 't1',
+      items: [
+        buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', sessionId: 's_done', merging: 'auto', autoMerge: hold }),
+        buildWorkItem({ id: 'pay', number: 2, title: 'Payment form', state: 'not-started', merging: 'auto', autoMerge: hold }),
+      ],
+    });
+    const group = groupOf(buildSessionTree(input({ plans: [held], sessions: [discussion, done] })), 'topic:t1') as TreeGroup;
+    expect(group.rows.filter((row) => row.title.includes('Cart API') || row.title.includes('Payment form')).map((row) => row.glyph)).toEqual(['decision', 'decision']);
+    expect(group.waiting).toBe(2);
+    const waiting = groupOf(buildSessionTree(input({ plans: [held], sessions: [discussion, done], columns: { filter: 'waiting' } })), 'topic:t1');
+    expect(titles(waiting)).toEqual(['1 · Cart API', '2 · Payment form']);
+  });
 });

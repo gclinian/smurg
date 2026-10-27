@@ -950,7 +950,8 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     await line('rules').getByText("Everything else goes through Claude Code's check.").waitFor({ timeout: STEP_MS });
     await mode.selectOption('ask-commands');
     await line('rules').getByText('Everything else asks first.').waitFor({ timeout: STEP_MS });
-    await line('agent').getByText("Both are the topic's settings: its later items use them too.").waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: the note sits under three pickers; it names the two it is about)
+    await line('agent').getByText("The model and the permission mode are the topic's settings: its later items use them too.").waitFor({ timeout: STEP_MS });
     await shots('start-dialog', [{ name: 'Ian', page: ian }]);
 
     const head = await env.git(['rev-parse', 'HEAD']);
@@ -1680,7 +1681,9 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
       await session(page, giftId).getByText('Not answered: the agent stopped with an error.').waitFor({ timeout: STEP_MS });
       await item(page, 'gift-receipt').getByText('Failed', { exact: true }).waitFor({ timeout: STEP_MS });
     }
-    await inbox(ian, 'attention').filter({ hasText: "4 · Gift receipt: the agent's process failed" }).waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: smurg starts a crashed agent again once by itself, a minute later (DESIGN 0.7.0 D15), so nobody's
+    // inbox asks for it meanwhile; "Try again" is there for whoever may press it)
+    expect(await inbox(ian, 'attention').filter({ hasText: "4 · Gift receipt: the agent's process failed" }).count()).toBe(0);
     for (const page of [amy, leo]) {
       expect(await session(page, giftId).getByRole('button', { name: 'Try again' }).count()).toBe(0);
       expect(await item(page, 'gift-receipt').getByRole('button', { name: 'Try again' }).count()).toBe(0);
@@ -1801,12 +1804,14 @@ describe.skipIf(chrome === null)('the whole flow in real browsers: Ian (Host), M
     // Mei opens it: why, who decides, and what she may do. She leaves it out.
     await inbox(mei, 'decision').locator('.inbox-item__main').click();
     const report = column(mei, `report:${searchId}:fuzzy-match`);
-    await report.getByText('沒有合併：沒有完成（部分完成）。由 Mei 決定。').waitFor({ timeout: STEP_MS });
+    // (0.7.0 review: the one who decides reads 「由你決定」)
+    await report.getByText('沒有合併：沒有完成（部分完成）。由你決定。').waitFor({ timeout: STEP_MS });
     await dismissToasts(mei);
     await report.getByRole('button', { name: '略過這個項目…' }).click();
     const leave = mei.getByRole('alertdialog', { name: '要略過 2 · Fuzzy match 嗎？' });
     await leave.getByText('它的變更不會合併。它的 session 會結束，worktree 會保留。').waitFor({ timeout: STEP_MS });
-    const told = people.map(({ page }) => toast(page, page === mei ? `${SEARCH}：所有項目都合併了，待驗收。` : `${SEARCH}: every item is merged. Ready to check.`));
+    // (0.7.0 review: a topic is ready when every item is merged, left out or undone; the words said "merged" only)
+    const told = people.map(({ page }) => toast(page, page === mei ? `${SEARCH}：所有項目都已合併、略過或復原，待驗收。` : `${SEARCH}: every item is merged, left out or undone. Ready to check.`));
     await leave.getByRole('button', { name: '略過', exact: true }).click();
     await leave.waitFor({ state: 'detached', timeout: STEP_MS });
     await Promise.all(told);

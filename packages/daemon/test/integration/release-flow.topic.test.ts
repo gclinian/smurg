@@ -537,7 +537,8 @@ describe('the release composition: one topic from the discussion to the archive,
     expect((await ian.inbox()).some((item) => item.kind === 'report')).toBe(false);
     const afterReport = await planIs(leo, topicId, (plan) => itemOf(plan, 'cart-api')?.state === 'done', 'work item 1 done');
     expect(itemOf(afterReport, 'cart-api')).toMatchObject({ state: 'done', report: { version: 1, outcome: 'partial', state: 'to-review' }, merge: { requestId: cartDraft, status: 'draft', ready: false } });
-    expect(afterReport.waitingFor).toMatchObject([{ user: { userId: MEI }, questions: 0, permissions: 0, reports: 1 }]);
+    // (Mei's entry; Ian's work item 3 may have stopped by now, which the plan counts as his decision: 0.7.0 review)
+    expect(afterReport.waitingFor.filter((entry) => entry.user.userId === MEI)).toMatchObject([{ questions: 0, permissions: 0, reports: 1 }]);
     expect((await audited(flow, 'report.register')).map((entry) => entry.detail)).toMatchObject([{ topicId, itemId: 'cart-api', version: 1, sessionId: cartId, outcome: 'partial', requestId: cartDraft }]);
 
     // ================================================================================================================
@@ -557,6 +558,8 @@ describe('the release composition: one topic from the discussion to the archive,
     expect(stalledItem).toMatchObject({ key: `attention:item-stalled:${topicId}.receipt-email`, waiting: true, unread: true, topicId, itemId: 'receipt-email', item: { number: 3, title: 'Receipt email' }, sessionId: receiptId, target: { kind: 'session', sessionId: receiptId } });
     expect((await mei.inbox()).some((item) => item.kind === 'attention')).toBe(false);
     expect(await amy.inbox()).toEqual([]);
+    // An item whose agent could not finish is a decision: the plan names whom it waits for (0.7.0 review).
+    expect((await planIs(leo, topicId, (plan) => plan.waitingFor.some((entry) => entry.user.userId === IAN && entry.decisions === 1), 'the plan to count it for Ian')).waitingFor.find((entry) => entry.user.userId === IAN)).toMatchObject({ decisions: 1 });
     expect((await told(flow, receiptId)).map((message) => message.replace(/^\[smurg [a-z0-9]{4}\]\n/, ''))).toEqual([
       'Start work item 3 (id receipt-email). Its title and description are in specs/checkout/PLAN.md. Responsible for this item: Ian.',
       'You stopped without the result report. If you need a decision, ask it with AskUserQuestion. If you are finished, write the report and call check_report.',

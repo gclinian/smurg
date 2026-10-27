@@ -293,6 +293,8 @@ describe('DESIGN 0.7.0 D15: smurg continues by itself, bounded and audited', () 
     test.fakes.agents.fail(sessionId);
     await waitFor(() => item(run.topicId, 'a').state === 'failed', { what: 'a to fail' });
     expect((await storedItem(test, run.topicId, 'a')).autoContinue).toMatchObject({ cause: 'crash', count: 0 });
+    // (0.7.0 review: nobody is asked for what smurg does by itself; the row comes once its one resume is spent, below)
+    expect(test.t.ctx.services.topics.attention()).toEqual([]);
     test.t.advanceClock(30_000);
     await settle(test);
     expect(test.fakes.agents.log.of('retry')).toEqual([]);

@@ -7,7 +7,8 @@
 //
 // The rows, in order; the first that applies decides:
 //    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done
-//    2. its current request is merged; an undo of its topic claims it                                       → none
+//    2. its current request is merged (unless a later turn did not finish and left work in its checkout: that is
+//       row 6 for it, after rows 3 and 4); an undo of its topic claims it                                   → none
 //    3. the plan is paused                                                                                   → wait
 //    4. its session is in a turn, has a card open or a message waiting, or an automatic continue is owed     → wait
 //    5. somebody wrote to its agent since this version: the answer is to come → wait; it came without one   → hold
@@ -130,6 +131,11 @@ export interface AutoMergeVerdictInput {
   /** The item's `mergeTries`. */
   readonly tries: number;
   readonly maxTries: number;
+  /**
+   * Its checkout holds work no merge carried (`worktrees.unmerged`): asked only of an item whose request is merged and
+   * whose later turn did not finish (row 2). Absent: no.
+   */
+  readonly unmergedWork?: boolean;
 }
 
 const NONE: AutoMergeVerdict = Object.freeze({ kind: 'none' });
@@ -143,13 +149,19 @@ export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict
   const record = item.autoMerge;
   // 1. smurg's to merge at all
   if (input.policy !== 'auto' || input.topic.archived || item.leftOut !== undefined || (item.state !== 'done' && item.state !== 'reviewed')) return NONE;
-  // 2. merged already; claimed by an undo
-  if (request?.status === 'merged' || input.claimed) return NONE;
+  // 2. claimed by an undo; merged already, unless a later turn did not finish (or what it edited is still to be taken
+  //    into a version: `snapshotOwed`) and left half of a change in its checkout (0.7.0 review: nothing would ever merge
+  //    or report it, and its topic would never be ready)
+  if (input.claimed) return NONE;
+  const merged = request?.status === 'merged';
+  if (merged && !((item.lastTurn !== undefined || item.snapshotOwed === true) && input.unmergedWork === true)) return NONE;
   // 3. a paused plan merges nothing
   if (input.topic.paused) return { kind: 'wait', reason: 'paused' };
   // 4. the agent is at work, or a person is asked something, or smurg continues it by itself later
   if (input.session !== null && (input.session.turnOpen || input.session.openCards > 0)) return { kind: 'wait', reason: 'busy' };
   if (autoContinueOwed(item)) return { kind: 'wait', reason: 'busy' };
+  // (row 6 for a merged item: its carers decide; Continue registers what the checkout holds as a new version)
+  if (merged) return hold('stopped');
   // 5. somebody wrote to the agent since this version (R-SAFE S7)
   if (report !== null && report.pendingFollowUps > 0) return { kind: 'wait', reason: 'asked' };
   if (item.changesAsked !== undefined) return hold('asked');

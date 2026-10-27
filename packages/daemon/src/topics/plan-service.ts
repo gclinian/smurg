@@ -1021,7 +1021,9 @@ export class PlanServiceImpl implements PlanService {
     const topic = this.core.needOpen(input.topicId);
     const item = this.needPlanItem(topic, input.itemId);
     const verdict = this.core.mergingOf(item) === 'auto' ? this.core.verdictOf(topic, item) : null;
-    if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason)) throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
+    // (a merged item held because a later turn left half of a change in its checkout has no version to merge "as it
+    // is": its carers continue it, and the change becomes a version of its own; 0.7.0 review)
+    if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason) || item.merged) throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
     const report = this.core.report(topic.id, item.id);
     if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
     this.core.updateItem(topic.id, item.id, (draft) => {
@@ -1182,7 +1184,20 @@ export class PlanServiceImpl implements PlanService {
     const requestIds = [...new Set(facts.merges.flatMap((merge) => (merge.requestId === undefined ? [] : [merge.requestId])))].sort();
     const token = sha256Hex(JSON.stringify({ merges: facts.merges.map((merge) => merge.commit), requests: requestIds, undone: sortKeys(facts.items), leftOut: sortKeys(leftOut), clean: facts.clean }));
     const tooMany = facts.items.length > UNDO_ITEMS_MAX || leftOut.length > UNDO_ITEMS_MAX || running.length > UNDO_ITEMS_MAX;
-    const unavailable = facts.unavailable !== null ? wireText(facts.unavailable) : tooMany ? wireText(msg('undo.unavailable.tooMany', { max: UNDO_ITEMS_MAX })) : null;
+    // An undone item's checkout goes with the undo (a new Start needs a fresh one): one that holds work no merge carried
+    // (a person's saved edit, a later turn's change) is not deleted unasked (0.7.0 review, the finish rule of D12).
+    const keepsWork = facts.items.filter((key) => this.checkoutHoldsWork(key)).slice(0, 5).map((key) => {
+      const ref = this.undoRef(key);
+      return `${ref.number} · ${ref.title}`.slice(0, 200);
+    });
+    const unavailable =
+      facts.unavailable !== null
+        ? wireText(facts.unavailable)
+        : tooMany
+          ? wireText(msg('undo.unavailable.tooMany', { max: UNDO_ITEMS_MAX }))
+          : keepsWork.length > 0
+            ? wireText(msg('undo.unavailable.unmerged', { items: keepsWork }))
+            : null;
     const blockers: UndoPreview['blockers'] = {
       running: running.slice(0, UNDO_ITEMS_MAX).map((key) => this.undoRef(key)),
       changedSince: facts.changedSince.slice(0, UNDO_PATHS_MAX).map((change) => ({ path: change.path, by: change.by.slice(0, 5).map((user) => ({ userId: user.userId, displayName: user.displayName })), outside: change.outside })),
@@ -1217,6 +1232,19 @@ export class PlanServiceImpl implements PlanService {
       undone,
       leftOut,
     };
+  }
+
+  /** Whether the item's checkout holds work that no merge carried (a question that cannot be answered counts as yes). */
+  private checkoutHoldsWork(key: UndoItemKey): boolean {
+    const topic = this.core.topic(key.topicId);
+    const item = topic === null ? null : this.core.item(topic, key.itemId);
+    const worktrees = this.ctx.services.worktrees;
+    if (item === null || item.worktreeId === undefined || isStubService(worktrees) || worktrees.get(item.worktreeId) === null) return false;
+    try {
+      return worktrees.unmerged(key.topicId).some((worktree) => worktree.id === item.worktreeId);
+    } catch {
+      return true;
+    }
   }
 
   /** The preview of items that ran directly in the shared folder: there is no history to take them back from. */

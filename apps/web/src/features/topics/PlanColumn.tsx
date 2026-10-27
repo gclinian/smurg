@@ -20,14 +20,14 @@ import { selectWork } from '../../lib/stores/host.ts';
 import { selectSession, selectTopicSessions } from '../../lib/stores/sessions.ts';
 import { selectPlan } from '../../lib/stores/topics.ts';
 import { useNow } from '../../lib/use-now.ts';
-import { useCan, useCommand, useStores } from '../../lib/workspace/context.tsx';
+import { useCan, useCommand, useConnectionState, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { Avatar, Banner, Button, EmptyState, Segmented, Spinner, type MenuItem } from '../../ui/index.ts';
 import { IconCode, IconFileText, IconGitMerge, IconOpenSide, IconPause, IconPlan, IconPlay, IconUser, IconUsers, IconWand } from '../../ui/icons.tsx';
 import { StandaloneDocument, useHeldDocument } from '../editor/standalone.tsx';
 import { ReviseBox } from './Discussion.tsx';
 import { topicDialogs } from './dialogs.ts';
 import { holdText } from '../../lib/hold-words.ts';
-import { agentAccessNames, decidersOf, firstHeld, itemBadge, loads, planFile, planHeadline, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
+import { agentAccessNames, deciderIdsOf, decidersOf, firstHeld, itemBadge, loads, planFile, planHeadline, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
 import { PlanItems } from './PlanItems.tsx';
 import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
@@ -62,6 +62,9 @@ function Plan({ topic }: { topic: Topic }) {
   const canDrive = useCan('session.drive');
   const canWrite = useCan('file.write');
   const members = useMembers();
+  // While the host's smurg is not reachable a press of Pause or Continue all would reach it only after its next start,
+  // which has gone on by then (0.7.0 review): both say so instead of taking the press.
+  const hostAway = useConnectionState().kind !== 'online';
   const plan = useStore(stores.topics, (state) => selectPlan(state, topic.id));
   const planStatus = useStore(stores.topics, (state) => state.planStatus.get(topic.id));
   const sessions = useStore(stores.sessions, (state) => selectTopicSessions(state, topic.id), shallowEqual);
@@ -140,7 +143,7 @@ function Plan({ topic }: { topic: Topic }) {
               {...(topic.plan.pausedBy === undefined ? { title: t('plan.paused.title') } : {})}
               actions={
                 canDrive && live ? (
-                  <Button size="sm" variant="primary" onClick={() => void act(() => stores.topics.resume(topic.id), (reason) => t('plan.paused.failed', { reason }))}>
+                  <Button size="sm" variant="primary" disabled={hostAway} {...(hostAway ? { title: t('plan.hostAway') } : {})} onClick={() => void act(() => stores.topics.resume(topic.id), (reason) => t('plan.paused.failed', { reason }))}>
                     {t('plan.paused.continue')}
                   </Button>
                 ) : null
@@ -384,8 +387,13 @@ function Assign({ topic, plan, members, started }: { topic: Topic; plan: PlanInf
 function DecisionBanner({ topic, plan }: { topic: Topic; plan: PlanInfo }) {
   const openSide = useOpenSide();
   const members = useMembers();
+  const me = useMember();
   const held = firstHeld(plan);
   if (held === undefined || held.autoMerge === undefined || topic.archived) return null;
+  // (the one who decides reads "You decide", not their own name; 0.7.0 review)
+  const deciders = deciderIdsOf(held, members);
+  const self = me !== null && deciders.length === 1 && deciders[0] === me.userId;
+  const reason = holdText(held.autoMerge.reason, held.autoMerge);
   return (
     <Banner
       tone="warning"
@@ -396,7 +404,7 @@ function DecisionBanner({ topic, plan }: { topic: Topic; plan: PlanInfo }) {
         </Button>
       }
     >
-      {t('plan.decision', { item: itemLabel(held), reason: holdText(held.autoMerge.reason, held.autoMerge), who: decidersOf(held, members) })}
+      {self ? t('plan.decision.self', { item: itemLabel(held), reason }) : t('plan.decision', { item: itemLabel(held), reason, who: decidersOf(held, members) })}
     </Banner>
   );
 }
@@ -435,6 +443,7 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
   const isHost = useCan('worktree.merge.decide');
   const members = useMembers();
   const act = useAction();
+  const hostAway = useConnectionState().kind !== 'online';
   // Without the git program items run one at a time in the shared folder, and nothing waits for a merge (DESIGN 0.6.0
   // D15). A folder without `.git` runs them as a repository does (smurg's own history, D14): nothing to say here.
   const direct = useStore(stores.host, (state) => selectWork(state)?.history === 'direct');
@@ -468,7 +477,7 @@ function PlanFoot({ topic, plan, summary, sessionOf }: { topic: Topic; plan: Pla
     <Foot text={text.length === 0 ? undefined : joinSentences(text)}>
       {mergeButton}
       {canDrive && topic.phase === 'executing' && !topic.plan.paused ? (
-        <Button icon={<IconPause />} onClick={() => void act(() => stores.topics.pause(topic.id), (reason) => t('plan.pause.failed', { reason }))}>
+        <Button icon={<IconPause />} disabled={hostAway} {...(hostAway ? { title: t('plan.hostAway') } : {})} onClick={() => void act(() => stores.topics.pause(topic.id), (reason) => t('plan.pause.failed', { reason }))}>
           {t('plan.pause.action')}
         </Button>
       ) : null}

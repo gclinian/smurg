@@ -89,7 +89,7 @@ The trust model on one page: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#2-tru
 - [Quick start](docs/QUICKSTART.md): step by step, from installing to a first topic whose work is merged and checked
 - [How it works](docs/HOW-IT-WORKS.md): one page on how several people work with coding agents in one workspace
 - [Host guide](docs/HOSTING.md): installing, sharing, before you share, what agents may do, troubleshooting, updating
-- [Guide for teammates](docs/JOINING.md): roles, the inbox, talking to agents, topics from discussion to reviewed result
+- [Guide for teammates](docs/JOINING.md): roles, the inbox, talking to agents, topics from discussion to a checked result
 - [Security model](docs/SECURITY-MODEL.md): what the relay sees, what teammates can do, what encryption does not protect
 - [Changelog](CHANGELOG.md): what changed in each version
 - [Architecture](docs/ARCHITECTURE.md): how smurg is built, and its known limits (§12)

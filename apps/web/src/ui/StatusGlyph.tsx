@@ -1,12 +1,12 @@
 import type { ReactNode } from 'react';
 import { cx } from './cx.ts';
-import { IconArc, IconCheckCircle, IconCircle, IconCircleDashed, IconClock, IconHourglassStop, IconQuestion, IconShieldAlert, IconStop, IconXCircle, type IconProps } from './icons.tsx';
+import { IconArc, IconCheckCircle, IconCircle, IconCircleDashed, IconClock, IconGitMerge, IconHourglassStop, IconQuestion, IconShieldAlert, IconStop, IconXCircle, type IconProps } from './icons.tsx';
 
 /**
  * What a session or a work item is doing, as the eye reads it (UX §3.2): a shape AND a colour, never colour alone.
- * Amber always means "a person must act".
+ * Amber always means "a person must act". `decision` (0.7.0): a work item smurg did not merge, waiting for a person.
  */
-export const GLYPH_STATUSES = ['running', 'question', 'permission', 'stalled', 'idle', 'done', 'failed', 'ended', 'blocked', 'todo'] as const;
+export const GLYPH_STATUSES = ['running', 'question', 'permission', 'stalled', 'decision', 'idle', 'done', 'failed', 'ended', 'blocked', 'todo'] as const;
 export type GlyphStatus = (typeof GLYPH_STATUSES)[number];
 
 const SHAPE: Record<GlyphStatus, (props: IconProps) => ReactNode> = {
@@ -14,6 +14,7 @@ const SHAPE: Record<GlyphStatus, (props: IconProps) => ReactNode> = {
   question: IconQuestion,
   permission: IconShieldAlert,
   stalled: IconHourglassStop,
+  decision: IconGitMerge,
   idle: IconCircle,
   done: IconCheckCircle,
   failed: IconXCircle,

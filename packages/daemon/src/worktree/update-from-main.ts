@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { SmurgError } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { untrackedInTheWay } from './fs-ops.ts';
-import { requireOk, type GitRunner } from './git.ts';
+import { firstLine, requireOk, type GitRunner } from './git.ts';
 import { parseMergeTree, parseNameOnly, parseNameStatus } from './git-parse.ts';
 
 export interface MergeMainInput {
@@ -26,11 +26,18 @@ export interface MergeMainInput {
   readonly timeoutMs: number;
   /** Called right before the merge with the files it will write in the working tree (protocol spelling). */
   readonly beforeMerge?: (paths: string[]) => void;
+  /**
+   * 0.7.0 review: called when the merge would leave files conflicted, with those files and the merge base, before the
+   * working tree is touched. false: nothing is merged (`held`), the working tree stays as it is.
+   */
+  readonly beforeConflict?: (paths: readonly string[], base: string) => Promise<boolean>;
 }
 
 export type MergeMainResult =
   /** The branch already contains the main workspace's HEAD: nothing changed, no second parent is owed. */
   | { readonly merged: false }
+  /** `beforeConflict` said no: these files would conflict; nothing changed. */
+  | { readonly merged: false; readonly held: readonly string[] }
   /** The working tree now holds the merge; `conflicted` still have markers. */
   | { readonly merged: true; readonly conflicted: string[] };
 
@@ -50,6 +57,11 @@ export async function mergeMainIntoWorktree(input: MergeMainInput): Promise<Merg
   // would overwrite it without a word (an ignored build output, a local data file): refused, nothing changed.
   const trial = await git.run({ gitDir, attrSource: input.head, args: ['merge-tree', '--write-tree', '--name-only', '-z', '--no-messages', input.head, input.mainCommit], maxStdoutBytes: 64 * 1024 * 1024, timeoutMs });
   if (trial.truncated || (trial.code !== 0 && trial.code !== 1)) requireOk(trial, 'trialMerge');
+  if (trial.code === 1 && input.beforeConflict !== undefined) {
+    const paths = parseMergeTree(trial.stdout).conflicted.map((path) => path.path);
+    const base = firstLine(requireOk(await git.run({ gitDir, args: ['merge-base', input.head, input.mainCommit], readOnly: true, timeoutMs }), 'mergeBase'));
+    if (!(await input.beforeConflict(paths, base))) return { merged: false, held: paths };
+  }
   const changes = parseNameStatus(
     requireOk(await git.run({ gitDir, args: ['diff', '--name-status', '-z', '--no-renames', '--no-ext-diff', input.head, parseMergeTree(trial.stdout).tree], readOnly: true, maxStdoutBytes: 64 * 1024 * 1024, timeoutMs }), 'listMergeChanges').stdout,
   ).map((change) => ({ letter: change.letter, path: change.path.path }));

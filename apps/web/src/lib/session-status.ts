@@ -41,6 +41,14 @@ export function itemGlyph(item: Pick<WorkItem, 'state'>): GlyphStatus {
   return ITEM_GLYPH[item.state];
 }
 
+/**
+ * A work item smurg did not merge and that waits for a person (`autoMerge.state` held, DESIGN 0.7.0 D9): amber, whatever
+ * its session says (its agent is done; the merge waits). null: not held.
+ */
+export function heldGlyph(item: Pick<WorkItem, 'autoMerge'>): GlyphStatus | null {
+  return item.autoMerge?.state === 'held' ? 'decision' : null;
+}
+
 /** "Waiting for an answer": the name of a glyph, in the viewer's language. */
 export function statusLabel(status: GlyphStatus): string {
   return tStores(`status.${status}`);
@@ -50,7 +58,7 @@ export function statusLabel(status: GlyphStatus): string {
  * How urgent a status is for a collapsed topic's one glyph (UX §3.2): failed, waiting for permission, waiting for an
  * answer, stopped without a report, running, idle; the rest never leads.
  */
-const URGENCY: readonly GlyphStatus[] = ['failed', 'permission', 'question', 'stalled', 'running', 'idle', 'done', 'blocked', 'todo', 'ended'];
+const URGENCY: readonly GlyphStatus[] = ['failed', 'permission', 'question', 'stalled', 'decision', 'running', 'idle', 'done', 'blocked', 'todo', 'ended'];
 export function mostUrgent(statuses: readonly GlyphStatus[]): GlyphStatus | null {
   let best: GlyphStatus | null = null;
   for (const status of statuses) if (best === null || URGENCY.indexOf(status) < URGENCY.indexOf(best)) best = status;
@@ -59,7 +67,7 @@ export function mostUrgent(statuses: readonly GlyphStatus[]): GlyphStatus | null
 
 /** A person must act (amber): the "Waiting" filter of the session list and a collapsed topic's count. */
 export function waitsForPerson(status: GlyphStatus | null): boolean {
-  return status === 'question' || status === 'permission' || status === 'stalled' || status === 'failed';
+  return status === 'question' || status === 'permission' || status === 'stalled' || status === 'decision' || status === 'failed';
 }
 
 /** "Discussing", "Spec", "Plan", "Executing", "Complete". */

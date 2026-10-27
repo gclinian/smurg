@@ -1027,7 +1027,8 @@
 }
 .ui-status--question,
 .ui-status--permission,
-.ui-status--stalled {
+.ui-status--stalled,
+.ui-status--decision {
   color: var(--color-warning);
 }
 .ui-status--done {

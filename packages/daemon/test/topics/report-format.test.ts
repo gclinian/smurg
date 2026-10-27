@@ -143,9 +143,22 @@ describe('the result report format', () => {
     expect(parse.ok && parse.report.checks).toEqual({ passed: 1, notVerified: 1 });
     expect(parse.ok && Object.keys(parse.report.checks)).toEqual(['passed', 'notVerified']);
     expect(parse.ok && parse.report.sections.verified.some((check) => 'failed' in check)).toBe(false);
-    // `[x]`, `[X]` and `[ ]` read as before; "failed" in a passed check's words is the agent's own text.
-    const passedWithWord = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [X] `pnpm test cart`: failed: 0');
+    // `[x]`, `[X]` and `[ ]` read as before; "failed" in a passed check's words is the agent's own text. (Changed in the
+    // 0.7.0 review: the words of a failed check's line, "<what>: failed: …", with a ticked box are refused now, below.)
+    const passedWithWord = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [X] `pnpm test cart`: 14 passed, 0 failed');
     expect(parseReport(passedWithWord, 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 1, notVerified: 1 } } });
+  });
+
+  it('0.7.0 review: a ticked box whose words are those of a check that failed or did not run is refused at its line, not counted as passed', () => {
+    // (until the review `- [x] pnpm test: failed: …` parsed as a passed check, and smurg merged the report by itself;
+    // the line said what the `[!]` line says)
+    const failedTicked = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [x] `pnpm test cart`: failed: 2 of 14 tests failed');
+    const parse = parseReport(failedTicked, 'cart-api');
+    expect(parse.ok).toBe(false);
+    expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.model])).toEqual([['verified-ticked', 'A ticked box "- [x]" is a check that passed. A check that failed is written "- [!] <what>: failed: <what happened>", one that did not run "- [ ] <what>: not verified: <why>".']]);
+    expect(parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [X] Manual check: not verified: no browser'), 'cart-api').ok).toBe(false);
+    // Written as the line it means, it parses.
+    expect(parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [!] `pnpm test cart`: failed: 2 of 14 tests failed').replace('- outcome: complete', '- outcome: partial'), 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 0, failed: 1 } } });
   });
 
   it('the sections must come in the fixed order, each once', () => {

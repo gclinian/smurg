@@ -757,10 +757,11 @@ describe('0.7.0 (DESIGN D15, D18): what goes on by itself, said at a start, at a
   });
 
   it('the stop line: how many topics go on by themselves at the next start; nothing for 0 or for a daemon that does not say', () => {
-    expect(renderText('en', stopGoOnNotice(2) as Text)).toBe('\nWhen smurg host starts again, 2 topics go on by themselves; to keep one stopped, press Pause in its plan first.');
-    expect(renderText('zh-TW', stopGoOnNotice(2) as Text)).toBe('\n下次 smurg host 啟動時，2 個主題會自己繼續；要讓其中一個保持停下，請先在它的計畫裡按「暫停」。');
-    expect(renderText('en', stopGoOnNotice(1) as Text)).toBe('\nWhen smurg host starts again, 1 topic goes on by itself; to keep it stopped, press Pause in its plan first.');
-    expect(renderText('zh-TW', stopGoOnNotice(1) as Text)).toBe('\n下次 smurg host 啟動時，1 個主題會自己繼續；要讓它保持停下，請先在它的計畫裡按「暫停」。');
+    // (0.7.0 review: Pause reaches nothing while smurg host is stopped, so the line names the brake that works)
+    expect(renderText('en', stopGoOnNotice(2) as Text)).toBe('\nWhen smurg host starts again, 2 topics go on by themselves. To keep a plan stopped, press Pause in it before you stop smurg host.');
+    expect(renderText('zh-TW', stopGoOnNotice(2) as Text)).toBe('\n下次 smurg host 啟動時，2 個主題會自己繼續。要讓計畫保持停下，請在停止 smurg host 之前，先在計畫裡按「暫停」。');
+    expect(renderText('en', stopGoOnNotice(1) as Text)).toBe('\nWhen smurg host starts again, 1 topic goes on by itself. To keep a plan stopped, press Pause in it before you stop smurg host.');
+    expect(renderText('zh-TW', stopGoOnNotice(1) as Text)).toBe('\n下次 smurg host 啟動時，1 個主題會自己繼續。要讓計畫保持停下，請在停止 smurg host 之前，先在計畫裡按「暫停」。');
     expect(stopGoOnNotice(0)).toBeNull();
     expect(stopGoOnNotice(undefined)).toBeNull();
   });
