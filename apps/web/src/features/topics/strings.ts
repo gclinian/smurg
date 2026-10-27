@@ -116,6 +116,9 @@ export const t = defineStrings(
     'plan.auto.running': 'Running by itself: smurg merges each item whose report says complete and verified, and starts what waits for it.',
     'plan.decision': '{item} was not merged: {reason}. {who} decides. The items that do not depend on it go on.',
     'plan.decision.self': '{item} was not merged: {reason}. You decide. The items that do not depend on it go on.',
+    // (an item whose version is merged, and whose later change waits for a decision: 0.7.0 verify)
+    'plan.decision.later': '{item}: a later change was not merged: {reason}. {who} decides.',
+    'plan.decision.later.self': '{item}: a later change was not merged: {reason}. You decide.',
     'plan.decision.open': 'Open',
     'plan.removed.title': 'No longer in the plan',
     'plan.removed.body': 'These items were started and then removed from PLAN.md. They do not count for the topic.',
@@ -241,6 +244,8 @@ export const t = defineStrings(
     'badge.waitsToMerge.busy': 'Waits to merge: git is busy in the main workspace',
     'badge.waitsToMerge.paused': 'Waits to merge: the plan is paused',
     'badge.held': 'Not merged: {reason}',
+    'badge.held.later': 'Merged; a later change is not merged: {reason}',
+    'badge.waitsToMerge.paused.later': 'Merged; a later change waits: the plan is paused',
     'badge.waitsDecision': 'Waits for a decision on {items}',
     'badge.undone': 'Undone',
     'badge.leftOut': 'Left out',
@@ -466,6 +471,7 @@ export const t = defineStrings(
     'review.ready.host': 'The change is ready for you to merge.',
     'review.merged': 'Merged into the main workspace.',
     'review.mergedAt': 'Merged into the main workspace at {time}.',
+    'review.mergedAuto': 'Merged by smurg at {time}.',
     'review.noChanges': 'There is nothing to merge.',
     'review.conflict': 'The merge stopped on a conflict.',
     'review.rejected': 'The host rejected the merge.',
@@ -480,6 +486,8 @@ export const t = defineStrings(
     'decision.foot.alone': 'Not merged: {reason}. {who} decides.',
     'decision.foot.self': 'Not merged: {reason}. You decide. Items {items} wait for it.',
     'decision.foot.self.alone': 'Not merged: {reason}. You decide.',
+    'decision.foot.later': 'Merged; a later change is not merged: {reason}. {who} decides.',
+    'decision.foot.later.self': 'Merged; a later change is not merged: {reason}. You decide.',
     'decision.policy.paths': 'Files only the host may merge: {paths}.',
     'decision.fix': 'Ask the agent to fix it',
     'decision.removePaths': 'Ask the agent to take them out',
@@ -494,7 +502,7 @@ export const t = defineStrings(
     'decision.inTheWay.branch': 'The main workspace is on {current}. Switch back to {expected}, where this topic started; smurg merges the item by itself then.',
     'decision.inTheWay.git-busy': 'A merge, a rebase or a similar git operation is in progress in the main workspace. Finish it; smurg merges the item by itself then.',
     'decision.inTheWay.undo-interrupted':
-      'smurg was undoing a merge when it stopped, and the main workspace is between the two: commit what is staged as the undo, or put the staged files back with git restore --staged --worktree -- <file> (git diff --cached --name-only lists them). smurg goes on by itself then.',
+      'smurg was undoing a merge when it stopped, and the main workspace is between the two: put the files back with git restore --staged --worktree -- <file> (git status lists them). smurg goes on by itself then.',
 
     // ---- the Result column (DESIGN 0.7.0 D13)
     'result.title': 'Result: {topic}',

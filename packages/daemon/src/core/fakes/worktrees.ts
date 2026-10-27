@@ -496,21 +496,43 @@ export class FakeWorktreeManager implements WorktreeManager {
     this.putWorktree({ ...this.needWorktree(worktreeId), ownerUserId: next.userId, ownerName: next.displayName });
   }
 
-  async releaseItem(worktreeId: string): Promise<void> {
-    this.log.record('releaseItem', worktreeId);
+  async releaseItem(worktreeId: string, options: { readonly keepWork?: 'attached' | 'detached' } = {}): Promise<'released' | 'kept'> {
+    this.log.record('releaseItem', worktreeId, options);
+    const worktree = this.worktrees.get(worktreeId);
+    if (worktree !== undefined && options.keepWork !== undefined && this.holdsWork(worktree)) {
+      if (options.keepWork === 'detached') {
+        const { topicId: _topic, itemId: _item, ...rest } = worktree;
+        this.putWorktree({ ...rest, kept: true } as WorktreeInfo);
+      }
+      return 'kept';
+    }
     this.unsavedEdits.delete(worktreeId);
     await this.drop(worktreeId);
+    return 'released';
   }
 
   unmerged(topicId: string): WorktreeInfo[] {
     return [...this.worktrees.values()]
       .filter((worktree) => worktree.topicId === topicId && worktree.itemId !== undefined)
-      .filter((worktree) => {
-        if (this.unsavedEdits.has(worktree.id)) return true;
-        const newest = [...this.requests.values()].reverse().find((request) => request.worktreeId === worktree.id);
-        return newest !== undefined && newest.status !== 'merged';
-      })
+      .filter((worktree) => this.holdsWork(worktree))
       .map((worktree) => structuredClone(worktree));
+  }
+
+  unmergedWork(worktreeId: string): boolean | null {
+    const worktree = this.worktrees.get(worktreeId);
+    if (worktree === undefined || worktree.itemId === undefined) return false;
+    return this.holdsWork(worktree);
+  }
+
+  async holdsUnsnapshotted(worktreeId: string): Promise<boolean | null> {
+    this.log.record('holdsUnsnapshotted', worktreeId);
+    return this.unsavedEdits.has(worktreeId);
+  }
+
+  private holdsWork(worktree: WorktreeInfo): boolean {
+    if (this.unsavedEdits.has(worktree.id)) return true;
+    const newest = [...this.requests.values()].reverse().find((request) => request.worktreeId === worktree.id);
+    return newest !== undefined && newest.status !== 'merged';
   }
 
   // ---- internals ---------------------------------------------------------------------------------------------------

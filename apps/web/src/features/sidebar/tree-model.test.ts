@@ -256,4 +256,20 @@ describe('the session list: protocol 6 (DESIGN 0.7.0 D13, D19)', () => {
     const waiting = groupOf(buildSessionTree(input({ plans: [held], sessions: [discussion, done], columns: { filter: 'waiting' } })), 'topic:t1');
     expect(titles(waiting)).toEqual(['1 · Cart API', '2 · Payment form']);
   });
+
+  // 0.7.0 verify (W/verify/diff): an item that ran directly in the folder keeps its hold while its Continue runs, asks or
+  // waits for a permission; the row read "Waiting for a decision" and hid what the person must do now.
+  it('0.7.0 verify: what a held item\'s session does now comes first: it runs, asks, waits for a permission', () => {
+    const hold = { state: 'held', reason: 'stopped', since: 1, tries: 0, hostOnly: false, escalated: false } as const;
+    const held = buildPlan({ topicId: 't1', items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', sessionId: 's_item', autoMerge: hold })] });
+    const glyphOf = (status: 'running' | 'waiting-answer' | 'waiting-permission' | 'done'): string | null | undefined => {
+      const session = buildAgentSession({ id: 's_item', purpose: 'item', topicId: 't1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, status, responsible: IAN, openedBy: IAN, createdAt: 2, noteworthyAt: 500 });
+      const group = groupOf(buildSessionTree(input({ plans: [held], sessions: [discussion, session] })), 'topic:t1') as TreeGroup;
+      return group.rows.find((row) => row.title.includes('Cart API'))?.glyph;
+    };
+    expect(glyphOf('running')).toBe('running');
+    expect(glyphOf('waiting-answer')).toBe('question');
+    expect(glyphOf('waiting-permission')).toBe('permission');
+    expect(glyphOf('done')).toBe('decision');
+  });
 });

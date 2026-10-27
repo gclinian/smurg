@@ -153,6 +153,8 @@ describe('DESIGN 0.7.0 D17: what an agent is told about smurg\'s merge', () => {
 
   it('verify-again and remove-paths: fixed sentences, paths JSON-quoted and at most 50', () => {
     expect(verifyAgainMessage()).toBe('You changed files after your report was last checked. Verify again, update the report so that it says what you verified now, and call check_report. Do not run git.');
+    // (0.7.0 verify: after a restart cut the turn of its check, smurg cannot tell what changed after it, and says so)
+    expect(verifyAgainMessage('restart')).toBe('smurg was restarted while you worked, and cannot tell what you changed after your report was last checked. Verify again, update the report so that it says what you verified now, and call check_report. Do not run git.');
     expect(removePathsMessage({ paths: ['CLAUDE.md', '.github/workflows/ci.yml'] })).toBe(
       'smurg does not merge changes to these files, which only the host may change: ["CLAUDE.md",".github/workflows/ci.yml"]. Undo your changes to them, keep the rest of your work, verify again, update the report and call check_report. Do not run git.',
     );

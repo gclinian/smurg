@@ -847,6 +847,7 @@ they open in the browser, not in a terminal.
 | "Not merged: it does not merge cleanly" | The item's change conflicts with what other work items merged since it started, and its agent did not resolve it in three tries (§10.3). "Ask the agent to resolve" tries again (it is not counted), "Merge…" shows the conflict, or "Leave it out…". |
 | "Not merged: it conflicts with Amy's change of src/app.ts" or "Not merged: it conflicts with a change of src/app.ts made outside smurg" | The other side of the conflict is a person's change (yours, a teammate's, or a commit made outside smurg), not a work item's. smurg never lets an agent resolve over a person's lines by itself: the item's foot names each file and who changed it, and whose lines stay is a person's decision. "Ask the agent to resolve" (its message says which files hold a person's change, and that it stays), merge it yourself after reading the diff, or "Leave it out…". |
 | "Not merged: Amy wrote to the agent after its report", "Not merged: its last turn did not finish" or "Not merged: its report was not checked again after its last change" | Someone wrote to the item's agent after its report and no new version came, a later turn was stopped (or ended on errors smurg did not continue any more, §10.5), or the agent changed files and did not check its report again, although smurg asked it once. Its version merges only when a person says it stands: "Merge it as it is" (agent access), a follow-up, "Continue" for a turn that did not finish, or "Leave it out…". |
+| "Merged; a later change is not merged: its worktree holds changes that were never merged" or "Merged; a later change is not merged: its last turn did not finish" | The item is merged, and its worktree holds a later change no merge carried: a member saved a file there, its agent changed files with a command after its report, or a later turn was stopped or cut by a restart. The merged version stays in the folder. Its responsible person decides (when they have agent access, otherwise you and the members with agent access): "Continue" lets its agent take the change into a new version, which merges like the first one. Until then the topic is not ready to check. |
 | "Not merged: the host did not merge it" | You rejected its merge request. Write a follow-up under the report, or "Leave it out…". |
 | "Not merged: it changes files only the host may merge" | Its change touches files only you may change (§5.3), the topic's own `SPEC.md` or `PLAN.md`, a link pointing out of the project, or smurg's `.smurg`; the item's foot names them. Only you decide: "Ask the agent to take them out" (it undoes its changes to them and keeps the rest), "Request merge" on the item and merge it after reading the diff, or "Leave it out…". |
 | "Not merged: Amy edited files of it by hand" | A member without agent access (an Editor) edited files in the item's worktree: smurg does not merge such edits unread. A member with agent access could have had the agent make the same edit, so theirs merge like the agent's. Read the diff with "Merge…" and merge it, or "Leave it out…". |
@@ -855,7 +856,7 @@ they open in the browser, not in a terminal.
 | "Not merged: changes are staged in the main workspace" | Something is staged in the main workspace (`git add`), and git does not merge over it. Commit or unstage it; smurg merges the item by itself then. Your own merge says "Changes are staged in the main workspace (git add), and git does not merge over them. Commit or unstage them, then merge." |
 | "Not merged: the main workspace is on another branch" | The main workspace was switched to another branch (or to none) after the Start: smurg merges an item only into the branch its Start committed on, while that branch still holds the Start's commit (§10.3). Switch back to it (the item's foot names it); smurg merges by itself then. |
 | "Not merged: git has been busy in the main workspace for a while", or a work item says "Waits to merge: git is busy in the main workspace" | A merge, a rebase or a similar git operation is in progress in the main workspace (for ten minutes, in the first case). Finish or abort it; smurg merges by itself then. When it is a merge smurg was making when it stopped (its message ends with `Merged-by: smurg (automatic merging, the host's setting)`), finish it with `git commit` or run `git merge --abort`. |
-| "Not merged: an undo was interrupted in the main workspace" | smurg stopped in the middle of an undo (§10.3), and the main workspace is between the two. Commit what is staged as the undo, or put the files back with `git restore --staged --worktree -- <paths>`. smurg goes on by itself then; until it can, nothing merges or is undone by itself. |
+| "Not merged: an undo was interrupted in the main workspace" | smurg stopped in the middle of an undo (§10.3), and the main workspace is between the two. Put the files back with `git restore --staged --worktree -- <paths>` (`git status` lists them). smurg goes on by itself then; until it can, nothing merges or is undone by itself. |
 | "Not merged: smurg's own history of the folder changed" or "Not merged: smurg cannot merge it" | smurg's own history was changed by something other than smurg (the rows below say what to do), or `git merge` failed twice for another reason. "Merge…" shows the error in words; or "Leave it out…". |
 | A work item says "Waits to merge: Amy is editing" | Someone is typing in a file the item changes. It merges by itself when they stop. |
 | Start is refused: "The shared folder is not a git repository, so worktrees cannot be used." | The folder has a `.git` that git does not take as a repository (an empty `.git` folder, for example), and smurg keeps no history of its own beside a `.git`. Look at that `.git`: if it was a repository a moment ago, put that one back; if it is empty, remove it, and the next Start uses smurg's own history (§10.2); or run `git init` in the shared folder and commit once (next row). No need to stop sharing. If a folder above is a repository, share that one. |
@@ -1396,7 +1397,9 @@ then on.
   decide: files only you may merge, a hand edit by a member without agent access, the main workspace in the way.
   What a decision offers: "Ask the agent to fix it" (a follow-up under the report), "Ask the agent to resolve",
   "Merge it as it is" (the version stands as it is), "Continue", "Ask the agent to take them out" and "Merge…" (yours),
-  and "Leave it out…".
+  and "Leave it out…". An Editor's suggestion to a work item's agent (a follow-up under its report, or a message in
+  its conversation) is a decision too: it waits for the same people, reaches all of you after the waiting time, and
+  the topic is not ready to check until someone accepts or rejects it.
 - **"Leave it out…"** (you and the members with agent access) drops an item and every item that depends on it
   without editing the plan: their changes are not merged, their sessions end and their worktrees are kept.
 - **The turns smurg asks for by itself** (to resolve, to verify again, to continue after a restart, a usage limit or
@@ -1427,7 +1430,11 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
   edit there, a later turn of its agent): the undo would delete them, so they are merged first, or you remove that
   checkout on purpose. Then one new commit takes the change back out, as you; the reports and conversations stay,
   and an undone item can be started again. In smurg's own history the folder is recorded first, so nobody's saved
-  edit is taken back. What undo cannot take back: what the agents' commands did outside this folder (other folders,
+  edit is taken back. A checkout a member saves a file in while the undo runs is not deleted: it stays as its
+  owner's worktree, and the item starts again from a new one. An item whose merge smurg no longer keeps a record of
+  (its worktree is gone, and smurg keeps the newest 300 decided merges) cannot be undone here ("smurg cannot find
+  this item's merge in the main workspace's history any more."): revert it with git in your terminal. What undo
+  cannot take back: what the agents' commands did outside this folder (other folders,
   installed tools, services they called), and a branch you pushed keeps the merge until you push the undo too. To
   bring an undone change back in the folder's own git, run `git revert` of the undo commit in your terminal. Without
   git there is nothing to undo (§10.2).
@@ -1446,9 +1453,12 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
 - **When an item is finished**: a work item that is merged and reviewed, or whose topic was checked, is finished once
   nothing unmerged is left in its worktree: its session ends, its worktree is removed, its conversation and its
   report stay readable. Until then its session and its worktree stay, so that a follow-up from its report reaches
-  the agent that did the work. When the worktree holds changes that no merge carried (edits made after the last
-  report, for example), the item keeps them until they are merged too or you remove the worktree. Archiving a topic
-  lists the work items whose changes were never merged and asks whether to keep or delete them.
+  the agent that did the work. When the worktree of an item that smurg merged holds changes that no merge carried (a
+  member's save there, a command its agent ran after its report, a later turn that did not finish), the item waits
+  for its responsible person: "Merged; a later change is not merged: …", and "Continue" makes the change a version
+  of its own, which merges like the first one. A file a member saves in a worktree while it is being removed (at
+  "I've checked the result", for example) is not deleted: the worktree stays as its owner's. Archiving a topic lists
+  the work items whose changes were never merged and asks whether to keep or delete them.
 - **When you merge each item yourself** (the setting "I merge each item myself", a Start that chose
   "The host merges each item", a Start on a detached HEAD, and every work item started before the update to 0.7.0):
   - When a result report has been reviewed, its changes are in your inbox by themselves, as
@@ -1515,9 +1525,10 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   nobody can pause anything (the web app shows Pause and "Continue all" turned off), and at the next start the turns
   that go on run with nobody watching (§10.3).
 - **A later turn of a work item whose report was in** (a person's message to its agent, a follow-up) that the stop cut
-  is not told to continue: what it was asked is not known after the start. The item waits for its responsible
-  person's decision ("its last turn did not finish": Continue, "Merge it as it is" or "Leave it out"), and nothing of
-  it merges until then.
+  is not told to continue: what it was asked is not known after the start. So is a message to such an item that no
+  turn had taken yet: it waits in its session, and Continue delivers it first. The item waits for its responsible
+  person's decision ("its last turn did not finish": Continue, "Merge it as it is" or "Leave it out"; for an item
+  already merged, Continue, and its merged version stays in the folder), and nothing of it merges until then.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view
@@ -1536,8 +1547,9 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   default; 1 to 60 minutes in the host console's settings), or whose person has been offline for a minute, also
   appears in your inbox and in that of every member with agent access. You can then answer in that person's place
   ("Submit for Ian"); the conversation records that you did. A decision on a work item that was not merged reaches
-  you and them the same way (§10.3), except the ones only you can settle, which are yours from the start, and so does
-  a work item whose agent could not finish (it stopped without a report, its process failed, or it was stopped). A result
+  you and them the same way (§10.3), except the ones only you can settle, which are yours from the start, and so do
+  a work item whose agent could not finish (it stopped without a report, its process failed, or it was stopped) and an
+  Editor's suggestion to a work item's agent. A result
   report of an item you merge yourself that nobody reviewed does the same after six times that long.
 - **A member leaves the workspace, or you change their role** so that they can no longer use agents: their
   terminals and their agent sessions without a topic end. The sessions of topics pass to you and keep running

@@ -131,8 +131,14 @@ export interface Words {
   readonly howVerified: string;
   readonly changes: string;
   readonly reviewBtn: string;
+  /**
+   * The Review scene's report as the app shows it for an item smurg merged that a person then marked reviewed (0.7.0
+   * verify): its state before and after the press, and its foot after it (who reviewed, then that smurg merged it,
+   * earlier).
+   */
+  readonly mergedBadge: string;
+  readonly reviewedBadge: string;
   readonly marked: string;
-  readonly mergedReviewed: string;
   readonly merged: string;
 }
 
@@ -174,9 +180,10 @@ const EN: Words = {
   howVerified: 'How it was verified',
   changes: 'Changes',
   reviewBtn: "I've reviewed this",
-  marked: 'Marked as reviewed.',
-  mergedReviewed: 'Merged · reviewed',
-  merged: 'Merged into the main workspace.',
+  mergedBadge: 'Merged by smurg at 10:40',
+  reviewedBadge: 'Reviewed by Amy, 10:42',
+  marked: 'Reviewed by Amy at 10:42.',
+  merged: 'Merged by smurg at 10:40.',
 };
 
 const WORDS: Readonly<Record<PictureLang, Words>> = { en: EN, 'zh-TW': ZH_TW };
@@ -773,7 +780,7 @@ export function build(options: BuildOptions): string {
     const rx = ix + 380;
     const title = `${L.report}1 · ${L.names[0]}`;
     const out = [rect(x0 + 0.5, y0 + 0.5, w - 1, h - 1, 9, 'cd'), tag('circle', { cx: ix + 5, cy: y0 + 28, r: 5, class: 'okf' }), text(ix + 19, y0 + 33.5, title, { size: 15, weight: 600 })];
-    out.push(badge(ir, y0 + 28, L.mergedAuto, 'ok', A.out(t0 + 1.9)), badge(ir, y0 + 28, L.mergedReviewed, 'ok', A.after(t0 + 1.9)));
+    out.push(badge(ir, y0 + 28, L.mergedBadge, 'ok', A.out(t0 + 1.9)), badge(ir, y0 + 28, L.reviewedBadge, 'ok', A.after(t0 + 1.9)));
     out.push(text(ix, y0 + 64, L.whatDone, { size: 12, weight: 600, fill: 'su' }), text(ix, y0 + 86, L.doneText, { cls: A.rise(t0 + 0.3) }));
     out.push(text(ix, y0 + 113, L.howVerified, { size: 12, weight: 600, fill: 'su' }), group(A.rise(t0 + 0.5), [tick(ix + 1, y0 + 131.5), ...term(ix + 17, y0 + 130.5, SAID.test)]));
     out.push(text(rx, y0 + 64, L.changes, { size: 12, weight: 600, fill: 'su' }));
@@ -913,7 +920,7 @@ export function build(options: BuildOptions): string {
     const t0 = 3 * SCENE;
     const title = `${L.report}1 · ${L.names[0]}`;
     const out = [rect(CX + 0.5, CY + 0.5, CW - 1, CH - 1, 7, 'cd'), tag('circle', { cx: NIX + 4.5, cy: CY + 16.5, r: 4.5, class: 'okf' }), text(NIX + 15, CY + 21.4, title, { size: 12.5, weight: 600 })];
-    out.push(badge(NIR, CY + 16.5, L.mergedAuto, 'ok', A.out(t0 + 1.9), 10.5), badge(NIR, CY + 16.5, L.mergedReviewed, 'ok', A.after(t0 + 1.9), 10.5));
+    out.push(badge(NIR, CY + 16.5, L.mergedBadge, 'ok', A.out(t0 + 1.9), 10.5), badge(NIR, CY + 16.5, L.reviewedBadge, 'ok', A.after(t0 + 1.9), 10.5));
     out.push(text(NIX, CY + 41, L.whatDone, { size: 10.5, weight: 600, fill: 'su' }), text(NIX, CY + 57.5, L.doneText, { size: 12.5, cls: A.rise(t0 + 0.3) }));
     out.push(text(NIX, CY + 76, L.howVerified, { size: 10.5, weight: 600, fill: 'su' }), group(A.rise(t0 + 0.5), [tick(NIX + 1, CY + 92, 0.9), ...term(NIX + 15, CY + 91, SAID.test, 11)]));
     out.push(line(NIX, CY + 105.5, NIR));

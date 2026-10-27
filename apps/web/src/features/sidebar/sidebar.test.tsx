@@ -7,7 +7,7 @@ import { buildAgentSession, buildInboxItem, buildPlan, buildReport, buildReportS
 import { describe, expect, it, vi } from 'vitest';
 import { InboxPreview } from './InboxList.tsx';
 import { InboxNotices, ShellBanners } from './Notices.tsx';
-import { CART, DISCUSSION, FREE, IAN, MEI, PAY, SEARCH, TERMINAL, TOPIC, mountSidebar } from './test-support.tsx';
+import { CART, DISCUSSION, FREE, IAN, MEI, PAY, SEARCH, SidebarHarness, TERMINAL, TOPIC, mountSidebar } from './test-support.tsx';
 
 const NOW = Date.now();
 const ago = (minutes: number): number => NOW - minutes * 60_000;
@@ -540,6 +540,18 @@ describe('banners above the columns', () => {
     const banner = document.querySelector('[data-banner="restart"]') as HTMLElement;
     expect(banner.textContent).toBe("smurg was restarted on the host's computer. The plan of 1 topic is paused. The host or a member with agent access can continue them.");
     expect(screen.queryByRole('button', { name: 'Continue all' })).toBeNull();
+  });
+
+  // 0.7.0 verify (W/verify/ux): the plan's own Pause and "Continue all" were off while the host's smurg was away, but the
+  // banner's and the inbox row's were not: a press waited and lifted a person's Pause at smurg's next start, unasked.
+  it('0.7.0 verify: while the host\'s smurg is not reachable, the banner\'s and the inbox row\'s "Continue all" are turned off and say why', async () => {
+    const view = await mountSidebar({ ui: <><ShellBanners /><SidebarHarness /></>, role: 'agent', topics: [paused], inbox: [pausedRow] });
+    const buttons = (): HTMLButtonElement[] => screen.getAllByRole('button', { name: 'Continue all' }) as HTMLButtonElement[];
+    expect(buttons().length).toBe(2);
+    expect(buttons().every((button) => !button.disabled)).toBe(true);
+    act(() => view.conn.hostOffline('stopped'));
+    expect(buttons().every((button) => button.disabled && button.title === "The host's smurg is not reachable: this can be done only while it runs.")).toBe(true);
+    expect(view.conn.requestsOf('plan.resume')).toEqual([]);
   });
 
   it('a refused "Continue all" is said', async () => {

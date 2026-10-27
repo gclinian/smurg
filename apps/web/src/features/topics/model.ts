@@ -225,7 +225,9 @@ function waitsBadge(plan: Pick<PlanInfo, 'items'>, waits: readonly string[]): It
 function autoMergeBadge(item: WorkItem, options: ItemBadgeOptions): ItemBadge | null {
   const auto = item.autoMerge;
   if (auto !== undefined) {
-    if (auto.state === 'held') return { text: t('badge.held', { reason: holdText(auto.reason, auto) }), tone: 'warning', bar: 'wait', waitsForPerson: true };
+    // (an item whose version is merged: what is held or waits is a later change of it, 0.7.0 verify)
+    const later = isMerged(item);
+    if (auto.state === 'held') return { text: t(later ? 'badge.held.later' : 'badge.held', { reason: holdText(auto.reason, auto) }), tone: 'warning', bar: 'wait', waitsForPerson: true };
     if (auto.state === 'resolving') return { text: t(auto.reason === 'stale-report' ? 'badge.verifying' : 'badge.resolving'), tone: 'info', bar: 'running', waitsForPerson: false };
     switch (auto.reason) {
       case 'typing': {
@@ -235,7 +237,7 @@ function autoMergeBadge(item: WorkItem, options: ItemBadgeOptions): ItemBadge | 
       case 'git-busy':
         return { text: t('badge.waitsToMerge.busy'), tone: 'neutral', bar: 'report', waitsForPerson: false };
       case 'paused':
-        return { text: t('badge.waitsToMerge.paused'), tone: 'neutral', bar: 'report', waitsForPerson: false };
+        return { text: t(later ? 'badge.waitsToMerge.paused.later' : 'badge.waitsToMerge.paused'), tone: 'neutral', bar: 'report', waitsForPerson: false };
       case 'asked': {
         const by = auto.asked ?? item.changesAsked?.by;
         if (by !== undefined) return { text: t('badge.changesAsked', { name: by.displayName }), tone: 'info', bar: 'running', waitsForPerson: false };

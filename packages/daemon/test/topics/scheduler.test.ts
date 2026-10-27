@@ -11,7 +11,7 @@ import type { AgentStartInput } from '../../src/core/interfaces.ts';
 import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir } from '../../src/testing/index.ts';
 import type { PlanServiceImpl } from '../../src/topics/plan-service.ts';
 import { TOPICS_DOCUMENT, initialTopicsDocument, topicsDocumentSchema } from '../../src/topics/store.ts';
-import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
+import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, storedItem, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 const after: (() => Promise<void>)[] = [];
@@ -721,6 +721,51 @@ describe('after a restart: what a hard death between two records left out of ste
     expect(itemOf(plan, 'b')).toMatchObject({ state: 'running', armed: false });
     expect(itemOf(plan, 'b').waitsFor).toBeUndefined();
     expect(test.topic(topic.id).plan).toMatchObject({ merged: 1, reviewed: 1, paused: false });
+  });
+
+  // 0.7.0 verify: after a hard death (no stop marked anything) a done item's session can still hold a message no turn
+  // took (its process was being started for it); nothing delivers it after the start, and the item read as busy for
+  // ever with nobody told. It is the turn the death cut: its carers decide, and their Continue delivers it first.
+  it('a done item whose session still holds a message no turn took is taken as cut by the death: held for its carers', async () => {
+    const { root, stateDir } = await folders('p4-crash-pending');
+    const workspaceId = 'ws_test_p4_restart_0009';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+    await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+    await startPlan(test, topic.id);
+    const a = itemOf(test.plan(topic.id), 'a');
+    const session = test.fakes.agents.get(a.sessionId as string) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    await writeReport(test, topic.slug, 'a', a.worktreeId as string, reportText('a'));
+    expect(await checkReport(test, a.sessionId as string)).toEqual({ ok: true });
+    test.fakes.agents.finishTurn(a.sessionId as string);
+    await waitFor(() => itemOf(test.plan(topic.id), 'a').state === 'done', { what: 'done' });
+    await test.cleanup();
+
+    test = await setupTopics({ root, stateDir, workspaceId, seed: (fakes) => fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false, pendingMessages: 1 }) });
+    await settle(test);
+    expect((await storedItem(test, topic.id, 'a')).lastTurn).toMatchObject({ outcome: 'interrupted', restart: true });
+  });
+
+  it('a done item whose process is only being started, with nothing to deliver, when smurg host stops: no turn of it was cut', async () => {
+    const { root, stateDir } = await folders('p4-stop-starting');
+    const workspaceId = 'ws_test_p4_restart_0010';
+    test = await setupTopics({ root, stateDir, workspaceId });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+    await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+    await startPlan(test, topic.id);
+    const a = itemOf(test.plan(topic.id), 'a');
+    await writeReport(test, topic.slug, 'a', a.worktreeId as string, reportText('a'));
+    expect(await checkReport(test, a.sessionId as string)).toEqual({ ok: true });
+    test.fakes.agents.finishTurn(a.sessionId as string);
+    await waitFor(() => itemOf(test.plan(topic.id), 'a').state === 'done', { what: 'done' });
+    // "Try again" of a failed process launches it again with nothing queued: `starting`, no turn.
+    const session = test.fakes.agents.get(a.sessionId as string) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+    test.fakes.agents.adopt({ ...session, status: 'starting' }, { hasProcess: true });
+    await test.cleanup();
+
+    test = await setupTopics({ root, stateDir, workspaceId, seed: (fakes) => fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false }) });
+    await settle(test);
+    expect((await storedItem(test, topic.id, 'a')).lastTurn).toBeUndefined();
   });
 
   it("the item's request was decided, or replaced by a newer snapshot, and the item did not hear of it: it shows what the worktree module has", async () => {

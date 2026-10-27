@@ -89,6 +89,19 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
     `Test Files  8 passed (8)`, `Tests  60 passed (60)`. The web-smoke project's flow smokes run both flows since
     0.7.0 (automatic merging, and "I merge each item myself"), and P3 stayed under the 10-minute rule, so the gate is
     still four parts.
+  - The build after the second review round of 0.7.0 (2026-10-28, the same machine and `SMURG_TEST_CLAUDE_BIN`, the
+    four parts without `SMURG_RELEASE_GATE`, the published executables and `SMURG_SEA_BINARY`, so the tests that need
+    them skip): `pnpm typecheck` exit 0; `--project @smurg/daemon`: `Test Files  176 passed (176)`,
+    `Tests  2357 passed | 13 skipped (2370)`, 288 s (326 s in a second run, whose file times follow); `--project @smurg/web --project @smurg/web-smoke --project
+    @smurg/e2e`: `Test Files  168 passed (168)`, `Tests  1859 passed (1859)`, 434 s; `--project @smurg/cli --project
+    @smurg/protocol --project @smurg/relay --project @smurg/site --project @smurg/lint`: `Test Files  130 passed |
+    2 skipped (132)`, `Tests  6601 passed | 11 skipped (6612)`, 88 s. The daemon's release-flow tests (the twelve
+    `release-flow` files of `packages/daemon/test/integration`, the release composition with the stand-in `claude`)
+    are 49 tests; the three longest run side by side from the part's start:
+    `daemon/integration/release-flow.unattended.test.ts` 12 tests in 107 s,
+    `daemon/integration/release-flow.verify.test.ts` 10 tests in 82 s and
+    `daemon/integration/release-flow.unattended-decisions.test.ts` 7 tests in 64 s (the 0.7.0 acceptance test was one
+    file of 19 tests, which took up to 522 s of this part on a loaded machine).
   - The Ubuntu 24.04 VM was not run for this build: a step before the tag (its published Linux executables of 0.6.0
     are downloaded first, `docs/RELEASING.md` §4.5 step 1).
 - **Expected result, v0.6.0** (English and zh-TW, protocol 5; `SMURG_RELEASE_GATE=1` with the published executables
@@ -574,8 +587,9 @@ a decision is really needed". After Start a work item whose result report says c
 none failed merges by itself (the host's standing consent, the workspace setting "Merging work items"), what needs a
 person is a decision that stops only its item and what depends on it, the topic is ready to check at the end, and the
 host can undo. The criteria are `docs/design/v0.7.0/DESIGN.md` D3 to D20; the acceptance test is
-`daemon/integration/release-flow.unattended.test.ts`, built from the twelve cases that measured 0.6.0 (U1 of the design)
-and four the reviews added: the same plan (1 cart-api, 2 receipt-email, 3 checkout-page after 1), the same people (Mei,
+`daemon/integration/release-flow.unattended.test.ts` with `daemon/integration/release-flow.unattended-decisions.test.ts`
+(its cases of what needs a person: two files, so that vitest runs them side by side), built from the twelve cases that
+measured 0.6.0 (U1 of the design) and four the reviews added: the same plan (1 cart-api, 2 receipt-email, 3 checkout-page after 1), the same people (Mei,
 Ian, Amy), auto mode, the stand-in `claude` through the release composition, the daemon's clock moved by the test. As in
 the T family, no row says what a real model writes in its report: that decides what merges unread, and it was never
 measured (no account).
@@ -597,19 +611,19 @@ measured (no account).
 | A13 | No text says that smurg verifies or tests the work, or that the work itself is complete and verified: only what its report says | `tests/lint/auto-merge-words.test.ts`; `tests/lint/docs-quotes.test.ts`; `tests/lint/catalog-parity.test.ts` | `covered` |
 | M1 | Walk away after Start: every item merges by itself and the topic is ready to check with zero clicks | `daemon/integration/release-flow.unattended.test.ts` › "M1 walk away after Start: …" | `covered` (stand-in) |
 | M2 | Two items change the same line: smurg brings the second up to date, its agent resolves and verifies, and it merges with nobody asked | `daemon/integration/release-flow.unattended.test.ts` › "M2 two items change the same line: …" | `covered` (stand-in) |
-| M3 | An agent's question stops only its item and what depends on it; the rest merges meanwhile | `daemon/integration/release-flow.unattended.test.ts` › "M3 an agent's question: …" | `covered` (stand-in) |
+| M3 | An agent's question stops only its item and what depends on it; the rest merges meanwhile | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M3 an agent's question: …" | `covered` (stand-in) |
 | M4 | A restart of `smurg host` while an item works: it is continued after the start line and everything merges with nobody pressing anything | `daemon/integration/release-flow.unattended.test.ts` › "M4 the host's smurg restarts while an item works: …" | `covered` (stand-in) |
 | M5 | A usage limit: the item waits and is continued when the account is back | `daemon/integration/release-flow.unattended.test.ts` › "M5 the usage limit: …" | `covered` (stand-in) |
-| M6 | A partial report is a decision for its responsible person, who leaves it out; an agent's process killed in a turn is started again once by smurg | `daemon/integration/release-flow.unattended.test.ts` › "M6 a partial report is a decision for its responsible person …" and › "M6 an agent's process is killed while it works: …" | `covered` (stand-in) |
-| M7 | What auto mode still asks stops only those items and what depends on them, each for the right person | `daemon/integration/release-flow.unattended.test.ts` › "M7 what auto mode still asks …" | `covered` (stand-in) |
+| M6 | A partial report is a decision for its responsible person, who leaves it out; an agent's process killed in a turn is started again once by smurg | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M6 a partial report is a decision for its responsible person …"; `daemon/integration/release-flow.unattended.test.ts` › "M6 an agent's process is killed while it works: …" | `covered` (stand-in) |
+| M7 | What auto mode still asks stops only those items and what depends on them, each for the right person | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M7 what auto mode still asks …" | `covered` (stand-in) |
 | M8 | Each clean, complete item merges as soon as its report is in, the oldest report first | `daemon/integration/release-flow.unattended.test.ts` › "M8 each clean, complete item merges as soon as its report is in, the oldest report first" | `covered` (stand-in) |
 | M9 | The host is not online: everything that is in order merges all the same | `daemon/integration/release-flow.unattended.test.ts` › "M9 the host is not online: …" | `covered` (stand-in) |
 | M10 | Two items wait for answers and the limit is two: an unrelated third starts at once | `daemon/integration/release-flow.unattended.test.ts` › "M10 two agents allowed, two items wait for answers: …" | `covered` (stand-in) |
-| M11 | An item that also writes `CLAUDE.md` is the host's decision with the file; asked, the agent takes it out and it merges | `daemon/integration/release-flow.unattended.test.ts` › "M11 an item also writes CLAUDE.md (only the host may merge it): …" | `covered` (stand-in) |
-| M12 | The main workspace switched to another branch after Start: nothing lands there; back on the Start's branch, everything merges | `daemon/integration/release-flow.unattended.test.ts` › "M12 the host switches the main workspace to another branch after Start: …" | `covered` (stand-in) |
+| M11 | An item that also writes `CLAUDE.md` is the host's decision with the file; asked, the agent takes it out and it merges | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M11 an item also writes CLAUDE.md (only the host may merge it): …" | `covered` (stand-in) |
+| M12 | The main workspace switched to another branch after Start: nothing lands there; back on the Start's branch, everything merges | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M12 the host switches the main workspace to another branch after Start: …" | `covered` (stand-in) |
 | M13 | A conflict with a member's saved edit (smurg's own history) is a decision for the carers that names her, and nothing merges | `daemon/integration/release-flow.unattended.test.ts` › "M13 Amy saves a change of the line an item also changes: …" | `covered` (stand-in) |
 | M14 | A resolve turn that only rewrites the report is asked once to verify again and merges after a turn that checks it, and is a decision when that turn does not | `daemon/integration/release-flow.unattended.test.ts` › "M14 a resolve turn that only rewrites the report is asked once to verify again, …" and › "M14 a turn asked to verify again that does not check its report is a decision …" | `covered` (stand-in) |
-| M15 | A member writes to a done item's agent in a paused plan and stops that turn: after "Continue all" nothing merges and she decides | `daemon/integration/release-flow.unattended.test.ts` › "M15 in a paused plan, Mei writes to a done item's agent and stops that turn; …" | `covered` (stand-in) |
+| M15 | A member writes to a done item's agent in a paused plan and stops that turn: after "Continue all" nothing merges and she decides | `daemon/integration/release-flow.unattended-decisions.test.ts` › "M15 in a paused plan, Mei writes to a done item's agent and stops that turn; …" | `covered` (stand-in) |
 | M16 | A restart in the middle of a resolve turn converges with no person | `daemon/integration/release-flow.unattended.test.ts` › "M16 smurg host restarts in the middle of a resolve turn: …" | `covered` (stand-in) |
 
 ## S security points of v0.5.0

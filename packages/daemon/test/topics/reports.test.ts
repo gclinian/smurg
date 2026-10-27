@@ -323,6 +323,20 @@ describe('T5.1 a report with its changes and a follow-up', () => {
     expect(test.fakes.agents.eventsOf(run.session('a')).filter((event) => event.kind === 'notice')).toEqual([]);
   });
 
+  // 0.7.0 verify (the lead's decision 2): `git add --all` stops when a file it listed is renamed away before it reads it,
+  // as a person's save in the checkout does; the item waited a minute for smurg's continue, and stalled if it came again.
+  it('a snapshot whose staging failed because the checkout changed under it is taken again, like a file that changed while it was read', async () => {
+    test = await setupTopics();
+    const run = await started([{ id: 'a' }]);
+    test.fakes.worktrees.failSnapshot.set(run.worktree('a'), [new SmurgError('internal', msg('git.stepFailed', { step: 'stage' }), { reason: 'git-failed', step: 'stage' })]);
+    await handInReport(test, run.slug, 'a');
+    await waitFor(() => state(run.topicId, 'a') === 'done', { what: 'done' });
+    expect(test.fakes.worktrees.log.of('snapshot')).toHaveLength(2);
+    expect(test.t.ctx.services.reports.get(run.topicId, 'a')).toMatchObject({ version: 1, changes: { files: 1 } });
+    expect(test.fakes.agents.eventsOf(run.session('a')).filter((event) => event.kind === 'notice')).toEqual([]);
+    expect((await storedItem(test, run.topicId, 'a')).autoContinue).toBeUndefined();
+  });
+
   it('a snapshot that cannot be taken registers nothing: the session says why, the item waits for "Continue", and the next completed turn registers the same report with its changes', async () => {
     test = await setupTopics();
     const run = await started([{ id: 'a', title: 'Item A' }], async (topicId) => {
@@ -508,7 +522,9 @@ describe('T5.3 a reviewed draft is ready to merge', () => {
     expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'ended', endReason: 'merged' });
     expect(test.fakes.agents.log.of('end').at(-1)).toEqual([sessionId, { by: { kind: 'system' }, reason: 'merged', keepWorktree: true }]);
     await waitFor(() => test.fakes.worktrees.get(worktreeId) === null, { what: 'the worktree to be released' });
-    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId]]);
+    // (0.7.0 verify: the finish asks the worktree module to look at the checkout again just before it goes, and to keep a
+    // person's late save as its owner's worktree: `keepWork: 'detached'`; before, the removal took whatever was there)
+    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId, { keepWork: 'detached' }]]);
     // (the manager forgets the worktree at once and takes a moment to remove its folder: the item lets go of it when
     // `releaseItem` has answered)
     await waitFor(() => itemOf(test.plan(run.topicId), 'cart-api').worktreeId === undefined, { what: 'the item to let go of its worktree' });
@@ -575,7 +591,9 @@ describe('T5.3 a reviewed draft is ready to merge', () => {
     await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the session to end' });
     expect(test.fakes.agents.get(sessionId)).toMatchObject({ status: 'ended', endReason: 'merged' });
     await waitFor(() => itemOf(test.plan(run.topicId), 'a').worktreeId === undefined, { what: 'the item to let go of its worktree' });
-    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId]]);
+    // (0.7.0 verify: the finish asks the worktree module to look at the checkout again just before it goes, and to keep a
+    // person's late save as its owner's worktree: `keepWork: 'detached'`; before, the removal took whatever was there)
+    expect(test.fakes.worktrees.log.of('releaseItem')).toEqual([[worktreeId, { keepWork: 'detached' }]]);
   });
 
   it('merged and reviewed, but the worktree holds changes no merge carried (a refused snapshot, edits after the report): nothing is removed until they are merged', async () => {

@@ -141,11 +141,12 @@ The screen you arrive at is the sessions view (the "Sessions" side of the switch
 
 - "Agents are waiting": an agent, or a whole plan, is stopped until someone acts. These are an agent's question you
   decide, a vote that is open, a permission request you may answer, a decision on a work item that was not merged
-  ("<item> was not merged: <reason>", §6), and work that stopped and needs someone (an agent that stopped without
-  its report, a work item that failed or did not start, a plan that is paused).
-- "For you to look at": suggestions for sessions you look after, topics ready to check ("Ready to check: <topic>",
-  §6), result reports for you to review of the work items the host merges, changes ready to merge (the host),
-  mentions of you, and what became of your own suggestions.
+  ("<item> was not merged: <reason>", §6), a suggestion to a work item's agent that nobody decided yet, and work that
+  stopped and needs someone (an agent that stopped without its report, a work item that failed or did not start, a
+  plan that is paused).
+- "For you to look at": suggestions for the other sessions you look after, topics ready to check
+  ("Ready to check: <topic>", §6), result reports for you to review of the work items the host merges, changes ready
+  to merge (the host), mentions of you, and what became of your own suggestions.
 
 The inbox shows two counts, how many items are waiting and how many are to look at. While you are in code mode the
 same two counts are on the "Sessions" side of the switch; the browser tab's title shows only how many are waiting.
@@ -161,8 +162,9 @@ What you should know about it:
   "Ready to check" to every member, Viewers too. When the person who must answer a question, a permission request
   or a decision does not (5 minutes by default, or they have been offline for a minute), it also appears for the
   host and the members with agent access, who can act in that person's place. A result report does the same after
-  six times that long (30 minutes by default). A suggestion stays in the inbox it went to; the host and every
-  member with agent access can still accept it on its card.
+  six times that long (30 minutes by default). A suggestion to a work item's agent does the same as a decision; any
+  other suggestion stays in the inbox it went to, and the host and every member with agent access can still accept
+  it on its card.
 - A Viewer gets mentions and topics ready to check: "Nothing is waiting for you. As a viewer you get mentions and topics ready to check here."
 - A new item in "Agents are waiting" also shows a short notice with "Open" when its session is not on your screen.
 

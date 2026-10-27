@@ -55,6 +55,7 @@ export const t = defineStrings(
     'title.report': 'Result report: {item}',
     // Protocol 6 (DESIGN 0.7.0 D9, D13): a work item held for a decision, and a topic whose items are all settled.
     'title.decision': '{item} was not merged: {reason}',
+    'title.decision.later': '{item}: a later change was not merged: {reason}',
     'title.ready': 'Ready to check: {topic}',
     'title.merge.ready': 'Reviewed, ready to merge: {what}',
     'title.merge.asks': '{name} asks to merge {what}',
@@ -78,6 +79,8 @@ export const t = defineStrings(
     'action.continue': 'Continue',
     'action.tryAgain': 'Try again',
     'action.continueAll': 'Continue all',
+    // (a row's action, and the banner's "Continue all", while the host's smurg cannot be reached: 0.7.0 verify)
+    'action.hostAway': "The host's smurg is not reachable: this can be done only while it runs.",
     'action.restartDiscussion': 'Restart discussion',
 
     // ---- sessions

@@ -13,8 +13,9 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   stays, as a mark ([host guide](docs/HOSTING.md) §10.3).
 - **It stops for a decision**: a question, a request the permission mode still asks, a report that is not complete
   and verified, work a person stopped or wrote to the agent about, files only the host may merge, the host's folder in
-  the way, a merge that stays unclean after the item's agent brought its work up to date, or a conflict with a person's
-  change. Each goes to the right person's inbox, and everything that does not depend on it goes on.
+  the way, a merge that stays unclean after the item's agent brought its work up to date, a conflict with a person's
+  change, or an Editor's suggestion to an item's agent. Each goes to the right person's inbox, and everything that
+  does not depend on it goes on.
   "Leave it out" drops one work item and what depends on it without editing the plan.
 - **Ready to check.** When every item is merged, left out or undone, every member's inbox says so, and the new Result
   column shows every report, every changed file and what was not verified; "I've checked the result" completes the

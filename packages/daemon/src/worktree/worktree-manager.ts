@@ -367,7 +367,13 @@ const SNAPSHOT_FILES_MAX = 50;
  */
 interface TreeState {
   head: string;
+  /** Something may differ from `head`: written since the last commit, or found by the last look. */
   dirty: boolean;
+  /**
+   * The last look (git status) found uncommitted changes, and no commit of the daemon came since (0.7.0 verify: what a
+   * merged item's checkout holds is a decision only once git said so, not on every write the watcher reports).
+   */
+  found?: boolean;
 }
 
 type Committed = { readonly commit: string; readonly created: boolean } | { readonly markers: string[] };
@@ -493,13 +499,16 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   /** Never throws for a workspace without git: worktree mode is then unavailable with a clear error. */
   async start(): Promise<void> {
-    this.doc = await this.ctx.state.document(WORKTREES_DOCUMENT, worktreesDocumentSchema, initialWorktreesDocument);
+    const doc = await this.ctx.state.document(WORKTREES_DOCUMENT, worktreesDocumentSchema, initialWorktreesDocument);
     // The daemon's own stores, whatever the folder is (no git process): what a stopped daemon left in staging goes.
     this.templateDir = await this.ctx.state.privateDir('git-template');
     this.stagingDir = await this.ctx.state.privateDir('git-staging');
     await sweepStaging(this.stagingDir);
     // The start's look at `.git` is the first shared look: a refresh asked while it runs (the topics module's sweep
-    // ticks from its registration on) waits for it, rather than looking beside it and being overwritten by it.
+    // ticks from its registration on) waits for it, rather than looking beside it and being overwritten by it. The
+    // document is set only now, with nothing awaited before the look is: refreshGitState looks only once there is one
+    // (0.7.0 verify: a sweep tick during the stores' awaits looked, and ran git, beside the start's look).
+    this.doc = doc;
     const look = this.firstLook();
     this.refreshing = look;
     await look;
@@ -1047,7 +1056,7 @@ export class WorktreeManagerImpl implements WorktreeManager {
       this.requireDoc().update((draft) => {
         draft.worktrees.push(record);
       });
-      if (item !== undefined) this.trees.set(id, { head: base, dirty: false });
+      if (item !== undefined) this.trees.set(id, { head: base, dirty: false, found: false });
       this.ctx.audit.record({
         actor: userActor(member),
         action: 'worktree.create',
@@ -1159,22 +1168,89 @@ export class WorktreeManagerImpl implements WorktreeManager {
     });
   }
 
-  async releaseItem(worktreeId: string): Promise<void> {
-    await this.serial.run(`wt:${worktreeId}`, async () => {
+  async releaseItem(worktreeId: string, options: { readonly keepWork?: 'attached' | 'detached' } = {}): Promise<'released' | 'kept'> {
+    // (a checkout that cannot be looked at may hold anything: git is looked for first, as for any record of a history)
+    if (options.keepWork !== undefined && this.runner === null) await this.lookForGit();
+    return this.serial.run(`wt:${worktreeId}`, async () => {
       const record = this.record(worktreeId);
-      if (!record) return; // released already
+      if (!record) return 'released'; // released already
       if (record.item === undefined) throw new SmurgError('bad_request', undefined, { reason: 'not-an-item-worktree' });
+      if (options.keepWork !== undefined) {
+        // 0.7.0 verify: what the caller looked at earlier is not what is there now. A person's save that landed since
+        // (answered "saved") is not deleted: the tree is looked at again on this queue, then once more after its root is
+        // unregistered (from then on no write reaches it), and a checkout that holds work no merge carried stays.
+        if (await this.holdsWorkNow(record)) return this.keepItemWorktree(record, options.keepWork, false);
+        await this.ctx.roots.unregisterWorktree(record.id);
+        if (await this.holdsWorkNow(record)) return this.keepItemWorktree(record, options.keepWork, true);
+      }
       await this.removeInternal(record, SYSTEM_ACTOR);
+      return 'released';
     });
   }
 
-  unmerged(topicId: string): WorktreeInfo[] {
-    const merged = new Set(
+  /** Looks at an item worktree now (on its queue): whether it holds anything no merge carried. One that cannot be looked at may. */
+  private async holdsWorkNow(record: StoredWorktree): Promise<boolean> {
+    if (this.runner === null || this.stopped) return true;
+    try {
+      await this.lookAtTree(record.id);
+    } catch (err) {
+      this.ctx.log.warn('item worktree could not be checked before its removal; it stays', { module: 'worktree', worktree: record.id, error: err instanceof Error ? err.name : 'unknown' });
+      return true;
+    }
+    const state = this.trees.get(record.id);
+    if (state === undefined || state.dirty) return true;
+    return state.head !== record.baseCommit && !this.mergedHeads().has(`${record.id} ${state.head}`);
+  }
+
+  /**
+   * An item worktree that holds work no merge carried stays (0.7.0 verify). `detached` (an undo: its item starts again
+   * from a fresh checkout): it is no item's any more, and stays as a kept worktree of its owner, with that work in it.
+   */
+  private async keepItemWorktree(record: StoredWorktree, keep: 'attached' | 'detached', unregistered: boolean): Promise<'kept'> {
+    // (the removal that did not happen, and why: the audit's own words for it)
+    const audit = (): void => {
+      this.ctx.audit.record({
+        actor: SYSTEM_ACTOR,
+        action: 'worktree.remove',
+        outcome: 'denied',
+        target: record.id,
+        detail: { worktreeId: record.id, branch: record.branch, ownerUserId: record.ownerUserId, ...(record.item !== undefined ? { topicId: record.item.topicId, itemId: record.item.itemId } : {}), reason: 'unmerged-work', detached: keep === 'detached' },
+      });
+    };
+    if (keep === 'attached') {
+      if (unregistered) await this.registerRoot(record);
+      audit();
+      return 'kept';
+    }
+    if (!unregistered) await this.ctx.roots.unregisterWorktree(record.id);
+    const updated = this.updateWorktree(record.id, (draft) => {
+      delete draft.item;
+      delete draft.sessionId;
+      draft.kept = true;
+    });
+    this.forgetTree(record.id);
+    const current = updated ?? this.record(record.id);
+    if (current) {
+      await this.registerRoot(current);
+      this.publishWorktree(current);
+    }
+    audit();
+    await this.persist();
+    return 'kept';
+  }
+
+  /** `<worktree id> <commit>` of every merged request: a branch head among them is in the main workspace. */
+  private mergedHeads(): ReadonlySet<string> {
+    return new Set(
       this.requireDoc()
         .get()
         .merges.filter((merge) => merge.status === 'merged')
         .map((merge) => `${merge.worktreeId} ${merge.commit}`),
     );
+  }
+
+  unmerged(topicId: string): WorktreeInfo[] {
+    const merged = this.mergedHeads();
     return this.records()
       .filter((record) => record.item?.topicId === topicId)
       .filter((record) => {
@@ -1185,6 +1261,46 @@ export class WorktreeManagerImpl implements WorktreeManager {
         return state.head !== record.baseCommit && !merged.has(`${record.id} ${state.head}`);
       })
       .map(toWorktreeInfo);
+  }
+
+  /**
+   * What git last said of an item worktree (0.7.0 verify): `true` when it holds uncommitted changes the last look found,
+   * or commits on its branch that no merged request carried; `false` when it holds neither; `null` when nothing has
+   * looked at it yet in this run. Writes the last look has not seen yet do not count (an agent's turn writes many).
+   */
+  unmergedWork(worktreeId: string): boolean | null {
+    const record = this.record(worktreeId);
+    if (!record || record.item === undefined) return false;
+    const state = this.trees.get(worktreeId);
+    if (state === undefined) return null;
+    if (state.found === true) return true;
+    return state.head !== record.baseCommit && !this.mergedHeads().has(`${record.id} ${state.head}`);
+  }
+
+  /**
+   * Looks at an item worktree now (on its queue, 0.7.0 verify): whether it holds anything its newest merge request does
+   * not have (uncommitted changes, or a branch head that is not that request's commit; the base commit when it has
+   * none). A turn that changed files through a command, not an edit tool, or a person's save is seen so. null: it cannot
+   * be looked at.
+   */
+  async holdsUnsnapshotted(worktreeId: string): Promise<boolean | null> {
+    if (this.runner === null || this.stopped) return null;
+    return this.serial.run(`wt:${worktreeId}`, async () => {
+      const record = this.record(worktreeId);
+      if (!record || record.item === undefined) return null;
+      try {
+        await this.lookAtTree(worktreeId);
+      } catch {
+        return null;
+      }
+      const state = this.trees.get(worktreeId);
+      if (state === undefined) return null;
+      if (state.dirty) return true;
+      // (its newest request: the one a snapshot made last)
+      let newest: StoredMerge | undefined;
+      for (const merge of this.requireDoc().get().merges) if (merge.worktreeId === worktreeId && (newest === undefined || merge.createdAt > newest.createdAt)) newest = merge;
+      return state.head !== (newest?.commit ?? record.baseCommit);
+    });
   }
 
   /**
@@ -1273,6 +1389,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   /** After a start: the branch head and whether the working tree has uncommitted changes, for every item worktree. */
   private async inspectItemWorktrees(): Promise<void> {
+    // An item worktree of smurg's own history (no `.git` in the folder: git is not looked for at the start) was made by a
+    // Start that found git: it is looked for now, so that what the checkout holds is known (0.7.0 verify: until a merge
+    // view looked, every such checkout counted as holding unmerged work, and its merged item as held).
+    if (this.runner === null && !this.stopped && this.records().some((record) => record.item !== undefined && record.repo === 'smurg')) await this.lookForGit();
     if (this.runner === null) return;
     for (const record of this.records()) {
       if (this.stopped) return;
@@ -1310,7 +1430,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (!status.truncated) requireOk(status, 'checkChanges');
     if (this.record(worktreeId) === null) return;
     const writtenMeanwhile = (this.writes.get(worktreeId) ?? 0) !== writesBefore;
-    this.trees.set(worktreeId, { head, dirty: writtenMeanwhile || status.truncated || status.stdout.length > 0 });
+    const found = status.truncated || status.stdout.length > 0;
+    this.trees.set(worktreeId, { head, dirty: writtenMeanwhile || found, found });
   }
 
   // =================================================================================================================
@@ -1412,8 +1533,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
       if (state) state.dirty = state.dirty || wasDirty;
       throw err;
     }
-    if (state) state.head = result.commit;
-    else if (record.item !== undefined) this.trees.set(record.id, { head: result.commit, dirty: (this.writes.get(record.id) ?? 0) !== writesBefore });
+    if (state) {
+      state.head = result.commit;
+      state.found = false;
+    } else if (record.item !== undefined) this.trees.set(record.id, { head: result.commit, dirty: (this.writes.get(record.id) ?? 0) !== writesBefore, found: false });
     if (pending !== undefined) {
       // The two-parent commit is on the branch: the merge is recorded in git now.
       this.updateWorktree(record.id, (draft) => {
@@ -2363,7 +2486,10 @@ export class WorktreeManagerImpl implements WorktreeManager {
   private storeMerge(merge: StoredMerge): void {
     this.requireDoc().update((draft) => {
       draft.merges.push(merge);
-      const decided = draft.merges.filter((item) => item.status === 'merged' || item.status === 'rejected');
+      // (not the requests of a worktree that is still there: what its branch head carried, and what an undo of its item
+      // takes back, are read from them; the worktrees are bounded, so the record is: 0.7.0 verify)
+      const live = new Set(draft.worktrees.map((worktree) => worktree.id));
+      const decided = draft.merges.filter((item) => (item.status === 'merged' || item.status === 'rejected') && !live.has(item.worktreeId));
       const excess = decided.length - this.limits.maxDecidedMerges;
       if (excess > 0) {
         const drop = new Set(decided.sort((a, b) => a.createdAt - b.createdAt).slice(0, excess).map((item) => item.id));
@@ -2648,13 +2774,15 @@ export class WorktreeManagerImpl implements WorktreeManager {
       if (expected !== undefined && place.branch !== expected) branch = { expected, current: place.current };
     }
     const busy = (await busyMarker(repo)) !== null;
-    // A merge smurg cannot find (not on the line, its records gone) is said as such, unless another branch explains it;
-    // the record an apply writes names requests, so at least one of them must be one smurg knows.
+    // A merge smurg cannot find (not on the line, its records gone) is said as such, unless another branch explains it.
+    // The record an apply writes names requests, and the recovery after a crash reaches an item only through one: so
+    // every merge must be one smurg still keeps a request of (0.7.0 verify: an item whose request worktrees.json no
+    // longer keeps was taken back in git and still said "merged" after a crash). An older item is reverted with git.
     const unavailable = incomplete
       ? branch === null
         ? msg('undo.unavailable.notFound')
         : null
-      : !merges.some((merge) => merge.requestId !== undefined)
+      : merges.some((merge) => merge.requestId === undefined)
         ? msg('undo.unavailable.notFound')
         : !clean && changedSince.length === 0
           ? msg('undo.notOk')

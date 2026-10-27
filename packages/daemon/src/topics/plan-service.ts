@@ -779,6 +779,10 @@ export class PlanServiceImpl implements PlanService {
     return this.core.started ? this.scheduler.atStart() : { continues: [], paused: [] };
   }
 
+  suggestionEscalated(suggestionId: string): boolean {
+    return this.core.started && this.core.suggestionEscalated(suggestionId);
+  }
+
   /** How many topics would go on by themselves at the next start (DESIGN 0.7.0 D18). */
   goOnAtNextStart(): number {
     return this.scheduler.goOnAtNextStart();
@@ -953,6 +957,8 @@ export class PlanServiceImpl implements PlanService {
         item.retry = false;
         delete item.autoMerge;
         delete item.stalledBy;
+        // (a turn a restart cut is nobody's decision any more: no later start holds it or pauses its plan, 0.7.0 verify)
+        delete item.lastTurn;
         item.state = item.sessions.length > 0 ? 'stopped' : 'not-started';
         item.since = at;
       }
@@ -1001,6 +1007,8 @@ export class PlanServiceImpl implements PlanService {
       draft.merged = true;
       draft.mergedAs = { at, by: { userId: by.userId, displayName: by.displayName } };
       delete draft.autoMerge;
+      // (what made it count as not merged is settled: a later start must not take it back again, 0.7.0 verify)
+      delete draft.lastTurn;
     });
     this.merger?.forget(topic.id, item.id);
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.accept', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, version: report.version, outcome: report.outcome, reason: hold.reason } });
@@ -1021,9 +1029,11 @@ export class PlanServiceImpl implements PlanService {
     const topic = this.core.needOpen(input.topicId);
     const item = this.needPlanItem(topic, input.itemId);
     const verdict = this.core.mergingOf(item) === 'auto' ? this.core.verdictOf(topic, item) : null;
-    // (a merged item held because a later turn left half of a change in its checkout has no version to merge "as it
-    // is": its carers continue it, and the change becomes a version of its own; 0.7.0 review)
-    if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason) || item.merged) throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
+    // (an item whose CURRENT request is merged, held because its checkout holds a later change, has no version to merge
+    // "as it is": its carers continue it, and the change becomes a version of its own; 0.7.0 review. A new version of an
+    // item merged before is a draft like any other: 0.7.0 verify)
+    const current = verdict === null ? null : this.core.verdictInputOf(topic, item).request;
+    if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason) || current?.status === 'merged') throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
     const report = this.core.report(topic.id, item.id);
     if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
     this.core.updateItem(topic.id, item.id, (draft) => {
@@ -1416,14 +1426,24 @@ export class PlanServiceImpl implements PlanService {
         this.ctx.log.warn('the session of an undone or left-out item was not ended', { module: 'topics', session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
       }
     }
-    // Re-merging reverted commits does nothing ("Already up to date"): a new Start needs a fresh worktree from the main workspace.
+    // Re-merging reverted commits does nothing ("Already up to date"): a new Start needs a fresh worktree from the main
+    // workspace. One that holds work no merge carried by now (a person saved a file in it while the undo ran) is not
+    // deleted: it stays as its owner's kept worktree, and is no item's any more (0.7.0 verify).
     const worktrees = this.ctx.services.worktrees;
+    const gone = new Set<string>();
     for (const worktreeId of release) {
       try {
-        if (worktrees.get(worktreeId) !== null) await worktrees.releaseItem(worktreeId);
+        if (worktrees.get(worktreeId) !== null) await worktrees.releaseItem(worktreeId, { keepWork: 'detached' });
+        gone.add(worktreeId);
       } catch (err) {
         this.ctx.log.warn('the worktree of an undone item was not released', { module: 'topics', worktree: worktreeId, error: err instanceof Error ? err.name : 'unknown' });
       }
+    }
+    for (const topicId of topicIds) {
+      if (this.core.topic(topicId) === null) continue;
+      this.core.update(topicId, (draft) => {
+        for (const item of draft.items) if (item.worktreeId !== undefined && gone.has(item.worktreeId) && undoneKeys.has(itemKey(topicId, item.id))) delete item.worktreeId;
+      });
     }
     for (const topicId of topicIds) this.core.publish(topicId);
   }

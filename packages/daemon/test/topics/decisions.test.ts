@@ -403,5 +403,14 @@ describe('0.7.0 review: what reaches more people, and when', () => {
     await settle(test);
     test.t.advanceClock(test.t.ctx.config.agents.escalateOfflineMs + 1_000);
     await waitFor(() => test.t.ctx.services.topics.attention().some((fact) => fact.recipients.includes(HOST.userId)), { what: 'the host to have it' });
+    // 0.7.0 verify (W/verify/diff): once escalated it stays so, as a question's or a hold's `escalatedAt` does: the host
+    // and agent access do not lose the row when Mei comes back (it came and went with her connection).
+    await test.t.connect({ userId: MEI.userId, displayName: MEI.displayName, role: 'agent' });
+    await waitFor(() => test.t.ctx.hub.isOnline(MEI.userId), { what: 'Mei online again' });
+    await settle(test);
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    await settle(test);
+    expect(test.t.ctx.services.topics.attention().map((fact) => [fact.subject, [...fact.recipients].sort()])).toEqual([['item-stalled', [HOST.userId, MEI.userId].sort()]]);
+    expect(decisionsOf(run.topicId)).toEqual({ [MEI.userId]: 1, [HOST.userId]: 1 });
   });
 });

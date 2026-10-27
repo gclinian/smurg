@@ -404,6 +404,13 @@ export class FakePlanService implements PlanService {
     return structuredClone(this.nextAtStart);
   }
 
+  /** Suggestions a test says have escalated. */
+  readonly escalatedSuggestions = new Set<string>();
+
+  suggestionEscalated(suggestionId: string): boolean {
+    return this.escalatedSuggestions.has(suggestionId);
+  }
+
   /** What `goOnAtNextStart()` answers. */
   nextGoOn = 0;
   goOnAtNextStart(): number {

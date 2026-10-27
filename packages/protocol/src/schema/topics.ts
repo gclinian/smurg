@@ -269,8 +269,9 @@ export const AUTO_MERGE_REASONS = [
   'queued', 'paused', 'busy', 'asked', 'typing', 'git-busy', 'behind', 'retry',
   // resolving: the item's own agent brings its work up to date, or checks its report again
   'conflict', 'markers', 'stale-report',
-  // held: a person decides (the host alone for the second line)
-  'partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected', 'stopped',
+  // held: a person decides (the host alone for the second line); `edited`: a merged item's worktree holds changes no
+  // merge carried (0.7.0 verify)
+  'partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected', 'stopped', 'edited',
   'policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'history-changed', 'merge-failed', 'by-hand', 'undo-interrupted',
 ] as const;
 export const autoMergeReasonSchema = z.enum(AUTO_MERGE_REASONS);
@@ -289,7 +290,7 @@ export const AUTO_MERGE_REASONS_OF_STATE: Readonly<Record<AutoMergeState, readon
   waiting: ['queued', 'paused', 'busy', 'asked', 'typing', 'git-busy', 'behind', 'retry'],
   resolving: ['conflict', 'markers', 'stale-report'],
   held: [
-    'partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected', 'stopped',
+    'partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected', 'stopped', 'edited',
     'policy', 'local-changes', 'in-the-way', 'staged', 'branch', 'history-changed', 'merge-failed', 'by-hand', 'undo-interrupted',
     'conflict', 'stale-report', 'asked', 'git-busy',
   ],

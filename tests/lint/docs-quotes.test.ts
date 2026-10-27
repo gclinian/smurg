@@ -541,6 +541,10 @@ const QUOTES: readonly Quote[] = [
     guides: ['HOSTING'],
     render: (locale, web) => web.text(locale, 'topics.badge.held', { reason: web.text(locale, 'stores.hold.conflict.outside', { path: 'src/app.ts' }) }),
   },
+  // (0.7.0 verify: what the plan's badge says of an item already merged whose later change waits for a decision)
+  ...(['edited', 'stopped'] as const).map(
+    (reason): Quote => ({ what: `web topics.badge.held.later (${reason})`, guides: ['HOSTING'], render: (locale, web) => web.text(locale, 'topics.badge.held.later', { reason: web.text(locale, `stores.hold.${reason}`) }) }),
+  ),
   { what: 'wire merge.staged', guides: ['HOSTING'], render: (locale) => wire(locale, 'merge.staged') },
   // The update to 0.7.0: the line of smurg host, the inbox row and the console's banner's button.
   cliQuote('host.mergesAuto', undefined, ['HOSTING'], {
@@ -616,9 +620,12 @@ const PICTURE_QUOTES: readonly {
   { what: 'web topics.report.section.verified', render: (locale, web) => web.text(locale, 'topics.report.section.verified') },
   { what: 'web topics.report.section.changes', render: (locale, web) => web.text(locale, 'topics.report.section.changes') },
   { what: 'web topics.review.action', render: (locale, web) => web.text(locale, 'topics.review.action') },
-  { what: 'web topics.review.done', render: (locale, web) => web.text(locale, 'topics.review.done') },
-  { what: 'web topics.badge.mergedReviewed', render: (locale, web) => web.text(locale, 'topics.badge.mergedReviewed') },
-  { what: 'web topics.review.merged', render: (locale, web) => web.text(locale, 'topics.review.merged') },
+  // (changed on purpose in the 0.7.0 verify, the lead's decision 4: the report's own header and foot of an item smurg
+  // merged at 10:40 that Amy marked reviewed at 10:42, not the toast and the plan's badge)
+  { what: 'web topics.report.state.mergedAuto', render: (locale, web) => web.text(locale, 'topics.report.state.mergedAuto', { time: '10:40' }) },
+  { what: 'web topics.report.state.reviewed', render: (locale, web) => web.text(locale, 'topics.report.state.reviewed', { name: 'Amy', time: '10:42' }) },
+  { what: 'web topics.review.by', render: (locale, web) => web.text(locale, 'topics.review.by', { name: 'Amy', time: '10:42' }) },
+  { what: 'web topics.review.mergedAuto', render: (locale, web) => web.text(locale, 'topics.review.mergedAuto', { time: '10:40' }) },
 ];
 
 /**
@@ -701,7 +708,9 @@ const renderings = new Map<Locale, Promise<string>>();
 function forwardRenderings(locale: Locale): Promise<string> {
   let text = renderings.get(locale);
   if (text === undefined) {
-    text = webCatalogue().then((web) => QUOTES.map((quote) => flat(quote.render(locale, web))).join('\n'));
+    // (and what the forward list of the product page's picture renders: since the 0.7.0 verify the picture shows a
+    // report's state and foot with a time, as the app renders them)
+    text = webCatalogue().then((web) => [...QUOTES, ...PICTURE_QUOTES].map((quote) => flat(quote.render(locale, web))).join('\n'));
     renderings.set(locale, text);
   }
   return text;

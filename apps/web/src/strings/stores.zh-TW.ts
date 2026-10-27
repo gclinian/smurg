@@ -63,6 +63,7 @@ export const zhTW = {
   'hold.by-hand': '{names} 手動改了它的檔案',
   'hold.by-hand.unnamed': '它的檔案被手動改過',
   'hold.undo-interrupted': '主工作區有一次復原被中斷了',
+  'hold.edited': '它的 worktree 裡有從沒合併過的變更',
   'hold.policy': '改到只有主人能合併的檔案',
   'hold.local-changes': '主工作區有還沒提交的修改擋住了',
   'hold.in-the-way': '主工作區有檔案擋住了',

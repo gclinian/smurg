@@ -91,7 +91,13 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
           // `interrupted`. That is not a person's stop and nothing may be decided from it now: what the turn left is
           // looked at when smurg starts again (Scheduler.noteStop marked it; afterRestart: `stalled` by `restart`, or the
           // version held for its carers).
-          if (!core.started || ctx.stopping.aborted) return;
+          if (!core.started) return;
+          if (ctx.stopping.aborted) {
+            // (one that ended on its own while smurg stopped, before Scheduler.noteStop looked: marked too, 0.7.0 verify)
+            const ended = core.bySession(event.sessionId);
+            if (ended !== null && ended.item !== null) core.turnsEndedInStop.add(event.sessionId);
+            return;
+          }
           const hit = core.bySession(event.sessionId);
           if (hit === null) return;
           if (hit.item === null) void core.serialize(`discussion:${hit.topic.id}`, () => plans.onDiscussionTurn(event)).catch(log('discussion turn not handled'));
@@ -163,7 +169,16 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
           merger.request();
         }),
       );
-      stack.add(ctx.bus.on('suggestion.changed', (event) => reports.onSuggestion(event.suggestion)));
+      stack.add(
+        ctx.bus.on('suggestion.changed', (event) => {
+          reports.onSuggestion(event.suggestion);
+          // A suggestion to a work item's agent is a decision until it is decided (0.7.0 verify, the lead's decision
+          // R7): its plan says whom it waits for, and its topic is not ready meanwhile.
+          if (!core.started) return;
+          const hit = core.bySession(event.suggestion.sessionId);
+          if (hit !== null && hit.item !== null) core.publish(hit.topic.id);
+        }),
+      );
       // A plan paused or continued, a topic archived: the merge queue looks again.
       stack.add(ctx.bus.on('topic.changed', () => core.started && merger.request()));
       // Someone stopped typing in a file a merge waits for.

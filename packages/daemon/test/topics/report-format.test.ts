@@ -161,6 +161,38 @@ describe('the result report format', () => {
     expect(parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [!] `pnpm test cart`: failed: 2 of 14 tests failed').replace('- outcome: complete', '- outcome: partial'), 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 0, failed: 1 } } });
   });
 
+  // 0.7.0 verify (W/verify/safe h2, h3): only the exact "<what>: failed: …" and "<what>: not verified: …" were refused;
+  // a ticked box saying the same in nearly the same words parsed as passed, and smurg merged the report by itself.
+  it('0.7.0 verify: a ticked box whose words say the check failed or did not run, in other words than the exact form, is refused too', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    for (const line of [
+      '- [x] `pnpm test`: FAILED (2 of 3 tests failed)',
+      '- [x] `pnpm test` failed: 2 of 3 tests',
+      '- [x] `pnpm test` — failed: 2 of 3 tests',
+      '- [x] `pnpm test` - fails on CI',
+      '- [x] `pnpm test`: failed (2 of 3 tests)',
+      '- [x] `pnpm test`: not verified (no network)',
+      '- [x] `pnpm test` failed (2 of 3)',
+      '- [X] `pnpm test`：失敗：2 個測試沒過',
+      '- [x] 手動測試：未驗證（沒有瀏覽器）',
+    ]) {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => entry.kind), line).toEqual(['verified-ticked']);
+    }
+    // A passed check whose own words mention failures is still a passed check.
+    for (const line of ['- [x] `pnpm test`: 14 passed, 0 failed', '- [x] `pnpm test` (14 passed, 0 failed)', '- [x] lint: no failures', '- [x] `pnpm test`: failures fixed, all 14 pass', '- [x] the failover test passes']) {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { checks: { passed: 1 } } });
+    }
+  });
+
+  it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
+    const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
+    const start = performance.now();
+    parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', long), 'cart-api');
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+
   it('the sections must come in the fixed order, each once', () => {
     const swapped = CART_REPORT.replace('## What was done', '## TEMP').replace('## Why it was done this way', '## What was done').replace('## TEMP', '## Why it was done this way');
     expect(kindsOf(swapped).map((error) => error.kind)).toEqual(['section-order']);

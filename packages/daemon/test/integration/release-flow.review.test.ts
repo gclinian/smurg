@@ -43,8 +43,11 @@ const PNPM_TEST: FakeClaudeStep = { tool: 'Bash', input: { command: 'pnpm test' 
 const CHECK: FakeClaudeStep = { tool: 'mcp__smurg__check_report', input: {} };
 const write = (path: string, content: string): FakeClaudeStep => ({ tool: 'Write', input: { file_path: path, content } });
 const handIn = (id: string, title: string, done?: string): FakeClaudeStep[] => [PNPM_TEST, write(reportPath(id), report(id, title, done)), CHECK, { text: `${title} is done.` }];
-/** The turn `verify-again` starts: the agent runs its checks again and checks the same report (it changes nothing). */
-const VERIFIED = { match: 'You changed files after your report was last checked', steps: [PNPM_TEST, CHECK, { text: 'Verified again.' }] };
+/**
+ * The turn `verify-again` starts: the agent runs its checks again and checks the same report (it changes nothing).
+ * (0.7.0 verify: matched on the words both of its sentences have; after a restart it is told the restart is why)
+ */
+const VERIFIED = { match: 'after your report was last checked', steps: [PNPM_TEST, CHECK, { text: 'Verified again.' }] };
 const UNATTENDED = { settings: { permissionMode: 'auto' as const, merging: 'auto' as const } };
 const FILES = { 'README.md': '# Bookshop\n', 'src/app.ts': 'export const title = "Bookshop";\n' };
 const bytes = (text: string): Uint8Array => new TextEncoder().encode(text);
@@ -164,7 +167,9 @@ describe('0.7.0 review: a restart never lets an item merge as if nobody had aske
     await flow.restart();
     await itemIs(flow, topicId, 'cart-api', (item) => item.merged?.by === 'smurg', 'the merge after the agent verified again');
     const sessionId = running.sessionId as string;
-    expect((await told(flow, sessionId)).filter((text) => text.includes('You changed files after your report was last checked'))).toHaveLength(1);
+    // (0.7.0 verify: smurg cannot tell after the restart what the cut turn changed after its check, and says so; it said
+    // "You changed files", which was false of a turn that had changed nothing after it)
+    expect((await told(flow, sessionId)).filter((text) => text.includes('smurg was restarted while you worked, and cannot tell what you changed after your report was last checked'))).toHaveLength(1);
     // The merge came after that turn: the version merged was checked in the turn that confirmed it.
     const verify = (await audited(flow, 'worktree.merge.auto')).filter((entry) => entry.outcome === 'ok');
     expect(verify).toHaveLength(1);

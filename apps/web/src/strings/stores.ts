@@ -71,6 +71,7 @@ export const tStores = defineStrings(
     'hold.asked': '{name} wrote to the agent after its report',
     'hold.asked.unnamed': 'someone wrote to the agent after its report',
     'hold.stopped': 'its last turn did not finish',
+    'hold.edited': 'its worktree holds changes that were never merged',
     'hold.stale-report': 'its report was not checked again after its last change',
     'hold.by-hand': '{names} edited files of it by hand',
     'hold.by-hand.unnamed': 'files of it were edited by hand',

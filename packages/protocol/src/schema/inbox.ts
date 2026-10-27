@@ -69,9 +69,15 @@ export const inboxAnchorSchema = z.strictObject({ cardId: opaqueIdSchema.optiona
 /** What became of one's own suggestion (an item of kind `result`). */
 export const INBOX_RESULTS = ['rejected', 'accepted-edited'] as const;
 
-/** Whether an item of this kind stops an agent or a plan (`InboxItem.waiting`). A decision does; a topic ready to check does not. */
-export function inboxKindWaits(kind: InboxKind, subject?: AttentionSubject): boolean {
+/**
+ * Whether an item of this kind stops an agent or a plan (`InboxItem.waiting`). A decision does; a topic ready to check
+ * does not. A suggestion to a work item's agent (a row that names the item, `itemId`) does: nobody but a person with
+ * agent access can settle it, and its topic is not ready to check until it is accepted or rejected (protocol 6, smurg
+ * 0.7.0); one in another session does not.
+ */
+export function inboxKindWaits(kind: InboxKind, subject?: AttentionSubject, itemId?: string): boolean {
   if (kind === 'question' || kind === 'vote' || kind === 'permission' || kind === 'decision') return true;
+  if (kind === 'suggestion') return itemId !== undefined;
   return kind === 'attention' && subject !== undefined && subject !== 'host-rules' && subject !== 'storage' && subject !== 'agents-auto' && subject !== 'auto-merge';
 }
 
@@ -129,8 +135,9 @@ export const INBOX_KIND_FIELDS: Readonly<Record<InboxKind, { readonly required: 
   // An open question of a session with nobody assigned, for a member who has not voted. `waitsFor`: who decides.
   vote: { required: ['sessionId', 'anchor', 'voted', 'eligible'], optional: [...WHERE, 'waitsFor', 'waitsForOffline'] },
   permission: { required: ['sessionId', 'anchor'], optional: [...WHERE, ...WAITS_FOR, 'unblocks'] },
-  // ONE item per author and session. `anchor.cardId`: the oldest pending one. `count`: how many are pending.
-  suggestion: { required: ['sessionId', 'anchor', 'from', 'count'], optional: [...WHERE, 'alsoFor', 'alsoForMore'] },
+  // ONE item per author and session. `anchor.cardId`: the oldest pending one. `count`: how many are pending. In a work
+  // item's session (protocol 6): `waitsFor`, `waitsForOffline`, `escalated` as for a permission request.
+  suggestion: { required: ['sessionId', 'anchor', 'from', 'count'], optional: [...WHERE, ...WAITS_FOR] },
   report: { required: ['topicId', 'itemId', 'item', 'outcome', 'checks'], optional: ['sessionId', ...WAITS_FOR] },
   // `ready`: a reviewed draft nobody asked to merge yet (then there is no `from`). `unblocks`: item numbers that wait.
   merge: { required: ['ready', 'conflict'], optional: [...WHERE, 'from', 'unblocks'] },
@@ -157,7 +164,7 @@ export const inboxItemSchema = z
     subject: attentionSubjectSchema.optional(),
     at: epochMsSchema,
     unread: z.boolean(),
-    /** An agent or a plan is stopped on this (the amber count): `inboxKindWaits(kind, subject)`. */
+    /** An agent or a plan is stopped on this (the amber count): `inboxKindWaits(kind, subject, itemId)`. */
     waiting: z.boolean(),
     topicId: opaqueIdSchema.optional(),
     sessionId: opaqueIdSchema.optional(),
@@ -209,7 +216,7 @@ export const inboxItemSchema = z
     if (INBOX_CARD_KINDS.includes(item.kind) && item.anchor?.cardId === undefined) ctx.addIssue({ code: 'custom', path: ['anchor', 'cardId'], message: 'the item names its card' });
     if ((item.item !== undefined) !== (item.itemId !== undefined)) ctx.addIssue({ code: 'custom', path: ['item'], message: 'item goes with itemId' });
     if (item.itemId !== undefined && item.topicId === undefined) ctx.addIssue({ code: 'custom', path: ['topicId'], message: 'an item belongs to a topic' });
-    if (item.waiting !== inboxKindWaits(item.kind, item.subject)) ctx.addIssue({ code: 'custom', path: ['waiting'], message: 'waiting follows the kind' });
+    if (item.waiting !== inboxKindWaits(item.kind, item.subject, item.itemId)) ctx.addIssue({ code: 'custom', path: ['waiting'], message: 'waiting follows the kind' });
     const prefix = item.kind === 'attention' ? `attention:${item.subject ?? ''}:` : `${item.kind}:`;
     if (!item.key.startsWith(prefix) || item.key.length === prefix.length) ctx.addIssue({ code: 'custom', path: ['key'], message: `the key starts with ${prefix}` });
   });

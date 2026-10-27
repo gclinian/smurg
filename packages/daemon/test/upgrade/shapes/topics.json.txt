@@ -198,7 +198,7 @@ topics[].items[].direct: literal true
 topics[].items[].autoMerge: optional
 topics[].items[].autoMerge: #29 object [custom] [custom] [custom] [custom] [custom] [custom] strict
 topics[].items[].autoMerge.state: enum "waiting"|"resolving"|"held"
-topics[].items[].autoMerge.reason: enum "queued"|"paused"|"busy"|"asked"|"typing"|"git-busy"|"behind"|"retry"|"conflict"|"markers"|"stale-report"|"partial"|"blocked"|"check-failed"|"not-verified"|"report-invalid"|"rejected"|"stopped"|"policy"|"local-changes"|"in-the-way"|"staged"|"branch"|"history-changed"|"merge-failed"|"by-hand"|"undo-interrupted"
+topics[].items[].autoMerge.reason: enum "queued"|"paused"|"busy"|"asked"|"typing"|"git-busy"|"behind"|"retry"|"conflict"|"markers"|"stale-report"|"partial"|"blocked"|"check-failed"|"not-verified"|"report-invalid"|"rejected"|"stopped"|"edited"|"policy"|"local-changes"|"in-the-way"|"staged"|"branch"|"history-changed"|"merge-failed"|"by-hand"|"undo-interrupted"
 topics[].items[].autoMerge.since: number format=safeint [greater_than value=0 inclusive=true]
 topics[].items[].autoMerge.hostOnly: boolean
 topics[].items[].autoMerge.paths: optional

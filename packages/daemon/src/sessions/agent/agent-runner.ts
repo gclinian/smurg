@@ -155,6 +155,8 @@ interface Turn {
   readonly startedAt: number;
   readonly messages: TurnMessage[];
   readonly edited: { file: FileRef; seq: number }[];
+  /** Commands and other tools whose writes smurg does not see (a command, a sub-agent, an unknown tool) that ran in it. */
+  readonly ran: { seq: number }[];
   finalText?: string;
   blocks: number;
 }
@@ -170,6 +172,8 @@ interface ToolCall {
 
 type Expected = 'park' | 'restart' | 'end' | 'stop';
 const AUDITED_VERBS: ReadonlySet<string> = new Set(['run', 'fetch', 'other']);
+/** The tools whose writes are not edits smurg sees (`Turn.ran`): a command, a sub-agent, a tool smurg does not know. */
+const UNSEEN_WRITES: ReadonlySet<string> = new Set(['run', 'task', 'other']);
 const NOT_LOGGED_IN = /not logged in|\/login/i;
 const NO_CONVERSATION = /No conversation found/i;
 const ALREADY_IN_USE = /already in use/i;
@@ -1374,7 +1378,7 @@ export class AgentRunner {
     const host = this.host;
     this.record.turnCounter += 1;
     this.record.lastTurnOpen = true;
-    const turn: Turn = { id: `t_${this.record.turnCounter}`, startedAt: host.ctx.clock.now(), messages: this.nextTurnMessages, edited: [], blocks: 0 };
+    const turn: Turn = { id: `t_${this.record.turnCounter}`, startedAt: host.ctx.clock.now(), messages: this.nextTurnMessages, edited: [], ran: [], blocks: 0 };
     this.nextTurnMessages = [];
     this.turn = turn;
     host.save(this);
@@ -1504,6 +1508,8 @@ export class AgentRunner {
     // audited here, also when it ran and failed (DESIGN 0.6.0 D11); one a person or the daemon allowed was audited with
     // that decision; one that did not run (auto mode's check, smurg's gate, a person, a hook refused it) is none.
     const notRun = this.refusedCalls.delete(event.toolUseId) || (!event.ok && isHookRefusal(event.text));
+    // What may have changed files without an edit tool (0.7.0 verify: a command after check_report), failed or not.
+    if (turn !== null && !notRun && UNSEEN_WRITES.has(call.view.verb)) turn.ran.push({ seq: call.seq });
     if (!notRun && call.decidedBy === undefined && AUDITED_VERBS.has(call.view.verb)) {
       this.auditCommand(event.toolUseId, call.view.verb, 'unasked', call.view.target, { ok: event.ok, mode: this.modeInUse ?? host.effectiveMode(this) });
     }
@@ -1625,6 +1631,7 @@ export class AgentRunner {
       ...(stoppedBy === undefined ? {} : { stoppedBy }),
       messages: turn.messages,
       edited: turn.edited,
+      ran: turn.ran,
       ...(this.refusedTurn === turn.id ? { modelRefused: true as const } : {}),
     });
     for (const waiter of [...this.turnWaiters]) waiter();

@@ -226,10 +226,12 @@ export function describeInboxItem(item: InboxItem, ctx: InboxRowContext): InboxR
       const planItem = item.topicId === undefined || item.itemId === undefined ? undefined : selectPlan(ctx.topics, item.topicId)?.items.find((entry) => entry.id === item.itemId);
       const hold = planItem?.autoMerge?.state === 'held' && planItem.autoMerge.reason === item.reason ? planItem.autoMerge : {};
       const reason = item.reason === undefined ? '' : holdText(item.reason, hold);
+      // (an item whose version is merged: what was not merged is a later change of it, 0.7.0 verify)
+      const later = planItem !== undefined && planItem.undone === undefined && (planItem.merge?.status === 'merged' || planItem.merged !== undefined);
       const who = item.waitsFor;
       const waits = who === undefined || who.userId === ctx.selfUserId ? null : item.escalated === true ? t('fact.notDecided', { name: who.displayName, time: formatAge(item.at, ctx.now) }) : t('fact.decides', { name: who.displayName });
       return {
-        title: item.item === undefined ? kindLabel('decision') : t('title.decision', { item: itemLabel(item.item), reason }),
+        title: item.item === undefined ? kindLabel('decision') : t(later ? 'title.decision.later' : 'title.decision', { item: itemLabel(item.item), reason }),
         where: facts(topicName, checksFact(item.checks), unblocksFact(item), waits, item.waitsForOffline === true && who !== undefined ? t('fact.offline', { name: who.displayName }) : null, othersFact(item)),
       };
     }

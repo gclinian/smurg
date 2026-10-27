@@ -143,7 +143,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/entities.ts': '99f96cd2853c9d650afcbdc32f09085c99c70742e91ff71aad52c3e2cdd84231',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '31915fe6680b6a0c7c593eb4e338c7e8e571cda0aeef84b45d280f9aa255ab68',
-  'schema/inbox.ts': '70daff0b7104b78d44957e645af70f731a63e8530b905a3b1300f3113e6d83df',
+  'schema/inbox.ts': '86b253ecc452a771573942c4171fbff87e91ab57238577368c6203ddb9634b2b',
   'schema/index.ts': 'df8271d00f6e162c550c0a42e99d02e489f3c526342bff8208b3a99d10419f88',
   'schema/limits.ts': 'de9db30e6472cb5adad1bebeebc80f07a51f34b63fe93e8b350342231031dcac',
   'schema/message-ref.ts': 'ee4c2d08adecc61772f0da565141c2af9adf9fc32a7eb157ac8f9bf37d3a3019',
@@ -163,7 +163,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
   'schema/registry.ts': '72cccc325cb37399b7b6d7eead673855d8e03498dfce7c5d29210512863d36a9',
-  'schema/topics.ts': 'd523c5f9966d616e46b20ae79e1e4d4cd09bfe8e54e947226bbf380ab16a8efd',
+  'schema/topics.ts': '8800f99d226949d0631eb38057994078a6832d1269bcfb49796c5966b1048c88',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
 

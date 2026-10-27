@@ -253,6 +253,27 @@ describe('suggestions: one item per author and session, routed like a permission
   });
 });
 
+// 0.7.0 verify (the lead's decision R7): a suggestion to a work item's agent is a decision. Its row was not amber, nothing
+// counted or escalated it, and after "Ready to check" an Editor's follow-up suggestion kept the topic "executing" for good.
+describe('0.7.0 verify: a suggestion to a work item\'s agent is a decision', () => {
+  const ITEM = { topicId: 'tp_1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' } };
+  it('it waits for whom it is routed to (amber); once it escalated, also for the host and every member with agent access, the copies naming who has not decided', () => {
+    const input: WorldInput = { sessions: { sess_a: sessionOf(MEI, ITEM) }, suggestions: [buildSuggestion({ id: 'sg_1' })] };
+    expect(holders(input, 'suggestion')).toEqual([MEI]);
+    expect(itemOf(input, MEI, 'suggestion')).toMatchObject({ waiting: true, ...ITEM });
+    const escalated: InboxWorld = { ...world(input), suggestionEscalated: (id: string) => id === 'sg_1' };
+    const derived = deriveInbox(escalated);
+    for (const userId of derived.keys()) for (const item of itemsOf(derived, userId)) expect(inboxItemSchema.safeParse(item).error?.issues ?? [], `${userId} ${item.key}`).toEqual([]);
+    expect(EVERYONE.filter((userId) => itemsOf(derived, userId).some((item) => item.kind === 'suggestion'))).toEqual([HOST, MEI, KEN]);
+    expect(itemsOf(derived, HOST).find((item) => item.kind === 'suggestion')).toMatchObject({ waiting: true, escalated: true, waitsFor: ref(MEI) });
+  });
+
+  it('one in a session that is no work item\'s (a discussion, a session of its own) does not wait', () => {
+    expect(itemOf({ sessions: { sess_a: sessionOf(MEI, { topicId: 'tp_1' }) }, suggestions: [buildSuggestion()] }, MEI, 'suggestion').waiting).toBe(false);
+    expect(itemOf({ sessions: { sess_a: sessionOf(MEI) }, suggestions: [buildSuggestion()] }, MEI, 'suggestion').waiting).toBe(false);
+  });
+});
+
 describe('a report to review: its reviewers', () => {
   const plan = (responsible: string | null, sessionId?: string): PlanInfo =>
     buildPlan({ items: [buildWorkItem({ number: 3, title: 'Cart API', responsible: responsible === null ? null : { ...ref(responsible), source: 'chosen' }, ...(sessionId === undefined ? {} : { sessionId }) })] });

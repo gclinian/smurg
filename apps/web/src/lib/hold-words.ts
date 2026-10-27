@@ -10,7 +10,7 @@ import { formatAnd } from './format.ts';
 
 /** The reasons a hold can carry (AUTO_MERGE_REASONS_OF_STATE.held): the words exist for exactly these. */
 export type HeldReason =
-  | 'partial' | 'blocked' | 'check-failed' | 'not-verified' | 'report-invalid' | 'rejected' | 'stopped'
+  | 'partial' | 'blocked' | 'check-failed' | 'not-verified' | 'report-invalid' | 'rejected' | 'stopped' | 'edited'
   | 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch' | 'history-changed' | 'merge-failed' | 'by-hand' | 'undo-interrupted'
   | 'conflict' | 'stale-report' | 'asked' | 'git-busy';
 

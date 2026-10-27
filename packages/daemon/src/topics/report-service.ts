@@ -82,6 +82,7 @@ interface TurnFinished {
   readonly finalText?: string;
   readonly messages: readonly TurnMessage[];
   readonly edited: readonly { readonly file: FileRef; readonly seq: number }[];
+  readonly ran?: readonly { readonly seq: number }[];
   readonly modelRefused?: true;
 }
 
@@ -408,6 +409,19 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       return;
     }
     const checkedHere = item.checked.some((entry) => entry.sessionId === event.sessionId && entry.hash === file.hash);
+    // The checkout holds what no version has (0.7.0 verify): files a command changed (no edit tool, so not in
+    // `edited`), a person's save; or, owed a snapshot, still holds what that was owed for (a tree git says holds nothing
+    // beyond its newest request owes nothing: a talk-only turn the stop cut). Looked at (git) only where nothing else
+    // says the version changed; a tree that cannot be looked at is ahead when a snapshot is owed.
+    const worktrees = this.ctx.services.worktrees;
+    const owed = item.snapshotOwed === true;
+    let ahead: boolean | null = null;
+    const treeAhead = async (): Promise<boolean> => {
+      if (ahead !== null) return ahead;
+      if (registered === null || isDirect(item) || item.worktreeId === undefined || isStubService(worktrees)) ahead = owed;
+      else ahead = (await worktrees.holdsUnsnapshotted(item.worktreeId)) ?? owed;
+      return ahead;
+    };
     if (checkedHere) {
       const parse = parseReport(file.text, item.id);
       // After `resolve-conflict` the worktree changed whatever the agent did (smurg merged the main workspace into
@@ -415,7 +429,14 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // also whenever the item is bringing its work up to date, or its worktree holds a merge parent no snapshot has
       // committed yet.
       const resolved = event.messages.some((message) => message.purpose === 'resolve-conflict') || this.resolving(item);
-      const unchanged = registered !== null && item.snapshotOwed !== true && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved && !afterUnfinished;
+      const unchanged =
+        registered !== null && registered.contentHash === file.hash && registered.sessionId === event.sessionId && event.edited.length === 0 && !resolved && !afterUnfinished && !(await treeAhead());
+      // (owed a snapshot, and git says the checkout holds nothing beyond its newest request: nothing is owed any more)
+      if (unchanged && owed) {
+        this.core.updateItem(topicId, itemId, (draft) => {
+          delete draft.snapshotOwed;
+        });
+      }
       if (parse.ok && !unchanged) {
         // checked in THIS turn (DESIGN 0.7.0 D6 row 13), and nothing of the item edited after that check (0.7.0
         // review: a change made after the check is one no check ran against): what smurg's merge of this version needs
@@ -428,7 +449,8 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
         return;
       }
     }
-    if (registered !== null && registered.contentHash === file.hash) return; // the registered version, unchanged
+    // The registered version, unchanged (a checkout that holds more than it has: its report is checked again first).
+    if (registered !== null && registered.contentHash === file.hash && !(await treeAhead())) return;
     // The file exists, but this content was not checked ok in this session.
     const parse = parseReport(file.text, item.id);
     const asked = item.fix;
@@ -481,13 +503,14 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   }
 
   /**
-   * Whether the turn edited a file other than the report after `check_report` last answered ok for this content (an
-   * edit's tool card came later). Unknown (no check heard in this daemon's run): yes.
+   * Whether the turn edited a file other than the report, or ran a command, after `check_report` last answered ok for
+   * this content (its tool card came later). Unknown (no check heard in this daemon's run): yes.
    */
   private editedAfterCheck(event: TurnFinished, hash: string, reportPath: string): boolean {
     const seq = this.checkSeqs.get(checkKey(event.sessionId, hash));
     if (seq === undefined) return true;
-    return event.edited.some((entry) => entry.seq > seq && entry.file.path !== reportPath);
+    // (a command that ran after the check may have changed what was checked, as an edit does: 0.7.0 verify)
+    return event.edited.some((entry) => entry.seq > seq && entry.file.path !== reportPath) || (event.ran ?? []).some((entry) => entry.seq > seq);
   }
 
   /**
@@ -535,14 +558,18 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     this.core.publish(topic.id);
   }
 
-  /** The item's worktree as a draft merge request. A file that changed while the tree was read: that one request is simply repeated. */
+  /**
+   * The item's worktree as a draft merge request. A file that changed while the tree was read: that one request is
+   * simply repeated. So is one whose staging failed (0.7.0 verify, the lead's decision 2: `git add --all` stops when a
+   * file it listed is renamed away before it reads it, as a person's save in the checkout does).
+   */
   private async snapshot(topic: StoredTopic, item: StoredItem): Promise<SnapshotResult> {
     const worktrees = this.ctx.services.worktrees;
     const input = { worktreeId: item.worktreeId as string, message: `smurg: work item ${item.number} (${item.id})`, topicSlug: topic.slug };
     try {
       return await worktrees.snapshot(input);
     } catch (err) {
-      if (!(err instanceof SmurgError) || err.detail?.['reason'] !== 'worktree-changed' || this.ctx.stopping.aborted) throw err;
+      if (!(err instanceof SmurgError) || !changedUnderIt(err) || this.ctx.stopping.aborted) throw err;
       return worktrees.snapshot(input);
     }
   }
@@ -748,7 +775,10 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       // (a snapshot that fails here has left the item stalled or with its earlier version: nothing more to do at the start)
       const before = registered?.version ?? 0;
       await this.register(topic, item, sessionId, file, parse.report, false);
-      return (this.core.report(topicId, itemId)?.version ?? 0) > before || (registered !== null && !forced);
+      const after = this.core.report(topicId, itemId)?.version ?? 0;
+      // (its agent is told why it checks again: the restart, not an edit after its check; 0.7.0 verify)
+      if (after > before) this.core.cutTurnVersions.set(itemKey(topicId, itemId), after);
+      return after > before || (registered !== null && !forced);
     });
   }
 
@@ -970,6 +1000,7 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     // an item that stopped reaches more people once it has waited (attention.ts: the facts are compared with the clock).
     this.core.trackPresence();
     this.core.escalateHolds();
+    this.core.escalateSuggestions();
     this.core.publishChangedPhases();
     this.core.publishAttention();
   }
@@ -1009,6 +1040,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
     if (this.sweepTimer !== null) clearInterval(this.sweepTimer);
     this.sweepTimer = null;
   }
+}
+
+/** A snapshot that failed because the checkout changed under it: a file changed while it was read, or staging stopped. */
+function changedUnderIt(err: SmurgError): boolean {
+  const reason = err.detail?.['reason'];
+  return reason === 'worktree-changed' || (reason === 'git-failed' && err.detail?.['step'] === 'stage');
 }
 
 const checkKey = (sessionId: string, hash: string): string => `${sessionId}\u0000${hash}`;

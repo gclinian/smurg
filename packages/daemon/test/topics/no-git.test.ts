@@ -406,6 +406,65 @@ describe('without a usable git program, an unfinished report no longer lets what
     expect(await readFile(join(s.root, 'src', 'cart.ts'), 'utf8')).toBe('export const cart = 2;\n');
   });
 
+  // 0.7.0 verify (W/verify/diff): the stored mark of a turn a restart cut stayed after the host had settled the item, so
+  // every later start took the host's "Accept as it is" back and paused the plan again; a left-out item paused it too.
+  it('0.7.0 verify: what the host settled after a restart cut a later turn stays settled across the next restart: "Accept as it is", and "Leave it out"', async () => {
+    const cut = (text: string): { match: string; once: true; steps: FakeClaudeStep[] } => ({ match: text, once: true, steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: '// half-way\nexport const bas\n' } }, { sleep: 60_000 }, { text: 'never' }] });
+    for (const settle of ['accept', 'leaveOut'] as const) {
+      const { s, topicId, oldGit } = await directPlan([{ match: 'Start work item 1 ', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } }, ...handIn('cart-api')] }, cut('rename cart to basket')], [{ id: 'cart-api' }]);
+      await planIs(s, topicId, (plan) => plan.items[0]?.state === 'done' && plan.items[0].report !== undefined, 'item 1 done');
+      const sessionOne = itemOf(s, topicId, 'cart-api')?.sessionId as string;
+      await s.ian.conn.request('session.message.send', { sessionId: sessionOne, text: 'Please rename cart to basket everywhere.' });
+      await waitFor(async () => (await readFile(join(s.root, 'src', 'cart.ts'), 'utf8').catch(() => '')).includes('half-way'), { timeoutMs: 60_000, what: 'the later turn to write' });
+      await s.restart(oldGit);
+      await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held' && plan.paused, `${settle}: item 1 held and its plan paused after the first restart`);
+      if (settle === 'accept') await s.ian.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 1 });
+      else await s.ian.conn.request('plan.item.leaveOut', { topicId, itemId: 'cart-api' });
+      await s.ian.conn.request('plan.resume', { topicId });
+      await planIs(s, topicId, (plan) => !plan.paused, `${settle}: the plan going on`);
+      await s.restart(oldGit);
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      const after = planOf(s, topicId);
+      expect(after.paused, settle).toBe(false);
+      expect(after.items[0]?.autoMerge, settle).toBeUndefined();
+      if (settle === 'accept') expect(after.items[0]?.merged).toMatchObject({ by: { userId: TEST_HOST_USER } });
+    }
+  });
+
+  // 0.7.0 verify (W/verify/diff): an item that stands on the stopped one through another item started in the shared
+  // folder on its half change, and counted as merged by itself.
+  it('0.7.0 verify: what stands on an item whose later turn stopped half-way through another item waits too', async () => {
+    const { s, topicId } = await directPlan(
+      [
+        { match: 'Start work item 1 ', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } }, ...handIn('cart-api')] },
+        { match: 'Start work item 2 ', steps: [{ sleep: 3_000 }, { tool: 'Write', input: { file_path: 'src/pay.ts', content: 'export const pay = 1;\n' } }, ...handIn('payment-form')] },
+        { match: 'Start work item 3 ', steps: [{ tool: 'Write', input: { file_path: 'src/page.ts', content: 'import { cart } from "./cart";\n' } }, ...handIn('checkout-page')] },
+        { match: 'rename cart to basket', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: '// half-way through renaming cart to basket\nexport const bas\n' } }, { sleep: 60_000 }, { text: 'never' }] },
+      ],
+      [{ id: 'cart-api' }, { id: 'payment-form', dependsOn: ['cart-api'] }, { id: 'checkout-page', dependsOn: ['payment-form'] }],
+    );
+    await planIs(s, topicId, (plan) => plan.items[0]?.state === 'done' && plan.items[1]?.state === 'running', 'item 1 done, item 2 running');
+    const sessionOne = itemOf(s, topicId, 'cart-api')?.sessionId as string;
+    // (the later turn waits for the folder while item 2 works, and takes it before item 3 may start)
+    await s.ian.conn.request('session.message.send', { sessionId: sessionOne, text: 'Please rename cart to basket everywhere.' });
+    await waitFor(async () => (await readFile(join(s.root, 'src', 'cart.ts'), 'utf8').catch(() => '')).includes('half-way'), { timeoutMs: 60_000, what: 'item 1\'s later turn to write' });
+    await s.ian.conn.request('session.interrupt', { sessionId: sessionOne });
+    await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held', 'item 1 to be held');
+    await planIs(s, topicId, (plan) => plan.items[1]?.state === 'done', 'item 2 done');
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    expect(itemOf(s, topicId, 'checkout-page')).toMatchObject({ state: 'waiting', waitsFor: ['cart-api'] });
+    expect(await exists(join(s.root, 'src', 'page.ts'))).toBe(false);
+  });
+
+  // 0.7.0 verify (W/verify/run N4): a review of an item that ran in the folder is a mark (D10), and the plan's waiting
+  // line named people for reviews nobody waits for, on a topic ready to check.
+  it('0.7.0 verify: nobody is waited for to review an item that ran directly in the folder', async () => {
+    const { s, topicId } = await directPlan([{ match: 'Start work item 1 ', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } }, ...handIn('cart-api')] }], [{ id: 'cart-api' }]);
+    await waitFor(() => s.d.ctx.services.topics.get(topicId)?.phase === 'ready', { timeoutMs: 60_000, what: 'ready to check' });
+    expect(planOf(s, topicId).items[0]?.report?.state).toBe('to-review');
+    expect(planOf(s, topicId).waitingFor).toEqual([]);
+  });
+
   it('"Continue": the agent finishes the work, and the complete version counts as merged by itself', async () => {
     const { s, topicId } = await directPlan([
       { match: 'Start work item 1 ', steps: partial },

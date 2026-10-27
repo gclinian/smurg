@@ -41,7 +41,8 @@ export const ZH_TW: Words = {
   howVerified: '怎麼驗證的',
   changes: '變更',
   reviewBtn: '我已看過',
-  marked: '已標成看過。',
-  mergedReviewed: '已合併 · 已看過',
-  merged: '已合併到主工作區。',
+  mergedBadge: 'smurg 在 10:40 合併了',
+  reviewedBadge: 'Amy 已看過，10:42',
+  marked: 'Amy 在 10:42 看過了。',
+  merged: 'smurg 在 10:40 合併了。',
 };

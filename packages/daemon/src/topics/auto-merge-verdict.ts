@@ -7,11 +7,13 @@
 //
 // The rows, in order; the first that applies decides:
 //    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done
-//    2. its current request is merged (unless a later turn did not finish and left work in its checkout: that is
-//       row 6 for it, after rows 3 and 4); an undo of its topic claims it                                   → none
+//    2. its current request is merged (unless its checkout holds work no merge carried: a later turn that did not
+//       finish, a command's edits, a person's save; that is a hold for it after rows 3 and 4); an undo of its topic
+//       claims it                                                                                            → none
 //    3. the plan is paused                                                                                   → wait
 //    4. its session is in a turn, has a card open or a message waiting, or an automatic continue is owed     → wait
-//    5. somebody wrote to its agent since this version: the answer is to come → wait; it came without one   → hold
+//    5. somebody wrote to its agent since this version: the answer is to come → wait (not when a restart left
+//       the message in a session nothing delivers it from: row 6); it came without one                     → hold
 //    6. a later turn did not finish (a person stopped it, or it ended on an error)                           → hold
 //    7. no report → none; a report smurg cannot read                                                         → hold
 //    8. its snapshot was refused: files only the host may merge, the topic's own files → hold; conflict markers →
@@ -71,7 +73,7 @@ export function autoContinueOwed(item: Pick<StoredItem, 'autoContinue' | 'state'
 /** The reasons of the state `held` (D9). */
 export type HoldReason = Extract<
   AutoMergeReason,
-  | 'partial' | 'blocked' | 'check-failed' | 'not-verified' | 'report-invalid' | 'rejected' | 'stopped' | 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch'
+  | 'partial' | 'blocked' | 'check-failed' | 'not-verified' | 'report-invalid' | 'rejected' | 'stopped' | 'edited' | 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch'
   | 'history-changed' | 'merge-failed' | 'by-hand' | 'undo-interrupted' | 'conflict' | 'stale-report' | 'asked' | 'git-busy'
 >;
 
@@ -79,7 +81,7 @@ export type HoldReason = Extract<
  * Holds that only rows 5–13 give (from the store, the report and the session): a stored one of these that the verdict
  * no longer gives is over (its cause went: a new version, "Merge it as it is", a completed turn).
  */
-export const COMPUTED_HOLDS: readonly HoldReason[] = ['asked', 'stopped', 'report-invalid', 'by-hand', 'partial', 'blocked', 'check-failed', 'not-verified'];
+export const COMPUTED_HOLDS: readonly HoldReason[] = ['asked', 'stopped', 'edited', 'report-invalid', 'by-hand', 'partial', 'blocked', 'check-failed', 'not-verified'];
 
 /**
  * Row 14: the holds a person settles that stay until what clears them happens (D8 "Clearing"): the merge's own holds
@@ -132,8 +134,8 @@ export interface AutoMergeVerdictInput {
   readonly tries: number;
   readonly maxTries: number;
   /**
-   * Its checkout holds work no merge carried (`worktrees.unmerged`): asked only of an item whose request is merged and
-   * whose later turn did not finish (row 2). Absent: no.
+   * Its checkout holds work no merge carried, as git last said (`worktrees.unmergedWork`): asked only of an item whose
+   * request is merged (row 2). Absent: no, or not known yet.
    */
   readonly unmergedWork?: boolean;
 }
@@ -149,21 +151,22 @@ export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict
   const record = item.autoMerge;
   // 1. smurg's to merge at all
   if (input.policy !== 'auto' || input.topic.archived || item.leftOut !== undefined || (item.state !== 'done' && item.state !== 'reviewed')) return NONE;
-  // 2. claimed by an undo; merged already, unless a later turn did not finish (or what it edited is still to be taken
-  //    into a version: `snapshotOwed`) and left half of a change in its checkout (0.7.0 review: nothing would ever merge
-  //    or report it, and its topic would never be ready)
+  // 2. claimed by an undo; merged already, unless its checkout holds work no merge carried (0.7.0 review and verify: a
+  //    later turn that did not finish left half of a change there, a completed one changed files through a command, a
+  //    person saved a file there: nothing would ever merge or report it, and its topic would never be ready)
   if (input.claimed) return NONE;
   const merged = request?.status === 'merged';
-  if (merged && !((item.lastTurn !== undefined || item.snapshotOwed === true) && input.unmergedWork === true)) return NONE;
+  if (merged && input.unmergedWork !== true) return NONE;
   // 3. a paused plan merges nothing
   if (input.topic.paused) return { kind: 'wait', reason: 'paused' };
   // 4. the agent is at work, or a person is asked something, or smurg continues it by itself later
   if (input.session !== null && (input.session.turnOpen || input.session.openCards > 0)) return { kind: 'wait', reason: 'busy' };
   if (autoContinueOwed(item)) return { kind: 'wait', reason: 'busy' };
-  // (row 6 for a merged item: its carers decide; Continue registers what the checkout holds as a new version)
-  if (merged) return hold('stopped');
-  // 5. somebody wrote to the agent since this version (R-SAFE S7)
-  if (report !== null && report.pendingFollowUps > 0) return { kind: 'wait', reason: 'asked' };
+  // (a merged item: its carers decide; Continue registers what the checkout holds as a new version)
+  if (merged) return hold(item.lastTurn !== undefined ? 'stopped' : 'edited');
+  // 5. somebody wrote to the agent since this version (R-SAFE S7); a message a restart left behind waits for nothing
+  //    that comes by itself (its carers' Continue delivers it: row 6)
+  if (report !== null && report.pendingFollowUps > 0 && item.lastTurn?.restart !== true) return { kind: 'wait', reason: 'asked' };
   if (item.changesAsked !== undefined) return hold('asked');
   // 6. a later turn did not finish
   if (item.lastTurn !== undefined) return hold('stopped');

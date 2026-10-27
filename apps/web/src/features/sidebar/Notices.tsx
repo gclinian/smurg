@@ -12,7 +12,7 @@ import { useStore } from '../../lib/store.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
 import { selectPausedTopics } from '../../lib/stores/topics.ts';
 import { selectClockSkew, selectUserId } from '../../lib/stores/workspace.ts';
-import { useCan, useStores } from '../../lib/workspace/context.tsx';
+import { useCan, useConnectionState, useStores } from '../../lib/workspace/context.tsx';
 import { Banner, Button, useToast } from '../../ui/index.ts';
 import { useOpenInboxItem } from './InboxList.tsx';
 import { describeInboxItem, inboxTarget, type InboxRowContext } from './inbox-rows.ts';
@@ -22,6 +22,8 @@ export function ShellBanners() {
   const stores = useStores();
   const toast = useToast();
   const canDrive = useCan('session.drive');
+  // (as the plan's own "Continue all": a press while the host's smurg is away would lift a Pause at its next start)
+  const hostAway = useConnectionState().kind !== 'online';
   const paused = useStore(stores.topics, selectPausedTopics, (a, b) => a.length === b.length && a.every((topic, index) => topic.id === b[index]?.id));
   const pausedItems = useStore(stores.inbox, (state) => {
     let items = 0;
@@ -55,7 +57,7 @@ export function ShellBanners() {
           className="sidebar-banner"
           actions={
             canDrive ? (
-              <Button size="sm" loading={busy} onClick={continueAll}>
+              <Button size="sm" loading={busy} disabled={hostAway} {...(hostAway ? { title: t('action.hostAway') } : {})} onClick={continueAll}>
                 {t('restart.continue')}
               </Button>
             ) : undefined

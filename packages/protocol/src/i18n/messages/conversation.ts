@@ -51,6 +51,7 @@ const HOLD_PHRASES: Readonly<Record<string, { readonly en: string; readonly 'zh-
   conflict: { en: 'it does not merge cleanly', 'zh-TW': '沒辦法順利合併' },
   asked: { en: 'someone wrote to the agent after its report', 'zh-TW': '有人在報告之後對 agent 說了話' },
   stopped: { en: 'its last turn did not finish', 'zh-TW': '它的上一輪沒有做完' },
+  edited: { en: 'its worktree holds changes that were never merged', 'zh-TW': '它的 worktree 裡有從沒合併過的變更' },
   'stale-report': { en: 'its report was not checked again after its last change', 'zh-TW': '最後一次修改之後沒有再檢查報告' },
   'by-hand': { en: 'files of it were edited by hand', 'zh-TW': '它的檔案被手動改過' },
   'undo-interrupted': { en: 'an undo was interrupted in the main workspace', 'zh-TW': '主工作區有一次復原被中斷了' },
@@ -137,8 +138,19 @@ export const conversation = {
         : `smurg brought the main workspace's changes into this checkout: ${p.count} ${p.count === 1 ? 'file has' : 'files have'} conflicts. It asked Claude to resolve them and verify again`,
     'zh-TW': (p) =>
       p.count === 0
-        ? 'smurg 把主工作區的變更帶進這個 checkout，沒有衝突，並請 Claude 再驗證一次'
-        : `smurg 把主工作區的變更帶進這個 checkout：${p.count} 個檔案有衝突。它請 Claude 解決衝突，再驗證一次`,
+        ? 'smurg 把主工作區的變更帶進這個 worktree，沒有衝突，並請 Claude 再驗證一次'
+        : `smurg 把主工作區的變更帶進這個 worktree：${p.count} 個檔案有衝突。它請 Claude 解決衝突，再驗證一次`,
+  }),
+  // (0.7.0 verify: an item already merged, whose later change waits for a decision)
+  'conversation.heldLater': message({ reason: 'string' }, {
+    en: (p) => {
+      const phrase = HOLD_PHRASES[p.reason]?.en;
+      return phrase === undefined ? "smurg did not merge this work item's later change" : `smurg did not merge this work item's later change: ${phrase}`;
+    },
+    'zh-TW': (p) => {
+      const phrase = HOLD_PHRASES[p.reason]?.['zh-TW'];
+      return phrase === undefined ? 'smurg 沒有合併這個工作項目之後的變更' : `smurg 沒有合併這個工作項目之後的變更：${phrase}`;
+    },
   }),
   'conversation.held': message({ reason: 'string' }, {
     en: (p) => {

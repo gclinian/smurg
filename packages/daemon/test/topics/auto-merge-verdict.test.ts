@@ -45,7 +45,15 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   ['2 an undo claims it', (input) => ({ ...input, claimed: true }), { kind: 'none' }],
   // (0.7.0 review: a merged item whose later turn did not finish and left work in its checkout is the carers' decision)
   ['2 merged, a later turn did not finish, its checkout holds work no merge carried', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'stopped' }],
-  ['2 merged, edits since are owed a snapshot, its checkout holds them', (input) => ({ ...input, item: { ...input.item, snapshotOwed: true }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'stopped' }],
+  // (0.7.0 verify: the reason says what is so, `edited`, when no turn of it was cut: the hold was `stopped`, "its last
+  // turn did not finish", for a checkout that a completed turn or a person had changed)
+  ['2 merged, edits since are owed a snapshot, its checkout holds them', (input) => ({ ...input, item: { ...input.item, snapshotOwed: true }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'edited' }],
+  // (0.7.0 verify: whatever its last turn did, a merged item whose checkout git says holds work no merge carried is
+  // held for its carers: a completed turn that changed files through a command, a person's save; before, row 2 asked
+  // only after an unfinished turn, and the topic stayed "executing" with nobody asked)
+  ['2 merged, its checkout holds work no merge carried (a command\'s edits, a person\'s save)', (input) => ({ ...input, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'edited' }],
+  ['2 merged, its checkout holds such work, and somebody wrote to its agent', (input) => ({ ...input, item: { ...input.item, changesAsked: { by: MEI, at: 5 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true }), { kind: 'hold', reason: 'edited' }],
+  ['2 merged, a later turn did not finish, its checkout not looked at yet', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6, restart: true }, snapshotOwed: true }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'none' }],
   ['2 merged, a later turn did not finish, its checkout holds nothing more', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false }), { kind: 'none' }],
   ['2 merged with half of a change left: while its agent is at work, it waits', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true, session: { turnOpen: true, openCards: 0 } }), { kind: 'wait', reason: 'busy' }],
   // 3.
@@ -59,6 +67,10 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   ['4 the automatic continues are spent', withItem({ autoContinue: { cause: 'error', count: 2, at: 1 } }), { kind: 'merge', requestId: 'mr_1' }],
   // 5.
   ['5 a follow-up whose answer is to come', withReport({ pendingFollowUps: 1 }), { kind: 'wait', reason: 'asked' }],
+  // (0.7.0 verify: a follow-up a restart left in the session's queue comes to the agent only with its carers' Continue:
+  // it waited for ever, "busy" and "asked", with nobody told)
+  ['5 a follow-up a restart left behind waits for nothing: the carers decide', (input) => withItem({ lastTurn: { outcome: 'interrupted', at: 6, restart: true }, changesAsked: { by: MEI, at: 5 } })(withReport({ pendingFollowUps: 1 })(input)), { kind: 'hold', reason: 'asked' }],
+  ['5 a message a restart left behind: its last turn did not finish', (input) => withItem({ lastTurn: { outcome: 'interrupted', at: 6, restart: true } })(withReport({ pendingFollowUps: 1 })(input)), { kind: 'hold', reason: 'stopped' }],
   ['5 somebody wrote to the agent and no version came', withItem({ changesAsked: { by: MEI, at: 5 } }), { kind: 'hold', reason: 'asked' }],
   // 6.
   ['6 a later turn was stopped', withItem({ lastTurn: { outcome: 'interrupted', at: 6 } }), { kind: 'hold', reason: 'stopped' }],

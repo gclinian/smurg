@@ -10,7 +10,9 @@
 //               voted on every part and does not hold the question item already
 //   permission  permissionRecipients: host-only → the host; the responsible person while they hold `session.drive` and
 //               it has not escalated; else the host and every member with agent access
-//   suggestion  suggestionRecipients (as a permission request that is not host-only); ONE item per author and session
+//   suggestion  suggestionRecipients (as a permission request that is not host-only); ONE item per author and session.
+//               In a work item's session (0.7.0 verify, the lead's decision R7) it is a decision: it waits, and once it
+//               escalated (PlanService.suggestionEscalated) it is also for the host and every member with agent access
 //   report      reportRecipients: the reviewers; once escalated also the host and every member with agent access
 //               (0.7.0, DESIGN D12: only for work items the host merges; under automatic merging a review is a mark)
 //   merge       the host: `pending`, `conflict`, and a `draft` whose report is reviewed (`ready`); of a work item that
@@ -93,6 +95,8 @@ export interface InboxWorld {
   readonly permissions: readonly PermissionRequest[];
   /** Pending suggestions. */
   readonly suggestions: readonly Suggestion[];
+  /** A pending suggestion to a work item's agent escalated (PlanService.suggestionEscalated; absent: none). */
+  suggestionEscalated?(suggestionId: string): boolean;
   /** Reports that wait for a review. */
   readonly reports: readonly { readonly topicId: string; readonly itemId: string; readonly report: ReportSummary }[];
   /** Every merge request, drafts included. */
@@ -369,7 +373,15 @@ function deriveSuggestions(world: InboxWorld, boxes: Boxes): void {
     const oldest = group[0] as Suggestion;
     const newest = group[group.length - 1] as Suggestion;
     const view = world.session(oldest.sessionId);
-    const recipients = suggestionRecipients({ responsible: view?.responsible ?? null }, world.members);
+    const session = { responsible: view?.responsible ?? null };
+    const where = whereOfSession(view);
+    // A suggestion to a work item's agent is a decision (protocol 6, smurg 0.7.0): it waits, and escalates like one.
+    const waiting = inboxKindWaits('suggestion', undefined, where.itemId);
+    const escalated = waiting && group.some((suggestion) => world.suggestionEscalated?.(suggestion.id) === true);
+    const recipients = escalated ? permissionRecipients({ hostOnly: false, escalated: true }, session, world.members) : suggestionRecipients(session, world.members);
+    // The one person it went to before it escalated: the others' copies say who has not decided.
+    const first = escalated ? suggestionRecipients(session, world.members) : [];
+    const waitedFor = first.length === 1 ? (first[0] as string) : null;
     for (const userId of recipients) {
       boxes.add(
         userId,
@@ -377,14 +389,16 @@ function deriveSuggestions(world: InboxWorld, boxes: Boxes): void {
           key,
           kind: 'suggestion',
           at: newest.createdAt,
-          waiting: false,
-          ...whereOfSession(view),
+          waiting,
+          ...where,
           sessionId: oldest.sessionId,
           target: { kind: 'session', sessionId: oldest.sessionId },
           anchor: { cardId: oldest.id },
           from: userActor(oldest.author),
           excerpt: excerptOf(oldest.text),
           count: group.length,
+          ...waitingOn(world, waitedFor, userId),
+          ...(escalated ? { escalated: true } : {}),
           ...othersOf(world, recipients, userId),
         },
         newest.id,

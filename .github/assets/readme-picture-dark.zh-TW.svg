@@ -561,12 +561,12 @@ text{fill:#e6e9ef}
 <circle cx="106" cy="217" r="5" class="okf"/>
 <text x="120" y="222.5" font-size="15" class="w6" textLength="167.6" lengthAdjust="spacingAndGlyphs">結果報告：1 · 購物車 API</text>
 <g class="a k1e">
-<rect x="675" y="206.98" width="54" height="20.04" rx="10.02" class="b-ok"/>
-<text x="684" y="221.2" font-size="12" class="ok" textLength="36" lengthAdjust="spacingAndGlyphs">已合併</text>
+<rect x="585.47" y="206.98" width="143.53" height="20.04" rx="10.02" class="b-ok"/>
+<text x="594.47" y="221.2" font-size="12" class="ok" textLength="125.5" lengthAdjust="spacingAndGlyphs">smurg 在 10:40 合併了</text>
 </g>
 <g class="a k1f">
-<rect x="628.69" y="206.98" width="100.31" height="20.04" rx="10.02" class="b-ok"/>
-<text x="637.69" y="221.2" font-size="12" class="ok" textLength="82.3" lengthAdjust="spacingAndGlyphs">已合併 · 已看過</text>
+<rect x="603.16" y="206.98" width="125.84" height="20.04" rx="10.02" class="b-ok"/>
+<text x="612.16" y="221.2" font-size="12" class="ok" textLength="107.8" lengthAdjust="spacingAndGlyphs">Amy 已看過，10:42</text>
 </g>
 <text x="101" y="253" font-size="12" class="w6 su" textLength="48" lengthAdjust="spacingAndGlyphs">做了什麼</text>
 <text x="101" y="275" class="a k1g" textLength="238" lengthAdjust="spacingAndGlyphs">購物車存在伺服器上，每個帳號一個。</text>
@@ -594,13 +594,13 @@ text{fill:#e6e9ef}
 </g>
 <g class="a k1f">
 <path d="M101 376.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
-<text x="115.95" y="379.55" font-size="13" class="w6 ok" textLength="78" lengthAdjust="spacingAndGlyphs">已標成看過。</text>
+<text x="115.95" y="379.55" font-size="13" class="w6 ok" textLength="139.2" lengthAdjust="spacingAndGlyphs">Amy 在 10:42 看過了。</text>
 </g>
 <g transform="translate(167 376)">
 <use href="#i-cursor" width="20" height="20" class="cu a k1l"/>
 </g>
-<use href="#i-merge" x="215.95" y="367.5" width="15" height="15" class="im"/>
-<text x="236.95" y="379.5" font-size="13" class="w6 ok" textLength="117" lengthAdjust="spacingAndGlyphs">已合併到主工作區。</text>
+<use href="#i-merge" x="277.18" y="367.5" width="15" height="15" class="im"/>
+<text x="298.18" y="379.5" font-size="13" class="w6 ok" textLength="151.6" lengthAdjust="spacingAndGlyphs">smurg 在 10:40 合併了。</text>
 </g>
 </g>
 </g>
@@ -850,12 +850,12 @@ text{fill:#e6e9ef}
 <circle cx="22.5" cy="80.5" r="4.5" class="okf"/>
 <text x="33" y="85.4" font-size="12.5" class="w6" textLength="140.9" lengthAdjust="spacingAndGlyphs">結果報告：1 · 購物車 API</text>
 <g class="a k1e">
-<rect x="349.75" y="71.73" width="47.25" height="17.54" rx="8.77" class="b-ok"/>
-<text x="357.63" y="84.18" font-size="10.5" class="ok" textLength="31.5" lengthAdjust="spacingAndGlyphs">已合併</text>
+<rect x="270.2" y="71.73" width="126.8" height="17.54" rx="8.77" class="b-ok"/>
+<text x="278.08" y="84.18" font-size="10.5" class="ok" textLength="111.1" lengthAdjust="spacingAndGlyphs">smurg 在 10:40 合併了</text>
 </g>
 <g class="a k1f">
-<rect x="308.94" y="71.73" width="88.06" height="17.54" rx="8.77" class="b-ok"/>
-<text x="316.82" y="84.18" font-size="10.5" class="ok" textLength="72.3" lengthAdjust="spacingAndGlyphs">已合併 · 已看過</text>
+<rect x="286.06" y="71.73" width="110.94" height="17.54" rx="8.77" class="b-ok"/>
+<text x="293.93" y="84.18" font-size="10.5" class="ok" textLength="95.2" lengthAdjust="spacingAndGlyphs">Amy 已看過，10:42</text>
 </g>
 <text x="18" y="105" font-size="10.5" class="w6 su" textLength="42" lengthAdjust="spacingAndGlyphs">做了什麼</text>
 <text x="18" y="121.5" font-size="12.5" class="a k1g" textLength="212.5" lengthAdjust="spacingAndGlyphs">購物車存在伺服器上，每個帳號一個。</text>
@@ -874,13 +874,13 @@ text{fill:#e6e9ef}
 </g>
 <g class="a k1f">
 <path d="M18 188.96l2.77 2.77 5.08-6" class="tk" stroke-width="1.66"/>
-<text x="31.8" y="192.2" font-size="12" class="w6 ok" textLength="72" lengthAdjust="spacingAndGlyphs">已標成看過。</text>
+<text x="31.8" y="192.2" font-size="12" class="w6 ok" textLength="129.3" lengthAdjust="spacingAndGlyphs">Amy 在 10:42 看過了。</text>
 </g>
 <g transform="translate(77 188.5)">
 <use href="#i-cursor" width="17.6" height="17.6" class="cu a k1l"/>
 </g>
 <use href="#i-merge" x="18" y="208.5" width="13" height="13" class="im"/>
-<text x="36" y="219.2" font-size="12" class="w6 ok" textLength="108" lengthAdjust="spacingAndGlyphs">已合併到主工作區。</text>
+<text x="36" y="219.2" font-size="12" class="w6 ok" textLength="140.9" lengthAdjust="spacingAndGlyphs">smurg 在 10:40 合併了。</text>
 </g>
 </g>
 </g>

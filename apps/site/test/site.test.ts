@@ -968,18 +968,21 @@ describe('the two home pages', () => {
     else expect(labels.filter((label) => cjk.test(label)).length).toBeGreaterThan(40);
     // The app's own words (the catalogs; tests/lint/docs-quotes.test.ts holds every label to them): the question
     // card, the plan, an agent that runs the project's tests (in auto mode, without a request: DESIGN 0.6.0 D20), the
-    // result report and the merge.
+    // result report and the merge. (Changed on purpose in the 0.7.0 verify, the lead's decision 4: the report of the
+    // item smurg merged at 10:40 that Amy marked reviewed at 10:42 says so as the app does, in its state and its foot,
+    // not with the toast and the plan's badge.)
     const expected =
       l === 'en'
-        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Ran', 'Merged', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Marked as reviewed.', 'Merged · reviewed']
-        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '執行', '已合併', '做了什麼', '怎麼驗證的', '變更', '我已看過', '已標成看過。', '已合併 · 已看過'];
+        ? ['Connected', 'Question from Claude', 'Leading', 'Ian decides', 'Submit answer', 'Ready to start', 'Running', 'Ran', 'Merged', 'What was done', 'How it was verified', 'Changes', "I've reviewed this", 'Merged by smurg at 10:40', 'Reviewed by Amy, 10:42', 'Reviewed by Amy at 10:42.']
+        : ['已連線', 'Claude 的選擇題', '領先', '由 Ian 決定', '送出答案', '可以開始', '執行中', '執行', '已合併', '做了什麼', '怎麼驗證的', '變更', '我已看過', 'smurg 在 10:40 合併了', 'Amy 已看過，10:42', 'Amy 在 10:42 看過了。'];
     // Since 0.7.0 smurg merges the first item by itself when its report says complete and verified (DESIGN 0.7.0 D21):
     // the picture shows no report waiting for a review before the merge, and nobody pressing merge.
     for (const label of l === 'en' ? ['Report to review', 'Reviewed · merged'] : ['報告待看', '已看過 · 已合併']) expect(labels, label).not.toContain(label);
     for (const label of expected) expect(labels, label).toContain(label);
     // Nobody is asked in the picture: a scene that showed a request would have to show a session whose mode asks.
     for (const label of l === 'en' ? ['Waiting for permission', 'Claude asks for permission to run a command', 'Allow once'] : ['等待許可', 'Claude 請求許可執行指令', '允許一次']) expect(labels, label).not.toContain(label);
-    expect(app?.text()).toContain(l === 'en' ? 'Merged into the main workspace.' : '已合併到主工作區。');
+    // (the foot's merge line holds its icon too: no leaf of its own)
+    expect(app?.text()).toContain(l === 'en' ? 'Merged by smurg at 10:40.' : 'smurg 在 10:40 合併了。');
     // In a conversation the agent is `Claude` in both languages (docs/GLOSSARY.md), never with full-width parentheses.
     expect(app?.text()).not.toMatch(/Claude（/);
     // What a person or an agent wrote (not a label of the app) is marked, so the quote lint can tell the two apart;

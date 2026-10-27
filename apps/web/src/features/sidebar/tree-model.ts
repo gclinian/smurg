@@ -21,6 +21,9 @@ import { selectTopicList, type TopicsState } from '../../lib/stores/topics.ts';
 import type { GlyphStatus } from '../../ui/StatusGlyph.tsx';
 import { t } from './strings.ts';
 
+/** What a session row says of a session at work, or stopped, that a held item's amber does not replace. */
+const SESSION_FIRST: ReadonlySet<GlyphStatus> = new Set<GlyphStatus>(['running', 'question', 'permission', 'stalled', 'failed']);
+
 export type RowKind = 'session' | 'terminal' | 'spec' | 'plan' | 'result' | 'item';
 
 export interface TreeRow {
@@ -190,7 +193,10 @@ export function buildSessionTree(input: TreeInput): TreeGroup[] {
         const held = heldGlyph(item);
         if (session) {
           const row = sessionRow(session, (session.title ?? '').trim() === '' ? label : sessionTitle(session));
-          rows.push({ ...row, ...(held === null ? {} : { glyph: held }), ...(report ? { report } : {}) });
+          // (what the session does now comes first: it runs, it asks, it waits for a permission, it stopped; 0.7.0
+          // verify: an item that ran in the folder keeps its hold while its Continue runs)
+          const busy = row.glyph !== null && SESSION_FIRST.has(row.glyph);
+          rows.push({ ...row, ...(held === null || busy ? {} : { glyph: held }), ...(report ? { report } : {}) });
         } else {
           rows.push({
             id: `item:${topic.id}:${item.id}`,

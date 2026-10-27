@@ -60,6 +60,7 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'conversation.mode.workspace': { mode: PERMISSION_MODES },
   'conversation.mode.topic': { mode: PERMISSION_MODES },
   'conversation.held': { reason: HELD_REASONS },
+  'conversation.heldLater': { reason: HELD_REASONS },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {

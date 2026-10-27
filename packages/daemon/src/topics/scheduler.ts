@@ -356,6 +356,9 @@ export class Scheduler {
         },
       });
     } catch (err) {
+      // (a daemon that stops answers its starts with "smurg is stopping": the item stays armed and starts after the
+      // restart, 0.7.0 verify; acquireForItem reuses its checkout)
+      if (this.ctx.stopping.aborted) return;
       this.disarm(topicId, itemId, 'start-failed', err);
     }
   }
@@ -434,6 +437,7 @@ export class Scheduler {
       });
     } catch (err) {
       this.folder.ended(key);
+      if (this.ctx.stopping.aborted) return;
       this.disarm(topicId, itemId, 'start-failed', err);
     }
   }
@@ -680,8 +684,10 @@ export class Scheduler {
     }
     if (item.worktreeId !== undefined && !isStubService(worktrees)) {
       const worktreeId = item.worktreeId;
+      // (looked at again just before it goes, 0.7.0 verify: a person's save that landed since the look above is not
+      // deleted; its session has ended, so the worktree stays as its owner's kept worktree, no item's any more)
       try {
-        if (worktrees.get(worktreeId) !== null) await worktrees.releaseItem(worktreeId);
+        if (worktrees.get(worktreeId) !== null) await worktrees.releaseItem(worktreeId, { keepWork: 'detached' });
       } catch (err) {
         this.ctx.log.warn('item worktree not released', { worktree: worktreeId, error: err instanceof Error ? err.name : 'unknown' });
       }
@@ -808,9 +814,15 @@ export class Scheduler {
     const agents = this.ctx.services.agents;
     if (isStubService(agents)) return;
     const now = this.ctx.clock.now();
+    // 0.7.0 verify: also a session that holds a message no turn has taken yet (written to its process, or waiting for a
+    // process or for the shared folder: the stop cuts it before its turn opens), and one whose turn ended while smurg was
+    // already stopping (its end was not looked at: module.ts). A process that is only being started is no turn.
+    const cutNow = (sessionId: string): boolean => TURN_OPEN.has(agents.get(sessionId)?.status ?? '') || (agents.facts(sessionId)?.pendingMessages ?? 0) > 0 || this.core.turnsEndedInStop.has(sessionId);
     for (const topic of this.core.topics()) {
       if (topic.archived) continue;
-      const cut = topic.items.filter((item) => (item.state === 'done' || item.state === 'reviewed') && item.sessionId !== undefined && item.autoMerge?.state !== 'resolving' && IN_A_TURN.has(agents.get(item.sessionId)?.status ?? ''));
+      const cut = topic.items.filter(
+        (item) => (item.state === 'done' || item.state === 'reviewed') && item.sessionId !== undefined && item.leftOut === undefined && item.undone === undefined && item.autoMerge?.state !== 'resolving' && cutNow(item.sessionId),
+      );
       if (cut.length === 0) continue;
       const ids = new Set(cut.map((item) => item.id));
       this.core.update(topic.id, (draft) => {
@@ -860,7 +872,15 @@ export class Scheduler {
         } else if (item.autoMerge?.state === 'resolving' && item.autoMerge.reason !== 'stale-report' && this.core.mergingOf(item) === 'auto') {
           // The report its agent checked in the turn the restart cut (D8): registered now; the merge queue takes up the rest at `goOn`.
           await this.reports?.checkAfterRestart(listed.id, item.id, { cutTurnOnly: true }).catch(() => false);
-        } else if ((item.state === 'done' || item.state === 'reviewed') && item.autoMerge?.state !== 'resolving' && (item.lastTurn?.restart === true || session?.status === 'stalled')) {
+        } else if (
+          (item.state === 'done' || item.state === 'reviewed') &&
+          item.leftOut === undefined &&
+          item.undone === undefined &&
+          item.autoMerge?.state !== 'resolving' &&
+          // (0.7.0 verify: a message no turn took before the stop or the death waits in the session, and nothing delivers
+          // it: the version is the carers' to decide, and their Continue delivers it first)
+          (item.lastTurn?.restart === true || session?.status === 'stalled' || (session !== null && session.status !== 'ended' && session.status !== 'failed' && (agents.facts(sessionId)?.pendingMessages ?? 0) > 0))
+        ) {
           // (a session the runtime found mid-turn after a hard death says `stalled`; its item has a version: say so)
           if (session?.status === 'stalled') {
             try {
@@ -875,7 +895,7 @@ export class Scheduler {
       }
       const topic = this.core.topic(listed.id);
       if (topic === null) continue;
-      const keep = topic.plan.pausedBy !== undefined || topic.items.some((item) => isDirect(item) && ((item.state === 'stalled' && item.stalledBy === 'restart') || item.lastTurn?.restart === true));
+      const keep = topic.plan.pausedBy !== undefined || topic.items.some((item) => isDirect(item) && item.leftOut === undefined && ((item.state === 'stalled' && item.stalledBy === 'restart') || item.lastTurn?.restart === true));
       if (keep && !topic.plan.paused) {
         this.core.update(topic.id, (draft) => {
           draft.plan.paused = true;
@@ -1128,6 +1148,8 @@ export class Scheduler {
 
 /** Session states that are inside a turn (or about to start one). */
 const IN_A_TURN: ReadonlySet<string> = new Set(['starting', 'running', 'waiting-answer', 'waiting-permission']);
+/** Session states whose turn is open now (`starting` is a process being launched, maybe with nothing to do). */
+const TURN_OPEN: ReadonlySet<string> = new Set(['running', 'waiting-answer', 'waiting-permission']);
 
 /** The history the Start of an item used (its pin): absent means the folder's own repository, as every 0.5.x pin. */
 function historyOf(item: StoredItem): 'folder' | 'smurg' | 'direct' {

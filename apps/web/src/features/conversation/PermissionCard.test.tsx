@@ -25,7 +25,9 @@ describe('permission card: those who may answer', () => {
     const view = await openPermission({ command: 'pnpm test cart --reporter=verbose', reason: 'It runs the tests.' }, { role: 'agent', session: { responsible: MEI } });
     const { card } = view;
     expect(within(card).getByRole('heading', { level: 3, name: 'Claude asks for permission to run a command' })).toBeTruthy();
-    expect(card.textContent).toContain('waiting 40 sec');
+    // (0.7.0 verify, W/verify/flake: the age is counted from when the card renders, a moment after `askedAt` was set; on
+    // a loaded machine that moment passed a second and the card said "waiting 41 sec")
+    expect(card.textContent).toMatch(/waiting 4\d sec/);
     expect(card.querySelector('.conv-perm__cmd')?.textContent).toBe('pnpm test cart --reporter=verbose');
     expect(card.textContent).toContain('In the main workspace');
     expect(card.textContent).toContain("Claude Code's reason: It runs the tests.");

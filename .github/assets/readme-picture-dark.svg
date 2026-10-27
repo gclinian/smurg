@@ -561,12 +561,12 @@ text{fill:#e6e9ef}
 <circle cx="106" cy="217" r="5" class="okf"/>
 <text x="120" y="222.5" font-size="15" class="w6" textLength="180.5" lengthAdjust="spacingAndGlyphs">Result report: 1 · Cart API</text>
 <g class="a k1e">
-<rect x="667.72" y="206.98" width="61.28" height="20.04" rx="10.02" class="b-ok"/>
-<text x="676.72" y="221.2" font-size="12" class="ok" textLength="43.3" lengthAdjust="spacingAndGlyphs">Merged</text>
+<rect x="562.19" y="206.98" width="166.81" height="20.04" rx="10.02" class="b-ok"/>
+<text x="571.19" y="221.2" font-size="12" class="ok" textLength="148.8" lengthAdjust="spacingAndGlyphs">Merged by smurg at 10:40</text>
 </g>
 <g class="a k1f">
-<rect x="606.66" y="206.98" width="122.34" height="20.04" rx="10.02" class="b-ok"/>
-<text x="615.66" y="221.2" font-size="12" class="ok" textLength="104.3" lengthAdjust="spacingAndGlyphs">Merged · reviewed</text>
+<rect x="574.06" y="206.98" width="154.94" height="20.04" rx="10.02" class="b-ok"/>
+<text x="583.06" y="221.2" font-size="12" class="ok" textLength="136.9" lengthAdjust="spacingAndGlyphs">Reviewed by Amy, 10:42</text>
 </g>
 <text x="101" y="253" font-size="12" class="w6 su" textLength="90.1" lengthAdjust="spacingAndGlyphs">What was done</text>
 <text x="101" y="275" class="a k1g" textLength="318.1" lengthAdjust="spacingAndGlyphs">The cart is stored on the server, one per account.</text>
@@ -594,13 +594,13 @@ text{fill:#e6e9ef}
 </g>
 <g class="a k1f">
 <path d="M101 376.04l3 3 5.5-6.5" class="tk" stroke-width="1.8"/>
-<text x="115.95" y="379.55" font-size="13" class="w6 ok" textLength="129.9" lengthAdjust="spacingAndGlyphs">Marked as reviewed.</text>
+<text x="115.95" y="379.55" font-size="13" class="w6 ok" textLength="170.1" lengthAdjust="spacingAndGlyphs">Reviewed by Amy at 10:42.</text>
 </g>
 <g transform="translate(223 376)">
 <use href="#i-cursor" width="20" height="20" class="cu a k1l"/>
 </g>
-<use href="#i-merge" x="267.87" y="367.5" width="15" height="15" class="im"/>
-<text x="288.87" y="379.5" font-size="13" class="w6 ok" textLength="210" lengthAdjust="spacingAndGlyphs">Merged into the main workspace.</text>
+<use href="#i-merge" x="308.08" y="367.5" width="15" height="15" class="im"/>
+<text x="329.08" y="379.5" font-size="13" class="w6 ok" textLength="169.8" lengthAdjust="spacingAndGlyphs">Merged by smurg at 10:40.</text>
 </g>
 </g>
 </g>
@@ -850,12 +850,12 @@ text{fill:#e6e9ef}
 <circle cx="22.5" cy="80.5" r="4.5" class="okf"/>
 <text x="33" y="85.4" font-size="12.5" class="w6" textLength="154.7" lengthAdjust="spacingAndGlyphs">Result report: 1 · Cart API</text>
 <g class="a k1e">
-<rect x="342.83" y="71.73" width="54.17" height="17.54" rx="8.77" class="b-ok"/>
-<text x="350.71" y="84.18" font-size="10.5" class="ok" textLength="38.4" lengthAdjust="spacingAndGlyphs">Merged</text>
+<rect x="248.81" y="71.73" width="148.19" height="17.54" rx="8.77" class="b-ok"/>
+<text x="256.68" y="84.18" font-size="10.5" class="ok" textLength="132.4" lengthAdjust="spacingAndGlyphs">Merged by smurg at 10:40</text>
 </g>
 <g class="a k1f">
-<rect x="288.39" y="71.73" width="108.61" height="17.54" rx="8.77" class="b-ok"/>
-<text x="296.27" y="84.18" font-size="10.5" class="ok" textLength="92.9" lengthAdjust="spacingAndGlyphs">Merged · reviewed</text>
+<rect x="259.39" y="71.73" width="137.61" height="17.54" rx="8.77" class="b-ok"/>
+<text x="267.27" y="84.18" font-size="10.5" class="ok" textLength="121.9" lengthAdjust="spacingAndGlyphs">Reviewed by Amy, 10:42</text>
 </g>
 <text x="18" y="105" font-size="10.5" class="w6 su" textLength="80.1" lengthAdjust="spacingAndGlyphs">What was done</text>
 <text x="18" y="121.5" font-size="12.5" class="a k1g" textLength="288.9" lengthAdjust="spacingAndGlyphs">The cart is stored on the server, one per account.</text>
@@ -874,13 +874,13 @@ text{fill:#e6e9ef}
 </g>
 <g class="a k1f">
 <path d="M18 188.96l2.77 2.77 5.08-6" class="tk" stroke-width="1.66"/>
-<text x="31.8" y="192.2" font-size="12" class="w6 ok" textLength="121.3" lengthAdjust="spacingAndGlyphs">Marked as reviewed.</text>
+<text x="31.8" y="192.2" font-size="12" class="w6 ok" textLength="158.8" lengthAdjust="spacingAndGlyphs">Reviewed by Amy at 10:42.</text>
 </g>
 <g transform="translate(130 188.5)">
 <use href="#i-cursor" width="17.6" height="17.6" class="cu a k1l"/>
 </g>
 <use href="#i-merge" x="18" y="208.5" width="13" height="13" class="im"/>
-<text x="36" y="219.2" font-size="12" class="w6 ok" textLength="196.1" lengthAdjust="spacingAndGlyphs">Merged into the main workspace.</text>
+<text x="36" y="219.2" font-size="12" class="w6 ok" textLength="158.5" lengthAdjust="spacingAndGlyphs">Merged by smurg at 10:40.</text>
 </g>
 </g>
 </g>

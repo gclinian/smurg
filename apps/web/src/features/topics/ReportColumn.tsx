@@ -36,6 +36,7 @@ import { describeError, renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectSession } from '../../lib/stores/sessions.ts';
 import { selectPlan, selectReport } from '../../lib/stores/topics.ts';
+import { isOpenMergeRequest } from '../../lib/stores/worktrees.ts';
 import { useCan, useCommand, useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Avatar, Badge, Banner, Button, Spinner, useToast, type Tone } from '../../ui/index.ts';
@@ -116,7 +117,9 @@ function Report({ topic, report, item }: { topic: Topic; report: ReportInfo; ite
   const canDrive = useCan('session.drive');
   const sent = useSentNotice('item');
   const worktree = useStore(stores.worktrees, (state) => (item?.worktreeId === undefined ? undefined : state.worktrees.get(item.worktreeId)));
-  const request = useStore(stores.worktrees, (state) => (report.changes === undefined ? undefined : state.mergeRequests.get(report.changes.requestId)));
+  // (a refused snapshot has no request of its own: then the worktree's own open request, the one the host's "Request
+  // merge" made, is what the foot offers to merge; 0.7.0 verify)
+  const request = useStore(stores.worktrees, (state) => (report.changes === undefined ? openRequestOf(state.mergeRequests, item?.worktreeId) : state.mergeRequests.get(report.changes.requestId)));
   const merged = item !== undefined ? isMerged(item) : request?.status === 'merged';
   // Finished: merged, reviewed, AND its session has ended. That is the daemon's rule for `report.closed`. A merged
   // and reviewed item keeps its session and its worktree while the worktree holds changes no merge carried (a newer
@@ -434,7 +437,7 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
   if (merged) {
     const mergedBy =
       item?.merged !== undefined && item.merged.by === 'smurg'
-        ? t('report.state.mergedAuto', { time: formatClock(item.merged.at) })
+        ? t('review.mergedAuto', { time: formatClock(item.merged.at) })
         : request?.decidedAt === undefined
           ? t('review.merged')
           : t('review.mergedAt', { time: formatClock(request.decidedAt) });
@@ -467,6 +470,17 @@ function ReviewFoot({ topic, report, item, request, worktree, merged }: { topic:
 }
 
 const REPORT_HOLDS: ReadonlySet<string> = new Set(['partial', 'blocked', 'check-failed', 'not-verified', 'report-invalid', 'rejected']);
+
+/** The newest open merge request of an item's worktree (a draft, a request somebody made, a conflict), if any. */
+function openRequestOf(requests: ReadonlyMap<string, MergeRequest>, worktreeId: string | undefined): MergeRequest | undefined {
+  if (worktreeId === undefined) return undefined;
+  let newest: MergeRequest | undefined;
+  for (const request of requests.values()) {
+    if (request.worktreeId !== worktreeId || !isOpenMergeRequest(request)) continue;
+    if (newest === undefined || request.createdAt > newest.createdAt) newest = request;
+  }
+  return newest;
+}
 const RELEASABLE: ReadonlySet<string> = new Set(RELEASABLE_HOLDS);
 const SELF_CLEARING: ReadonlySet<string> = new Set(SELF_CLEARING_HOLDS);
 
@@ -517,9 +531,11 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   const canAsk = useCan('suggest.create');
   const plan = useStore(stores.topics, (state) => selectPlan(state, topic.id));
   const direct = item.merging === undefined;
-  // (an item whose version is merged and whose later turn left half of a change in its checkout: nothing to merge
-  // "as it is", and nothing to leave out; Continue makes the change a version of its own)
-  const mergedAlready = isMerged(item);
+  // (an item whose CURRENT request is merged and whose checkout holds a later change: nothing to merge "as it is";
+  // Continue makes the change a version of its own. A new version of an item merged before is a draft like any other,
+  // 0.7.0 verify. An item merged before is never left out: the host undoes it)
+  const mergedAlready = item.merge?.status === 'merged';
+  const later = isMerged(item);
   const reason = hold.reason;
   const byHand = reason === 'by-hand' ? [...new Set((report.changes?.byHand ?? []).flatMap((entry) => entry.by.map((user) => user.displayName)))] : [];
   const words = holdText(reason, hold, byHand);
@@ -528,13 +544,17 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   const youDecide = me !== null && deciders.length === 1 && deciders[0] === me.userId;
   const waiting = plan ? dependentsOf(plan, item.id).filter((dependent) => !isMerged(dependent) && dependent.leftOut === undefined) : [];
   const items = itemNumbers(plan ?? { items: [] }, waiting.map((dependent) => dependent.id));
-  const lead = youDecide
-    ? waiting.length > 0
-      ? t('decision.foot.self', { reason: words, items })
-      : t('decision.foot.self.alone', { reason: words })
-    : waiting.length > 0
-      ? t('decision.foot', { reason: words, who, items })
-      : t('decision.foot.alone', { reason: words, who });
+  const lead = later
+    ? youDecide
+      ? t('decision.foot.later.self', { reason: words })
+      : t('decision.foot.later', { reason: words, who })
+    : youDecide
+      ? waiting.length > 0
+        ? t('decision.foot.self', { reason: words, items })
+        : t('decision.foot.self.alone', { reason: words })
+      : waiting.length > 0
+        ? t('decision.foot', { reason: words, who, items })
+        : t('decision.foot.alone', { reason: words, who });
   const people = reason === 'conflict' ? (hold.people ?? []).map((change) => (change.outside || change.by.length === 0 ? t('decision.people.outside', { path: change.path }) : t('decision.people', { path: change.path, names: formatAnd(change.by.map((user) => user.displayName)) }))) : [];
   const inTheWay = isHost ? inTheWayText(hold) : null;
   const failed = (why: string): string => t('item.failed', { item: itemLabel(item), reason: why });
@@ -543,7 +563,7 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
 
   const fix = (reportHold || RELEASABLE.has(reason)) && canAsk ? <Button onClick={() => focusFollowUp(topic.id, item.id)}>{t('decision.fix')}</Button> : null;
   const resolve = reason === 'conflict' && canDrive ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
-  const continueTurn = reason === 'stopped' && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
+  const continueTurn = (reason === 'stopped' || reason === 'edited') && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
   const asIs =
     RELEASABLE.has(reason) && !direct && !mergedAlready && canDrive ? (
       <Button onClick={() => void act(() => stores.topics.release({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.asIs')}</Button>
@@ -557,7 +577,7 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
     worktree !== undefined && ((reportHold && canRequest && !isHost && request?.status === 'draft') || (reason === 'policy' && isHost && (request === undefined || request.status === 'draft'))) ? <RequestMerge worktree={worktree} /> : null;
   const merge = isHost && !direct && !selfClearing && request !== undefined && request.status !== 'merged' && (reason !== 'policy' || request.status !== 'draft') ? <MergeButton requestId={request.id} secondary /> : null;
   const leaveOut =
-    canDrive && !mergedAlready && (!selfClearing || reason === 'in-the-way') ? (
+    canDrive && !later && (!selfClearing || reason === 'in-the-way') ? (
       <Button variant="ghost" onClick={() => topicDialogs(stores).open({ kind: 'leaveOut', topicId: topic.id, itemId: item.id })}>
         {t('decision.leaveOut')}
       </Button>

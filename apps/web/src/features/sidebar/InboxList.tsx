@@ -14,7 +14,7 @@ import { isColumnOpen } from '../../lib/stores/columns.ts';
 import { selectInboxGroups } from '../../lib/stores/inbox.ts';
 import { selectAccount } from '../../lib/stores/host.ts';
 import { selectUserId } from '../../lib/stores/workspace.ts';
-import { useCapabilities, useCommand, useStores } from '../../lib/workspace/context.tsx';
+import { useCapabilities, useCommand, useConnectionState, useStores } from '../../lib/workspace/context.tsx';
 import { useSlotEnv, useSlots } from '../../lib/workspace/slots.tsx';
 import { useNow } from '../../lib/use-now.ts';
 import { Button, IconButton, KindIcon, cx, useToast } from '../../ui/index.ts';
@@ -112,6 +112,7 @@ export function InboxList() {
   const open = useOpenInboxItem();
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const hostAway = useConnectionState().kind !== 'online';
   const buttons = useRef(new Map<string, HTMLButtonElement>());
 
   const all = [...waiting, ...look];
@@ -207,7 +208,18 @@ export function InboxList() {
         {view.action || isDismissable(item) ? (
           <span className="inbox-item__actions">
             {view.action ? (
-              <Button size="sm" variant="secondary" tabIndex={active ? 0 : -1} loading={busy === item.key} data-inbox-action={view.action.id} onClick={() => run(row)}>
+              // (every row action is a request of the host's smurg: while it cannot be reached, a press would wait and be
+              // carried out at its next start, lifting a person's Pause unasked; 0.7.0 verify)
+              <Button
+                size="sm"
+                variant="secondary"
+                tabIndex={active ? 0 : -1}
+                loading={busy === item.key}
+                disabled={hostAway}
+                {...(hostAway ? { title: t('action.hostAway') } : {})}
+                data-inbox-action={view.action.id}
+                onClick={() => run(row)}
+              >
                 {view.action.label}
               </Button>
             ) : null}

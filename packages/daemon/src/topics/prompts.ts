@@ -315,8 +315,13 @@ export function resolveConflictMessage(input: {
   return `smurg merged the main workspace into your checkout. These files have conflict markers: ${JSON.stringify(input.conflicted.slice(0, 50))}.${merged}${people} Resolve them, verify again, update the report and call check_report. Do not run git.`;
 }
 
-/** `verify-again` (DESIGN 0.7.0 D6 row 13, D17): a version whose report was not checked in the turn that made it. */
-export function verifyAgainMessage(): string {
+/**
+ * `verify-again` (DESIGN 0.7.0 D6 row 13, D17): a version whose report was not checked in the turn that made it.
+ * `restart`: the turn of its check was cut by a restart of smurg, which cannot tell what changed after the check (0.7.0
+ * verify: "You changed files" was false when nothing had).
+ */
+export function verifyAgainMessage(why: 'changed' | 'restart' = 'changed'): string {
+  if (why === 'restart') return 'smurg was restarted while you worked, and cannot tell what you changed after your report was last checked. Verify again, update the report so that it says what you verified now, and call check_report. Do not run git.';
   return 'You changed files after your report was last checked. Verify again, update the report so that it says what you verified now, and call check_report. Do not run git.';
 }
 

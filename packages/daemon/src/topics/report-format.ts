@@ -139,6 +139,31 @@ const FAILED = /^(.*?):[ \t]*failed[ \t]*:[ \t]*(.*)$/i;
 const DOT_REFUSES = /[\n\r\u2028\u2029]/;
 const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => (DOT_REFUSES.test(line) ? null : expression.exec(line));
 
+/** A word that says a check failed or did not run, at the start of what follows (`FAILED (2 of 3)`; the zh-TW words too). */
+const FAILURE_WORD = /^(?:fail(?:ed|s|ing|ure)?|not[ \t]+(?:verified|run)|\u5931\u6557|\u672a\u9a57\u8b49)(?![a-z])/i;
+/** A blank and a failure word at the end of what stands before the first colon (`pnpm test failed`, `… failed (2 of 3)`). */
+const FAILURE_WORD_AFTER = /[ \t](?:fail(?:ed|s|ing|ure)?|not[ \t]+(?:verified|run)|\u5931\u6557|\u672a\u9a57\u8b49)[ \t]*(?:[(\uff08][^]*)?$/i;
+/** A dash between blanks: what separates a check from what became of it (`pnpm test — failed: …`). */
+const DASH_SEPARATOR = /[ \t][—–-]+(?=[ \t])/;
+
+/**
+ * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify): the words after `<what>` and
+ * its first colon (`:`, or the full-width one) or dash begin with a failure word, or `<what>` itself ends with one
+ * (`pnpm test failed: …`). "14 passed, 0 failed" after a colon is a check that passed. Read in one pass over at most
+ * 2,000 characters: no expression here can try a run of blanks again from each of its blanks.
+ */
+function tickedSaysFailed(body: string): boolean {
+  const text = body.slice(0, 2000);
+  const colon = text.search(/[:\uff1a]/);
+  const head = colon === -1 ? text : text.slice(0, colon);
+  const dash = DASH_SEPARATOR.exec(head);
+  if (dash !== null || colon > 0) {
+    const rest = dash !== null ? text.slice(dash.index + dash[0].length) : text.slice(colon + 1);
+    if (FAILURE_WORD.test(rest.replace(/^[ \t]+/, ''))) return true;
+  }
+  return FAILURE_WORD_AFTER.test(dash !== null ? head.slice(0, dash.index) : head);
+}
+
 function error(kind: ReportErrorKind, line: number): ReportError {
   // People read both outcome errors as "the outcome line" (`report.error.outcome`); the model reads which one.
   const outcomeLine = kind === 'outcome' || kind === 'outcome-failed';
@@ -280,7 +305,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
       if (check[1] !== ' ') {
         // A ticked box whose own words say the check failed or did not run (`- [x] pnpm test: failed: …`) is no check
         // that passed: the agent writes the line it means (0.7.0 review; smurg merges by itself on a passed check).
-        if (lineMatch(FAILED, body) !== null || lineMatch(NOT_VERIFIED, body) !== null) {
+        if (lineMatch(FAILED, body) !== null || lineMatch(NOT_VERIFIED, body) !== null || tickedSaysFailed(body)) {
           errors.push(error('verified-ticked', lineNo));
           return;
         }

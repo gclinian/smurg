@@ -406,6 +406,15 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     });
   const foot = (): HTMLElement => document.querySelector('.report-foot') as HTMLElement;
 
+  // (lead decision 4 of the 0.7.0 verify: the home page's picture shows these words; the foot's second sentence ends
+  // with its full stop)
+  it('merged by smurg, then reviewed: the state says who reviewed, the foot who reviewed and that smurg merged it before', async () => {
+    const reviewed = { ...REPORT, reviewers: [MEI], state: 'reviewed' as const, review: { by: AMY, at: T + 120_000, version: 1 } };
+    await setup({ role: 'agent', report: reviewed, plan: autoPlan({ state: 'reviewed', merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false }, report: buildReportSummary({ state: 'reviewed', reviewers: [MEI], review: { by: AMY, at: T + 120_000, version: 1 } }) }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
+    expect(screen.getByText(/^Reviewed by Amy, .+\d\d:\d\d$/)).toBeTruthy();
+    expect(within(foot()).getByText(/^Reviewed by Amy at .*\d\d:\d\d\. Merged by smurg at .*\d\d:\d\d\.$/)).toBeTruthy();
+  });
+
   it('merged by smurg: the state and the lead say so, and "I\'ve reviewed this" is a mark', async () => {
     const { conn } = await setup({ role: 'agent', report: { ...REPORT, reviewers: [MEI] }, plan: autoPlan({ merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
     expect(screen.getByText(/^Merged by smurg at /)).toBeTruthy();
@@ -458,6 +467,33 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.vscode/settings.json'] }), merge: undefined }), requests: [] });
     expect(within(foot()).getByText(/Files only the host may merge: \.vscode\/settings\.json\.$/)).toBeTruthy();
     expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
+  });
+
+  // 0.7.0 verify (W/verify/ux, run): a merged item held for what its worktree holds said "Not merged"; a new version of
+  // an item merged before could not be merged "as it is"; after the host's own "Request merge" the foot never offered the
+  // merge (the refused snapshot has no request of its own) and offered the request again.
+  it('0.7.0 verify: a merged item whose worktree holds a later change: "Merged; a later change is not merged", Continue, nothing to merge as it is or leave out', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('edited'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
+    expect(within(foot()).getByText('Merged; a later change is not merged: its worktree holds changes that were never merged. You decide.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
+    expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    expect(within(foot()).queryByRole('button', { name: 'Merge it as it is' })).toBeNull();
+    expect(within(foot()).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+  });
+
+  it('0.7.0 verify: a new version of an item merged before, held because its report was not checked again: "Merge it as it is" for it', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stale-report'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_2', status: 'draft', ready: false }, report: buildReportSummary({ version: 2, reviewers: [MEI] }) }), report: { ...REPORT, version: 2, changes: { ...(REPORT.changes as NonNullable<ReportInfo['changes']>), requestId: 'mr_2' } }, requests: [draft({ status: 'merged', auto: true, decidedAt: T }), draft({ id: 'mr_2' })] });
+    expect(within(foot()).getByText(/^Merged; a later change is not merged: its report was not checked again after its last change\. You decide\.$/)).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Merge it as it is' }));
+    expect(conn.lastRequest('plan.item.release')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', version: 2 });
+    expect(within(foot()).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
+  });
+
+  it('0.7.0 verify: files only the host may merge, after the host\'s own "Request merge": the foot offers that request\'s merge, and no second request', async () => {
+    const requested = draft({ id: 'mr_9', status: 'pending', worktreeId: 'wt_1', requestedBy: IAN });
+    await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['.vscode/settings.json'] }), merge: undefined }), report: { ...REPORT, changes: undefined, noChanges: 'host-only-paths' }, requests: [requested] });
+    expect(within(foot()).getByRole('button', { name: 'Merge…' })).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Request merge' })).toBeNull();
   });
 
   it('a conflict with a person\'s change names it; the agent may be asked to resolve', async () => {

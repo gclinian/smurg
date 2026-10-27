@@ -300,8 +300,9 @@ export class TopicServiceImpl implements TopicService {
       for (const worktree of worktrees.list()) {
         if (worktree.topicId !== topic.id || worktree.itemId === undefined || keep.has(worktree.id)) continue;
         try {
-          await worktrees.releaseItem(worktree.id);
-          released.push(worktree.id);
+          // (asked to delete what holds unmerged work, it goes; otherwise what a person saved since the confirmation
+          // stays with the archived topic, as a kept one does: 0.7.0 verify)
+          if ((await worktrees.releaseItem(worktree.id, input.deleteUnmerged === true ? {} : { keepWork: 'attached' })) === 'released') released.push(worktree.id);
         } catch (err) {
           this.ctx.log.warn('item worktree not released', { worktree: worktree.id, error: err instanceof Error ? err.name : 'unknown' });
         }

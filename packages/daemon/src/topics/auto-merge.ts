@@ -525,7 +525,12 @@ export class AutoMerger {
     const agents = this.ctx.services.agents;
     try {
       agents.append(sessionId, lineEvent(options.line));
-      await agents.send(sessionId, { kind: 'smurg', purpose: 'verify-again', text: verifyAgainMessage() });
+      // (a version registered from the check of a turn a restart cut: its agent changed nothing after it, 0.7.0 verify)
+      const key = itemKey(topicId, itemId);
+      const version = this.core.report(topicId, itemId)?.version;
+      const why = version !== undefined && this.core.cutTurnVersions.get(key) === version ? 'restart' : 'changed';
+      this.core.cutTurnVersions.delete(key);
+      await agents.send(sessionId, { kind: 'smurg', purpose: 'verify-again', text: verifyAgainMessage(why) });
     } catch (err) {
       if (this.ctx.stopping.aborted) return;
       this.ctx.log.warn('verify-again not sent', { module: 'topics', topic: topicId, item: itemId, error: err instanceof Error ? err.name : 'unknown' });
@@ -765,7 +770,9 @@ export class AutoMerger {
         tries: item.mergeTries ?? 0,
       },
     });
-    this.line(topic.id, item.id, msg('conversation.held', { reason: record.reason }));
+    // (an item whose version is merged: what waits is its later change, 0.7.0 verify)
+    const later = item.merged && this.core.verdictInputOf(topic, item).request?.status === 'merged';
+    this.line(topic.id, item.id, msg(later ? 'conversation.heldLater' : 'conversation.held', { reason: record.reason }));
   }
 
   /** A line in the item's conversation, when it still has a session. */

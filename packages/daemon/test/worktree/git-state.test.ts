@@ -344,6 +344,52 @@ describe('the shared folder\'s git state, looked at again while sharing', { time
     }
   });
 
+  // 0.7.0 verify (W/verify/flake): the case above failed now and then under load, `git version` twice. The start set its
+  // document, then awaited its own stores, and only then made its look the shared one: a sweep tick in between looked
+  // beside it. Widening that window (a slow private store) made it fail every time; the document is set only now, with
+  // nothing awaited before the start's look is the shared one.
+  it('a sweep tick while the start sets up its own stores looks at nothing beside the start\'s look: git version runs once', async () => {
+    const counting = await countingGit();
+    const root = await createTempDir('git-state-start');
+    dirs.push(root);
+    const gitHome = await createTempDir('git-state-start-home');
+    dirs.push(gitHome);
+    await writeFile(join(root, 'README.md'), '# demo\n');
+    for (const args of [['init', '-q', '-b', 'main'], ['add', '-A'], ['commit', '-q', '-m', 'first']]) await execFileAsync('git', args, { cwd: root, env: isolatedGitEnv(gitHome) });
+    await counting.slow(true);
+    // A private store that takes 120 ms (a busy disk): longer than two ticks of the 50 ms sweep.
+    const slowStores: FeatureModule = {
+      name: 'slow-stores',
+      register: (_router, ctx) => {
+        const state = ctx.state as unknown as { privateDir: (name: string) => Promise<string> };
+        const privateDir = state.privateDir.bind(ctx.state);
+        state.privateDir = async (name) => {
+          if (name === 'git-template') await new Promise((resolve) => setTimeout(resolve, 120));
+          return privateDir(name);
+        };
+        return toDisposable(() => {});
+      },
+    };
+    const starting = createTestDaemon({
+      root,
+      agents: { escalationSweepMs: 50 },
+      modules: [slowStores, locksModule, createFilesModule({ watch: false }), createWorktreeModule({ gitPath: counting.path }), fakesModule({ except: ['topics', 'plans', 'reports', 'worktrees'], handlers: true }), createTopicsModule({ fileDebounceMs: 20 })],
+    });
+    await waitFor(async () => (await counting.versions()) >= 1, { what: 'the start to run git version' });
+    await rename(join(root, '.git'), join(root, '.git-away'));
+    const t = await starting;
+    await counting.slow(false);
+    try {
+      const manager = t.ctx.services.worktrees as WorktreeManagerImpl;
+      for (let i = 0; i < 3; i++) await manager.refreshGitState({ timer: true });
+      await manager.refreshGitState();
+      expect(await manager.mainState()).toMatchObject({ isRepo: false, unavailable: null, history: 'smurg' });
+      expect(await counting.versions()).toBe(1);
+    } finally {
+      await t.cleanup();
+    }
+  });
+
   it('after a look that failed, a merge request made, shown or decided, a snapshot, an update from the main workspace and the main workspace\'s files each look again; the sweep never does', async () => {
     const counting = await countingGit();
     stack = await startWorktreeStack({ files: FILES, module: { gitPath: counting.path } });

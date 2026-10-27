@@ -27,7 +27,7 @@ import { StandaloneDocument, useHeldDocument } from '../editor/standalone.tsx';
 import { ReviseBox } from './Discussion.tsx';
 import { topicDialogs } from './dialogs.ts';
 import { holdText } from '../../lib/hold-words.ts';
-import { agentAccessNames, deciderIdsOf, decidersOf, firstHeld, itemBadge, loads, planFile, planHeadline, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
+import { agentAccessNames, deciderIdsOf, decidersOf, firstHeld, isMerged, itemBadge, loads, planFile, planHeadline, planSummary, progressLine, startsByItselfLines, waitingForLine, type PlanSummary } from './model.ts';
 import { PlanItems } from './PlanItems.tsx';
 import { Foot, LinkButton, Note, Scroll, Toolbar, ToolbarPath, formatClock, useAction, useMembers, useOpenSide, useTopic } from './shared.tsx';
 import { t } from './strings.ts';
@@ -404,7 +404,13 @@ function DecisionBanner({ topic, plan }: { topic: Topic; plan: PlanInfo }) {
         </Button>
       }
     >
-      {self ? t('plan.decision.self', { item: itemLabel(held), reason }) : t('plan.decision', { item: itemLabel(held), reason, who: decidersOf(held, members) })}
+      {isMerged(held)
+        ? self
+          ? t('plan.decision.later.self', { item: itemLabel(held), reason })
+          : t('plan.decision.later', { item: itemLabel(held), reason, who: decidersOf(held, members) })
+        : self
+          ? t('plan.decision.self', { item: itemLabel(held), reason })
+          : t('plan.decision', { item: itemLabel(held), reason, who: decidersOf(held, members) })}
     </Banner>
   );
 }

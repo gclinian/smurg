@@ -14,7 +14,9 @@ import {
   can,
   decisionRecipients,
   permissionRecipients,
+  PLAN_ITEMS_MAX,
   reviewersOf,
+  suggestionRecipients,
   topicFileKind,
   topicPlanPath,
   topicSpecPath,
@@ -29,7 +31,9 @@ import {
   type ReportInfo,
   type ReportSummary,
   type RootRef,
+  type RoutingMembers,
   type SessionModeChoice,
+  type Suggestion,
   type Topic,
   type TopicPhase,
   type UserRef,
@@ -198,8 +202,22 @@ export class TopicsCore {
   readonly turnsInHand = new Map<string, number>();
   /** The files a refused snapshot of an item's current version named (D6 row 8), until a version is registered again. */
   readonly refused = new Map<string, readonly string[]>();
+  /** Item sessions whose turn ended while the host's smurg was stopping (its end is not looked at: Scheduler.noteStop marks it). */
+  readonly turnsEndedInStop = new Set<string>();
+  /** Versions registered at the start from a check of the turn a restart cut (their agent checks again: `verify-again`). */
+  readonly cutTurnVersions = new Map<string, number>();
   /** Since when a member has had no connection (a member offline at the first look counts from the module's start). */
   private readonly offlineSince = new Map<UserId, number>();
+  /**
+   * Items that stopped (stalled, failed, stopped) whose attention escalated, with the `since` it escalated for (0.7.0
+   * verify): once escalated it stays so while the item stays where it stopped, as a stored `escalatedAt` does.
+   */
+  readonly stoppedEscalated = new Map<string, number>();
+  /**
+   * Pending suggestions to a work item's agent that escalated (0.7.0 verify, the lead's decision R7: a decision like the
+   * others), with when: kept while they are pending.
+   */
+  private readonly suggestionsEscalated = new Map<string, number>();
   private openedAt = 0;
   private presenceLooked = false;
   private readonly lastTopics = new Map<string, Topic>();
@@ -474,6 +492,9 @@ export class TopicsCore {
       const session = this.sessionAtWork(topic, item, cards);
       if (session !== null && (session.turnOpen || session.openCards > 0)) return false;
     }
+    // (a suggestion to an item's agent nobody decided yet: 0.7.0 verify, the lead's decision R7)
+    const sessions = new Set(merged.flatMap((item) => (item.sessionId === undefined ? [] : [item.sessionId])));
+    if (this.itemSuggestions().some((suggestion) => sessions.has(suggestion.sessionId))) return false;
     if (merged.some((item) => item.worktreeId !== undefined)) {
       const worktrees = this.ctx.services.worktrees;
       if (isStubService(worktrees)) return true;
@@ -588,8 +609,12 @@ export class TopicsCore {
     const agents = this.ctx.services.agents;
     const live = item.sessionId === undefined || isStubService(agents) ? null : agents.get(item.sessionId);
     if (live !== null && live.status !== 'ended') {
-      // (a message a failed process never took is no turn to come: "Try again" decides about it)
-      const waiting = live.status === 'failed' ? 0 : (agents.facts(live.id)?.pendingMessages ?? 0);
+      const facts = agents.facts(live.id);
+      // (a message a failed process never took is no turn to come: "Try again" decides about it; nor is one a restart
+      // left in a session without a process, of an item held for the turn the restart cut: nothing delivers it before
+      // its carers' Continue, 0.7.0 verify)
+      const stranded = item.lastTurn?.restart === true && facts?.hasProcess !== true && live.status !== 'starting';
+      const waiting = live.status === 'failed' || stranded ? 0 : (facts?.pendingMessages ?? 0);
       session = { turnOpen: inHand || IN_A_TURN.has(live.status) || waiting > 0, openCards: cards.has(live.id) ? 1 : 0 };
     }
     return session;
@@ -627,19 +652,23 @@ export class TopicsCore {
       session,
       tries: item.mergeTries ?? 0,
       maxTries: AUTO_MERGE_TRIES,
-      // (asked only where row 2 needs it: a merged item whose later turn did not finish, or whose edits since are owed a snapshot)
-      ...((item.lastTurn !== undefined || item.snapshotOwed === true) && (known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.holdsUnmerged(topic, item) } : {}),
+      // (asked only where row 2 needs it: a merged item; 0.7.0 verify: whatever its last turn was)
+      ...((known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.unmergedWorkOf(item) } : {}),
     };
   }
 
-  /** The item's worktree holds work that no merge carried (a question that cannot be answered counts as yes). */
-  private holdsUnmerged(topic: StoredTopic, item: StoredItem): boolean {
+  /**
+   * The item's worktree holds work that no merge carried, as git last said (0.7.0 verify): a tree nothing has looked at
+   * yet (right after a start) is not known to, and neither is one that cannot be asked; the plan's phase keeps such a
+   * worktree as unsettled (`allSettled`), and the hold follows once it has been looked at.
+   */
+  private unmergedWorkOf(item: StoredItem): boolean {
     const worktrees = this.ctx.services.worktrees;
     if (item.worktreeId === undefined || isStubService(worktrees)) return false;
     try {
-      return worktrees.unmerged(topic.id).some((worktree) => worktree.id === item.worktreeId);
+      return worktrees.unmergedWork(item.worktreeId) === true;
     } catch {
-      return true;
+      return false;
     }
   }
 
@@ -719,9 +748,28 @@ export class TopicsCore {
     return status === 'waiting-answer' ? 'question' : status === 'waiting-permission' ? 'permission' : null;
   }
 
-  /** The ids an item depends on whose changes have not reached the main workspace yet. */
+  /**
+   * The ids an item depends on whose changes have not reached the main workspace yet. An item that runs directly in the
+   * shared folder also waits for what it stands on through others (0.7.0 verify): an item further up whose later turn
+   * did not finish counts as merged no more (D10), and its half change is in the one folder they all share.
+   */
   unmergedDependencies(topic: StoredTopic, item: StoredItem): string[] {
-    return item.dependsOn.filter((id) => topic.items.find((candidate) => candidate.id === id)?.merged !== true);
+    const merged = (id: string): boolean => topic.items.find((candidate) => candidate.id === id)?.merged === true;
+    const out = item.dependsOn.filter((id) => !merged(id));
+    if (!isDirect(item)) return out;
+    const seen = new Set<string>([item.id]);
+    const queue = [...item.dependsOn];
+    while (queue.length > 0) {
+      const id = queue.shift() as string;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const dependency = topic.items.find((candidate) => candidate.id === id);
+      if (dependency === undefined) continue;
+      if (dependency.merged !== true && !out.includes(id)) out.push(id);
+      queue.push(...dependency.dependsOn);
+    }
+    // (the wire's `waitsFor` holds at most PLAN_ITEMS_MAX: the plan's items, and the first are its own dependencies)
+    return out.slice(0, PLAN_ITEMS_MAX);
   }
 
   /**
@@ -776,8 +824,9 @@ export class TopicsCore {
     for (const item of topic.items) {
       const report = this.report(topic.id, item.id);
       if (report === null || (report.state !== 'to-review' && report.state !== 'changed-after-review')) continue;
-      // Under automatic merging a review is a mark, and nobody waits for it (DESIGN 0.7.0 D12); nor for an undone item's (D14).
-      if (this.mergingOf(item) === 'auto' || item.undone !== undefined) continue;
+      // Under automatic merging a review is a mark, and nobody waits for it (DESIGN 0.7.0 D12); nor for an undone item's
+      // (D14), nor for that of an item that ran directly in the folder (D10: its report decides; 0.7.0 verify).
+      if (this.mergingOf(item) === 'auto' || isDirect(item) || item.undone !== undefined) continue;
       for (const reviewer of report.reviewers) add(reviewer.userId, 'reports', report.waitingSince);
     }
     // A held item is a decision in the inbox of whom routing.ts names (the inbox derives its rows the same way).
@@ -792,6 +841,13 @@ export class TopicsCore {
     const now = this.ctx.clock.now();
     for (const item of topic.items) {
       for (const userId of stoppedItemRecipients(this, topic, item, now) ?? []) add(userId, 'decisions', item.since);
+    }
+    // And a suggestion to a work item's agent that nobody decided yet (0.7.0 verify, the lead's decision R7): the
+    // people its inbox row waits for.
+    for (const suggestion of this.itemSuggestions()) {
+      const item = bySession.get(suggestion.sessionId);
+      if (item === undefined) continue;
+      for (const userId of this.suggestionWaitsFor(topic, item, suggestion.id, members)) add(userId, 'decisions', suggestion.createdAt);
     }
     return [...waits]
       .flatMap(([userId, entry]) => {
@@ -870,6 +926,63 @@ export class TopicsCore {
       });
       this.publish(listed.id);
     }
+  }
+
+  /** Pending suggestions to the agent of a work item (the session of an item of an open topic). */
+  itemSuggestions(): Suggestion[] {
+    const suggestions = this.ctx.services.suggestions;
+    if (isStubService(suggestions)) return [];
+    let pending: Suggestion[];
+    try {
+      pending = suggestions.pending();
+    } catch {
+      return [];
+    }
+    return pending.filter((suggestion) => {
+      if (suggestion.status !== 'pending') return false;
+      const hit = this.bySession(suggestion.sessionId);
+      return hit !== null && hit.item !== null && !hit.topic.archived && hit.item.sessionId === suggestion.sessionId;
+    });
+  }
+
+  /** Whether a pending suggestion to a work item's agent has escalated (the inbox's row of it: `escalated`). */
+  suggestionEscalated(suggestionId: string): boolean {
+    return this.suggestionsEscalated.has(suggestionId);
+  }
+
+  /** Who a suggestion to a work item's agent waits for: as a permission request that is not host-only (its inbox row). */
+  private suggestionWaitsFor(topic: StoredTopic, item: StoredItem, suggestionId: string, members: RoutingMembers): string[] {
+    const responsible = this.responsibleOf(topic, item);
+    if (this.suggestionsEscalated.has(suggestionId)) return permissionRecipients({ hostOnly: false, escalated: true }, { responsible }, members);
+    return suggestionRecipients({ responsible }, members);
+  }
+
+  /**
+   * A suggestion to a work item's agent escalates like a decision (0.7.0 verify, the lead's decision R7): once it has
+   * waited `escalateAfterMs`, or at once when its ONE recipient has been offline `escalateOfflineMs`, it is also for the
+   * host and every member with agent access. Remembered while it is pending; on the reports' sweep.
+   */
+  escalateSuggestions(): void {
+    const now = this.ctx.clock.now();
+    const after = this.ctx.settings.get().escalateAfterMs;
+    const offlineAfter = this.ctx.config.agents.escalateOfflineMs;
+    const members = this.ctx.members.routing();
+    const pending = this.itemSuggestions();
+    const ids = new Set(pending.map((suggestion) => suggestion.id));
+    for (const id of [...this.suggestionsEscalated.keys()]) if (!ids.has(id)) this.suggestionsEscalated.delete(id);
+    const changed = new Set<string>();
+    for (const suggestion of pending) {
+      if (this.suggestionsEscalated.has(suggestion.id)) continue;
+      const hit = this.bySession(suggestion.sessionId);
+      if (hit === null || hit.item === null) continue;
+      const first = suggestionRecipients({ responsible: this.responsibleOf(hit.topic, hit.item) }, members);
+      const away = first.length === 1 && this.offlineFor(first[0] as UserId, now) >= offlineAfter;
+      if (now - suggestion.createdAt < after && !away) continue;
+      this.suggestionsEscalated.set(suggestion.id, now);
+      changed.add(hit.topic.id);
+    }
+    // (the plan's waitingFor names the new people; the inbox follows plan.changed)
+    for (const topicId of changed) this.publish(topicId);
   }
 
   /**

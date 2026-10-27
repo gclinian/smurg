@@ -308,6 +308,11 @@ export interface DaemonEvents {
     readonly stoppedBy?: UserRef;
     readonly messages: readonly TurnMessage[];
     readonly edited: readonly { readonly file: FileRef; readonly seq: number }[];
+    /**
+     * The commands (and sub-agents, and tools smurg does not know) that ran in the turn, each with the `seq` of its tool
+     * card: what may have changed files without an edit tool (0.7.0 verify). Absent: none.
+     */
+    readonly ran?: readonly { readonly seq: number }[];
     /** The API refused the session's model in this turn (`notice.modelRefused`): no automatic continue (DESIGN 0.7.0 D15). */
     readonly modelRefused?: true;
   };
@@ -2138,6 +2143,11 @@ export interface PlanService {
   /** What this start found that goes on by itself, and the topics a person paused (DESIGN 0.7.0 D15, D18). */
   atStart(): PlansAtStart;
   /**
+   * Whether a pending suggestion to a work item's agent has escalated (0.7.0 verify: such a suggestion is a decision,
+   * and escalates like one; its inbox row is then also for the host and every member with agent access).
+   */
+  suggestionEscalated(suggestionId: string): boolean;
+  /**
    * How many topics would go on by themselves when the host's smurg starts again (DESIGN 0.7.0 D18: what `smurg host`
    * and `smurg stop` say when it stops): open, not paused, with work of an item that goes on by itself.
    */
@@ -2595,12 +2605,22 @@ export interface WorktreeManager {
    * Merged and reviewed, or archived: unregister the root, remove the clone. THE only way an item's worktree goes
    * (a session's end never releases it); called by PlanService / TopicService.
    */
-  releaseItem(worktreeId: string): Promise<void>;
+  releaseItem(worktreeId: string, options?: { readonly keepWork?: 'attached' | 'detached' }): Promise<'released' | 'kept'>;
   /**
    * Item worktrees of a topic that hold changes that were never merged: a newest snapshot that is not merged, or
    * edits since it (the Archive confirmation: `unmergedError`).
    */
   unmerged(topicId: string): WorktreeInfo[];
+  /**
+   * What git last said of one item worktree (0.7.0 verify): it holds changes the last look found, or commits no merged
+   * request carried (`true`), neither (`false`), or nothing looked at it yet in this run (`null`).
+   */
+  unmergedWork(worktreeId: string): boolean | null;
+  /**
+   * Looks at an item worktree now: whether it holds anything its newest merge request does not (a command's edits, a
+   * person's save). null: it cannot be looked at.
+   */
+  holdsUnsnapshotted(worktreeId: string): Promise<boolean | null>;
 }
 
 /** Every feature service slot; unimplemented ones hold a stub that throws internal "not implemented: <name>". */

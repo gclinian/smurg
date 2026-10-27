@@ -318,6 +318,44 @@ withGit('undo in the folder\'s own git', { timeout: 60_000 }, () => {
     await undo(s.manager, ask(s, [one], [one]));
     expect(await read(s, 'a.txt')).toBe(lines('a', 10));
   });
+
+  // 0.7.0 verify: worktrees.json keeps the newest decided merges only. One trimmed while its checkout was still there
+  // read as holding work that was never merged (its topic could never be ready, and its undo was refused); and an undo
+  // of an item whose request was gone went through `mergedAs.commit` only, which no recovery after a crash reaches (it
+  // was taken back in git and still said "merged").
+  it('a merged request of a checkout that is still there is never trimmed from the record', async () => {
+    stack = await startWorktreeStack({ files: FILES, extraModules: [locksModule], module: { limits: { maxDecidedMerges: 1 } } });
+    await stack.connect('dev:mei', 'agent');
+    const s = stack;
+    const one = await mergeItem(s, CHECKOUT, 'one', (dir) => editLine(join(dir, 'a.txt'), 2, 'a line 2 (one)'));
+    const two = await mergeItem(s, FRONT, 'two', (dir) => editLine(join(dir, 'c.txt'), 1, 'c line 1 (two)'));
+    // (a request is trimmed when another is stored: the next snapshot's)
+    await mergeItem(s, FRONT, 'three', (dir) => editLine(join(dir, 'c.txt'), 3, 'c line 3 (three)'));
+    const kept = (await docOf(s)).get().merges.map((merge) => merge.id);
+    expect(kept).toEqual(expect.arrayContaining([one.request.id, two.request.id]));
+    expect(s.manager.unmerged(CHECKOUT.id)).toEqual([]);
+    expect((await s.manager.undoPreview(ask(s, [one], [one]))).unavailable).toBeNull();
+  });
+
+  it('an undo of an item whose merge request the record no longer keeps is refused (notFound), also with what is built on it, and nothing changes', async () => {
+    stack = await startWorktreeStack({ files: FILES, extraModules: [locksModule], module: { limits: { maxDecidedMerges: 0 } } });
+    await stack.connect('dev:mei', 'agent');
+    const s = stack;
+    const one = await mergeItem(s, CHECKOUT, 'one', (dir) => editLine(join(dir, 'a.txt'), 2, 'a line 2 (one)'));
+    // Its checkout went (its topic was checked); the next merge request stored trims its request from the record.
+    const worktree = s.manager.list().find((entry) => entry.itemId === 'one');
+    if (worktree !== undefined) await s.manager.releaseItem(worktree.id);
+    const two = await mergeItem(s, CHECKOUT, 'two', (dir) => editLine(join(dir, 'a.txt'), 8, 'a line 8 (two)'));
+    expect((await docOf(s)).get().merges.some((merge) => merge.id === one.request.id)).toBe(false);
+    const head = await headOf(s);
+    const input = ask(s, [one, two], [one], { builtOn: { one: ['two'] } });
+    const withCommit: UndoAsk = { ...input, items: input.items.map((item) => (item.itemId === 'one' ? { ...item, mergedAs: { commit: one.mergeCommit } } : item)) };
+    const facts = await s.manager.undoPreview(withCommit);
+    expect(facts.unavailable).toMatchObject(msg('undo.unavailable.notFound'));
+    expect(await settleError(undo(s.manager, withCommit, 'smurg: undo work item 1 (one) of checkout', () => {}))).toMatchObject({ code: 'conflict' });
+    expect(await headOf(s)).toBe(head);
+    expect(await read(s, 'a.txt')).toBe(withLine(withLine(lines('a', 10), 2, 'a line 2 (one)'), 8, 'a line 8 (two)'));
+  });
 });
 
 withGit('undo in smurg\'s own history', { timeout: 60_000 }, () => {

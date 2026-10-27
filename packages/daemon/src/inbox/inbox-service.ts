@@ -530,6 +530,7 @@ export class InboxServiceImpl implements InboxService {
       questions: this.read('questions', services.conversation, () => services.conversation.openQuestions()),
       permissions: this.read('permissions', services.conversation, () => services.conversation.openPermissions()),
       suggestions: this.read('suggestions', services.suggestions, () => services.suggestions.pending()),
+      suggestionEscalated: (suggestionId) => this.ask('plans', services.plans, () => services.plans.suggestionEscalated(suggestionId), false),
       reports: this.read('reports', services.reports, () => services.reports.toReview()),
       merges: this.read('merges', services.worktrees, () => services.worktrees.listMerges(SYSTEM_PRINCIPAL)),
       attention: this.attention(),

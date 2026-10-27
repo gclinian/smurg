@@ -253,6 +253,19 @@ describe('the end of a topic (D13)', () => {
     expect(columnTargetSchema.safeParse({ kind: 'result', topicId: 'tp_1' }).success).toBe(true);
     expect(columnTargetSchema.safeParse({ kind: 'result' }).success).toBe(false);
   });
+
+  // 0.7.0 verify (the lead's decision R7): a suggestion to a work item's agent is a decision; one elsewhere is not.
+  it('the inbox: a suggestion to a work item\'s agent (its row names the item) waits, and escalates like a permission request; one in another session does not wait', () => {
+    expect(inboxKindWaits('suggestion', undefined, 'cart-api')).toBe(true);
+    expect(inboxKindWaits('suggestion')).toBe(false);
+    const suggestion = { key: 'suggestion:sess_1.dev-amy', kind: 'suggestion', at: 1, unread: true, waiting: false, target: { kind: 'session', sessionId: 'sess_1' }, excerpt: 'Round it', sessionId: 'sess_1', anchor: { cardId: 'sg_1' }, from: { kind: 'user', userId: 'dev:amy', displayName: 'Amy' }, count: 1 };
+    const onItem = { ...suggestion, topicId: 'tp_1', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, waiting: true };
+    expect(inboxItemSchema.safeParse(suggestion).success).toBe(true);
+    expect(inboxItemSchema.safeParse(onItem).success).toBe(true);
+    expect(inboxItemSchema.safeParse({ ...onItem, waiting: false }).success).toBe(false);
+    expect(inboxItemSchema.safeParse({ ...suggestion, waiting: true }).success).toBe(false);
+    expect(inboxItemSchema.safeParse({ ...onItem, escalated: true, waitsFor: { userId: 'dev:mei', displayName: 'Mei' }, waitsForOffline: false }).success).toBe(true);
+  });
 });
 
 describe('the update\'s notice, the audit, smurg\'s messages, merge requests', () => {

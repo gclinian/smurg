@@ -22,7 +22,7 @@
 import { agentAccessMembers, can, decisionRecipients, hostOf, type ColumnTarget } from '@smurg/protocol';
 import type { AttentionFact, UserId } from '../core/interfaces.ts';
 import { autoContinueOwed } from './auto-merge-verdict.ts';
-import type { TopicsCore } from './core.ts';
+import { itemKey, type TopicsCore } from './core.ts';
 import type { StoredItem, StoredTopic } from './store.ts';
 
 /** Items of a paused plan that wait for "Continue all": armed ones, and sessions a restart interrupted. */
@@ -51,8 +51,14 @@ export function stoppedItemRecipients(core: TopicsCore, topic: StoredTopic, item
   const keeper = unique([responsibleRole !== undefined && can(responsibleRole, 'discuss') ? responsible : null]);
   const starter = unique([item.startedBy?.userId]);
   const carers = keeper.length > 0 ? keeper : starter.length > 0 ? starter : unique([host]);
+  // (escalated once, it stays so while the item stays where it stopped: a carer who comes back does not take the row
+  // from the others again, 0.7.0 verify)
+  const key = itemKey(topic.id, item.id);
+  const remembered = core.stoppedEscalated.get(key);
+  if (remembered !== undefined && remembered !== item.since) core.stoppedEscalated.delete(key);
   const away = carers.length === 1 && core.offlineFor(carers[0] as UserId, now) >= core.ctx.config.agents.escalateOfflineMs;
-  if (now - item.since < core.ctx.settings.get().escalateAfterMs && !away) return carers;
+  if (remembered !== item.since && now - item.since < core.ctx.settings.get().escalateAfterMs && !away) return carers;
+  core.stoppedEscalated.set(key, item.since);
   return unique([...carers, ...decisionRecipients({ hostOnly: false, escalated: true }, { responsible }, members)]);
 }
 

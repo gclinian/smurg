@@ -46,6 +46,7 @@ export const zhTW = {
   'title.suggestions': '{name}：{count} 則建議',
   'title.report': '結果報告：{item}',
   'title.decision': '{item} 沒有合併：{reason}',
+  'title.decision.later': '{item}：之後的變更沒有合併：{reason}',
   'title.ready': '待驗收：{topic}',
   'title.merge.ready': '已看過，可以合併：{what}',
   'title.merge.asks': '{name} 請求合併：{what}',
@@ -69,6 +70,7 @@ export const zhTW = {
   'action.continue': '繼續',
   'action.tryAgain': '再試一次',
   'action.continueAll': '全部繼續',
+  'action.hostAway': '連不上主人的 smurg：只有它在執行時才能做這件事。',
   'action.restartDiscussion': '重新開始討論',
 
   'sessions.title': 'session',

@@ -189,6 +189,39 @@ describe('a work item\'s worktree', { timeout: 60_000 }, () => {
     expect(await settleError(s.manager.releaseItem(plain.worktree.id))).toMatchObject({ code: 'bad_request', reason: 'not-an-item-worktree' });
   });
 
+  // 0.7.0 verify: the finish of a merged item, an undo and an archive looked at the checkout once, and removed it hundreds
+  // of milliseconds later: a person's save in between was answered "saved" and deleted. `keepWork` looks again on the
+  // worktree's queue, and once more after its root is unregistered.
+  it('`releaseItem` with keepWork looks at the checkout again: a saved file keeps it (attached, or as its owner\'s kept worktree), a clean one goes', async () => {
+    const s = await itemStack();
+    const saved = await acquire(s, 'cart-api');
+    await writeFile(join(s.worktreeDir(saved.worktree.id), 'src', 'NOTES.md'), 'Mei: rounding is to the cent.\n');
+    expect(await s.manager.releaseItem(saved.worktree.id, { keepWork: 'attached' })).toBe('kept');
+    expect(s.manager.get(saved.worktree.id)).toMatchObject({ itemId: 'cart-api', kept: false });
+    expect(s.t.ctx.roots.get({ kind: 'worktree', worktreeId: saved.worktree.id })).not.toBeNull();
+    expect(await s.manager.releaseItem(saved.worktree.id, { keepWork: 'detached' })).toBe('kept');
+    const kept = s.manager.get(saved.worktree.id);
+    expect(kept).toMatchObject({ ownerUserId: 'dev:mei', kept: true });
+    expect(kept?.itemId).toBeUndefined();
+    expect(await readFile(join(s.worktreeDir(saved.worktree.id), 'src', 'NOTES.md'), 'utf8')).toBe('Mei: rounding is to the cent.\n');
+    expect(s.t.ctx.roots.get({ kind: 'worktree', worktreeId: saved.worktree.id })?.item).toBeUndefined();
+    expect((await s.t.ctx.audit.query({ limit: 20 })).filter((entry) => entry.action === 'worktree.remove' && entry.outcome === 'denied').map((entry) => entry.detail?.['reason'])).toEqual(['unmerged-work', 'unmerged-work']);
+    // (no item's any more: a new Start of the item makes a fresh checkout)
+    const fresh = await acquire(s, 'cart-api');
+    expect(fresh.worktree.id).not.toBe(saved.worktree.id);
+    expect(await s.manager.releaseItem(fresh.worktree.id, { keepWork: 'detached' })).toBe('released');
+    expect(s.manager.get(fresh.worktree.id)).toBeNull();
+  });
+
+  it('the exclude file of an item checkout keeps smurg\'s own save files out of every snapshot (`.<name>.smurg-<hex>.tmp`)', async () => {
+    const s = await itemStack();
+    const handle = await acquire(s, 'cart-api');
+    const dir = s.worktreeDir(handle.worktree.id);
+    expect((await readFile(join(dir, '.git', 'info', 'exclude'), 'utf8')).split('\n')).toContain('.*.smurg-*.tmp');
+    await writeFile(join(dir, 'src', '.app.ts.smurg-0123456789ab.tmp'), 'half of a save\n');
+    expect((await s.git(['status', '--porcelain=v1', '--untracked-files=normal'], dir)).trim()).toBe('');
+  });
+
   it('a request somebody asked for stays decidable after `releaseItem` (its commit lives in the main repository)', async () => {
     const s = await itemStack();
     const mei = await s.connect('dev:mei', 'agent');

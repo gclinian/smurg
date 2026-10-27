@@ -273,6 +273,12 @@ describe('work items smurg merges by itself (protocol 6, DESIGN 0.7.0 D19)', () 
     expect(badge(done({ autoMerge: hold('conflict', { people: [{ path: 'src/a.ts', by: [], outside: true }] }) })).text).toBe('Not merged: it conflicts with a change of src/a.ts made outside smurg');
     expect(badge(done({ autoMerge: hold('by-hand') })).text).toBe('Not merged: files of it were edited by hand');
     expect(badge(done({ autoMerge: hold('partial') })).waitsForPerson).toBe(true);
+    // (0.7.0 verify: an item whose version is merged said "Not merged" beside "1 of 2 merged" and its Undo; what waits is
+    // a later change of it)
+    const merged = { merged: { at: T, by: 'smurg' as const }, merge: { requestId: 'mr_1', status: 'merged' as const, ready: false } };
+    expect(badge(done({ ...merged, autoMerge: hold('edited') })).text).toBe('Merged; a later change is not merged: its worktree holds changes that were never merged');
+    expect(badge(done({ ...merged, autoMerge: hold('stopped') })).text).toBe('Merged; a later change is not merged: its last turn did not finish');
+    expect(badge(done({ ...merged, autoMerge: wait('paused') })).text).toBe('Merged; a later change waits: the plan is paused');
     expect(badge(done({ leftOut: { by: MEI, at: T } })).text).toBe('Left out');
     expect(badge(item('a', 1, { undone: { by: IAN, at: T } })).text).toBe('Undone');
     expect(badge(done({ waiting: 'question' })).text).toBe('Waiting for an answer');
