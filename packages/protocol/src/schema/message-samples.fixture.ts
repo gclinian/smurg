@@ -261,6 +261,31 @@ export const topic = {
 };
 /** Protocol 6: a topic whose items are all settled (one left out), and the same topic after "I've checked the result". */
 export const readyTopic = { ...topic, phase: 'ready', plan: { ...topic.plan, valid: true, error: undefined, stale: false, started: 3, reviewed: 1, merged: 2, leftOut: 1, undone: 0 } };
+/** Protocol 6 (DESIGN 0.7.0 D14): what an undo of one item would do, with an item built on it, one of another topic and a left-out one. */
+const undoRef = (itemId: string, number: number, topicId = 'tp_1', topicName = 'Checkout') => ({ topicId, topicName, itemId, number, title: `Item ${itemId}` });
+export const undoPreview = {
+  token: 'b'.repeat(64),
+  history: 'folder',
+  undone: [{ ...undoRef('cart-api', 1), why: 'asked' }, { ...undoRef('totals', 2), why: 'built-on' }, { ...undoRef('banner', 3, 'tp_2', 'Front page'), why: 'same-lines' }],
+  leftOut: [undoRef('emails', 4)],
+  blockers: { running: [], changedSince: [], typing: [], uncommitted: [], staged: false, busy: false, branch: null, unavailable: null },
+  ok: true,
+};
+export const undoPreviewBlocked = {
+  ...undoPreview,
+  history: 'smurg',
+  blockers: {
+    running: [undoRef('emails', 4)],
+    changedSince: [{ path: 'src/cart.ts', by: [AMY_REF], outside: false }, { path: 'config.txt', by: [], outside: true }],
+    typing: [{ path: 'src/totals.ts', names: [AMY_REF] }],
+    uncommitted: ['README.md'],
+    staged: true,
+    busy: true,
+    branch: { expected: 'main', current: 'experiment' },
+    unavailable: { text: { id: 'undo.unavailable.notFound' }, fallback: "smurg cannot find this item's merge in the main workspace's history any more." },
+  },
+  ok: false,
+};
 export const checkedTopic = { ...readyTopic, phase: 'complete', checked: { by: AMY_REF, at: T } };
 export const pausedTopic = { ...topic, plan: { ...topic.plan, paused: true, pausedBy: IAN } };
 export const workItem = {
@@ -1743,6 +1768,15 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     result: { valid: [{ plan: autoPlan }], invalid: [{}] },
   },
   'plan.item.removePaths': { payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1', itemId: 'cart-api', paths: ['CLAUDE.md'] }] }, result: emptyOnly },
+  // protocol 6 (DESIGN 0.7.0 D14): the host's undo
+  'topic.undo.preview': {
+    payload: { valid: [{ topicId: 'tp_1', itemIds: ['cart-api'] }, { topicId: 'tp_1', itemIds: null }], invalid: [{ topicId: 'tp_1' }, { topicId: 'tp_1', itemIds: [] }, { topicId: 'tp_1', itemIds: null, token: 'a'.repeat(64) }] },
+    result: { valid: [{ preview: undoPreview }, { preview: undoPreviewBlocked }], invalid: [{}, { preview: { ...undoPreview, undone: [] } }, { preview: { ...undoPreviewBlocked, ok: true } }, { preview: { ...undoPreview, history: 'direct' } }] },
+  },
+  'topic.undo': {
+    payload: { valid: [{ topicId: 'tp_1', itemIds: ['cart-api'], token: 'a'.repeat(64) }, { topicId: 'tp_1', itemIds: null, token: 'a'.repeat(64) }], invalid: [{ topicId: 'tp_1', itemIds: ['cart-api'] }, { topicId: 'tp_1', itemIds: null, token: 'HEAD' }] },
+    result: { valid: [{ plan }], invalid: [{}] },
+  },
   'report.get': {
     payload: { valid: [{ topicId: 'tp_1', itemId: 'cart-api' }], invalid: [{ topicId: 'tp_1' }] },
     result: {

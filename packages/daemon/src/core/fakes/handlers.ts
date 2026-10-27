@@ -288,6 +288,8 @@ export function registerFakeHandlers(router: Router, ctx: DaemonContext, faked: 
     stack.add(router.handle('plan.item.leaveOut', async (payload, req) => ({ plan: await s.plans.leaveOut(payload, req.principal) })));
     stack.add(router.handle('plan.item.accept', async (payload, req) => ({ plan: await s.plans.accept(payload, req.principal) })));
     stack.add(router.handle('plan.item.release', async (payload, req) => ({ plan: await s.plans.release(payload, req.principal) })));
+    stack.add(router.handle('topic.undo.preview', async (payload, req) => s.plans.undoPreview(payload, req.principal)));
+    stack.add(router.handle('topic.undo', async (payload, req) => ({ plan: await s.plans.undo(payload, req.principal) })));
     stack.add(
       router.handle('plan.item.removePaths', async (payload, req) => {
         await s.plans.removePaths(payload, req.principal);

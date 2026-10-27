@@ -686,14 +686,17 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   'topics/auto-merge.ts': 1,
   'topics/core.ts': 4,
   'topics/plan-format.ts': 2,
-  'topics/plan-service.ts': 3,
+  // (0.7.0, the undo: its token over the item keys and request ids, each sorted once as they are; at most 64 of each)
+  'topics/plan-service.ts': 5,
   'topics/report-format.ts': 1,
   'topics/scheduler.ts': 3,
   'topics/split.ts': 4,
   'worktree/stage-commit.ts': 2,
   // (0.6.0: the nested repositories of one listing, compared as they are; the top-level entries, by their size)
   'worktree/hidden-repo.ts': 2,
-  'worktree/worktree-manager.ts': 2,
+  // (0.7.0, the undo: merges by their place on the first-parent line, the candidates that may go with it by their newest
+  // merge's: numbers, at most 64 merges)
+  'worktree/worktree-manager.ts': 5,
 };
 
 describe('the regular expressions, normalisations and sorts of packages/daemon', () => {

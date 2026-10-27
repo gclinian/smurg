@@ -48,7 +48,7 @@ import type { DaemonContext } from '../core/context.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { pausedItems } from './attention.ts';
-import type { TopicsCore } from './core.ts';
+import { itemKey, type TopicsCore } from './core.ts';
 import { DirectFolder } from './direct-folder.ts';
 import { continueItemMessage, directExecutionRolePrompt, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
 import type { StoredItem, StoredTopic } from './store.ts';
@@ -230,8 +230,8 @@ export class Scheduler {
   private async startItem(topicId: string, itemId: string): Promise<void> {
     const topic = this.core.topic(topicId);
     const item = topic === null ? null : this.core.item(topic, itemId);
-    // (an item a person is leaving out right now is not started: DESIGN 0.7.0 D11)
-    if (topic === null || item === null || !item.armed || item.leftOut !== undefined) return;
+    // (an item a person is leaving out right now is not started: DESIGN 0.7.0 D11; nor one an undo claims: D14)
+    if (topic === null || item === null || !item.armed || item.leftOut !== undefined || this.core.claimed.has(itemKey(topicId, itemId))) return;
     const agents = this.ctx.services.agents;
     const worktrees = this.ctx.services.worktrees;
     // The session is opened as the member who pressed Start (or "Try again"): they must still be allowed to.
@@ -560,6 +560,8 @@ export class Scheduler {
   onMerge(request: MergeRequest): void {
     if (!this.core.started || request.topicId === undefined || request.itemId === undefined) return;
     this.core.noteRequest(request);
+    // The host took its merge back (DESIGN 0.7.0 D14): it satisfies nothing any more; the undo's own half follows.
+    if (request.undone !== undefined) return;
     const topic = this.core.topic(request.topicId);
     const item = topic === null ? null : this.core.item(topic, request.itemId);
     if (topic === null || item === null) return;
@@ -705,13 +707,15 @@ export class Scheduler {
         if (listed.archived) continue;
         for (const stored of listed.items) {
           const mine = ofItem(listed.id, stored.id);
-          const merged = mine.find((request) => request.status === 'merged');
+          // (a merge the host undid satisfies nothing: DESIGN 0.7.0 D14)
+          const merged = mine.find((request) => request.status === 'merged' && request.undone === undefined);
           if (merged !== undefined && !stored.merged) this.onMerge(merged);
           const item = this.core.item(this.core.need(listed.id), stored.id);
           if (item === null || item.merge === undefined) continue;
           const pointer = item.merge;
           const current = mine.find((request) => request.id === pointer.requestId);
           if (current !== undefined) {
+            if (current.undone !== undefined) continue;
             if (current.status !== pointer.status || pointer.ready !== (current.status === 'draft' && current.reviewed)) this.onMerge(current);
             continue;
           }

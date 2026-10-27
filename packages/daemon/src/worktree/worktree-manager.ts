@@ -65,6 +65,12 @@
 // entry is `worktree.merge.auto`. Waits and holds are outcomes; a conflict says who changed the other side
 // (people-changes.ts). What a crash left in smurg's own history (a merge or revert under way) is aborted before the first
 // command of a run on it; in the folder's own `.git` such a state is the host's and only named.
+//
+// The host's undo (0.7.0, DESIGN 0.7.0 D14, undo.ts): merged work items are taken back out of the main workspace with
+// ONE commit, after a trial that touches nothing (in smurg's own history after a snapshot of the folder, so a saved edit
+// nobody recorded yet stays), the reports kept; later merges of any topic on the same lines go with it, people's later
+// changes on them, edits in the way, staged changes, a git operation under way or another branch stop it, each named.
+// The record written before the folder is touched (`worktrees.json.undo`) is settled before any merge after a crash.
 import { lstat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -80,6 +86,7 @@ import {
   REVIEWERS_MAX,
   SmurgError,
   TOPIC_SLUG_PATTERN,
+  UNDO_ITEMS_MAX,
   foldRelPath,
   gitCommitSchema,
   isInTopicDir,
@@ -112,6 +119,12 @@ import type {
   RootInfo,
   SnapshotResult,
   StartFolderFacts,
+  UndoApply,
+  UndoAsk,
+  UndoDone,
+  UndoFacts,
+  UndoItem,
+  UndoItemKey,
   WorktreeHandle,
   WorktreeManager,
 } from '../core/interfaces.ts';
@@ -180,6 +193,25 @@ import {
   type StoredWorktree,
   type WorktreesDocument,
 } from './store.ts';
+import {
+  HIDDEN_UNDO_MESSAGE,
+  changesBetween,
+  checkoutFromIndex,
+  commitOnHead,
+  firstParentLine,
+  indexTree,
+  mergeTouches,
+  messageOf,
+  nextOnLine,
+  notAsIn,
+  parentOf,
+  revertTrial,
+  treeOf,
+  undoMessage,
+  withFilesOf,
+  type RevertTrial,
+  type UndoMergeCommit,
+} from './undo.ts';
 import { mergeMainIntoWorktree } from './update-from-main.ts';
 
 export interface WorktreeLimits {
@@ -360,6 +392,45 @@ type Decided = { readonly kind: 'decided'; readonly merge: StoredMerge } | AutoM
 
 const GONE: AutoMergeOutcome = Object.freeze({ kind: 'gone' });
 
+/** Where an undo runs (DESIGN 0.7.0 D14): the history of the items asked for, usable now; or why it cannot run at all. */
+type UndoWhere = { readonly history: 'folder' | 'smurg'; readonly git: GitRunner; readonly repo: MainRepo } | { readonly facts: UndoFacts };
+
+/** One merge an undo may take back: whose it is, where it lies on the main workspace's first-parent line (0: HEAD). */
+interface UndoMerge extends UndoMergeCommit {
+  readonly key: string;
+  readonly topicId: string;
+  readonly itemId: string;
+  readonly topicSlug: string;
+  readonly requestId?: string;
+  readonly position: number;
+}
+
+/** What computing an undo found: the facts, and for the apply the head it was computed against and the tree the folder becomes. */
+interface ComputedUndo {
+  readonly facts: UndoFacts;
+  readonly pre: string | null;
+  readonly target: string | null;
+  readonly merges: readonly UndoMerge[];
+  readonly changes: readonly { readonly letter: string; readonly path: string }[];
+}
+
+/** The key of a work item in an undo's sets. */
+function undoKey(item: UndoItemKey): string {
+  return `${item.topicId}\u0000${item.itemId}`;
+}
+function undoKeyParts(key: string): UndoItemKey {
+  const at = key.indexOf('\u0000');
+  return { topicId: key.slice(0, at), itemId: key.slice(at + 1) };
+}
+
+/** The subject of an undo commit smurg finishes after a crash (the topics module's own words were not kept). */
+function recoverySubject(requests: readonly StoredMerge[]): string {
+  const slugs = [...new Set(requests.map((request) => request.topicSlug ?? 'a topic'))];
+  const items = requests.map((request) => request.itemId ?? request.id);
+  if (slugs.length === 1) return `smurg: undo work item${items.length === 1 ? '' : 's'} ${items.join(', ')} of ${slugs[0] as string}`;
+  return `smurg: undo work items ${requests.map((request) => `${request.itemId ?? request.id} of ${request.topicSlug ?? 'a topic'}`).join(', ')}`;
+}
+
 /** Activity kinds that wrote a file (who changed a path of smurg's own history, DESIGN 0.7.0 D7). */
 const WRITE_KINDS: ReadonlySet<string> = new Set(['agent.edit', 'human.edit', 'file.create', 'file.delete', 'file.rename', 'file.upload', 'external.change']);
 /** Pages of the activity log read back for one snapshot's writers. */
@@ -435,6 +506,14 @@ export class WorktreeManagerImpl implements WorktreeManager {
     if (this.refreshing === look) this.refreshing = null;
     await this.reconcile();
     if (this.available.ok) this.refsSwept = true;
+    // An undo a crash cut short in the folder's own git (DESIGN 0.7.0 D14 step 7) is settled before any merge; one of
+    // smurg's own history is settled before the first command of the run on it (abortHiddenLeftovers).
+    const interrupted = this.requireDoc().get().undo;
+    if (interrupted !== undefined && interrupted.repo === undefined && this.available.ok && this.available.repo.kind === 'folder') {
+      await this.serial.run('main', () => this.settleUndoNow()).catch((err: unknown) =>
+        this.ctx.log.error('an interrupted undo could not be looked at when sharing started', { module: 'worktree', error: err instanceof Error ? err.name : 'unknown' }),
+      );
+    }
     // What the item worktrees hold is looked at in the background: until then `unmerged` lists them all. So is
     // whether the repository tracks smurg's own folder (the host is told once).
     const available = this.available;
@@ -1742,7 +1821,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
         ...(leftover === null ? {} : { smurgMerge: { commit: leftover.commit, ...(of === undefined ? {} : { requestId: of.id, ...(of.topicId !== undefined && of.itemId !== undefined ? { topicId: of.topicId, itemId: of.itemId } : {}) }) } }),
       };
     }
-    if (auto !== null && this.requireDoc().get().undo !== undefined) return { kind: 'hold', reason: 'undo-interrupted' };
+    if (auto !== null && this.requireDoc().get().undo !== undefined) {
+      // (looked at again first: the host may have finished it or put the files back since, DESIGN 0.7.0 D14 step 7)
+      await this.settleUndoNow().catch(() => {});
+      if (this.requireDoc().get().undo !== undefined) return { kind: 'hold', reason: 'undo-interrupted' };
+    }
 
     // 4. Nothing staged (folder git): git's merge refuses any staged change, also in a file it does not touch (U2 A8).
     if (!hidden) {
@@ -2281,6 +2364,508 @@ export class WorktreeManagerImpl implements WorktreeManager {
   }
 
   // =================================================================================================================
+  // Undo (DESIGN 0.7.0 D14, undo.ts)
+  // =================================================================================================================
+
+  async undoPreview(input: UndoAsk): Promise<UndoFacts> {
+    const host = this.undoHost(input.host);
+    const where = await this.undoWhere(input);
+    if ('facts' in where) return where.facts;
+    return this.serial.run('main', async () => (await this.computeUndo(where, input, host)).facts);
+  }
+
+  async undo(input: UndoApply): Promise<UndoDone> {
+    const host = this.undoHost(input.host);
+    const where = await this.undoWhere(input);
+    if ('facts' in where) {
+      // Nothing of it can be done in this folder now: the topics module refuses it with what the preview says.
+      input.confirm(where.facts);
+      throw new SmurgError('conflict', msg('undo.notOk'), { reason: 'not-ok' });
+    }
+    return this.serial.run('main', async () => {
+      // Steps 0 to 4 again against the head the apply has (smurg's own history: after a new snapshot), then the topics
+      // module's yes (the token, nothing in the way; it claims the items), with nothing awaited in between.
+      const computed = await this.computeUndo(where, input, host);
+      input.confirm(computed.facts);
+      if (computed.pre === null || computed.target === null || !computed.facts.clean || computed.facts.unavailable !== null) throw new SmurgError('conflict', msg('undo.notOk'), { reason: 'not-ok' });
+      return this.applyUndo(where, computed, input, host);
+    });
+  }
+
+  /** Undo is the host's: anyone else named is the caller's mistake, never an undo. */
+  private undoHost(ref: UserRef): MemberRecord {
+    const host = ref.userId === this.ctx.members.hostUserId() ? this.ctx.members.active(ref.userId) : null;
+    if (host === null) throw new AuthorizationError(undefined, { reason: 'not-the-host' });
+    return host;
+  }
+
+  /** The history of the items asked for (one: an undo is one commit in one history), usable now. */
+  private async undoWhere(input: UndoAsk): Promise<UndoWhere> {
+    const histories = new Set(input.asked.map((key) => input.items.find((item) => item.topicId === key.topicId && item.itemId === key.itemId)?.history ?? 'folder'));
+    const history = histories.size === 1 ? ([...histories][0] as 'folder' | 'smurg') : null;
+    if (history === null) return { facts: this.undoUnavailable('folder', this.undoReasons(input), msg('undo.unavailable.notFound')) };
+    try {
+      const { git, repo } = await this.repoOf(history === 'smurg' ? { repo: 'smurg' } : {});
+      return { history, git, repo };
+    } catch (err) {
+      if (err instanceof SmurgError && err.detail?.['reason'] === 'stopping') throw err;
+      // smurg's own history changed or gone, the folder's `.git` gone: its words of 0.6.0
+      const text = err instanceof SmurgError && err.text !== undefined ? err.text : msg('worktree.unavailable.checkFailed');
+      return { facts: this.undoUnavailable(history, this.undoReasons(input), text) };
+    }
+  }
+
+  /** The items asked for, and every merged item of their plans built on them (the topics module's closure). */
+  private undoReasons(input: UndoAsk): Map<string, 'asked' | 'built-on' | 'same-lines'> {
+    const why = new Map<string, 'asked' | 'built-on' | 'same-lines'>();
+    for (const key of input.asked) why.set(undoKey(key), 'asked');
+    for (const key of input.withBuiltOn(input.asked)) if (!why.has(undoKey(key))) why.set(undoKey(key), 'built-on');
+    return why;
+  }
+
+  private undoUnavailable(history: 'folder' | 'smurg', why: ReadonlyMap<string, 'asked' | 'built-on' | 'same-lines'>, unavailable: MessageRef): UndoFacts {
+    return {
+      history,
+      items: [...why].map(([key, reason]) => ({ ...undoKeyParts(key), why: reason })),
+      merges: [],
+      clean: false,
+      changedSince: [],
+      typing: [],
+      uncommitted: [],
+      staged: false,
+      busy: false,
+      branch: null,
+      unavailable,
+      files: 0,
+    };
+  }
+
+  /**
+   * DESIGN 0.7.0 D14 steps 0 to 4, on the `main` queue (the caller holds it). Nothing of the folder or of its index is
+   * touched: in smurg's own history the folder is recorded first (a snapshot as the host), and everything after is
+   * computed against the head that snapshot leaves.
+   */
+  private async computeUndo(where: Extract<UndoWhere, { readonly history: string }>, input: UndoAsk, host: MemberRecord): Promise<ComputedUndo> {
+    const { git, repo, history } = where;
+    const hidden = repo.kind === 'smurg';
+    const share = this.ctx.roots.main.realPath;
+    const timeoutMs = this.limits.mergeTimeoutMs;
+    const why = this.undoReasons(input);
+    const nothing = (unavailable: MessageRef, pre: string | null = null): ComputedUndo => ({ facts: this.undoUnavailable(history, why, unavailable), pre, target: null, merges: [], changes: [] });
+
+    // 0. An undo a crash cut short is settled first; one the folder still holds half-way stops every other one.
+    if (this.requireDoc().get().undo !== undefined) await this.settleUndoNow();
+    if (this.requireDoc().get().undo !== undefined) return nothing(msg('undo.unavailable.interrupted'));
+    // smurg's own history: the folder as it is now is recorded FIRST, and all of it is computed against that (R-SAFE
+    // S1: computed against the last snapshot, the undo commit took back saved edits nobody had recorded yet).
+    const docs = this.ctx.services.docs;
+    if (!isStubService(docs)) await docs.flushAll();
+    let pre: string | null;
+    if (hidden) {
+      await this.verifyHidden();
+      await removeStaleLock(repo.gitDir, this.ctx.log);
+      pre = (await this.snapshotHidden(git, { message: HIDDEN_UNDO_MESSAGE, identity: gitIdentity(host.userId, host.displayName) })).head;
+    } else pre = await mainHead(repo);
+    if (pre === null) return nothing(msg('undo.unavailable.notFound'));
+    const line = await firstParentLine(repo, pre, timeoutMs);
+    if (line === null) return nothing(msg('undo.unavailable.notFound'), pre);
+
+    // 1. The merge commits of every merged item of this history: each request's merge commit, else what topics.json
+    //    recorded (worktrees.json keeps only the newest decided merges), else the merge whose second parent is the
+    //    request's commit (U2 exp3). Each must lie on the main workspace's first-parent line.
+    const known = new Map(input.items.map((item): [string, UndoItem] => [undoKey(item), item]));
+    const doc = this.requireDoc().get();
+    const parents = new Map<string, string | null>();
+    const ofItem = new Map<string, { readonly merges: readonly UndoMerge[]; readonly complete: boolean }>();
+    for (const item of input.items) {
+      const key = undoKey(item);
+      if (item.history !== history || ofItem.has(key)) continue;
+      const requests = doc.merges.filter((merge) => merge.topicId === item.topicId && merge.itemId === item.itemId && merge.status === 'merged' && merge.undone === undefined && (merge.repo === 'smurg') === hidden);
+      const found: { readonly commit: string; readonly requestId?: string; readonly topicSlug: string }[] = [];
+      let complete = true;
+      for (const request of requests) {
+        const commit = request.mergeCommit ?? (item.mergedAs?.requestId === request.id ? item.mergedAs.commit : undefined) ?? (await this.mergeCommitOf(repo, request.commit, pre)) ?? undefined;
+        if (commit === undefined) complete = false;
+        else found.push({ commit, requestId: request.id, topicSlug: request.topicSlug ?? item.topicSlug });
+      }
+      if (requests.length === 0) {
+        if (item.mergedAs?.commit !== undefined) found.push({ commit: item.mergedAs.commit, topicSlug: item.topicSlug });
+        else complete = false;
+      }
+      const merges: UndoMerge[] = [];
+      for (const entry of found) {
+        const position = line.get(entry.commit);
+        if (position !== undefined && !parents.has(entry.commit)) parents.set(entry.commit, await parentOf(repo, entry.commit));
+        const parent = position === undefined ? null : (parents.get(entry.commit) ?? null);
+        if (position === undefined || parent === null) {
+          complete = false;
+          continue;
+        }
+        merges.push({ key, topicId: item.topicId, itemId: item.itemId, topicSlug: entry.topicSlug, commit: entry.commit, parent, position, ...(entry.requestId === undefined ? {} : { requestId: entry.requestId }) });
+      }
+      ofItem.set(key, { merges, complete: complete && merges.length > 0 });
+    }
+    /** The merges of these items, newest first (null: one of them has a merge smurg cannot find on the line). */
+    const mergesOf = (keys: Iterable<string>): UndoMerge[] | null => {
+      const out = new Map<string, UndoMerge>();
+      for (const key of keys) {
+        const entry = ofItem.get(key);
+        if (entry === undefined || !entry.complete) return null;
+        for (const merge of entry.merges) if (!out.has(merge.commit)) out.set(merge.commit, merge);
+      }
+      return [...out.values()].sort((a, b) => a.position - b.position);
+    };
+    const tooMany = (): ComputedUndo => nothing(msg('undo.unavailable.tooMany', { max: UNDO_ITEMS_MAX }), pre);
+
+    // 2. + 3. What goes with them, and the trial (objects only). (a) the plans' dependents that are merged (the topics
+    //    module's closure, `built-on`); (b) later merges of ANY topic whose revert must come first: added newest first,
+    //    those that touch a conflicted file, until the trial is clean, then each whose removal keeps it clean is removed
+    //    again (`same-lines`, U2 exp5: a file-level rule gives false positives, the trial does not); what is built on
+    //    those goes too, and the trial is made again. (c) what still conflicts is a change outside the work items.
+    let merges: UndoMerge[] = [];
+    let trial: RevertTrial = { clean: false, conflicted: [] };
+    let tried: string[] = [];
+    let incomplete = false;
+    for (let round = 0; round <= UNDO_ITEMS_MAX; round += 1) {
+      if (why.size > UNDO_ITEMS_MAX) return tooMany();
+      const set = mergesOf(why.keys());
+      if (set === null) {
+        incomplete = true;
+        merges = [];
+        break;
+      }
+      if (set.length > UNDO_ITEMS_MAX) return tooMany();
+      merges = set;
+      trial = await revertTrial(repo, pre, merges, timeoutMs);
+      tried = [];
+      if (trial.clean) break;
+      const oldest = Math.max(...merges.map((merge) => merge.position));
+      const candidates: { readonly key: string; readonly newest: number }[] = [];
+      for (const [key, entry] of ofItem) {
+        if (why.has(key) || !entry.complete) continue;
+        const later = entry.merges.filter((merge) => merge.position < oldest);
+        let touches = false;
+        for (const merge of later) {
+          if (await mergeTouches(repo, merge, trial.conflicted, timeoutMs)) {
+            touches = true;
+            break;
+          }
+        }
+        if (touches) candidates.push({ key, newest: Math.min(...entry.merges.map((merge) => merge.position)) });
+      }
+      candidates.sort((a, b) => a.newest - b.newest);
+      tried = candidates.map((candidate) => candidate.key);
+      const added: string[] = [];
+      let cleanWith = false;
+      for (const candidate of candidates) {
+        added.push(candidate.key);
+        if ((await revertTrial(repo, pre, mergesOf([...why.keys(), ...added]) ?? [], timeoutMs)).clean) {
+          cleanWith = true;
+          break;
+        }
+      }
+      if (!cleanWith) break;
+      for (const key of [...added]) {
+        const without = added.filter((other) => other !== key);
+        if ((await revertTrial(repo, pre, mergesOf([...why.keys(), ...without]) ?? [], timeoutMs)).clean) added.splice(added.indexOf(key), 1);
+      }
+      for (const key of added) why.set(key, 'same-lines');
+      for (const key of input.withBuiltOn([...why.keys()].map(undoKeyParts))) if (!why.has(undoKey(key))) why.set(undoKey(key), 'built-on');
+    }
+    const clean = !incomplete && trial.clean;
+
+    // The tree the folder becomes: the trial's, with the undone items' reports as the head has them (they stay).
+    let target: string | null = null;
+    let changes: { readonly letter: string; readonly path: string }[] = [];
+    if (clean && trial.clean) {
+      const reports = [...why.keys()].flatMap((key) => {
+        const item = known.get(key);
+        return item === undefined ? [] : [topicReportPath(item.topicSlug, item.itemId)];
+      });
+      target = await withFilesOf(repo, { tree: trial.tree, head: pre, paths: reports, stagingDir: this.stagingDir, timeoutMs });
+      changes = await changesBetween(repo, pre, target, timeoutMs);
+    }
+    const touched = target !== null ? changes.map((change) => change.path) : [...new Set((await Promise.all(merges.map((merge) => changedNames(repo, merge.parent, merge.commit)))).flatMap((names) => names.paths))];
+
+    // (c) Who changed the lines it cannot take back (people-changes.ts, D7): a member, or someone outside smurg.
+    let changedSince: PeopleChange[] = [];
+    if (!incomplete && !trial.clean && merges.length > 0) {
+      const oldest = merges.reduce((older, merge) => (merge.position > older.position ? merge : older));
+      const all = tried.length > 0 ? await revertTrial(repo, pre, mergesOf([...why.keys(), ...tried]) ?? merges, timeoutMs) : trial;
+      const paths = [...new Set([...trial.conflicted, ...(all.clean ? [] : all.conflicted)])];
+      try {
+        changedSince = await this.peopleOf(repo, oldest.commit, pre, paths);
+      } catch {
+        changedSince = paths.map((path) => ({ path, by: [], outside: true }));
+      }
+    }
+
+    // 4. The main workspace, as for a merge, but reported, not waited on (undo is a person's act).
+    const typing: { path: string; names: UserRef[] }[] = [];
+    const locks = this.ctx.services.locks;
+    if (!isStubService(locks)) {
+      for (const path of touched) {
+        if (typing.length >= AUTO_MERGE_PATHS_MAX) break;
+        const lock = locks.get({ root: MAIN_ROOT, path });
+        if (lock === null) continue;
+        const names = lock.kind === 'human' ? lock.holders.map((holder) => ({ userId: holder.userId, displayName: holder.displayName })) : [this.ctx.members.userRef(lock.ownerUserId)].filter((user): user is UserRef => user !== null);
+        typing.push({ path, names: names.slice(0, PEOPLE_PER_PATH_MAX) });
+      }
+    }
+    let uncommitted: string[] = [];
+    let staged = false;
+    let branch: { readonly expected: string; readonly current: string } | null = null;
+    if (!hidden) {
+      const dirty = await this.dirtyPaths(repo, git, pre);
+      const inTheWay = target !== null ? await untrackedInTheWay(share, changes) : [];
+      uncommitted = [...new Set([...touched.filter((path) => dirty.has(path)), ...inTheWay])];
+      staged = await hasStagedChanges(repo, pre);
+      const place = await headPlace(repo);
+      const expected = [...why.keys()].map((key) => known.get(key)?.branch).find((name): name is string => name !== undefined);
+      if (expected !== undefined && place.branch !== expected) branch = { expected, current: place.current };
+    }
+    const busy = (await busyMarker(repo)) !== null;
+    // A merge smurg cannot find (not on the line, its records gone) is said as such, unless another branch explains it;
+    // the record an apply writes names requests, so at least one of them must be one smurg knows.
+    const unavailable = incomplete
+      ? branch === null
+        ? msg('undo.unavailable.notFound')
+        : null
+      : !merges.some((merge) => merge.requestId !== undefined)
+        ? msg('undo.unavailable.notFound')
+        : !clean && changedSince.length === 0
+          ? msg('undo.notOk')
+          : null;
+    return {
+      facts: {
+        history,
+        items: [...why].map(([key, reason]) => ({ ...undoKeyParts(key), why: reason })),
+        merges: merges.map((merge) => ({ topicId: merge.topicId, itemId: merge.itemId, commit: merge.commit, ...(merge.requestId === undefined ? {} : { requestId: merge.requestId }) })),
+        clean,
+        changedSince,
+        typing,
+        uncommitted,
+        staged,
+        busy,
+        branch,
+        unavailable,
+        files: touched.length,
+      },
+      pre,
+      target,
+      merges,
+      changes,
+    };
+  }
+
+  /**
+   * DESIGN 0.7.0 D14 step 6 (the caller holds the `main` queue and the topics module said yes): the record, on disk
+   * before the folder is touched; `read-tree -m -u <pre> <target>`, which refuses a touched file that holds an edit git
+   * does not have; ONE commit as the host; every request `undone`.
+   */
+  private async applyUndo(where: Extract<UndoWhere, { readonly history: string }>, computed: ComputedUndo, input: UndoApply, host: MemberRecord): Promise<UndoDone> {
+    const { git, repo } = where;
+    const hidden = repo.kind === 'smurg';
+    const share = this.ctx.roots.main.realPath;
+    const timeoutMs = this.limits.mergeTimeoutMs;
+    const pre = computed.pre as string;
+    const target = computed.target as string;
+    const requestIds = [...new Set(computed.merges.flatMap((merge) => (merge.requestId === undefined ? [] : [merge.requestId])))];
+    if (requestIds.length === 0 || requestIds.length > UNDO_ITEMS_MAX) throw new SmurgError('conflict', msg('undo.notOk'), { reason: 'not-ok' });
+    const doc = this.requireDoc();
+    doc.update((draft) => {
+      draft.undo = { requestIds, pre, target, ...(hidden ? { repo: 'smurg' as const } : {}), at: this.ctx.clock.now() };
+    });
+    try {
+      await doc.flush();
+    } catch (err) {
+      doc.update((draft) => {
+        delete draft.undo;
+      });
+      throw err;
+    }
+    // What the undo writes into the main workspace is the host's act, not a program's (the watcher's attribution).
+    const files = this.ctx.services.files;
+    const actor = userActor(host);
+    if (!isStubService(files) && computed.changes.length <= 5_000) for (const change of computed.changes) files.expectChange({ root: MAIN_ROOT, path: change.path }, actor);
+    const read = await git.run({ gitDir: repo.gitDir, workTree: share, attrSource: pre, args: ['read-tree', '-m', '-u', pre, target], timeoutMs, abortable: false });
+    if (read.code !== 0) {
+      // git refused (a file it changes was edited since the look: "not uptodate"). It checks before it writes: when the
+      // index is still `pre`'s and no file it changes holds the undo's version, nothing of the undo was written and the
+      // record goes, the person's edit stays. Anything else is what the folder holds decides (step 7).
+      this.ctx.log.warn('an undo was refused by git: a file it changes holds an edit git does not have', { module: 'worktree', git: read.stderr.split('\n', 1)[0]?.slice(0, 300) ?? '' });
+      const index = await indexTree(repo, timeoutMs).catch(() => null);
+      const untouched =
+        index !== null &&
+        index === (await treeOf(repo, pre)) &&
+        (await notAsIn(repo, { workTree: share, commit: target, paths: computed.changes.map((change) => change.path), attrSource: pre, timeoutMs }).catch(() => null))?.size === computed.changes.length;
+      if (untouched) {
+        doc.update((draft) => {
+          delete draft.undo;
+        });
+        await this.persist();
+      } else await this.settleUndoNow();
+      throw new SmurgError('conflict', msg('undo.changed'), { reason: 'changed' });
+    }
+    let commit: string;
+    try {
+      commit = await commitOnHead(repo, { tree: target, parent: pre, message: undoMessage(input.subject, computed.merges), identity: gitIdentity(host.userId, host.displayName), timeoutMs });
+    } catch (err) {
+      // The commit did not land: what the folder holds decides (case b makes it now; else the host is told, case d).
+      await this.settleUndoNow().catch(() => {});
+      const marked = this.requireDoc().get().merges.find((merge) => merge.id === requestIds[0])?.undone;
+      if (marked === undefined) throw err;
+      return { facts: computed.facts, commit: marked.commit, files: computed.changes.length };
+    }
+    this.recordUndone(requestIds, commit, { userId: host.userId, displayName: host.displayName });
+    await this.persist();
+    return { facts: computed.facts, commit, files: computed.changes.length };
+  }
+
+  /** Each request is `undone` by `commit`; the record goes; every member hears of each (`merge.changed`). */
+  private recordUndone(requestIds: readonly string[], commit: string, by: UserRef): void {
+    const at = this.ctx.clock.now();
+    const ids = new Set(requestIds);
+    this.requireDoc().update((draft) => {
+      for (const merge of draft.merges) if (ids.has(merge.id) && merge.status === 'merged') merge.undone = { commit, at, by: { userId: by.userId, displayName: by.displayName } };
+      delete draft.undo;
+    });
+    for (const merge of this.requireDoc().get().merges) if (ids.has(merge.id)) this.publishMerge(merge);
+  }
+
+  /**
+   * DESIGN 0.7.0 D14 step 7 for whichever history the record is of (the caller holds the `main` queue, or it is the
+   * start). smurg's own history is settled before the first command of a run on it (abortHiddenLeftovers); here again
+   * when the record is still there.
+   */
+  private async settleUndoNow(): Promise<void> {
+    const record = this.doc?.get().undo;
+    if (record === undefined) return;
+    if (record.repo === 'smurg') {
+      // (git was not looked for yet in this run: the first use of that history settles it)
+      if (this.runner === null) return;
+      try {
+        await this.verifyHidden();
+      } catch {
+        return;
+      }
+      if (this.doc?.get().undo === undefined) return;
+      await this.settleUndoIn(this.hiddenRepo(this.runner), this.runner);
+      return;
+    }
+    const available = this.available;
+    if (!available.ok || available.repo.kind !== 'folder') return;
+    await this.settleUndoIn(available.repo, available.git);
+  }
+
+  /**
+   * An undo record still in worktrees.json (a crash during the apply, R-SAFE S11), settled by what the history and the
+   * folder hold:
+   *  (a) the first commit after `pre` on the line is the undo (its parent `pre`, its tree `target`, its words naming
+   *      every merge): recorded now;
+   *  (b) HEAD is `pre` and the index's tree is `target`: the commit was not made; smurg makes it now, as the host, with
+   *      the same words, and records it;
+   *  (c) HEAD is `pre`, the index's tree is `pre`'s, and every file the undo changes is in the folder as in `pre`:
+   *      nothing was changed; the record goes;
+   *  (d) anything else, between the two. In smurg's own history, where nobody but smurg runs git: the index becomes
+   *      `target`, every file that still holds `pre`'s version gets `target`'s, a file that holds neither is a
+   *      person's edit since and stays (the next snapshot records it), and the commit is made as in (b). In the
+   *      folder's own git the record stays and every automatic merge and every undo is held (`undo-interrupted`) until
+   *      the host has made the folder one of (a), (b), (c).
+   */
+  private async settleUndoIn(repo: MainRepo, git: GitRunner): Promise<void> {
+    const doc = this.requireDoc();
+    const record = doc.get().undo;
+    if (record === undefined) return;
+    const share = this.ctx.roots.main.realPath;
+    const timeoutMs = this.limits.mergeTimeoutMs;
+    const hidden = repo.kind === 'smurg';
+    const requests = record.requestIds.flatMap((id) => {
+      const merge = doc.get().merges.find((candidate) => candidate.id === id);
+      return merge === undefined ? [] : [merge];
+    });
+    const hostId = this.ctx.members.hostUserId();
+    const host = this.ctx.members.userRef(hostId) ?? { userId: hostId, displayName: 'host' };
+    const recovered = (kind: 'a' | 'b' | 'c' | 'd', commit: string | null): void => {
+      this.ctx.log.warn(commit === null ? 'an undo a crash cut short had changed nothing; its record went' : 'an undo a crash cut short was recorded', { module: 'worktree', case: kind });
+      this.ctx.audit.record({
+        actor: SYSTEM_ACTOR,
+        action: 'worktree.merge.undo',
+        outcome: commit === null ? 'error' : 'ok',
+        target: record.requestIds[0] ?? 'undo',
+        detail: { reason: 'recovered-after-crash', case: kind, requestIds: [...record.requestIds], ...(commit === null ? { applied: false } : { commit }), onBehalfOf: host.userId, ...(hidden ? { history: 'smurg' } : {}) },
+      });
+    };
+    const head = await mainHead(repo);
+    if (head !== null && head !== record.pre) {
+      const next = await nextOnLine(repo, head, record.pre, timeoutMs);
+      if (next !== null && (await parentOf(repo, next)) === record.pre && (await treeOf(repo, next)) === record.target) {
+        const body = (await messageOf(repo, next)) ?? '';
+        const named = requests.every((request) => request.mergeCommit === undefined || body.includes(`This reverts commit ${request.mergeCommit},`));
+        if (body.startsWith('smurg: undo') && named) {
+          this.recordUndone(record.requestIds, next, host);
+          await this.persist();
+          recovered('a', next);
+          return;
+        }
+      }
+    }
+    const held = (): void => this.ctx.log.warn('an undo a crash cut short is still in the main workspace; merges wait for the host', { module: 'worktree', history: hidden ? 'smurg' : 'folder' });
+    if (head !== record.pre) {
+      held();
+      return;
+    }
+    const finish = async (kind: 'b' | 'd'): Promise<void> => {
+      const merges = await this.recordedMerges(repo, requests, record.pre);
+      const commit = await commitOnHead(repo, { tree: record.target, parent: record.pre, message: undoMessage(recoverySubject(requests), merges), identity: gitIdentity(host.userId, host.displayName), timeoutMs });
+      this.recordUndone(record.requestIds, commit, host);
+      await this.persist();
+      recovered(kind, commit);
+    };
+    const index = await indexTree(repo, timeoutMs);
+    if (index === record.target) {
+      await finish('b');
+      return;
+    }
+    const changes = await changesBetween(repo, record.pre, record.target, timeoutMs);
+    const touched = changes.map((change) => change.path);
+    if (index !== null && index === (await treeOf(repo, record.pre))) {
+      const changed = await notAsIn(repo, { workTree: share, commit: record.pre, paths: touched, ...(hidden ? {} : { attrSource: record.pre }), timeoutMs });
+      if (changed.size === 0) {
+        doc.update((draft) => {
+          delete draft.undo;
+        });
+        await this.persist();
+        recovered('c', null);
+        return;
+      }
+    }
+    if (!hidden) {
+      held();
+      return;
+    }
+    const changed = await notAsIn(repo, { workTree: share, commit: record.pre, paths: touched, timeoutMs });
+    const asBefore = touched.filter((path) => !changed.has(path));
+    const removed = new Set(changes.filter((change) => change.letter === 'D').map((change) => change.path));
+    requireOk(await git.run({ gitDir: repo.gitDir, args: ['read-tree', record.target], timeoutMs, abortable: false }), 'stage');
+    await checkoutFromIndex(repo, { workTree: share, paths: asBefore.filter((path) => !removed.has(path)), timeoutMs });
+    for (const path of asBefore) if (removed.has(path)) await removeEntryBelow(share, path);
+    await finish('d');
+  }
+
+  /** The merges of these requests with what each was merged into, newest first on `pre`'s first-parent line. */
+  private async recordedMerges(repo: MainRepo, requests: readonly StoredMerge[], pre: string): Promise<UndoMergeCommit[]> {
+    const line = (await firstParentLine(repo, pre, this.limits.mergeTimeoutMs)) ?? new Map<string, number>();
+    const out: (UndoMergeCommit & { readonly position: number })[] = [];
+    for (const request of requests) {
+      const commit = request.mergeCommit ?? (await this.mergeCommitOf(repo, request.commit, pre));
+      const parent = commit === null ? null : await parentOf(repo, commit);
+      if (commit !== null && parent !== null) out.push({ commit, parent, position: line.get(commit) ?? Number.MAX_SAFE_INTEGER });
+    }
+    return out.sort((a, b) => a.position - b.position).map(({ commit, parent }) => ({ commit, parent }));
+  }
+
+  // =================================================================================================================
   // The main workspace's own files (the checkpoint of a Start, the pin check, "Show the changes")
   // =================================================================================================================
 
@@ -2630,6 +3215,8 @@ export class WorktreeManagerImpl implements WorktreeManager {
         detail: { reason: 'recovered-after-crash', marker, aborted, history: 'smurg' },
       });
     }
+    // An undo a crash cut short in smurg's own history (DESIGN 0.7.0 D14 step 7): settled before anything else runs here.
+    if (this.doc?.get().undo?.repo === 'smurg') await this.settleUndoIn(repo, git);
   }
 
   /** A snapshot of the folder into smurg's own history (the caller holds the `main` queue and ran ensureHidden). */

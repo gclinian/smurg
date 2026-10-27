@@ -159,6 +159,8 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['plan.item.accept', 'c→d', '[worktree.merge.decide]'],
   ['plan.item.release', 'c→d', '[session.drive]'],
   ['plan.item.removePaths', 'c→d', '[worktree.merge.decide]'],
+  ['topic.undo.preview', 'c→d', '[worktree.merge.decide]'],
+  ['topic.undo', 'c→d', '[worktree.merge.decide]'],
   ['report.get', 'c→d', '[session.view]'],
   ['report.updated', 'd→c', ''],
   ['report.followUp', 'c→d', '[suggest.create]'],
@@ -549,8 +551,8 @@ describe('wire types and router checks', () => {
     for (const type of ['session.list', 'session.host.get', 'session.watch', 'session.history', 'session.cards.get', 'session.rules.get', 'topic.list', 'plan.get', 'plan.changes', 'report.get', 'inbox.list', 'worktree.merge.diff']) {
       expect(mayInvoke('viewer', type), type).toBe(true);
     }
-    // Protocol 6: what only the host settles about a work item ("Accept as it is", "Ask the agent to take them out").
-    for (const type of ['plan.item.accept', 'plan.item.removePaths']) {
+    // Protocol 6: what only the host settles about a work item ("Accept as it is", "Ask the agent to take them out"), and undo.
+    for (const type of ['plan.item.accept', 'plan.item.removePaths', 'topic.undo.preview', 'topic.undo']) {
       expect(mayInvoke('host', type), type).toBe(true);
       for (const role of ['agent', 'editor', 'viewer'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(false);
     }

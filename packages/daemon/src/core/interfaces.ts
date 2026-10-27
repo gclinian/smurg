@@ -2120,6 +2120,16 @@ export interface PlanService {
   release(input: Req<'plan.item.release'>, principal: Principal): Promise<PlanInfo>;
   /** "Ask the agent to take them out" (DESIGN 0.7.0 D9, the host): `remove-paths` with the files only the host may merge. */
   removePaths(input: Req<'plan.item.removePaths'>, principal: Principal): Promise<void>;
+  /**
+   * "Undo…" (DESIGN 0.7.0 D14, the host): what taking these merged items back would do (WorktreeManager.undoPreview, and
+   * the plans' part: what is built on them, what waits for them, what of it is in a turn). Nothing changes.
+   */
+  undoPreview(input: Req<'topic.undo.preview'>, principal: Principal): Promise<Res<'topic.undo.preview'>>;
+  /**
+   * "Undo" (DESIGN 0.7.0 D14, the host): the worktree module's undo, the items claimed meanwhile; then every undone item
+   * is not merged and not started (its session ended, its worktree released) and what waits for them is left out.
+   */
+  undo(input: Req<'topic.undo'>, principal: Principal): Promise<PlanInfo>;
   /** MCP `check_plan` (the session is in `ctx`, never in an argument). Messages are fixed English for the model. */
   checkPlan(ctx: McpToolContext): { readonly ok: true; readonly items: number; readonly warnings: readonly string[] } | Extract<FileCheck, { ok: false }>;
   /** MCP `propose_split`. */
@@ -2300,6 +2310,79 @@ export type AutoMergeOutcome =
   /** Not smurg's to merge any more: no longer a draft or an unrequested conflict, replaced, or no longer in order. Nothing was marked. */
   | { readonly kind: 'gone' };
 
+/** A work item an undo is about (DESIGN 0.7.0 D14). */
+export interface UndoItemKey {
+  readonly topicId: string;
+  readonly itemId: string;
+}
+
+/** A merged work item an undo may take back, as the topics module knows it (DESIGN 0.7.0 D14). */
+export interface UndoItem extends UndoItemKey {
+  readonly topicSlug: string;
+  /** The history its Start used: the folder's own `.git` or smurg's own history (`.smurg/git`). */
+  readonly history: 'folder' | 'smurg';
+  /** The branch its Start committed on (the folder's own git; absent: a detached HEAD, or a Start before 0.7.0). */
+  readonly branch?: string;
+  /** What topics.json recorded of its merge (worktrees.json keeps only the newest decided merges). */
+  readonly mergedAs?: { readonly requestId?: string; readonly commit?: string };
+}
+
+/** What an undo is asked for (WorktreeManager.undoPreview / undo, DESIGN 0.7.0 D14). */
+export interface UndoAsk {
+  /** The host who asks: the commit's author and committer (the host's own act). */
+  readonly host: UserRef;
+  /** The items asked for (merged, of one history). */
+  readonly asked: readonly UndoItemKey[];
+  /** Every merged work item smurg knows of, of every topic (not undone, not run directly in the folder): what may go with it. */
+  readonly items: readonly UndoItem[];
+  /** The topics module: these items and every merged item of their plans built on them, transitively (synchronous). */
+  readonly withBuiltOn: (keys: readonly UndoItemKey[]) => readonly UndoItemKey[];
+}
+
+/** What the worktree module found an undo would do (DESIGN 0.7.0 D14 steps 0 to 4; the topics module adds the rest). */
+export interface UndoFacts {
+  readonly history: 'folder' | 'smurg';
+  /** What it takes back, and why (`same-lines`: a later merge of any topic on the same lines; `built-on`: the topics' closure). */
+  readonly items: readonly (UndoItemKey & { readonly why: 'asked' | 'built-on' | 'same-lines' })[];
+  /** The merge commits it reverts, newest first, with their requests (absent: worktrees.json no longer has it). */
+  readonly merges: readonly (UndoItemKey & { readonly commit: string; readonly requestId?: string })[];
+  /** The trial (objects only) reverts every merge cleanly. */
+  readonly clean: boolean;
+  /** Files a later change outside the work items touched on the same lines (people-changes.ts). */
+  readonly changedSince: readonly PeopleChange[];
+  /** Files it changes that someone is typing in (the main workspace's locks). */
+  readonly typing: readonly { readonly path: string; readonly names: readonly UserRef[] }[];
+  /** Files it changes with uncommitted edits, or an untracked entry where it puts a file back (the folder's own git). */
+  readonly uncommitted: readonly string[];
+  readonly staged: boolean;
+  readonly busy: boolean;
+  /** The main workspace is not on the branch the items' Start committed on. */
+  readonly branch: { readonly expected: string; readonly current: string } | null;
+  /** It cannot be done in this folder now (smurg's own history changed, a merge not found, an earlier undo interrupted, too many). */
+  readonly unavailable: MessageRef | null;
+  /** How many files the undo changes. */
+  readonly files: number;
+}
+
+/** An undo to apply (WorktreeManager.undo). */
+export interface UndoApply extends UndoAsk {
+  /** The commit's subject (fixed English: `smurg: undo work item <n> (<id>) of <slug>`, `smurg: undo topic <slug>`). */
+  readonly subject: string;
+  /**
+   * The topics module, synchronously, inside the `main` queue, once the facts were computed again against the head the
+   * apply has: throws to refuse (nothing was changed); returning claims the items (DESIGN 0.7.0 D14 "Topics").
+   */
+  readonly confirm: (facts: UndoFacts) => void;
+}
+
+/** What an applied undo did. */
+export interface UndoDone {
+  readonly facts: UndoFacts;
+  /** The undo commit. */
+  readonly commit: string;
+  readonly files: number;
+}
+
 /**
  * Worktrees (R9, deviation D-2: `git clone --shared`). Module: src/worktree/. Registers every worktree with the
  * RootRegistry (with its shared read-only links) BEFORE any session or client uses it, and unregisters on removal.
@@ -2346,6 +2429,20 @@ export interface WorktreeManager {
   autoMerge(input: AutoMergeInput): Promise<AutoMergeOutcome>;
   /** The merge parent `updateFromMain` recorded in this worktree and no snapshot has committed yet (DESIGN 0.7.0 D8), else null. */
   pendingMergeParent(worktreeId: string): string | null;
+  /**
+   * DESIGN 0.7.0 D14: what taking these merged items back would do, on the `main` queue, touching nothing of the folder
+   * (smurg's own history: after a snapshot of it as the host, so a saved edit nobody recorded yet is part of what it is
+   * computed against). One revert of every merge, newest first, as a chain of trees (objects only); later merges of any
+   * topic on the same lines go with it, people's later changes on them block it; the reports stay.
+   */
+  undoPreview(input: UndoAsk): Promise<UndoFacts>;
+  /**
+   * DESIGN 0.7.0 D14: the same again inside the `main` queue (the snapshot first), then `confirm`; then the record
+   * (`worktrees.json.undo`), `read-tree -m -u` and ONE commit as the host; each request gets `undone`. A crash before
+   * the commit is finished or held for the host by what the folder holds, one after it is recovered from the commit's
+   * own words, before any merge of the next start.
+   */
+  undo(input: UndoApply): Promise<UndoDone>;
   reject(input: Req<'worktree.merge.reject'>, principal: Principal): Promise<MergeRequest>;
 
   // ---- work items (daemon-internal: no wire request reaches these directly) ----

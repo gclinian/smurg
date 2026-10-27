@@ -563,6 +563,9 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'plan.item.removePaths': request(topics.planItemRemovePathsPayloadSchema, topics.planItemActionResultSchema, 'worktree.merge.decide', {
     checks: ['topic-open'],
   }),
+  // protocol 6 (DESIGN 0.7.0 D14): the host's undo
+  'topic.undo.preview': request(topics.topicUndoPreviewPayloadSchema, topics.topicUndoPreviewResultSchema, 'worktree.merge.decide', { checks: ['topic-open'] }),
+  'topic.undo': request(topics.topicUndoPayloadSchema, topics.planResultSchema, 'worktree.merge.decide', { checks: ['topic-open'] }),
   'report.get': request(topics.reportGetPayloadSchema, topics.reportGetResultSchema, 'session.view', {
     resultSensitive: true,
     redact: ['done', 'why', 'watchOut', 'followUps', 'text', 'note'],

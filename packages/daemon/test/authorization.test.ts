@@ -265,6 +265,8 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'plan.item.accept': NO_TOPIC,
   'plan.item.release': NO_TOPIC,
   'plan.item.removePaths': NO_TOPIC,
+  'topic.undo.preview': NO_TOPIC,
+  'topic.undo': NO_TOPIC,
   'report.get': 'not_found report.none',
   'report.followUp': NO_TOPIC,
   'report.review': NO_TOPIC,

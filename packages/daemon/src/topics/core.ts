@@ -188,7 +188,11 @@ export class TopicsCore {
    * somebody asked for its merge. Kept from `merge.changed`, and read whole from the worktree module at the start.
    */
   readonly requests = new Map<string, { readonly status: MergeRequestStatus; readonly requested: boolean }>();
-  /** Items an undo claims while it runs (DESIGN 0.7.0 D14, D6 row 2): nothing of them merges meanwhile. */
+  /**
+   * Items an undo claims while it runs (DESIGN 0.7.0 D14, D6 row 2): nothing of them merges meanwhile, and none of them
+   * starts. Set by the undo inside the worktree module's `main` queue, just before its record; gone after the topics'
+   * half, or when the apply fails.
+   */
   readonly claimed = new Set<string>();
   /** Items whose end of a turn is being looked at (report-service.ts), how many: until then nothing of them merges. */
   readonly turnsInHand = new Map<string, number>();
@@ -741,8 +745,8 @@ export class TopicsCore {
     for (const item of topic.items) {
       const report = this.report(topic.id, item.id);
       if (report === null || (report.state !== 'to-review' && report.state !== 'changed-after-review')) continue;
-      // Under automatic merging a review is a mark, and nobody waits for it (DESIGN 0.7.0 D12).
-      if (this.mergingOf(item) === 'auto') continue;
+      // Under automatic merging a review is a mark, and nobody waits for it (DESIGN 0.7.0 D12); nor for an undone item's (D14).
+      if (this.mergingOf(item) === 'auto' || item.undone !== undefined) continue;
       for (const reviewer of report.reviewers) add(reviewer.userId, 'reports', report.waitingSince);
     }
     // A held item is a decision in the inbox of whom routing.ts names (the inbox derives its rows the same way).

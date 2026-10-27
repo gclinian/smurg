@@ -298,16 +298,18 @@ withGit('what an automatic merge waits for, or holds for the host, with nothing 
     await s.git(['merge', '--no-commit', '--no-ff', '-m', 'the host merges something', item.request.commit]);
     expect(await autoMerge(s, item.request.id, pin)).toEqual({ kind: 'wait', reason: 'git-busy', marker: 'MERGE_HEAD' });
     await s.git(['merge', '--abort']);
-    // An undo the start could not settle (DESIGN 0.7.0 D14 case d) holds every automatic merge.
+    // An undo the start could not settle (DESIGN 0.7.0 D14 case d: the folder holds neither its version of a file it
+    // changes nor the one before) holds every automatic merge; once the file is back, it settles and the merge goes on.
     const doc = await docOf(s);
+    const target = (await s.git(['rev-parse', `${item.request.commit}^{tree}`])).trim();
     doc.update((draft) => {
-      draft.undo = { requestIds: [item.request.id], pre: pin.commit, target: pin.commit, at: 1 };
+      draft.undo = { requestIds: [item.request.id], pre: pin.commit, target, at: 1 };
     });
+    await writeFile(join(share(s), 'src', 'app.ts'), 'export const answer = 41;\n');
     expect(await autoMerge(s, item.request.id, pin)).toEqual({ kind: 'hold', reason: 'undo-interrupted' });
-    doc.update((draft) => {
-      delete draft.undo;
-    });
+    await s.git(['checkout', '--', 'src/app.ts']);
     expect(await autoMerge(s, item.request.id, pin)).toMatchObject({ kind: 'merged' });
+    expect(doc.get().undo).toBeUndefined();
   });
 
   it('staged changes: smurg holds it for the host, and the host\'s approve says so instead of "the merge failed"', async () => {

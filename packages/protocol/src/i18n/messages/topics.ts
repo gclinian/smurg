@@ -228,6 +228,18 @@ export const topics = {
     en: () => "smurg cannot find this item's merge in the main workspace's history any more.",
     'zh-TW': () => 'smurg 在主工作區的版本紀錄裡找不到這個項目的合併了。',
   }),
+  'undo.unavailable.interrupted': message({}, {
+    en: () => 'An earlier undo was interrupted, and the main workspace is between the two: commit what is staged as that undo, or put its files back with git restore --staged --worktree, first.',
+    'zh-TW': () => '之前有一次復原被中斷了，主工作區停在中間：請先把已暫存的變更提交為那次復原，或用 git restore --staged --worktree 把它的檔案還原。',
+  }),
+  'undo.unavailable.tooMany': message({ max: 'number' }, {
+    en: (p) => `One undo takes back at most ${p.max} work items, or ${p.max} merges.`,
+    'zh-TW': (p) => `一次復原最多只能拿掉 ${p.max} 個工作項目，或 ${p.max} 次合併。`,
+  }),
+  'undo.notMerged': message({}, {
+    en: () => 'This work item is not merged: nothing of it is in the main workspace to undo.',
+    'zh-TW': () => '這個工作項目沒有合併：主工作區裡沒有它的東西可以復原。',
+  }),
 
   // ---- result reports ------------------------------------------------------------------------------------------
   'report.none': message({}, {

@@ -414,6 +414,26 @@ function list<V>(count: number, make: (index: number) => V): V[] {
 }
 
 const itemPayload = { topicId: id('tp'), itemId: itemId(0) };
+/** Protocol 6 (DESIGN 0.7.0 D14): the largest undo preview, every list at its maximum (it is refused: `ok` false). */
+const undoRef = (index: number): unknown => ({ topicId: id('tp', index), topicName: wide(L.TOPIC_NAME_MAX_CHARS), itemId: itemId(index), number: 9e6, title: wide(L.ITEM_TITLE_MAX_CHARS) });
+const worstUndoPreview = {
+  token: HASH,
+  history: 'smurg',
+  undone: many(L.UNDO_ITEMS_MAX, (index) => ({ ...(undoRef(index) as object), why: 'same-lines' })),
+  leftOut: many(L.UNDO_ITEMS_MAX, undoRef),
+  blockers: {
+    running: many(L.UNDO_ITEMS_MAX, undoRef),
+    changedSince: many(20, () => ({ path: PATH, by: many(5, () => user), outside: true })),
+    typing: many(20, () => ({ path: PATH, names: many(5, () => user) })),
+    uncommitted: many(20, () => PATH),
+    staged: true,
+    busy: true,
+    branch: { expected: wide(256), current: wide(256) },
+    unavailable: wireText,
+  },
+  ok: false,
+};
+
 /** Protocol 5: 32 models with the longest names and descriptions (DESIGN 0.6.0 D5). */
 export const worstHostState = {
   account: { state: 'usage-limit', resetsAt: T, sessions: 9e6 },
@@ -513,6 +533,9 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'plan.item.accept': { payload: { ...itemPayload, version: 9e6 }, result: { plan: worstPlan } },
   'plan.item.release': { payload: { ...itemPayload, version: 9e6 }, result: { plan: worstPlan } },
   'plan.item.removePaths': { payload: itemPayload, result: {} },
+  // protocol 6 (DESIGN 0.7.0 D14)
+  'topic.undo.preview': { payload: { topicId: id('tp'), itemIds: many(L.PLAN_ITEMS_MAX, itemId) }, result: { preview: worstUndoPreview } },
+  'topic.undo': { payload: { topicId: id('tp'), itemIds: many(L.PLAN_ITEMS_MAX, itemId), token: HASH }, result: { plan: worstPlan } },
   'report.get': { payload: itemPayload, result: { report: worstReport } },
   'report.updated': { payload: { ...itemPayload, report: reportSummary } },
   'report.followUp': { payload: { ...itemPayload, text, mentions }, result: messageOrSuggestion },

@@ -121,6 +121,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       stack.add(
         ctx.bus.on('merge.changed', (event) => {
           scheduler.onMerge(event.request);
+          // An undo this module did not make itself (one a crash had cut short, recorded by the worktree module).
+          if (event.request.undone !== undefined) plans.onUndone(event.request);
           merger.onMerge(event.request);
           if (core.started) merger.request();
         }),
@@ -210,6 +212,8 @@ export function createTopicsModule(options: TopicsModuleOptions = {}): FeatureMo
       core.versioned = ctx.workspace.info.isGitRepo;
       // What a crash between two records left out of step (a merge the item never heard of, a session no item names).
       await scheduler.reconcile();
+      // An undo the worktree module recorded after a crash, whose items here still say they are merged (DESIGN 0.7.0 D14).
+      await parts.plans.reconcileUndone();
       // After a restart of the host's smurg nothing runs by itself: interrupted items are stalled, plans are paused.
       await scheduler.afterRestart();
       for (const topic of core.topics()) {

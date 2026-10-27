@@ -2,16 +2,21 @@ import { z } from 'zod';
 import {
   agentSessionSchema,
   itemIdSchema,
+  itemTitleSchema,
   mentionsSchema,
   rememberedRuleToolSchema,
   rulePatternSchema,
   sessionModeChoiceSchema,
+  shortBranchSchema,
   suggestionSchema,
   topicNameSchema,
   topicSlugSchema,
+  userRefSchema,
+  wireTextSchema,
 } from '../entities.ts';
-import { LIST_MAX_ITEMS, PLAN_CHANGES_DIFF_MAX_BYTES, PLAN_INFO_ITEMS_MAX, QUOTE_HEADING_MAX_CHARS, QUOTE_TEXT_MAX_CHARS } from '../limits.ts';
-import { largeTextSchema, lineTextSchema, modelIdSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, userIdSchema } from '../primitives.ts';
+import { LIST_MAX_ITEMS, PLAN_CHANGES_DIFF_MAX_BYTES, PLAN_INFO_ITEMS_MAX, PLAN_ITEMS_MAX, QUOTE_HEADING_MAX_CHARS, QUOTE_TEXT_MAX_CHARS, UNDO_ITEMS_MAX } from '../limits.ts';
+import { entryPathSchema } from '../paths.ts';
+import { indexSchema, largeTextSchema, lineTextSchema, modelIdSchema, multilineTextSchema, opaqueIdSchema, sha256HexSchema, shortTextSchema, userIdSchema } from '../primitives.ts';
 import { planInfoSchema, planModeSchema, reportInfoSchema, reportSummarySchema, startPreflightSchema, topicSchema } from '../topics.ts';
 import { emptyPayloadSchema } from './channel.ts';
 import { messageTextInputSchema } from './sessions.ts';
@@ -190,6 +195,82 @@ export const planItemAcceptPayloadSchema = z.strictObject({ topicId: opaqueIdSch
 export const planItemReleasePayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemId: itemIdSchema, version: z.int().min(1) });
 /** "Ask the agent to take them out" (the host): the item changes files only the host may merge; its agent is asked to undo those changes. */
 export const planItemRemovePathsPayloadSchema = topicItemPayloadSchema;
+
+// ---- protocol 6 (DESIGN 0.7.0 D14): the host's undo, where smurg keeps history ----
+
+/** Paths an undo's preview names per blocker (each list is cut here; the undo is refused anyway while one is there). */
+export const UNDO_PATHS_MAX = 20;
+/** Why an item is taken back: it was asked for, its work stands on one that is, or it changed the same lines later. */
+export const UNDO_REASONS = ['asked', 'built-on', 'same-lines'] as const;
+/** The history an undo writes its commit into: the folder's own `.git`, or smurg's own history (`.smurg/git`). */
+export const UNDO_HISTORIES = ['folder', 'smurg'] as const;
+
+/**
+ * A work item an undo names, with its topic: an item of ANOTHER topic that is taken back with it (it changed the same
+ * lines later) is named with its topic (R-SAFE S13). `number` 0: the item left PLAN.md after it was started.
+ */
+export const undoItemRefSchema = z.strictObject({ topicId: opaqueIdSchema, topicName: topicNameSchema, itemId: itemIdSchema, number: indexSchema, title: itemTitleSchema });
+
+/**
+ * What an undo would do, computed without touching the folder (in smurg's own history after it recorded the folder
+ * first). `token`: what `topic.undo` must echo, over what the undo DOES (the merges it reverts, the items it takes back
+ * and leaves out, whether its trial is clean), not over the head: a saved edit elsewhere does not make it stale.
+ * `undone`: what it takes back; `leftOut`: items not merged that wait for one of them or stand on it (they are left out
+ * as "Leave it out" does); `blockers`: what stops it now, each named; `ok`: nothing stops it.
+ */
+export const undoPreviewSchema = z
+  .strictObject({
+    token: sha256HexSchema,
+    history: z.enum(UNDO_HISTORIES),
+    undone: z.array(undoItemRefSchema.extend({ why: z.enum(UNDO_REASONS) })).max(UNDO_ITEMS_MAX),
+    leftOut: z.array(undoItemRefSchema).max(UNDO_ITEMS_MAX),
+    blockers: z.strictObject({
+      /** Items that would go with it and are in a turn now: wait for them, or stop them. */
+      running: z.array(undoItemRefSchema).max(UNDO_ITEMS_MAX),
+      /** Files a later change of a person (or one made outside smurg: `outside`) touched on the same lines. */
+      changedSince: z.array(z.strictObject({ path: entryPathSchema, by: z.array(userRefSchema).max(5), outside: z.boolean() })).max(UNDO_PATHS_MAX),
+      /** Files it changes that someone is typing in. */
+      typing: z.array(z.strictObject({ path: entryPathSchema, names: z.array(userRefSchema).max(5) })).max(UNDO_PATHS_MAX),
+      /** Files it changes that hold uncommitted edits, or an untracked file where it puts one back (the folder's own git). */
+      uncommitted: z.array(entryPathSchema).max(UNDO_PATHS_MAX),
+      staged: z.boolean(),
+      busy: z.boolean(),
+      /** The main workspace is not on the branch the items' Start committed on. */
+      branch: z.strictObject({ expected: shortBranchSchema, current: shortTextSchema }).nullable(),
+      /** It cannot be done here at all: the items ran directly in the folder, smurg's own history changed or is gone, a merge commit cannot be found, an earlier undo was interrupted, too many items. */
+      unavailable: wireTextSchema.nullable(),
+    }),
+    ok: z.boolean(),
+  })
+  .refine(
+    (p) =>
+      !p.ok ||
+      (p.undone.length > 0 &&
+        p.blockers.running.length === 0 &&
+        p.blockers.changedSince.length === 0 &&
+        p.blockers.typing.length === 0 &&
+        p.blockers.uncommitted.length === 0 &&
+        !p.blockers.staged &&
+        !p.blockers.busy &&
+        p.blockers.branch === null &&
+        p.blockers.unavailable === null),
+    'an undo is ok only with something to take back and nothing in its way',
+  );
+export type UndoPreview = z.infer<typeof undoPreviewSchema>;
+export type UndoItemRef = z.infer<typeof undoItemRefSchema>;
+
+/**
+ * "Undo…" (the host, `worktree.merge.decide`): what taking back these merged items (null: every merged item of the
+ * topic) would do. Nothing changes. Long-running: the page waits five minutes, as for a merge request.
+ */
+export const topicUndoPreviewPayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemIds: z.array(itemIdSchema).min(1).max(PLAN_ITEMS_MAX).nullable() });
+export const topicUndoPreviewResultSchema = z.strictObject({ preview: undoPreviewSchema });
+/**
+ * "Undo" (the host): takes them back with one new commit, the reports kept. `token`: the preview's; refused with
+ * `undo.changed` when what the undo does changed since, and with `undo.notOk` while something is in its way. What goes
+ * with it is named by the preview: items built on them are undone too, items that wait for them are left out.
+ */
+export const topicUndoPayloadSchema = z.strictObject({ topicId: opaqueIdSchema, itemIds: z.array(itemIdSchema).min(1).max(PLAN_ITEMS_MAX).nullable(), token: sha256HexSchema });
 
 export const reportGetPayloadSchema = topicItemPayloadSchema;
 export const reportGetResultSchema = z.strictObject({ report: reportInfoSchema });

@@ -14,11 +14,19 @@
 // without editing PLAN.md), "Merge it as it is" (a version that stands although somebody wrote to its agent since, a
 // later turn was stopped, or its report was not checked again), the host's "Accept as it is" (an item that ran in the
 // folder) and "Ask the agent to take them out" (files only the host may merge).
+//
+// 0.7.0 (DESIGN D14): the host's undo. What it would do is computed by the worktree module (the merges, the trial,
+// what is in the way) and here (what is built on the items, what waits for them, what of it is in a turn; the token
+// over what the undo does). The apply claims its items inside the worktree module's queue, so nothing of them merges
+// between the undo commit and the record here; then every undone item is not merged and not started, its session
+// ended and its worktree released, and what waits for them is left out.
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   MAIN_ROOT,
   PLAN_CHANGES_DIFF_MAX_BYTES,
+  UNDO_ITEMS_MAX,
+  UNDO_PATHS_MAX,
   RELEASABLE_HOLDS,
   PREFLIGHT_ALSO_IN_FOLDER_MAX,
   PREFLIGHT_BLOCKERS_MAX,
@@ -42,18 +50,22 @@ import {
   wireText,
   type Actor,
   type FileRef,
+  type MergeRequest,
   type PlanInfo,
   type SessionModeChoice,
   type StartPreflight,
   type TurnOutcome,
+  type UndoItemRef,
+  type UndoPreview,
   type UserRef,
   type WireText,
   type WorkItem,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
-import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, StartFolderFacts, TurnMessage, WorktreeManager } from '../core/interfaces.ts';
-import { SYSTEM_PRINCIPAL, isHostPrincipal } from '../core/permissions.ts';
+import { AuthorizationError } from '../core/errors.ts';
+import type { FileCheck, McpToolContext, PlanService, Principal, Req, Res, StartFolderFacts, TurnMessage, UndoAsk, UndoFacts, UndoItem, UndoItemKey, WorktreeManager } from '../core/interfaces.ts';
+import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { checkpointCommit } from './checkpoint.ts';
 import { requireModelOffered } from '../sessions/model-offered.ts';
@@ -65,7 +77,7 @@ import type { Scheduler, SchedulerReports } from './scheduler.ts';
 import { checkProposal } from './split.ts';
 import type { Pin, StoredItem, StoredTopic } from './store.ts';
 import type { TopicServiceImpl } from './topic-service.ts';
-import { EMPTY_HASH, wireMultiline } from './text.ts';
+import { EMPTY_HASH, sha256Hex, wireMultiline } from './text.ts';
 
 type MainState = Awaited<ReturnType<WorktreeManager['mainState']>>;
 
@@ -654,6 +666,8 @@ export class PlanServiceImpl implements PlanService {
           delete item.mergeTries;
           delete item.lastTurn;
           delete item.leftOut;
+          // An undone item starts again from the main workspace as it is now (DESIGN 0.7.0 D14: a fresh worktree).
+          delete item.undone;
         }
       });
       for (const itemId of armed) {
@@ -1013,6 +1027,383 @@ export class PlanServiceImpl implements PlanService {
     });
     this.ctx.audit.record({ actor: principal.actor, action: 'plan.item.removePaths', outcome: 'ok', target: topic.id, detail: { topicId: topic.id, itemId: item.id, sessionId, messageId: sent.messageId, paths: paths.slice(0, 20) } });
     this.core.publish(topic.id);
+  }
+
+  // ===================================================================================================================
+  // The host's undo (DESIGN 0.7.0 D14)
+  // ===================================================================================================================
+
+  /** Undo is the host's (`worktree.merge.decide`; the router checks it, and so does this). */
+  private undoHost(principal: Principal): UserRef {
+    if (!isHostPrincipal(principal)) throw new AuthorizationError(undefined, { reason: 'capability' });
+    return userRefOf(principal);
+  }
+
+  /**
+   * The items an undo of `itemIds` (null: the whole topic) is asked for: merged and not undone. Those that ran directly
+   * in the folder have no history smurg could take them back from (`direct`). Refused for an item that is not merged.
+   */
+  private undoAsked(topic: StoredTopic, itemIds: readonly string[] | null): { readonly asked: readonly StoredItem[]; readonly direct: readonly StoredItem[] } {
+    const merged = (item: StoredItem): boolean => item.merged && item.undone === undefined;
+    const notMerged = (): SmurgError => new SmurgError('conflict', msg('undo.notMerged'), { reason: 'not-merged' });
+    const chosen = itemIds === null ? topic.items.filter(merged) : [...new Set(itemIds)].map((id) => this.core.needItem(topic, id));
+    if (chosen.length === 0 || chosen.some((item) => !merged(item))) throw notMerged();
+    const direct = chosen.filter((item) => isDirect(item));
+    return { asked: direct.length > 0 ? [] : chosen, direct };
+  }
+
+  /** Every merged work item of every topic that smurg could take back (not undone, not run directly in the folder). */
+  private undoItems(): UndoItem[] {
+    const out: UndoItem[] = [];
+    for (const topic of this.core.topics()) {
+      for (const item of topic.items) {
+        if (!item.merged || item.undone !== undefined || isDirect(item)) continue;
+        const mergedAs = item.mergedAs;
+        out.push({
+          topicId: topic.id,
+          topicSlug: topic.slug,
+          itemId: item.id,
+          history: item.pin?.history === 'smurg' ? 'smurg' : 'folder',
+          ...(item.pin?.branch === undefined ? {} : { branch: item.pin.branch }),
+          ...(mergedAs === undefined ? {} : { mergedAs: { ...(mergedAs.requestId === undefined ? {} : { requestId: mergedAs.requestId }), ...(mergedAs.commit === undefined ? {} : { commit: mergedAs.commit }) } }),
+        });
+      }
+    }
+    return out;
+  }
+
+  /** The items of the topic that depend on these, directly or through others, whatever their state (these not included). */
+  private dependentsOf(topic: StoredTopic, ids: ReadonlySet<string>): string[] {
+    const out = [...ids];
+    for (let index = 0; index < out.length; index += 1) {
+      const id = out[index] as string;
+      for (const other of topic.items) if (!out.includes(other.id) && other.dependsOn.includes(id)) out.push(other.id);
+    }
+    return out.filter((id) => !ids.has(id));
+  }
+
+  /** These items and every merged item of their plans built on them, transitively (DESIGN 0.7.0 D14 step 2(a), `built-on`). */
+  private withBuiltOn(keys: readonly UndoItemKey[]): UndoItemKey[] {
+    const out = new Map(keys.map((key) => [itemKey(key.topicId, key.itemId), key]));
+    const byTopic = new Map<string, Set<string>>();
+    for (const key of keys) byTopic.set(key.topicId, (byTopic.get(key.topicId) ?? new Set()).add(key.itemId));
+    for (const [topicId, ids] of byTopic) {
+      const topic = this.core.topic(topicId);
+      if (topic === null) continue;
+      for (const id of this.dependentsOf(topic, ids)) {
+        const item = this.core.item(topic, id);
+        if (item !== null && item.merged && item.undone === undefined && !isDirect(item)) out.set(itemKey(topicId, id), { topicId, itemId: id });
+      }
+    }
+    return [...out.values()];
+  }
+
+  private undoAsk(asked: readonly StoredItem[], topic: StoredTopic, host: UserRef): UndoAsk {
+    return { host, asked: asked.map((item) => ({ topicId: topic.id, itemId: item.id })), items: this.undoItems(), withBuiltOn: (keys) => this.withBuiltOn(keys) };
+  }
+
+  /** How a work item is named in an undo's preview: with its topic (an item of another topic goes with it by name). */
+  private undoRef(key: UndoItemKey): UndoItemRef {
+    const topic = this.core.topic(key.topicId);
+    const item = topic === null ? null : this.core.item(topic, key.itemId);
+    return { topicId: key.topicId, topicName: topic?.name ?? key.topicId, itemId: key.itemId, number: item?.number ?? 0, title: item?.title ?? key.itemId };
+  }
+
+  /**
+   * The preview from what the worktree module found and what the plans say (DESIGN 0.7.0 D14 step 2(d), step 5): the
+   * items not merged that wait for an undone one or stand on it are left out (whatever their state: a done dependent
+   * started from the merged state), and one in a turn is in the way instead (`running`), as is an undone item other
+   * than the asked ones whose agent is in a turn. The token is over what the undo DOES: the merges it reverts, the
+   * requests and items it takes back, the items it leaves out, whether its trial is clean.
+   */
+  private describeUndo(facts: UndoFacts): { readonly preview: UndoPreview; readonly undone: readonly UndoItemKey[]; readonly leftOut: readonly UndoItemKey[] } {
+    const undoneKeys = new Set(facts.items.map((item) => itemKey(item.topicId, item.itemId)));
+    const cards = this.core.sessionsWithCards();
+    const inATurn = (key: UndoItemKey): boolean => {
+      const topic = this.core.topic(key.topicId);
+      const item = topic === null ? null : this.core.item(topic, key.itemId);
+      return topic !== null && item !== null && this.core.sessionAtWork(topic, item, cards)?.turnOpen === true;
+    };
+    const leftOut: UndoItemKey[] = [];
+    const running: UndoItemKey[] = facts.items.filter((item) => item.why !== 'asked' && inATurn(item)).map((item) => ({ topicId: item.topicId, itemId: item.itemId }));
+    const byTopic = new Map<string, Set<string>>();
+    for (const item of facts.items) byTopic.set(item.topicId, (byTopic.get(item.topicId) ?? new Set()).add(item.itemId));
+    for (const [topicId, ids] of byTopic) {
+      const topic = this.core.topic(topicId);
+      if (topic === null) continue;
+      for (const id of this.dependentsOf(topic, ids)) {
+        const item = this.core.item(topic, id);
+        if (item === null || undoneKeys.has(itemKey(topicId, id)) || item.merged || item.undone !== undefined || item.leftOut !== undefined) continue;
+        if (inATurn({ topicId, itemId: id })) running.push({ topicId, itemId: id });
+        else leftOut.push({ topicId, itemId: id });
+      }
+    }
+    const sortKeys = (keys: readonly UndoItemKey[]): string[] => keys.map((key) => itemKey(key.topicId, key.itemId)).sort();
+    const requestIds = [...new Set(facts.merges.flatMap((merge) => (merge.requestId === undefined ? [] : [merge.requestId])))].sort();
+    const token = sha256Hex(JSON.stringify({ merges: facts.merges.map((merge) => merge.commit), requests: requestIds, undone: sortKeys(facts.items), leftOut: sortKeys(leftOut), clean: facts.clean }));
+    const tooMany = facts.items.length > UNDO_ITEMS_MAX || leftOut.length > UNDO_ITEMS_MAX || running.length > UNDO_ITEMS_MAX;
+    const unavailable = facts.unavailable !== null ? wireText(facts.unavailable) : tooMany ? wireText(msg('undo.unavailable.tooMany', { max: UNDO_ITEMS_MAX })) : null;
+    const blockers: UndoPreview['blockers'] = {
+      running: running.slice(0, UNDO_ITEMS_MAX).map((key) => this.undoRef(key)),
+      changedSince: facts.changedSince.slice(0, UNDO_PATHS_MAX).map((change) => ({ path: change.path, by: change.by.slice(0, 5).map((user) => ({ userId: user.userId, displayName: user.displayName })), outside: change.outside })),
+      typing: facts.typing.slice(0, UNDO_PATHS_MAX).map((entry) => ({ path: entry.path, names: entry.names.slice(0, 5).map((user) => ({ userId: user.userId, displayName: user.displayName })) })),
+      uncommitted: facts.uncommitted.slice(0, UNDO_PATHS_MAX),
+      staged: facts.staged,
+      busy: facts.busy,
+      branch: facts.branch === null ? null : { expected: facts.branch.expected, current: facts.branch.current },
+      unavailable,
+    };
+    const ok =
+      facts.clean &&
+      facts.items.length > 0 &&
+      unavailable === null &&
+      blockers.running.length === 0 &&
+      blockers.changedSince.length === 0 &&
+      blockers.typing.length === 0 &&
+      blockers.uncommitted.length === 0 &&
+      !blockers.staged &&
+      !blockers.busy &&
+      blockers.branch === null;
+    const undone = facts.items.map((item) => ({ topicId: item.topicId, itemId: item.itemId }));
+    return {
+      preview: {
+        token,
+        history: facts.history,
+        undone: facts.items.slice(0, UNDO_ITEMS_MAX).map((item) => ({ ...this.undoRef(item), why: item.why })),
+        leftOut: leftOut.slice(0, UNDO_ITEMS_MAX).map((key) => this.undoRef(key)),
+        blockers,
+        ok,
+      },
+      undone,
+      leftOut,
+    };
+  }
+
+  /** The preview of items that ran directly in the shared folder: there is no history to take them back from. */
+  private directUndo(topic: StoredTopic, direct: readonly StoredItem[]): UndoPreview {
+    const undone = direct.slice(0, UNDO_ITEMS_MAX).map((item) => ({ ...this.undoRef({ topicId: topic.id, itemId: item.id }), why: 'asked' as const }));
+    return {
+      token: sha256Hex(JSON.stringify({ direct: undone.map((item) => item.itemId) })),
+      history: 'folder',
+      undone,
+      leftOut: [],
+      blockers: { running: [], changedSince: [], typing: [], uncommitted: [], staged: false, busy: false, branch: null, unavailable: wireText(msg('undo.unavailable.direct')) },
+      ok: false,
+    };
+  }
+
+  /** The undo commit's subject (fixed English, one shared history). */
+  private undoSubject(topic: StoredTopic, asked: readonly StoredItem[], whole: boolean): string {
+    if (whole) return `smurg: undo topic ${topic.slug}`;
+    const named = asked.map((item) => `${item.number} (${item.id})`).join(', ');
+    return `smurg: undo work item${asked.length === 1 ? '' : 's'} ${named} of ${topic.slug}`;
+  }
+
+  async undoPreview(input: Req<'topic.undo.preview'>, principal: Principal): Promise<Res<'topic.undo.preview'>> {
+    const host = this.undoHost(principal);
+    const topic = this.core.needOpen(input.topicId);
+    const { asked, direct } = this.undoAsked(topic, input.itemIds);
+    if (direct.length > 0) return { preview: this.directUndo(topic, direct) };
+    const facts = await this.ctx.services.worktrees.undoPreview(this.undoAsk(asked, topic, host));
+    return { preview: this.describeUndo(facts).preview };
+  }
+
+  /**
+   * DESIGN 0.7.0 D14 "Topics": the worktree module's apply, with this module's yes inside its queue (the token, nothing
+   * in the way) and the claim from that moment (D6 row 2: no merge of an undone or left-out item starts meanwhile);
+   * then every undone item is not merged and not started (its session ended after its line, its worktree released: a
+   * new Start makes a fresh one from the main workspace as it is), what waits for them is left out as "Leave it out"
+   * does (by the host), and the claim goes. The topic stays complete when it was checked; else its phase follows D13.
+   */
+  async undo(input: Req<'topic.undo'>, principal: Principal): Promise<PlanInfo> {
+    const host = this.undoHost(principal);
+    const topic = this.core.needOpen(input.topicId);
+    const { asked, direct } = this.undoAsked(topic, input.itemIds);
+    if (direct.length > 0) throw new SmurgError('conflict', msg('undo.unavailable.direct'), { reason: 'direct' });
+    const decided: { described?: ReturnType<PlanServiceImpl['describeUndo']> } = {};
+    const claim = new Set<string>();
+    const release = (): void => {
+      for (const key of claim) this.core.claimed.delete(key);
+    };
+    let done: Awaited<ReturnType<WorktreeManager['undo']>>;
+    try {
+      done = await this.ctx.services.worktrees.undo({
+        ...this.undoAsk(asked, topic, host),
+        subject: this.undoSubject(topic, asked, input.itemIds === null),
+        confirm: (facts) => {
+          const described = this.describeUndo(facts);
+          if (described.preview.token !== input.token) throw new SmurgError('conflict', msg('undo.changed'), { reason: 'changed' });
+          if (!described.preview.ok) throw new SmurgError('conflict', msg('undo.notOk'), { reason: 'not-ok' });
+          for (const key of [...described.undone, ...described.leftOut]) {
+            const k = itemKey(key.topicId, key.itemId);
+            claim.add(k);
+            this.core.claimed.add(k);
+          }
+          decided.described = described;
+        },
+      });
+    } catch (err) {
+      release();
+      if (err instanceof SmurgError && (err.detail?.['reason'] === 'changed' || err.detail?.['reason'] === 'not-ok')) {
+        this.ctx.audit.record({ actor: principal.actor, action: 'worktree.merge.undo', outcome: 'denied', target: topic.id, detail: { topicId: topic.id, itemIds: asked.map((item) => item.id), reason: err.detail['reason'] } });
+      }
+      throw err;
+    }
+    const described = decided.described;
+    try {
+      if (described !== undefined) await this.takeBack(described.undone, described.leftOut, { by: host, at: this.ctx.clock.now(), commit: done.commit, actor: principal.actor });
+    } finally {
+      release();
+    }
+    const askedKeys = new Set(asked.map((item) => itemKey(topic.id, item.id)));
+    this.ctx.audit.record({
+      actor: principal.actor,
+      action: 'worktree.merge.undo',
+      outcome: 'ok',
+      target: topic.id,
+      detail: {
+        topicId: topic.id,
+        requestIds: [...new Set(done.facts.merges.flatMap((merge) => (merge.requestId === undefined ? [] : [merge.requestId])))],
+        itemIds: asked.map((item) => item.id),
+        goesWith: done.facts.items.filter((item) => !askedKeys.has(itemKey(item.topicId, item.itemId))).map((item) => ({ topicId: item.topicId, itemId: item.itemId, why: item.why })),
+        leftOut: (described?.leftOut ?? []).map((key) => ({ topicId: key.topicId, itemId: key.itemId })),
+        commit: done.commit,
+        files: done.files,
+        history: done.facts.history,
+      },
+    });
+    const activity = this.ctx.services.activity;
+    if (!isStubService(activity)) {
+      try {
+        activity.record({ actor: principal.actor, kind: 'merge', text: msg('activity.undo', { items: done.facts.items.map((item) => item.itemId).slice(0, UNDO_ITEMS_MAX) }) });
+      } catch (err) {
+        this.ctx.log.error('undo activity failed', { module: 'topics', error: err instanceof Error ? err.name : 'unknown' });
+      }
+    }
+    this.merger?.request();
+    this.scheduler.request();
+    return this.needPlan(topic.id);
+  }
+
+  /**
+   * The topics' half of an undo (DESIGN 0.7.0 D14): every undone item is not merged and not started (its record of the
+   * merge queue goes, its live session ends after `conversation.ended.undone`, its worktree is released); every
+   * left-out one as "Leave it out" leaves it (its session ended, its worktree kept).
+   */
+  private async takeBack(undone: readonly UndoItemKey[], leftOut: readonly UndoItemKey[], input: { readonly by: UserRef; readonly at: number; readonly commit: string; readonly actor: Actor }): Promise<void> {
+    const undoneKeys = new Set(undone.map((key) => itemKey(key.topicId, key.itemId)));
+    const leftKeys = new Set(leftOut.map((key) => itemKey(key.topicId, key.itemId)));
+    const topicIds = new Set([...undone, ...leftOut].map((key) => key.topicId));
+    const sessions: { readonly sessionId: string; readonly line: ReturnType<typeof msg> }[] = [];
+    const release: string[] = [];
+    for (const topicId of topicIds) {
+      if (this.core.topic(topicId) === null) continue;
+      this.core.update(topicId, (draft) => {
+        for (const item of draft.items) {
+          const key = itemKey(topicId, item.id);
+          if (undoneKeys.has(key)) {
+            if (item.undone !== undefined) continue;
+            const live = this.liveSession(item);
+            if (live !== null) sessions.push({ sessionId: live, line: msg('conversation.ended.undone', { name: input.by.displayName }) });
+            if (item.worktreeId !== undefined) release.push(item.worktreeId);
+            item.undone = { by: { userId: input.by.userId, displayName: input.by.displayName }, at: input.at, commit: input.commit };
+            item.merged = false;
+            item.armed = false;
+            item.retry = false;
+            item.state = 'not-started';
+            item.since = input.at;
+            delete item.mergedAs;
+            delete item.autoMerge;
+            delete item.merge;
+            delete item.changesAsked;
+            delete item.lastTurn;
+            delete item.mergeTries;
+            delete item.leftOut;
+            delete item.stalledBy;
+          } else if (leftKeys.has(key)) {
+            if (item.leftOut !== undefined || item.merged) continue;
+            const live = this.liveSession(item);
+            if (live !== null) sessions.push({ sessionId: live, line: msg('conversation.ended.leftOut', { name: input.by.displayName }) });
+            item.leftOut = { by: { userId: input.by.userId, displayName: input.by.displayName }, at: input.at };
+            item.armed = false;
+            item.retry = false;
+            delete item.autoMerge;
+            delete item.stalledBy;
+            item.state = item.sessions.length > 0 ? 'stopped' : 'not-started';
+            item.since = input.at;
+          }
+        }
+      });
+    }
+    for (const key of [...undone, ...leftOut]) {
+      this.core.refused.delete(itemKey(key.topicId, key.itemId));
+      this.merger?.forget(key.topicId, key.itemId);
+    }
+    const agents = this.ctx.services.agents;
+    for (const { sessionId, line } of sessions) {
+      try {
+        agents.append(sessionId, lineEvent(line));
+        await agents.end(sessionId, { by: input.actor, reason: 'ended', keepWorktree: true });
+      } catch (err) {
+        this.ctx.log.warn('the session of an undone or left-out item was not ended', { module: 'topics', session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
+      }
+    }
+    // Re-merging reverted commits does nothing ("Already up to date"): a new Start needs a fresh worktree from the main workspace.
+    const worktrees = this.ctx.services.worktrees;
+    for (const worktreeId of release) {
+      try {
+        if (worktrees.get(worktreeId) !== null) await worktrees.releaseItem(worktreeId);
+      } catch (err) {
+        this.ctx.log.warn('the worktree of an undone item was not released', { module: 'topics', worktree: worktreeId, error: err instanceof Error ? err.name : 'unknown' });
+      }
+    }
+    for (const topicId of topicIds) this.core.publish(topicId);
+  }
+
+  /**
+   * A merge request of a work item was undone that this module did not take back itself (DESIGN 0.7.0 D14 step 7: the
+   * worktree module recorded an undo a crash had cut short): its item, and what waits for it, follow now.
+   */
+  onUndone(request: MergeRequest): void {
+    if (!this.core.started || request.undone === undefined || request.topicId === undefined || request.itemId === undefined) return;
+    const topicId = request.topicId;
+    const itemId = request.itemId;
+    const undone = request.undone;
+    void this.core
+      .serialize(`undo:${topicId}`, () => this.followUndone(topicId, itemId, request.id, undone))
+      .catch((err: unknown) => this.ctx.log.error('an undone item was not taken back', { module: 'topics', topic: topicId, item: itemId, error: err instanceof Error ? err.name : 'unknown' }));
+  }
+
+  /** At the start: requests the worktree module has as undone whose items still say they are merged (a crash between the two records). */
+  async reconcileUndone(): Promise<void> {
+    const worktrees = this.ctx.services.worktrees;
+    if (isStubService(worktrees) || !this.core.started) return;
+    let requests: MergeRequest[] = [];
+    try {
+      requests = worktrees.listMerges(SYSTEM_PRINCIPAL);
+    } catch {
+      return;
+    }
+    for (const request of requests) {
+      if (request.undone === undefined || request.topicId === undefined || request.itemId === undefined) continue;
+      await this.followUndone(request.topicId, request.itemId, request.id, request.undone).catch((err: unknown) =>
+        this.ctx.log.error('an undone item was not taken back at the start', { module: 'topics', topic: request.topicId, item: request.itemId, error: err instanceof Error ? err.name : 'unknown' }),
+      );
+    }
+  }
+
+  private async followUndone(topicId: string, itemId: string, requestId: string, undone: NonNullable<MergeRequest['undone']>): Promise<void> {
+    const topic = this.core.topic(topicId);
+    const item = topic === null ? null : this.core.item(topic, itemId);
+    if (topic === null || item === null || item.undone !== undefined || this.core.claimed.has(itemKey(topicId, itemId))) return;
+    if (item.mergedAs?.requestId !== requestId && item.merge?.requestId !== requestId) return;
+    const leftOut = this.dependentsOf(topic, new Set([itemId]))
+      .map((id) => this.core.item(topic, id))
+      .filter((other): other is StoredItem => other !== null && !other.merged && other.undone === undefined && other.leftOut === undefined)
+      .map((other) => ({ topicId, itemId: other.id }));
+    await this.takeBack([{ topicId, itemId }], leftOut, { by: undone.by, at: undone.at, commit: undone.commit, actor: SYSTEM_ACTOR });
+    this.merger?.request();
+    this.scheduler.request();
   }
 
   // ===================================================================================================================

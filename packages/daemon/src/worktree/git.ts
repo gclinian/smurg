@@ -68,6 +68,11 @@ export interface GitRunOptions {
   readonly committer?: GitIdentity;
   /** Read .gitattributes from this tree-ish instead of the working tree (a trusted commit of the main workspace). */
   readonly attrSource?: string;
+  /**
+   * An index file of the daemon's own (GIT_INDEX_FILE) instead of the repository's (DESIGN 0.7.0 D14: the undo's trial
+   * puts the reports back into a tree without touching the index people's git sees). Absolute.
+   */
+  readonly indexFile?: string;
   /** Written to stdin (then closed). */
   readonly input?: string | Uint8Array;
   /** Read-only commands: do not take optional locks (index refresh) in a repository someone else uses. */
@@ -227,6 +232,10 @@ export class GitRunner {
     args.push(...options.args);
     const env: Record<string, string> = { ...this.baseEnv };
     if (options.readOnly) env['GIT_OPTIONAL_LOCKS'] = '0';
+    if (options.indexFile !== undefined) {
+      if (!isAbsolute(options.indexFile)) throw new TypeError('the index file must be an absolute path');
+      env['GIT_INDEX_FILE'] = options.indexFile;
+    }
     if (options.store) {
       for (const path of [options.store.objectDir, options.store.indexFile]) if (!isAbsolute(path)) throw new TypeError('object store paths must be absolute');
       env['GIT_OBJECT_DIRECTORY'] = options.store.objectDir;

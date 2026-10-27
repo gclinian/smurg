@@ -96,6 +96,11 @@ export function registerTopicHandlers(router: Router, services: { readonly topic
   stack.add(router.handle('plan.item.accept', async (payload, req) => ({ plan: await plans.accept(payload, req.principal) })));
   // [session.drive] topic-open; an item held for a person's message, a stopped turn or an unchecked report, the current version
   stack.add(router.handle('plan.item.release', async (payload, req) => ({ plan: await plans.release(payload, req.principal) })));
+  // ---- the host's undo (DESIGN 0.7.0 D14) ----
+  // [worktree.merge.decide] topic-open; what it would do, nothing changes
+  stack.add(router.handle('topic.undo.preview', async (payload, req) => plans.undoPreview(payload, req.principal)));
+  // [worktree.merge.decide] topic-open; the preview's token
+  stack.add(router.handle('topic.undo', async (payload, req) => ({ plan: await plans.undo(payload, req.principal) })));
   // [worktree.merge.decide] topic-open; an item held for files only the host may merge, with a live session
   stack.add(
     router.handle('plan.item.removePaths', async (payload, req) => {

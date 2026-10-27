@@ -425,6 +425,34 @@ export class FakePlanService implements PlanService {
     this.log.record('removePaths', input, principal);
   }
 
+  /** What `undoPreview` answers (tests set it); default: nothing to take back, and nothing can be (`ok` false). */
+  nextUndoPreview: Res<'topic.undo.preview'>['preview'] | null = null;
+
+  async undoPreview(input: Req<'topic.undo.preview'>, principal: Principal): Promise<Res<'topic.undo.preview'>> {
+    this.log.record('undoPreview', input, principal);
+    this.need(input.topicId);
+    return {
+      preview: structuredClone(
+        this.nextUndoPreview ?? {
+          token: 'f'.repeat(64),
+          history: 'folder',
+          undone: [],
+          leftOut: [],
+          blockers: { running: [], changedSince: [], typing: [], uncommitted: [], staged: false, busy: false, branch: null, unavailable: null },
+          ok: false,
+        },
+      ),
+    };
+  }
+
+  /** The undo: each item asked for says it is undone (the real one also takes back what is built on it). */
+  async undo(input: Req<'topic.undo'>, principal: Principal): Promise<PlanInfo> {
+    this.log.record('undo', input, principal);
+    const plan = this.need(input.topicId);
+    const ids = new Set(input.itemIds ?? plan.items.map((item) => item.id));
+    return this.putPlan({ ...plan, items: plan.items.map((item) => (ids.has(item.id) ? { ...item, state: 'not-started', undone: { by: userRef(principal), at: this.env.clock.now() } } : item)) });
+  }
+
   checkPlan(ctx: McpToolContext): ReturnType<PlanService['checkPlan']> {
     this.log.record('checkPlan', ctx);
     return this.planCheck;

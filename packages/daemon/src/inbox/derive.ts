@@ -400,6 +400,8 @@ function deriveReports(world: InboxWorld, boxes: Boxes): void {
     const planItem = world.plan(topicId)?.items.find((item) => item.id === itemId);
     // Under automatic merging nobody waits for a review (DESIGN 0.7.0 D12): a held item has its decision instead.
     if (planItem?.merging === 'auto') continue;
+    // The host took its merge back (DESIGN 0.7.0 D14): there is nothing of it left to review before a merge.
+    if (planItem?.undone !== undefined) continue;
     const view = planItem?.sessionId === undefined ? null : world.session(planItem.sessionId);
     const escalated = report.escalatedAt !== undefined;
     let reviewers: string[];

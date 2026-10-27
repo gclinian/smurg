@@ -19,7 +19,26 @@ import {
   type WorktreeInfo,
 } from '@smurg/protocol';
 import { msg, type MessageRef } from '@smurg/protocol/i18n';
-import type { AutoMergeInput, AutoMergeOutcome, HistoryState, MainState, PeopleChange, Principal, Req, Res, RootInfo, SnapshotResult, StartFolderFacts, WorktreeHandle, WorktreeManager } from '../interfaces.ts';
+import type {
+  AutoMergeInput,
+  AutoMergeOutcome,
+  HistoryState,
+  MainState,
+  PeopleChange,
+  Principal,
+  Req,
+  Res,
+  RootInfo,
+  SnapshotResult,
+  StartFolderFacts,
+  UndoApply,
+  UndoAsk,
+  UndoDone,
+  UndoFacts,
+  UndoItemKey,
+  WorktreeHandle,
+  WorktreeManager,
+} from '../interfaces.ts';
 import { buildMergeRequest, buildWorktree } from './build.ts';
 import { CallLog, fakeId, type FakeEnv } from './env.ts';
 
@@ -222,6 +241,72 @@ export class FakeWorktreeManager implements WorktreeManager {
 
   pendingMergeParent(worktreeId: string): string | null {
     return this.mergeParents.get(worktreeId) ?? null;
+  }
+
+  /**
+   * What an undo finds besides what the fake computes (DESIGN 0.7.0 D14): blockers, a trial that is not clean. Tests set
+   * it; the fake's own answer is clean with nothing in the way.
+   */
+  undoBlockers: Partial<Pick<UndoFacts, 'clean' | 'changedSince' | 'typing' | 'uncommitted' | 'staged' | 'busy' | 'branch' | 'unavailable'>> = {};
+  /** Items of any topic the fake says changed the same lines later (they go with an undo, `same-lines`), when they are merged. */
+  undoSameLines: UndoItemKey[] = [];
+
+  /** As the real module, on the `main` queue: what goes with it (the topics module's closure, `undoSameLines`), the merges. */
+  async undoPreview(input: UndoAsk): Promise<UndoFacts> {
+    this.log.record('undoPreview', { asked: input.asked, host: input.host });
+    return this.onMain(async () => this.undoFacts(input));
+  }
+
+  /** The same again inside the queue, `confirm`, then each request `undone` by one fake commit (`merge.changed`). */
+  async undo(input: UndoApply): Promise<UndoDone> {
+    this.log.record('undo', { asked: input.asked, host: input.host, subject: input.subject });
+    return this.onMain(async () => {
+      const facts = this.undoFacts(input);
+      input.confirm(facts);
+      if (!facts.clean || facts.unavailable !== null) throw new SmurgError('conflict', msg('undo.notOk'), { reason: 'not-ok' });
+      const commit = this.nextCommit('undo');
+      for (const merge of facts.merges) {
+        const request = merge.requestId === undefined ? undefined : this.requests.get(merge.requestId);
+        if (request !== undefined) this.putRequest({ ...request, undone: { commit, at: this.env.clock.now(), by: { ...input.host } } });
+      }
+      return { facts, commit, files: facts.files };
+    });
+  }
+
+  private undoFacts(input: UndoAsk): UndoFacts {
+    const key = (item: UndoItemKey): string => `${item.topicId}\u0000${item.itemId}`;
+    const merged = new Map(input.items.map((item) => [key(item), item]));
+    const why = new Map<string, { readonly item: UndoItemKey; readonly why: 'asked' | 'built-on' | 'same-lines' }>();
+    for (const item of input.asked) why.set(key(item), { item, why: 'asked' });
+    const builtOn = (): void => {
+      for (const item of input.withBuiltOn([...why.values()].map((entry) => entry.item))) if (!why.has(key(item))) why.set(key(item), { item, why: 'built-on' });
+    };
+    builtOn();
+    const sameLines = this.undoSameLines.filter((item) => merged.has(key(item)) && !why.has(key(item)));
+    for (const item of sameLines) why.set(key(item), { item, why: 'same-lines' });
+    if (sameLines.length > 0) builtOn();
+    const merges: UndoFacts['merges'][number][] = [];
+    let found = true;
+    for (const { item } of why.values()) {
+      const requests = [...this.requests.values()].filter((request) => request.topicId === item.topicId && request.itemId === item.itemId && request.status === 'merged' && request.undone === undefined);
+      if (requests.length === 0) found = false;
+      for (const request of requests) merges.push({ topicId: item.topicId, itemId: item.itemId, commit: fakeCommit(`merge:${request.id}`), requestId: request.id });
+    }
+    const first = merged.get(key(input.asked[0] ?? { topicId: '', itemId: '' }));
+    return {
+      history: first?.history ?? 'folder',
+      items: [...why.values()].map((entry) => ({ topicId: entry.item.topicId, itemId: entry.item.itemId, why: entry.why })),
+      merges,
+      clean: this.undoBlockers.clean ?? true,
+      changedSince: structuredClone(this.undoBlockers.changedSince ?? []),
+      typing: structuredClone(this.undoBlockers.typing ?? []),
+      uncommitted: [...(this.undoBlockers.uncommitted ?? [])],
+      staged: this.undoBlockers.staged ?? false,
+      busy: this.undoBlockers.busy ?? false,
+      branch: this.undoBlockers.branch ?? null,
+      unavailable: this.undoBlockers.unavailable ?? (found ? null : msg('undo.unavailable.notFound')),
+      files: merges.length,
+    };
   }
 
   /**
