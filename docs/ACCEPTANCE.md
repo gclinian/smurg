@@ -70,6 +70,27 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
   `PATH` or named by `SMURG_TEST_CLAUDE_BIN=/absolute/path/to/claude`, and skips loudly otherwise. For a release it is
   run with `SMURG_TEST_CLAUDE_BIN` pointing at 2.1.288 ("Other ways to run" below; `docs/RELEASING.md` §4.5). No real
   Claude account is used at any point.
+- **Expected result, v0.7.0** (English and zh-TW, protocol 6; `SMURG_RELEASE_GATE=1` with the published executables
+  of 0.4.0, 0.5.0, 0.5.1, 0.5.2 and 0.6.0 in `SMURG_PREVIOUS_BINARIES`, each downloaded from `downloads.smurg.ai` and
+  checked against its `SHA256SUMS`, and this tree's build in `SMURG_SEA_BINARY`, so the upgrade from all five ran with
+  the real files; 2026-10-27, the release's code, its changelog heading still `YYYY-MM-DD`):
+  - macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code 2.1.288, the gate
+    run as its four parts (`docs/RELEASING.md` §4.5 step 1), each with the same variables: `pnpm typecheck` exit 0;
+    `--project @smurg/daemon`: `Test Files  173 passed (173)`, `Tests  2309 passed | 10 skipped (2319)`, 283 s;
+    `--project @smurg/web --project @smurg/web-smoke --project @smurg/e2e`: `Test Files  168 passed (168)`,
+    `Tests  1847 passed (1847)`, 459 s; `--project @smurg/cli --project @smurg/protocol --project @smurg/relay
+    --project @smurg/site --project @smurg/lint`: `Test Files  132 passed (132)`, `Tests  6605 passed | 1 skipped
+    (6606)`, 101 s. Together `Test Files  473 passed (473)` and `Tests  10761 passed | 11 skipped (10772)`, about
+    840 s of vitest, exit 0; no file skipped (the tests of the packaged executable ran, the upgrade from the five
+    published executables among them, 5 of 5: the build is 113.1 MiB; the real-Claude suite and `flow.claude.smoke`
+    ran). The eleven skipped tests: the seven Linux-only ones, the three comparisons of
+    `daemon/upgrade/wire.test.ts` with v0.6.0 (the protocol changed on purpose, and they say so) and the opt-in test of
+    `cli/test/dev-stack.test.ts`. The real-Claude suite alone (eight files, "Other ways to run" below; 0.7.0 adds none):
+    `Test Files  8 passed (8)`, `Tests  60 passed (60)`. The web-smoke project's flow smokes run both flows since
+    0.7.0 (automatic merging, and "I merge each item myself"), and P3 stayed under the 10-minute rule, so the gate is
+    still four parts.
+  - The Ubuntu 24.04 VM was not run for this build: a step before the tag (its published Linux executables of 0.6.0
+    are downloaded first, `docs/RELEASING.md` §4.5 step 1).
 - **Expected result, v0.6.0** (English and zh-TW, protocol 5; `SMURG_RELEASE_GATE=1` with the published executables
   of 0.4.0, 0.5.0, 0.5.1 and 0.5.2 in `SMURG_PREVIOUS_BINARIES` and this tree's build in `SMURG_SEA_BINARY`, so the
   upgrade from all four ran with the real files; 2026-10-21, the release's code, its changelog heading still

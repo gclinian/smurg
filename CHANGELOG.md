@@ -5,6 +5,35 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [0.7.0] - YYYY-MM-DD
+
+- **Topics run to the end by themselves.** After Start, smurg merges each work item into the shared folder when its
+  result report says complete, at least one of its checks passed and none failed, and the merge is clean; what waits
+  for it then starts from the merged folder. Nobody has to review a report or press merge first. "I've reviewed this"
+  stays, as a mark ([host guide](docs/HOSTING.md) §10.3).
+- **It stops for a decision**: a question, a request the permission mode still asks, a report that is not complete
+  and verified, work a person stopped or wrote to the agent about, files only the host may merge, the host's folder in
+  the way, a merge that stays unclean after the item's agent brought its work up to date, or a conflict with a person's
+  change. Each goes to the right person's inbox, and everything that does not depend on it goes on.
+  "Leave it out" drops one work item and what depends on it without editing the plan.
+- **Ready to check.** When every item is merged, every member's inbox says so, and the new Result column shows every
+  report, every changed file and what was not verified; "I've checked the result" completes the topic. Where smurg
+  keeps history, the host can undo an item or the whole topic: one new commit, the reports kept, and what was built on
+  it named first ([host guide](docs/HOSTING.md) §10.3).
+- **A result report says what failed**: a check that failed is written `- [!] …: failed: …`, and a report with one
+  cannot say complete.
+- **Workspaces shared with an earlier smurg merge by themselves after the update**: `smurg host` says so in one line,
+  and "Merging work items" in the host console's settings turns it off, which gives back the host's merge of every
+  item. Work items started before the update still wait for the host. Whoever starts a topic can choose "The host
+  merges each item".
+- **Plans go on** after a restart of `smurg host`, when a usage limit ends, after a turn that ended on an error (twice)
+  and after an agent's process stopped (once); work items that wait for a person no longer keep the others from
+  starting. "Pause" stops a plan until someone continues it, also across restarts ([host guide](docs/HOSTING.md)
+  §10.5).
+- **The protocol changed (version 6).** Update before you share again (`smurg update`): until then, teammates' pages
+  say "The host's smurg is older than this page". A tab from before the update says "This tab is from before an
+  update" and needs a reload. If you run your own relay, deploy it again.
+
 ## [0.6.0] - 2026-10-21
 
 - **Choose the model.** The host and members with agent access choose an agent session's model from the list the

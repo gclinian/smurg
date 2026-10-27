@@ -2,7 +2,7 @@
 // E-tests; docs/RELEASING.md runs it before every release with the executable of every published version `smurg update`
 // can start from). Opt-in, beside sea-update.test.ts. From the repository's root:
 //
-//   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64:/path/to/v0.5.1/smurg-darwin-arm64:/path/to/v0.5.2/smurg-darwin-arm64 \
+//   SMURG_PREVIOUS_BINARIES=/path/to/v0.4.0/smurg-darwin-arm64:/path/to/v0.5.0/smurg-darwin-arm64:/path/to/v0.5.1/smurg-darwin-arm64:/path/to/v0.5.2/smurg-darwin-arm64:/path/to/v0.6.0/smurg-darwin-arm64 \
 //   SMURG_SEA_BINARY=packages/cli/dist/smurg-darwin-arm64 \
 //     pnpm --filter @smurg/cli exec vitest run test/sea-upgrade.test.ts
 //
@@ -27,16 +27,17 @@
 //      byte for byte, and the stamp names the shapes; when they needed none (0.5.0), nothing of that appears;
 //   5. the new executable stops;
 //   6. the OLD executable shares the folder once more (0.6.0, DESIGN D2): it refuses what the new one wrote, before it
-//      connects anywhere, with its own words (0.5.1 and 0.5.2: "Nothing was changed.", "Run smurg update, then smurg
-//      host again."), and the workspace's state folder is byte for byte what it was;
+//      connects anywhere, with its own words (0.5.1, 0.5.2 and 0.6.0: "Nothing was changed.", "Run smurg update, then
+//      smurg host again."), and the workspace's state folder is byte for byte what it was;
 //   7. a state file that other users can read is refused by the new executable (run in Traditional Chinese): the text
 //      names the file and the one chmod, never "move", and the file is as it was.
 // 0.6.0 (DESIGN D6, D13): every published smurg's state.json needs the step to 0.6.0 (workspaces switch to auto mode,
 // the owner's decision), so for each of them the upgrade line AND the line about auto mode are printed, the old file
 // is kept, and the stamp names shapes 2. 0.7.0 (DESIGN 0.7.0 D4): every published state.json, 0.6.0's included, needs
 // the step from 0.6.0 too (automatic merging, the owner's words of 2026-10-26): the old file is kept under the name of
-// the first step that ran, and the stamp names shapes 3. (The line 0.7.0's `smurg host` prints about it, D18, is
-// 0.7.0 S6's; the lines this test expects are completed with it, BUILD-PLAN S9.)
+// the first step that ran, the stamp names shapes 3, and after the upgrade line `smurg host` prints the line about
+// auto mode only for what 0.5.2 or an older smurg wrote (0.6.0's workspaces are in auto mode already), then, for
+// every published smurg, ONE line about automatic merging (DESIGN 0.7.0 D18, `host.mergesAuto`).
 // The relay is the fake relay of these tests (the relay never reads a frame, and its own source did not change between
 // 0.4.0 and 0.5.0): logins and the workspace claim are its HTTP API; the NEW host's relay links are tunnelled to an
 // in-memory relay so that the test can reach it as the host's console does. Only processes this test started are ever
@@ -96,6 +97,10 @@ if (PLAN.kind === 'failed') {
 const UPGRADE_NOTICE = /last shared with (?:smurg \d+\.\d+\.\d+|an earlier smurg).*carried over/i;
 /** The line of a start that switched the workspace to auto mode (DESIGN 0.6.0 D13; `host.agentsAuto`, held word for word by host-state-words.test.ts). */
 const AGENTS_AUTO = /^Agents now run in auto mode: .*Guide: https:\/\/smurg\.ai\/docs\/hosting\/#52-what-agents-do-by-themselves-and-what-they-ask-first$/;
+/** The line of a start that turned automatic merging on (DESIGN 0.7.0 D18; `host.mergesAuto`, held word for word by host-state-words.test.ts). */
+const MERGES_AUTO = /^Work items now merge by themselves: .*Guide: https:\/\/smurg\.ai\/docs\/hosting\/#103-merging-and-what-waits-for-it$/;
+/** Whether the step from 0.5.0 ran too (DESIGN 0.6.0 D13: what 0.5.2 or an older smurg wrote switches to auto mode; 0.6.0's own folder does not). */
+const switchesToAutoMode = (version: string): boolean => /^0\.(4|5)\./.test(version);
 /**
  * What each published smurg says of a folder 0.6.0 wrote (recorded with the published executables, 2026-10-20): 0.5.1
  * and later read the stamp (`shapes` 2) and say it is a newer smurg's; 0.4.0 and 0.5.0 have no stamp reader, and their
@@ -283,15 +288,20 @@ describe.runIf(PLAN.kind === 'run')('the upgrade with real executables: what eac
       expect(typeof stamp.smurg).toBe('string');
       expect((JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8')) as { version: unknown; settings: { permissionMode: unknown; merging: unknown } })).toMatchObject({ version: 3, settings: { permissionMode: 'auto', merging: 'auto' } });
 
-      // The command's part (DESIGN A7, C; step K3B; 0.6.0 D13): the upgrade in ONE line, naming the smurg that last
-      // wrote the folder, then ONE line about auto mode, then the start as always.
+      // The command's part (DESIGN A7, C; step K3B; 0.6.0 D13; 0.7.0 D18): the upgrade in ONE line, naming the smurg
+      // that last wrote the folder, then ONE line about auto mode (what 0.5.2 or an older smurg wrote), then ONE line
+      // about automatic merging, then the start as always.
       const lines = after.out().split('\n');
       const noticeLines = lines.filter((line) => UPGRADE_NOTICE.test(line));
       const autoLines = lines.filter((line) => AGENTS_AUTO.test(line));
+      const mergeLines = lines.filter((line) => MERGES_AUTO.test(line));
+      const toAutoMode = switchesToAutoMode(oldVersion as string);
       expect(noticeLines, `the one-line upgrade notice in what smurg host printed:\n${after.out()}`).toHaveLength(1);
-      expect(autoLines, `the line about auto mode in what smurg host printed:\n${after.out()}`).toHaveLength(1);
+      expect(autoLines, `the line about auto mode in what smurg host printed:\n${after.out()}`).toHaveLength(toAutoMode ? 1 : 0);
+      expect(mergeLines, `the line about automatic merging in what smurg host printed:\n${after.out()}`).toHaveLength(1);
       expect(noticeLines[0]).toContain(`last shared with smurg ${(oldVersion as string).replace(/-.*$/, '')}:`);
-      expect(after.out().startsWith(`${noticeLines[0]}\n\n${autoLines[0]}\n\nsmurg is sharing "`), after.out()).toBe(true);
+      const found = [noticeLines[0], ...(toAutoMode ? [autoLines[0]] : []), mergeLines[0]];
+      expect(after.out().startsWith(`${found.join('\n\n')}\n\nsmurg is sharing "`), after.out()).toBe(true);
       expect(after.err(), 'the new executable said nothing on stderr').toBe('');
 
       const end = await smurg(bin, ['stop'], env, project);
