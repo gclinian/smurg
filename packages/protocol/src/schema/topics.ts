@@ -340,8 +340,10 @@ export type PeopleChange = z.infer<typeof peopleChangeSchema>;
  * person's change. `asked`: with `asked`, who wrote to the agent. `undelivered`: with a hold, a message no turn has
  * taken waits in the item's session, which has no process, and nothing delivers it by itself (a restart left it there,
  * or the process failed): "Merge it as it is" and "Accept as it is" are refused until Continue delivered it (0.7.0 last
- * check). The paths and the people together take at most AUTO_MERGE_TEXT_MAX_BYTES (every item of a plan may carry
- * them, and a plan travels whole).
+ * check). `sessionEnded`: with a hold, the item's session has ended (a person's "End session", the host's): nothing
+ * continues it, Continue and the resolve of a conflict are refused, and what the worktree of a merged item holds is asked
+ * to merge as it is with the worktree's "Request merge" (0.7.0 fix8). The paths and the people together take at most
+ * AUTO_MERGE_TEXT_MAX_BYTES (every item of a plan may carry them, and a plan travels whole).
  */
 export const autoMergeInfoSchema = z
   .strictObject({
@@ -356,6 +358,7 @@ export const autoMergeInfoSchema = z
     people: z.array(peopleChangeSchema).max(AUTO_MERGE_PATHS_MAX).optional(),
     asked: userRefSchema.optional(),
     undelivered: z.literal(true).optional(),
+    sessionEnded: z.literal(true).optional(),
   })
   .refine((info) => AUTO_MERGE_REASONS_OF_STATE[info.state].includes(info.reason), 'a reason of another state')
   .refine((info) => info.hostOnly === (info.state === 'held' && (HOST_HOLDS as readonly string[]).includes(info.reason)), 'only a hold of HOST_HOLDS is the host\'s')
@@ -364,6 +367,7 @@ export const autoMergeInfoSchema = z
   .refine((info) => info.people === undefined || info.reason === 'conflict', '`people` goes with a conflict')
   .refine((info) => info.asked === undefined || info.reason === 'asked', '`asked` goes with the reason asked')
   .refine((info) => info.undelivered === undefined || info.state === 'held', '`undelivered` goes with a hold')
+  .refine((info) => info.sessionEnded === undefined || info.state === 'held', '`sessionEnded` goes with a hold')
   .refine((info) => autoMergeTextBytes(info) <= AUTO_MERGE_TEXT_MAX_BYTES, `the paths and the people take more than ${AUTO_MERGE_TEXT_MAX_BYTES} bytes`);
 export type AutoMergeInfo = z.infer<typeof autoMergeInfoSchema>;
 

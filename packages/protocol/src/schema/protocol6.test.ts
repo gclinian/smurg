@@ -223,6 +223,17 @@ describe('what a work item says about its merge (D6-D9)', () => {
     expect(workItemSchema.safeParse({ ...heldItem, autoMerge: { ...heldItem.autoMerge, reason: 'stopped', undelivered: true } }).success).toBe(true);
   });
 
+  // 0.7.0 fix8 (W/verify/last7/hold, E3): Continue and the resolve of a conflict are refused once the item's session has
+  // ended; the foot must know to offer the worktree's "Request merge" for what a merged item's worktree holds instead.
+  it('`sessionEnded` goes with a hold: the item\'s session has ended, and nothing continues it', () => {
+    const held = { since: 1, tries: 0, escalated: false, hostOnly: false };
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'edited', sessionEnded: true }).success).toBe(true);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'stopped', sessionEnded: true }).success).toBe(true);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'waiting', reason: 'busy', sessionEnded: true }).success).toBe(false);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'edited', sessionEnded: false }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...heldItem, autoMerge: { ...heldItem.autoMerge, reason: 'edited', sessionEnded: true } }).success).toBe(true);
+  });
+
   it('merged by smurg or by a person; a session waits for a question or a permission request', () => {
     expect(workItemSchema.safeParse({ ...mergedAutoItem, merged: { at: 1, by: { userId: 'dev:ian', displayName: 'Ian' } } }).success).toBe(true);
     expect(workItemSchema.safeParse({ ...mergedAutoItem, merged: { at: 1, by: 'host' } }).success).toBe(false);

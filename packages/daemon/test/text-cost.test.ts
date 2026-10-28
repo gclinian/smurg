@@ -642,6 +642,9 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // blanks + `x` in the square of the run). fix7 (the check of 06cfc6d) added none: the colon and the dash are looked
   // for by the same expressions on a copy of the line whose code spans are blanked, one pass each, and the count reads
   // the line with every quote blanked, then (a quote opens the words after the colon) once more with that quote kept.
+  // fix8 (the check of 6f42b50) added none: the colon is one named expression for every place that looks for it (it
+  // replaced a literal), and a line is read again by the same expressions from its command after a label, or with the
+  // colon inside a code span taken for its own, at most three ways, each on the same 2,000 characters.
   // A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape: report-format.test.ts, "takes linear time")
   'topics/report-format.ts': 22,
   'topics/store.ts': 1,

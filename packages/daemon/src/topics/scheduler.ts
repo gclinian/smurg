@@ -581,12 +581,18 @@ export class Scheduler {
       if (item.direct === true) this.folder.ended(DirectFolder.key(topic.id, item.id));
       // Ended on purpose before a report was there: "Try again" gives it a new session in the same worktree.
       if (reason !== 'merged' && reason !== 'reviewed' && (item.state === 'running' || item.state === 'stalled' || item.state === 'failed')) this.core.setItemState(topic.id, item.id, 'stopped');
-      // A merged item kept for a later turn that did not finish after its merge (`cutAfterMerge`): nothing can continue
-      // that turn any more, so it is forgotten, as "Leave it out" forgets it; the hold ends and the topic settles (0.7.0
-      // fix7: "End session" in its conversation left the hold for good, every answer to it refused).
-      if (item.merged && cutAfterMerge(item)) {
+      // A merged item kept for a later turn that did not finish after its merge (`cutAfterMerge`), while its current
+      // request is the merged one: nothing can continue that turn any more, so it is forgotten, as "Leave it out" forgets
+      // it; the hold ends and the topic settles (0.7.0 fix7: "End session" in its conversation left the hold for good,
+      // every answer to it refused). What the turn changed is in its worktree, which the merge queue holds for its
+      // carers ("Request merge", core.ts `keptAfterMerge`, 0.7.0 fix8). A newer version still a draft keeps the turn: it
+      // waits for "Merge it as it is" (D6 row 6; 0.7.0 fix8: smurg merged it by itself). And a session that ended takes
+      // no continue of D15 (0.7.0 fix8: row 4 waited for one for good).
+      const forget = item.merged && item.merge?.status === 'merged' && cutAfterMerge(item);
+      if (forget || item.autoContinue !== undefined) {
         this.core.updateItem(topic.id, item.id, (draft) => {
-          delete draft.lastTurn;
+          if (forget) delete draft.lastTurn;
+          delete draft.autoContinue;
         });
       }
     }
@@ -907,14 +913,19 @@ export class Scheduler {
           (item.lastTurn?.restart === true || session?.status === 'stalled' || (session !== null && session.status !== 'ended' && session.status !== 'failed' && (agents.facts(sessionId)?.pendingMessages ?? 0) > 0))
         ) {
           // (a session the runtime found mid-turn after a hard death says `stalled`; its item has a version: say so)
-          if (session?.status === 'stalled') {
+          const midTurn = session?.status === 'stalled';
+          if (midTurn) {
             try {
               agents.setItemState(sessionId, { reportRegistered: true });
             } catch (err) {
               this.ctx.log.debug('item state not set on the session', { session: sessionId, error: err instanceof Error ? err.name : 'unknown' });
             }
           }
-          this.reports?.cutByStop(listed.id, item.id, item.lastTurn?.at ?? now, isStubService(agents) ? 0 : (agents.facts(sessionId)?.pendingMessages ?? 0));
+          // (the turn a session was found in is cut now, when the start finds it; an older mark, the stop's or a break
+          // before it, dates the cut only when nothing ran since. 0.7.0 fix8: a hard death in the turn of smurg's
+          // continue after the host's merge was dated with the break before that merge, so nothing held the item, the
+          // topic said ready and the check ended the session with the answer to the person's message lost)
+          this.reports?.cutByStop(listed.id, item.id, midTurn ? now : (item.lastTurn?.at ?? now), isStubService(agents) ? 0 : (agents.facts(sessionId)?.pendingMessages ?? 0));
         }
         this.countCutTurn(listed.id, item.id);
       }

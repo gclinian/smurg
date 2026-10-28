@@ -813,6 +813,184 @@ describe('after a restart: what a hard death between two records left out of ste
     }
   }
 
+  // 0.7.0 fix8 (the check of 6f42b50, W/verify/last7/hold G2, E1): the host merges each item. The turn of a later
+  // message to a version that is still a draft breaks (an API error, the loss of its process, the usage limit), the
+  // host's Merge… of that version follows, and smurg's continue (D15) runs its turn; the daemon dies (kill -9) in it.
+  // The start dated the cut with the break before the merge, so it was no cut after the merge: nothing held the item,
+  // the topic said ready (complete at once when reviewed, its session ended 'merged'), and the answer was lost. The cut
+  // is dated now when the start finds the session in that turn: held for its carers. The same after a restart before
+  // the host's merge, then a kill -9 in a later turn (the restart's mark is older than the merge). Controls: a death
+  // before the continue (no turn open) leaves the continue to come; with smurg merging nothing changes.
+  describe('0.7.0 fix8: a hard death in a later turn after the host\'s merge of a version whose turn broke before it', () => {
+    const continues = (sessionId: string) => smurgSent(test, sessionId).filter((message) => message.purpose === 'continue-item');
+    interface Run {
+      readonly root: string;
+      readonly stateDir: string;
+      readonly workspaceId: string;
+      readonly merging: 'auto' | 'host';
+      readonly topicId: string;
+      readonly slug: string;
+      readonly sessionId: string;
+    }
+
+    /** A topic of one item, Mei responsible; version 1 is a draft (or merged by smurg). */
+    async function begin(prefix: string, workspaceId: string, merging: 'auto' | 'host'): Promise<Run> {
+      const { root, stateDir } = await folders(prefix);
+      test = await setupTopics({ root, stateDir, workspaceId, settings: { merging } });
+      const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+      await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+      await startPlan(test, topic.id);
+      await handInReport(test, topic.slug, 'a');
+      await waitFor(() => itemOf(test.plan(topic.id), 'a').merge !== undefined, { what: 'the version' });
+      if (merging === 'auto') await waitFor(() => itemOf(test.plan(topic.id), 'a').merged?.by === 'smurg', { what: 'smurg\'s merge' });
+      else expect(itemOf(test.plan(topic.id), 'a').merge?.status).toBe('draft');
+      return { root, stateDir, workspaceId, merging, topicId: topic.id, slug: topic.slug, sessionId: itemOf(test.plan(topic.id), 'a').sessionId as string };
+    }
+
+    /** A later turn of the item breaks. */
+    async function breakTurn(run: Run, story: 'error' | 'exit' | 'limit'): Promise<void> {
+      if (story === 'limit') test.fakes.agents.setAccount({ state: 'usage-limit', sessions: 1, resetsAt: test.t.clock.now() + 3_600_000 });
+      test.fakes.agents.startTurn(run.sessionId);
+      test.fakes.agents.finishTurn(run.sessionId, { outcome: 'error' });
+      if (story === 'exit') test.fakes.agents.fail(run.sessionId);
+      await waitFor(async () => (await storedItem(test, run.topicId, 'a')).lastTurn?.outcome === 'error' && (await storedItem(test, run.topicId, 'a')).autoContinue !== undefined, { what: 'the broken turn' });
+      expect((await storedItem(test, run.topicId, 'a')).autoContinue?.cause).toBe(story === 'error' ? 'error' : story === 'exit' ? 'crash' : 'usage-limit');
+    }
+
+    /** The host's Merge… of version 1, after the break (by the clock too). */
+    async function hostMerges(run: Run): Promise<void> {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await test.fakes.worktrees.approve({ requestId: itemOf(test.plan(run.topicId), 'a').merge?.requestId as string }, test.principals.host);
+      await waitFor(() => itemOf(test.plan(run.topicId), 'a').merged !== undefined, { what: 'the host\'s merge' });
+      const stored = await storedItem(test, run.topicId, 'a');
+      expect((stored.lastTurn?.at ?? 0) < (stored.mergedAs?.at ?? 0)).toBe(true);
+    }
+
+    /** smurg's continue goes out, and its turn begins. */
+    async function continueRuns(run: Run, story: 'error' | 'exit' | 'limit'): Promise<void> {
+      // (the runtime's retry of a failed process says `starting` until the process is up, and nothing finishes the item
+      // meanwhile; the fake's is idle at once, so its process is back first here, and the continue goes to it)
+      if (story === 'exit') test.fakes.agents.resume(run.sessionId);
+      if (story === 'limit') test.fakes.agents.setAccount({ state: 'ok', sessions: 0 });
+      else test.t.advanceClock(61_000);
+      await waitFor(() => continues(run.sessionId).length === 1, { what: 'smurg\'s continue' });
+      expect(lineIds(test, run.sessionId).at(-1)).toBe(story === 'error' ? 'conversation.continued.error' : story === 'exit' ? 'conversation.continued.crash' : 'conversation.continued.usageLimit');
+      test.fakes.agents.startTurn(run.sessionId);
+    }
+
+    /**
+     * The daemon dies (kill -9), and starts again on the same folders: the runtime finds the session in the middle of
+     * its turn (`stalled`), or idle when no turn was open. A kill -9 runs no stop, so nothing marks the turn
+     * (Scheduler.noteStop would): the fake's open turn is put away before the test's daemon is stopped.
+     */
+    async function hardDeath(run: Run, found: 'stalled' | 'idle'): Promise<void> {
+      const session = test.fakes.agents.get(run.sessionId) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+      const worktrees = test.fakes.worktrees.list();
+      const requests = test.fakes.worktrees.listMerges(test.principals.host);
+      test.fakes.agents.adopt({ ...session, status: 'idle' }, { hasProcess: false });
+      await test.cleanup();
+      test = await setupTopics({
+        root: run.root,
+        stateDir: run.stateDir,
+        workspaceId: run.workspaceId,
+        settings: { merging: run.merging },
+        seed: (fakes) => {
+          fakes.agents.adopt({ ...session, status: found }, { hasProcess: false });
+          for (const worktree of worktrees) fakes.worktrees.adopt(worktree);
+          for (const request of requests) fakes.worktrees.putRequest(request);
+        },
+      });
+      await settle(test);
+    }
+
+    /** Held for its carers after the start, nothing of it settles; Mei's Continue goes on, and its completed turn settles it. */
+    async function heldThenContinued(run: Run, reviewed: boolean): Promise<void> {
+      await waitFor(() => itemOf(test.plan(run.topicId), 'a').autoMerge?.state === 'held', { what: 'the merged item to be held for its carers' });
+      expect(itemOf(test.plan(run.topicId), 'a').autoMerge).toMatchObject({ state: 'held', reason: 'stopped' });
+      const stored = await storedItem(test, run.topicId, 'a');
+      expect(stored.lastTurn).toMatchObject({ outcome: 'interrupted', restart: true });
+      expect((stored.lastTurn?.at ?? 0) >= (stored.mergedAs?.at ?? Number.POSITIVE_INFINITY)).toBe(true);
+      expect(test.topic(run.topicId).phase).toBe('executing');
+      expect(await refusal(test.mei.conn.request('topic.check', { topicId: run.topicId }))).toMatchObject({ code: 'conflict', text: { id: 'topic.check.notReady' } });
+      await settle(test);
+      expect(test.fakes.agents.get(run.sessionId)?.status).not.toBe('ended');
+      await test.mei.conn.request('plan.item.continue', { topicId: run.topicId, itemId: 'a' });
+      test.fakes.agents.startTurn(run.sessionId);
+      test.fakes.agents.finishTurn(run.sessionId, { outcome: 'completed', finalText: 'The totals are in cents now.' });
+      await waitFor(() => itemOf(test.plan(run.topicId), 'a').autoMerge === undefined, { what: 'the hold to end' });
+      if (!reviewed) {
+        await waitFor(() => test.topic(run.topicId).phase === 'ready', { what: 'ready to check' });
+        await test.mei.conn.request('topic.check', { topicId: run.topicId });
+      }
+      await waitFor(() => test.topic(run.topicId).phase === 'complete', { what: 'the topic to be complete' });
+    }
+
+    for (const story of ['error', 'exit', 'limit'] as const) {
+      for (const reviewed of [false, true]) {
+        it(`the turn ${story === 'error' ? 'ends on an API error' : story === 'exit' ? 'loses its process' : 'hits the usage limit'}${reviewed ? ', Mei reviews version 1' : ''}, the host merges it, a kill -9 in the turn of smurg's continue: held for its carers, the topic not ready`, async () => {
+          const run = await begin('fix8-d1-death', `ws_test_fix8_d1_${story}_${reviewed ? 'reviewed' : 'plain'}`, 'host');
+          await breakTurn(run, story);
+          if (reviewed) await test.mei.conn.request('report.review', { topicId: run.topicId, itemId: 'a', version: 1 });
+          await hostMerges(run);
+          await continueRuns(run, story);
+          await hardDeath(run, 'stalled');
+          await heldThenContinued(run, reviewed);
+        }, 30_000);
+      }
+    }
+
+    it('a restart cuts a later turn while version 1 is a draft, the host merges it, then a kill -9 in a later turn: held for its carers, the topic not ready', async () => {
+      const run = await begin('fix8-restart-death', 'ws_test_fix8_restart_death', 'host');
+      test.fakes.agents.startTurn(run.sessionId);
+      // A restart (the stop marks the turn it cuts): the session is done after it, with no turn open.
+      const session = test.fakes.agents.get(run.sessionId) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+      const worktrees = test.fakes.worktrees.list();
+      const requests = test.fakes.worktrees.listMerges(test.principals.host);
+      await test.cleanup();
+      test = await setupTopics({
+        root: run.root,
+        stateDir: run.stateDir,
+        workspaceId: run.workspaceId,
+        settings: { merging: 'host' },
+        seed: (fakes) => {
+          fakes.agents.adopt({ ...session, status: 'done' }, { hasProcess: false });
+          for (const worktree of worktrees) fakes.worktrees.adopt(worktree);
+          for (const request of requests) fakes.worktrees.putRequest(request);
+        },
+      });
+      await settle(test);
+      expect((await storedItem(test, run.topicId, 'a')).lastTurn).toMatchObject({ outcome: 'interrupted', restart: true });
+      // (the host's decision: the turn did not finish before the merge, and the merge stands)
+      await hostMerges(run);
+      await waitFor(() => test.topic(run.topicId).phase === 'ready', { what: 'ready to check after the host\'s merge' });
+      // A later turn (a person's message), and the daemon dies in it.
+      test.fakes.agents.startTurn(run.sessionId);
+      await hardDeath(run, 'stalled');
+      await heldThenContinued(run, false);
+    }, 30_000);
+
+    it('control: the daemon dies after the host\'s merge while smurg\'s continue is still to come: it comes after the start', async () => {
+      const run = await begin('fix8-death-idle', 'ws_test_fix8_death_idle', 'host');
+      await breakTurn(run, 'error');
+      await hostMerges(run);
+      await hardDeath(run, 'idle');
+      expect(itemOf(test.plan(run.topicId), 'a').autoMerge).toBeUndefined();
+      expect(test.topic(run.topicId).phase).toBe('executing');
+      test.t.advanceClock(61_000);
+      await waitFor(() => continues(run.sessionId).length === 1, { what: 'smurg\'s continue after the start' });
+      expect(lineIds(test, run.sessionId).at(-1)).toBe('conversation.continued.error');
+    }, 30_000);
+
+    it('control: smurg merges, a later turn ends on an API error after the merge, a kill -9 in the turn of smurg\'s continue: held for its carers, as before', async () => {
+      const run = await begin('fix8-auto-death', 'ws_test_fix8_auto_death', 'auto');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      await breakTurn(run, 'error');
+      await continueRuns(run, 'error');
+      await hardDeath(run, 'stalled');
+      await heldThenContinued(run, false);
+    }, 30_000);
+  });
+
   it('a done item whose process is only being started, with nothing to deliver, when smurg host stops: no turn of it was cut', async () => {
     const { root, stateDir } = await folders('p4-stop-starting');
     const workspaceId = 'ws_test_p4_restart_0010';

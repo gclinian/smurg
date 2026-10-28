@@ -666,11 +666,21 @@ export class TopicsCore {
 
   /**
    * A merged item is kept for its carers whoever merges it (D6 rows 1 and 2): a message nothing delivers by itself waits
-   * in its session (0.7.0 fix4, fix5), or a later turn did not finish after its merge (`cutAfterMerge`, 0.7.0 fix6). The
-   * cheap gate before the verdict of an item the host merges; the verdict decides (its version must be the merged one).
+   * in its session (0.7.0 fix4, fix5), a later turn did not finish after its merge (`cutAfterMerge`, 0.7.0 fix6), or its
+   * session has ended and its worktree holds work no merge carried (0.7.0 fix8: the half of a change a stopped turn left
+   * before "End session"; nobody had a row, and the topic stayed unsettled for good). The cheap gate before the verdict
+   * of an item the host merges; the verdict decides (its version must be the merged one).
    */
   keptAfterMerge(item: StoredItem): boolean {
-    return cutAfterMerge(item) || this.messageUndelivered(item);
+    return cutAfterMerge(item) || this.messageUndelivered(item) || (this.sessionEnded(item) && this.unmergedWorkOf(item));
+  }
+
+  /** The item had a session, and it has ended (a person's "End session", the host's): nothing continues the item's work. */
+  sessionEnded(item: StoredItem): boolean {
+    const agents = this.ctx.services.agents;
+    if (item.sessionId === undefined || isStubService(agents)) return false;
+    const live = agents.get(item.sessionId);
+    return live === null || live.status === 'ended';
   }
 
   /** What D6 reads of an item (the stores, the session, the request). */
@@ -707,8 +717,10 @@ export class TopicsCore {
       maxTries: AUTO_MERGE_TRIES,
       // (asked only where row 2 needs it: a merged item; 0.7.0 verify: whatever its last turn was. 0.7.0 fix4: and a
       // message nothing delivers by itself, sent to it after its merge or left by the host's merge of an earlier
-      // version: its carers' Continue delivers it)
-      ...((known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.unmergedWorkOf(item), ...(this.messageUndelivered(item) ? { undelivered: true } : {}) } : {}),
+      // version: its carers' Continue delivers it. 0.7.0 fix8: and whether its session has ended)
+      ...((known?.status ?? pointer?.status) === 'merged'
+        ? { unmergedWork: this.unmergedWorkOf(item), ...(this.messageUndelivered(item) ? { undelivered: true } : {}), ...(this.sessionEnded(item) ? { sessionEnded: true } : {}) }
+        : {}),
     };
   }
 
@@ -772,8 +784,11 @@ export class TopicsCore {
           : isDirect(item) && item.autoMerge !== undefined
             ? autoMergeInfoOfRecord(item.autoMerge, { tries: item.mergeTries ?? 0, ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }) })
             : undefined;
-    // (0.7.0 last check: what the foot offers for a hold while a message nothing delivers by itself waits: Continue)
+    // (0.7.0 last check: what the foot offers for a hold while a message nothing delivers by itself waits: Continue.
+    // 0.7.0 fix8: and once the item's session has ended, nothing to continue or resolve; "Request merge" for what the
+    // worktree of a merged item holds)
     const undelivered = autoMerge?.state === 'held' && this.messageUndelivered(item);
+    const ended = autoMerge?.state === 'held' && this.sessionEnded(item);
     // Its session waits for a person (D9): the plan says so instead of "running".
     const waiting = this.sessionWaits(item);
     return structuredClone({
@@ -800,7 +815,7 @@ export class TopicsCore {
       ...(report === null ? {} : { report: this.summaryOf(report) }),
       ...(item.merge === undefined ? {} : { merge: item.merge }),
       ...(merging === null ? {} : { merging }),
-      ...(autoMerge === undefined ? {} : { autoMerge: undelivered ? { ...autoMerge, undelivered: true as const } : autoMerge }),
+      ...(autoMerge === undefined ? {} : { autoMerge: undelivered || ended ? { ...autoMerge, ...(undelivered ? { undelivered: true as const } : {}), ...(ended ? { sessionEnded: true as const } : {}) } : autoMerge }),
       ...(item.mergedAs === undefined ? {} : { merged: { at: item.mergedAs.at, by: item.mergedAs.by } }),
       ...(item.leftOut === undefined ? {} : { leftOut: item.leftOut }),
       ...(item.undone === undefined ? {} : { undone: { by: item.undone.by, at: item.undone.at } }),

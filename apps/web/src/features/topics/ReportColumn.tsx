@@ -563,10 +563,14 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   // (0.7.0 last check: a message nothing delivers by itself waits in its session: Continue delivers it, and the version
   // is not taken "as it is" before; the daemon refuses that too)
   const undelivered = hold.undelivered === true;
+  // (0.7.0 fix8: once the item's session has ended, nothing continues or resolves it, and the daemon refuses both; what
+  // the worktree of a merged item holds then is asked to merge as it is: "Request merge", the host's inbox)
+  const sessionEnded = hold.sessionEnded === true;
+  const endedWork = reason === 'edited' && sessionEnded && mergedAlready;
 
   const fix = (reportHold || RELEASABLE.has(reason)) && canAsk ? <Button onClick={() => focusFollowUp(topic.id, item.id)}>{t('decision.fix')}</Button> : null;
-  const resolve = reason === 'conflict' && canDrive ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
-  const continueTurn = (reason === 'stopped' || reason === 'edited' || undelivered) && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
+  const resolve = reason === 'conflict' && canDrive && !sessionEnded ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
+  const continueTurn = (reason === 'stopped' || reason === 'edited' || undelivered) && canDrive && !sessionEnded ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
   const asIs =
     RELEASABLE.has(reason) && !direct && !mergedAlready && !undelivered && canDrive ? (
       <Button onClick={() => void act(() => stores.topics.release({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.asIs')}</Button>
@@ -577,7 +581,7 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes
   // (its snapshot was refused, so there may be no draft at all: the host's request makes one, HOSTING §8).
   const requestMerge =
-    worktree !== undefined && ((reportHold && canRequest && !isHost && request?.status === 'draft') || (reason === 'policy' && isHost && (request === undefined || request.status === 'draft'))) ? <RequestMerge worktree={worktree} /> : null;
+    worktree !== undefined && ((reportHold && canRequest && !isHost && request?.status === 'draft') || (reason === 'policy' && isHost && (request === undefined || request.status === 'draft')) || (endedWork && canRequest)) ? <RequestMerge worktree={worktree} /> : null;
   const merge = isHost && !direct && !selfClearing && request !== undefined && request.status !== 'merged' && (reason !== 'policy' || request.status !== 'draft') ? <MergeButton requestId={request.id} secondary /> : null;
   const leaveOut =
     canDrive && !later && (!selfClearing || reason === 'in-the-way') ? (
@@ -587,7 +591,7 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
     ) : null;
 
   return (
-    <Foot className="report-foot report-foot--decision" text={joinSentences([lead, undelivered ? t('decision.undelivered') : null, ...people, inTheWay])}>
+    <Foot className="report-foot report-foot--decision" text={joinSentences([lead, undelivered ? t('decision.undelivered') : null, endedWork ? t('decision.ended') : null, ...people, inTheWay])}>
       {leaveOut}
       {fix}
       {resolve}

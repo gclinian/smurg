@@ -495,6 +495,8 @@ export const t = defineStrings(
     'decision.asIs': 'Merge it as it is',
     // (0.7.0 last check: a message nothing delivers by itself waits in its session; the daemon refuses "as it is" then)
     'decision.undelivered': 'A message to its agent was not delivered yet: Continue delivers it first.',
+    // (0.7.0 fix8: a merged item whose session has ended, with work no merge carried in its worktree)
+    'decision.ended': "Its session has ended: Request merge puts what its worktree holds in the host's inbox, to merge as it is.",
     'decision.people': "{path}: the other side is {names}'s change. Whose lines stay is a person's decision.",
     'decision.people.outside': "{path}: the other side was changed outside smurg. Whose lines stay is a person's decision.",
     'decision.leaveOut': 'Leave it out…',

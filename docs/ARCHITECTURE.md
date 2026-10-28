@@ -1559,9 +1559,12 @@ type WorkItem = {
   merging?: 'auto' | 'host';                                  // how a started item that is not direct merges now
   autoMerge?: { state: 'waiting' | 'resolving' | 'held'; reason: AutoMergeReason; since; tries; hostOnly; escalated;
                 paths?; branch?: { expected; current }; people?: { path; by: UserRef[]; outside }[]; asked?: UserRef;
-                undelivered?: true };                         // a hold, and a message only Continue delivers waits
-                                                              // (of a 'host' item only this hold, or that of a later
-                                                              // turn that did not finish, once it is merged)
+                undelivered?: true;                           // a hold, and a message only Continue delivers waits
+                sessionEnded?: true };                        // a hold, and the item's session has ended (fix8):
+                                                              // no Continue or resolve; "Request merge" for `edited`
+                                                              // (of a 'host' item only these holds, that of a later
+                                                              // turn that did not finish, or of what its worktree
+                                                              // holds once its session ended, once it is merged)
   merged?: { at; by: 'smurg' | UserRef };                     // who merged it (an accepted direct item: the host)
   leftOut?: { by: UserRef; at }; undone?: { by: UserRef; at };
   waiting?: 'question' | 'permission';                        // its session waits for a person
@@ -3655,8 +3658,10 @@ is an error. Under "How it was verified" at least one check line: `- [x] <text>`
 verified: <why>` did not and must say why, `- [!] <text>: failed: <what happened>` (0.7.0) ran and failed; prose
 between the checks is allowed. A ticked line whose words say the check failed or did not run is refused at its line
 (`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
-`<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7), the runner's upper-case
-`FAIL` before a file there, an outcome word at the end of what
+`<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7; when none stands outside
+them, also the first inside one: `` `pnpm test: failed` ``, 0.7.0 fix8; past blanks, U+3000 too), the runner's upper-case
+`FAIL` before a file there, the same read again from the command after a label (`` Unit tests — `pnpm test`: failed ``,
+0.7.0 fix8), an outcome word at the end of what
 stands before them (or before a parenthesis followed by the end, punctuation or a word that places the failure:
 `failed (2 of 14) on CI`), a failure word at the end of a line that has neither, a runner's verdict where it prints it
 (`--- FAIL: TestTotal`, `test result: FAILED`, `FAILED tests/test_cart.py::…`, `→ FAIL src/…`), or a count of failures
@@ -3667,7 +3672,8 @@ line quoted after them (in a code span, or in quotes that open the words there),
 count right after "after" (`shows "2 of 10 failed"`, `locks after 5 failures` pass): first with every quote blanked,
 then, when a quote opens the words after the colon or dash (past blanks, U+3000 too), again with that quote kept (0.7.0
 fix7: the blank in a quote's place joins `Lint errors: "src/cart.ts" 2`); in English and Traditional Chinese, over the
-line's first 2,000 characters, each expression in one pass (the count at most twice). A ticked box is the agent's
+line's first 2,000 characters, each expression in one pass, a line at most three ways (as written, from its command
+after a label, with the colon inside a code span taken for its own), the count blanked once per way. A ticked box is the agent's
 word: this refuses the common contradictions, not every wording
 (`two tests fail` and other number words are not read), and what catches the rest is the team's check at the end and
 the undo. The words are read as written and only their masked form is stored (each part of a `- [!]` or `- [ ]` line
@@ -3799,7 +3805,13 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   merge, then, a person's Stop of a later turn holds the item `stopped` as it does before it; Continue (whose
   completed turn ends the hold, a new version or not) or the host's undo ends it, and so does the end of its session
   (`Scheduler.onSessionExited` forgets the cut turn, `lastTurn`, as "Leave it out" does: nothing can continue it any
-  more; 0.7.0 fix7: "End session" left the hold for good, every answer refused). A
+  more; 0.7.0 fix7: "End session" left the hold for good, every answer refused), while its current request is the
+  merged one (a newer version that is a draft keeps it, held `stopped` for "Merge it as it is"; 0.7.0 fix8: smurg
+  merged it by itself), and drops the automatic continue the ended session can no longer take. What the cut turn
+  changed stays in the worktree: held `edited` for its carers whoever merges the item (`keptAfterMerge`: its session
+  ended and its worktree holds work no merge carried), the wire's `autoMerge.sessionEnded` makes the foot offer the
+  worktree's "Request merge" instead of Continue, and the host's merge of that request settles it (0.7.0 fix8: Continue
+  was the only answer offered and was refused, and an item the host merged had no hold or row at all). A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
   or a new version registered after the check, makes it `executing` again.
@@ -3821,7 +3833,11 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   twice that (and `maxAgentProcesses`), so sessions that wait for a person do not keep unrelated items from starting.
 
 **After a restart** of the host's smurg (§7.6 "Restart"; since 0.7.0, §11 D-30) plans go on by themselves. `armed`
-and the pins are persisted; sessions that were mid-turn are `stalled` (`restart`). A topic stays **paused** only when
+and the pins are persisted; sessions that were mid-turn are `stalled` (`restart`). An item with a version whose later
+turn the stop cut (`Scheduler.noteStop` marks it) or that the runtime finds `stalled` after a hard death is held for
+its carers; a turn found mid-way is cut when the start finds it, an older mark dates the cut only when nothing ran
+since (0.7.0 fix8: dated with a break before the host's merge, the death in the turn of smurg's continue was no cut
+after the merge, and nothing held the item). A topic stays **paused** only when
 a person paused it (`plan.pausedBy`, `plan.pause`) or it has an interrupted item that runs directly in the shared
 folder (its half-done change is in a folder without history; 0.6.0's pause, with one attention item per topic,
 `plan-paused`); any other pause, 0.6.0's restart pause included, is lifted. The pin and history checks run before

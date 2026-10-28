@@ -563,6 +563,59 @@ describe('the result report format', () => {
     });
   });
 
+  // The check of 6f42b50 (W/verify/last7/ticked, the lead's E4-E6; fix8): a label before the command (`Unit tests —
+  // `pnpm test`: failed`, `Unit tests: `pnpm test` failed`) gave the line its dash or colon, and the words after it began
+  // with the command, so the outcome after the command was never read (m, e04); fix7's colon outside the code spans
+  // missed a line whose only colon or dash is inside one (`pnpm test: failed`, Jest's `Tests: 2 failed, …`, a stray
+  // backtick before `: failed`), which 06cfc6d refused (x, u05); and an ideographic blank after the full-width colon hid
+  // the word for failing (f06). Each was accepted, and smurg merged a check that said it failed or did not run. The
+  // words from the command on are read once more as a line of their own; a line with neither colon nor dash outside
+  // its spans is also read with the one inside taken for the line's; U+3000 is a blank there. Accepted costs: a label,
+  // then a passed check whose words begin with a failure word (m09, m10), is refused as its form without the label is;
+  // c10 and x08 are refused as their forms without a colon are. A runner's line in a second code span with neither
+  // colon nor dash outside it (`` `go test ./...` `--- FAIL: TestTotal` ``) stays accepted: a known limit.
+  describe('0.7.0 fix8: a label before the command, and a colon or a dash only inside a code span, do not hide the outcome', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_FIX8: readonly string[] = [
+      // m, e04: a label before the command
+      '- [x] Unit tests \u2014 `pnpm test`: failed',
+      '- [x] Unit tests \u2014 `pnpm test:unit`: failed',
+      '- [x] E2E - `pnpm test:e2e`: not run (no browser)',
+      '- [x] Unit tests: `pnpm test`: failed',
+      '- [x] Upload resume: `pnpm test upload` failed',
+      '- [x] Tests:`pnpm test:unit` failed',
+      // (two code spans before the colon: refused since fix7)
+      '- [x] `pnpm test:unit` `--reporter=dot`: failed',
+      // x, u05: the colon or the dash only inside a code span
+      '- [x] `pnpm test: failed`',
+      '- [x] Jest `Tests: 2 failed, 40 passed, 42 total`',
+      '- [x] `pnpm e2e: not run (no browser)`',
+      '- [x] `Tests: 2 failed | 12 passed (14)` from `pnpm test`',
+      '- [x] Ran pnpm test`: failed, see `cart.test.ts`',
+      // f06: an ideographic blank after the full-width colon
+      '- [x] `pnpm test`\uff1a\u3000\u5931\u6557',
+      // the accepted costs: passed checks refused as their other forms are
+      '- [x] Retry: `pnpm test retry` - failed writes are retried (6 passed)',
+      '- [x] Webhooks \u2014 `pnpm test webhook`: failed deliveries are re-queued (11 passed)',
+      '- [x] `pnpm test:unit` exits 0, nothing failed',
+      '- [x] `pnpm vitest -t "upload: failed chunk is resent"` 2 passed',
+    ];
+    const PASSED_FIX8: readonly string[] = [
+      '- [x] Unit tests \u2014 `pnpm test:unit`: 14 passed',
+      '- [x] Tests: `pnpm test:unit` 14 passed',
+      '- [x] Jest `Tests: 42 passed, 42 total`',
+      '- [x] `pnpm test`\uff1a\u300014 passed',
+    ];
+    it.each(REFUSED_FIX8)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+    it.each(PASSED_FIX8)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+  });
+
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
     const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
     const start = performance.now();
@@ -575,7 +628,8 @@ describe('the result report format', () => {
   // Every shape the check timed (W/verify/last4/ticked/timing*.mts) and those of fix5's own expressions, each as a whole
   // report of TOPIC_FILE_MAX_BYTES made of ticked lines of 2,000 characters (what is read of each): read in one pass,
   // each takes 10 to 200 ms of processor time on the machine the bounds were measured on (Apple M3, node 22), and up to
-  // 400 ms where fix7 reads a count twice (a quote opens the words after the colon: W/verify/fix7/corpus/timing.log);
+  // 400 ms where fix7 reads a count twice (a quote opens the words after the colon: W/verify/fix7/corpus/timing.log),
+  // 420 ms where fix8 reads a line again (a colon only in a code span, a label: W/verify/fix8/ticked/timing-fix8.log);
   // one that grows with the square of a line took 1.2 to 4.9 s on d374e39 (W/verify/fix5/corpus/timing1.log). The bound
   // is absolute, so it is multiplied by how much slower this machine is (`machineSlowness`).
   it('0.7.0 fix5: reading a report of TOPIC_FILE_MAX_BYTES of ticked lines takes linear time, for every shape of the expressions that read them', () => {
@@ -640,6 +694,14 @@ describe('the result report format', () => {
       ['(`a:` )*', fill('`a:` ', N)],
       ['(`a:` — )*', fill('`a:` \u2014 ', N)],
       ['`x:`: "+(2 failed )*', `\`x:\`: "${fill('2 failed ', N - 7)}`],
+      // fix8's: a colon only inside a code span (the line read a second time with it taken for the line's), and a label
+      // before the command (the words from the command read once more), before the costliest counts
+      ['`a:` ；2+(1(`)*', `\`a:\` \uff1b2${fill('1(`', N - 7)}`],
+      ['`a:` “+(9)*+)', `\`a:\` \u201c${fill('9', N - 7)})`],
+      ['`a:` 「+(14)*+,', `\`a:\` \u300c${fill('14', N - 7)},`],
+      ['L: `a`: 「+(14)*+,', `L: \`a\`: \u300c${fill('14', N - 10)},`],
+      ['(L: `a` )*', fill('L: `a` ', N)],
+      ['(L — `a:` )*', fill('L \u2014 `a:` ', N)],
     ];
     const bound = 1_000 * machineSlowness();
     for (const [name, words] of SHAPES) {
@@ -649,7 +711,8 @@ describe('the result report format', () => {
       // (the cheaper of two runs when the first is over: a shared runner is slow for a moment now and then)
       expect(costOf(() => void parseReport(report, 'cart-api'), bound, 2), name).toBeLessThan(bound);
     }
-  });
+    // (some 70 shapes of up to 420 ms each, twice when the first run is over: more than vitest's 5 s; fix8)
+  }, 120_000);
 
   it('the sections must come in the fixed order, each once', () => {
     const swapped = CART_REPORT.replace('## What was done', '## TEMP').replace('## Why it was done this way', '## What was done').replace('## TEMP', '## Why it was done this way');

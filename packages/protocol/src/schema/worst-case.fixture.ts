@@ -229,6 +229,7 @@ export const worstAutoMerge = {
   paths: many(L.AUTO_MERGE_PATHS_MAX, holdPath),
   people: many(L.AUTO_MERGE_PATHS_MAX, (i) => ({ path: holdPath(i + 50), by: many(5, (j) => ({ userId: `dev:${String(i * 5 + j).padStart(3, '0')}`, displayName: 'P' })), outside: true })),
   undelivered: true,
+  sessionEnded: true,
 };
 const workItem = (index: number): unknown => ({
   id: itemId(index),

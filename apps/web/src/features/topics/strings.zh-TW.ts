@@ -456,6 +456,7 @@ export const zhTW = {
   'decision.accept': '就這樣接受',
   'decision.asIs': '就這樣合併',
   'decision.undelivered': '傳給它的 agent 的訊息還沒有送出：「繼續」會先把它送出去。',
+  'decision.ended': '它的 session 已經結束：「請求合併」會把它 worktree 裡的變更放進主人的收件夾，照原樣合併。',
   'decision.people': '{path}：另一邊是 {names} 的修改。要留下誰的內容，由人決定。',
   'decision.people.outside': '{path}：另一邊是在 smurg 以外改的。要留下誰的內容，由人決定。',
   'decision.leaveOut': '略過這個項目…',

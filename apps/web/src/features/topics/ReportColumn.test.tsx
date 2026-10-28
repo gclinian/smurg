@@ -521,6 +521,54 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     expect(within(foot()).queryByRole('button', { name: 'Leave it out…' })).toBeNull();
   });
 
+  // 0.7.0 fix8 (the check of 6f42b50, W/verify/last7/hold, E2 and E3): the session of a held item was ended ("End
+  // session"). The foot offered Continue (and the resolve of a conflict), which the daemon refuses once the session has
+  // ended; for what the worktree of a merged item held then, Continue was the only answer, and nobody's was accepted.
+  // Now the foot offers "Request merge" for that (the host's inbox, to merge it as it is), and a newer version that
+  // waits is merged "as it is"; neither Continue nor the resolve is offered.
+  describe('0.7.0 fix8: the session of a held item has ended', () => {
+    const ended = buildAgentSession({ id: 'sess_i', purpose: 'item', topicId: 'tp_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, status: 'ended' });
+    const mergedBefore = { merged: { at: T, by: 'smurg' as const }, merge: { requestId: 'mr_1', status: 'merged' as const, ready: false } };
+    for (const role of ['agent', 'host'] as const) {
+      for (const merging of ['auto', 'host'] as const) {
+        it(`${role === 'agent' ? 'Mei' : 'the host'}, ${merging === 'auto' ? 'smurg merges' : 'the host merges'}: a merged item's worktree holds a later change: "Request merge" puts it in the host's inbox, and nothing is to continue`, async () => {
+          const { conn } = await setup({ role, plan: autoPlan({ merging, autoMerge: hold('edited', { sessionEnded: true }), ...mergedBefore }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })], sessions: [ended] });
+          expect(within(foot()).getByText(new RegExp(`^Merged; a later change is not merged: its worktree holds changes that were never merged\\. (You|Mei) decides?\\. Its session has ended: Request merge puts what its worktree holds in the host's inbox, to merge as it is\\.$`))).toBeTruthy();
+          for (const name of ['Continue', 'Merge it as it is', 'Leave it out…', 'Merge…']) expect(within(foot()).queryByRole('button', { name })).toBeNull();
+          fireEvent.click(within(foot()).getByRole('button', { name: 'Request merge' }));
+          expect(conn.lastRequest('worktree.merge.request')?.payload).toEqual({ worktreeId: 'wt_1' });
+        });
+      }
+    }
+
+    it('a newer version held for a turn that did not finish: "Merge it as it is" for it, and no Continue', async () => {
+      const { conn } = await setup({
+        role: 'agent',
+        plan: autoPlan({ autoMerge: hold('stopped', { sessionEnded: true }), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_2', status: 'draft', ready: false }, report: buildReportSummary({ version: 2, reviewers: [MEI] }) }),
+        report: { ...REPORT, version: 2, changes: { ...(REPORT.changes as NonNullable<ReportInfo['changes']>), requestId: 'mr_2' } },
+        requests: [draft({ status: 'merged', auto: true, decidedAt: T }), draft({ id: 'mr_2' })],
+        sessions: [ended],
+      });
+      expect(within(foot()).queryByRole('button', { name: 'Continue' })).toBeNull();
+      expect(within(foot()).queryByRole('button', { name: 'Request merge' })).toBeNull();
+      expect(within(foot()).queryByText(/Its session has ended/)).toBeNull();
+      fireEvent.click(within(foot()).getByRole('button', { name: 'Merge it as it is' }));
+      expect(conn.lastRequest('plan.item.release')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api', version: 2 });
+    });
+
+    it('a conflict: the agent is not asked to resolve it any more', async () => {
+      await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('conflict', { sessionEnded: true }), merge: { requestId: 'mr_1', status: 'conflict', ready: false } }), requests: [draft({ status: 'conflict' })], sessions: [ended] });
+      expect(within(foot()).queryByRole('button', { name: 'Ask the agent to resolve' })).toBeNull();
+    });
+
+    it('while the session is there, the same holds offer Continue and the resolve, as before', async () => {
+      const live = { ...ended, status: 'idle' as const };
+      await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('edited'), ...mergedBefore }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })], sessions: [live] });
+      expect(within(foot()).getByRole('button', { name: 'Continue' })).toBeTruthy();
+      expect(within(foot()).queryByRole('button', { name: 'Request merge' })).toBeNull();
+    });
+  });
+
   it('0.7.0 verify: a new version of an item merged before, held because its report was not checked again: "Merge it as it is" for it', async () => {
     const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stale-report'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_2', status: 'draft', ready: false }, report: buildReportSummary({ version: 2, reviewers: [MEI] }) }), report: { ...REPORT, version: 2, changes: { ...(REPORT.changes as NonNullable<ReportInfo['changes']>), requestId: 'mr_2' } }, requests: [draft({ status: 'merged', auto: true, decidedAt: T }), draft({ id: 'mr_2' })] });
     expect(within(foot()).getByText(/^Merged; a later change is not merged: its report was not checked again after its last change\. You decide\.$/)).toBeTruthy();

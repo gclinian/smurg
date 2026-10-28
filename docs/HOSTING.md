@@ -1536,12 +1536,12 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   turn had taken yet: it waits in its session, and Continue delivers it first. The item waits for its responsible
   person's decision ("its last turn did not finish": Continue, "Merge it as it is" or "Leave it out"; for an item
   already merged, Continue, and its merged version stays in the folder), and nothing of it merges until then. While
-  such a message waits, the version is not taken as it is: "Merge it as it is" (and, without git, "Accept as it is")
-  is not offered, and the report's foot says "A message to its agent was not delivered yet: Continue delivers it
-  first." Your own "Merge…" stays yours once you have read the whole change: that version merges, and the item then
+  such a message waits, "Merge it as it is" (and, without git, "Accept as it is") is not offered: Continue delivers it
+  first. Your own "Merge…" stays yours once you have read the whole change: that version merges, and the item then
   waits for Continue like an item already merged. So does an item you merge yourself (§10.3), also after you turned
   smurg's merging off while it waited (the decision stays as it was). Until Continue the topic is not ready to check,
-  and "I've reviewed this" does not end the item's session.
+  and "I've reviewed this" does not end the item's session. "End session" on an item already merged drops that turn:
+  what it changed stays in the worktree, and "Request merge" there puts it in your inbox.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view
