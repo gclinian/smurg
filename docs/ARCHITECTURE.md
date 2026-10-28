@@ -3650,8 +3650,15 @@ with the merge. Fixed English headings in a fixed order (the web shows them unde
 The title line; the marker line, which must name the item's own id; directly after it `- outcome: complete | partial
 | blocked`; the four sections present, in this order, each non-empty; "Follow-ups" optional; any other `##` heading
 is an error. Under "How it was verified" at least one check line: `- [x] <text>` passed, `- [ ] <text>: not
-verified: <why>` did not and must say why; prose between the checks is allowed. Each section at most 64 KiB and
-through `mask()`. Lines are cut as in `PLAN.md` (LF, CRLF, a lone CR), and a line that holds U+2028 or U+2029 is
+verified: <why>` did not and must say why, `- [!] <text>: failed: <what happened>` (0.7.0) ran and failed; prose
+between the checks is allowed. A ticked line whose words say the check failed or did not run is refused at its line
+(`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
+`<text>`'s first colon or dash, the runner's upper-case `FAIL` before a file there, an outcome word at the end of what
+stands before them, a failure word at the end of a line that has neither, or a count of failures or errors that is
+not zero (`12 passed, 2 failed`, `failed with 3 errors`; `0 failed` is a pass); in English and Traditional Chinese,
+over the line's first 2,000 characters. The words are read as written and only their masked form is stored (each
+part of a `- [!]` or `- [ ]` line masked on its own): masked first, `Refresh token: failed` lost its "failed". Each
+section at most 64 KiB and through `mask()`. Lines are cut as in `PLAN.md` (LF, CRLF, a lone CR), and a line that holds U+2028 or U+2029 is
 no section heading, no outcome line and no check line.
 
 A report COUNTS only when the agent's own `check_report` answered ok for exactly that content in this session:
@@ -3698,7 +3705,9 @@ says by then. None of this happens while smurg itself is stopping.
   NOTHING UNMERGED IS LEFT IN ITS WORKTREE: its session ends with the reason `merged`, its worktree is released (`releaseItem`), its conversation
   and report stay readable. Releasing the worktree deletes what it holds, so `finishIfDone` finishes an item only
   when its CURRENT request is the merged one and `WorktreeManager.unmerged` does not list its worktree (a question
-  that cannot be answered counts as "it holds something"). Two cases keep an item open: a follow-up after a merge
+  that cannot be answered counts as "it holds something"), and its live session ends only when it holds no message
+  no turn has taken and its report no follow-up whose answer is to come (0.7.0 fix4: ending it threw the message
+  away). Two cases keep an item open: a follow-up after a merge
   made a new draft (the item reads "reviewed, waits for the host to merge" again and is finished by merging that
   draft), and the worktree holds changes no merge carried (a version whose snapshot the merge policy refused, edits
   made after the last report): the item stays reviewed and merged WITH its session and worktree until those changes
@@ -3754,7 +3763,10 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
 - **Without git** (D10): a direct item counts as merged at registration only when its report is complete and verified
   and was checked in its turn; otherwise it is held for its carers, and the host may "Accept as it is".
 - **The end** (D13). An item is settled when it is left out or undone, or merged with its current request merged and
-  nothing of it in progress (no open decision, turn, card, follow-up to answer, nothing unmerged in its worktree). A
+  nothing of it in progress (no open decision, turn, card, follow-up to answer, message only Continue delivers,
+  nothing unmerged in its worktree). A merged item whose session holds a message nothing delivers by itself (a
+  restart left it there, also behind the host's merge of the version it objected to, or the process failed) is held
+  for its carers (`stopped`, `undelivered`), as one whose worktree holds a later change is. A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
   or a new version registered after the check, makes it `executing` again.

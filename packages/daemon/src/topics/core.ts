@@ -491,6 +491,9 @@ export class TopicsCore {
     for (const item of merged) {
       const session = this.sessionAtWork(topic, item, cards);
       if (session !== null && (session.turnOpen || session.openCards > 0)) return false;
+      // (a message nothing delivers by itself is no turn to come, and no answer either: its carers' Continue delivers
+      // it, D6 row 2; also before the merge queue has looked at the item after a restart. 0.7.0 fix4)
+      if (this.mergingOf(item) === 'auto' && this.messageUndelivered(item)) return false;
     }
     // (a suggestion to an item's agent nobody decided yet: 0.7.0 verify, the lead's decision R7)
     const sessions = new Set(merged.flatMap((item) => (item.sessionId === undefined ? [] : [item.sessionId])));
@@ -668,8 +671,10 @@ export class TopicsCore {
       session,
       tries: item.mergeTries ?? 0,
       maxTries: AUTO_MERGE_TRIES,
-      // (asked only where row 2 needs it: a merged item; 0.7.0 verify: whatever its last turn was)
-      ...((known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.unmergedWorkOf(item) } : {}),
+      // (asked only where row 2 needs it: a merged item; 0.7.0 verify: whatever its last turn was. 0.7.0 fix4: and a
+      // message nothing delivers by itself, sent to it after its merge or left by the host's merge of an earlier
+      // version: its carers' Continue delivers it)
+      ...((known?.status ?? pointer?.status) === 'merged' ? { unmergedWork: this.unmergedWorkOf(item), ...(this.messageUndelivered(item) ? { undelivered: true } : {}) } : {}),
     };
   }
 

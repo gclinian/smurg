@@ -298,6 +298,105 @@ describe('the result report format', () => {
     });
   });
 
+  // The check of 76114a1 (W/verify/last3/ticked, the lead's decisions T1-T3; fix4): ticked lines that say the check failed
+  // without a colon or dash, or in the runner's own upper-case FAIL after one, merged untested work (T1); `mask()` ran
+  // before the words were read, so "password:" or "token:" before "failed" hid it (T2); a line that counts failures or
+  // errors that are not zero is a failed check too (the lead's addition to T1, "T4"); and three kinds of passed checks
+  // are no longer taken for failures (T3).
+  describe('0.7.0 fix4: a ticked check that says it failed in any of these words is refused; the passed checks next to them pass', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_NOW: readonly string[] = [
+      // T1: neither colon nor dash, a behaviour word at the end; the runner's FAIL before a file or a package
+      '- [x] `pnpm test` FAIL (2 of 14)',
+      '- [x] `pnpm test` fails',
+      '- [x] `pnpm test` is failing (2 of 14)',
+      '- [x] `pnpm test` FAIL',
+      '- [x] `pnpm test`: FAIL src/cart.test.ts (2 tests)',
+      '- [x] `go test ./...`: FAIL github.com/acme/cart 0.41s',
+      '- [x] `pnpm test` — FAIL src/cart.test.ts > total > rounds to cents',
+      '- [x] `pnpm test`：FAIL src/cart.test.ts',
+      // T2: a credential's name before the failure word
+      '- [x] Login with a wrong password: failed (got 500, expected 401)',
+      '- [x] Refresh token: fails (expired after 1 s)',
+      '- [x] Refresh token: failed: expired after 1 s',
+      '- [x] Reset password: FAILED (mail server down)',
+      // T4: a count of failures or errors that is not zero
+      '- [x] `pnpm test`: 12 passed, 2 failed',
+      '- [x] `pnpm test`: 2 tests fail in cart.test.ts',
+      '- [x] `pnpm test`: 2 tests fail',
+      '- [x] Ran `pnpm test`: 2 of 14 failed',
+      '- [x] `pnpm test`: 2/14 failed',
+      '- [x] `pnpm lint` failed with 3 errors',
+      '- [x] `pnpm lint`: 1 error',
+      '- [x] `pnpm test`: 2 failures in legacy.test.ts (they failed before this change too)',
+      '- [x] `node --test`: pass 12, fail 2',
+      '- [x] `pnpm test`：2 個測試失敗',
+      '- [x] `pnpm test` 失敗了 2 個',
+      '- [x] `pnpm build`：型別檢查有 3 個錯誤',
+      '- [x] `pnpm test`：未通過（2 個失敗）',
+    ];
+    const PASSED_STILL: readonly string[] = [
+      // next to T1: a parenthesis that holds a command, a count after FAIL, a runner's ok
+      '- [x] Shows a toast when saving fails (`pnpm test toast`, 2 passed)',
+      '- [x] `pnpm test`: FAIL 0, PASS 42',
+      '- [x] `go test ./...`: ok github.com/acme/cart 0.41s',
+      // next to T4: a zero, none, and counts of what is no failure
+      '- [x] `pnpm test`: 14 passed, 0 failed',
+      '- [x] `cargo test`: test result: ok. 31 passed; 0 failed',
+      '- [x] `pnpm lint`: no failures',
+      '- [x] `pnpm lint`: 0 errors, 2 warnings',
+      '- [x] `node --test`: pass 14, fail 0',
+      '- [x] `pnpm test`：0 個失敗，42 個通過',
+      '- [x] Negative case: fails with exit code 1 on a missing file (`pnpm test cli`, 7 passed)',
+      '- [x] Exit codes: a failed build exits 1, a passing one 0 (`pnpm test cli`, 4 passed)',
+      '- [x] Lockout: 5 failed logins lock the account (`pnpm test auth`, 5 passed)',
+      '- [x] Retry: a write is retried up to 3 times (`pnpm test retry`, 6 passed)',
+      '- [x] Not found: a 404 error page is shown (`pnpm test web`, 2 passed)',
+      '- [x] `pnpm test`: 14 passed (2 failed before the fix)',
+      '- [x] `pnpm vitest -t "2 tests fail"`: 4 passed',
+      '- [x] 錯誤訊息：3 個錯誤訊息都正確顯示（`pnpm test ui`，3 個通過）',
+      '- [x] 重試：寫入最多重試 3 次（`pnpm test retry`，6 個通過）',
+      // T3: refused on 76114a1, passed checks that name a failure
+      '- [x] Requests that failed (HTTP 503) are retried: `pnpm test retry`, 6 passed',
+      '- [x] API：未驗證的請求回傳 401（`pnpm test api`，8 個通過）',
+      '- [x] 登入：未驗證的 email 無法登入（`pnpm test auth`，4 個通過）',
+      '- [x] 寫入 DB 失敗（逾時）會重試：`pnpm test retry`（6 個通過）',
+    ];
+
+    it.each(REFUSED_NOW)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+
+    it.each(PASSED_STILL)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+
+    it('T2: a failed check after a credential\'s name is written as the sentence says, and every part of it is stored masked', () => {
+      const failed = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line).replace('- outcome: complete', '- outcome: partial');
+      // (on 76114a1 both were refused 'verified-failed-why': "failed" was masked, and the sentence named the form used)
+      expect(parseReport(failed('- [!] Refresh token: failed: expired after 1 s'), 'cart-api')).toMatchObject({
+        ok: true,
+        report: { checks: { passed: 0, notVerified: 1, failed: 1 }, sections: { verified: [{ text: 'Refresh token', passed: false, failed: true, note: 'expired after 1 s' }, { passed: false }] } },
+      });
+      expect(parseReport(failed('- [!] Login with a wrong password: failed: the API answered 500, not 401'), 'cart-api')).toMatchObject({ ok: true, report: { checks: { failed: 1 } } });
+      // Read unmasked, stored masked: nothing of a credential reaches the stored check, in either part of the line.
+      const key = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+      const parse = parseReport(failed(`- [!] Deploy with token: ${key}: failed: password: hunter22 was refused`), 'cart-api');
+      expect(parse).toMatchObject({ ok: true, report: { sections: { verified: [{ text: 'Deploy with token: [masked]', failed: true, note: 'password: [masked] was refused' }, { passed: false }] } } });
+      expect(JSON.stringify(parse)).not.toMatch(/ghp_|hunter22/);
+      const passed = parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', `- [x] Deploy with token: ${key} (\`pnpm deploy --dry-run\`, ok)`), 'cart-api');
+      expect(passed).toMatchObject({ ok: true, report: { sections: { verified: [{ text: 'Deploy with token: [masked] (`pnpm deploy --dry-run`, ok)', passed: true }, { passed: false }] } } });
+      const notRun = parseReport(CART_REPORT.replace('- [ ] Manual check in the browser: not verified: no browser in this session', `- [ ] Deploy with token: ${key}: not verified: secret: hunter22 expired`), 'cart-api');
+      expect(notRun).toMatchObject({ ok: true, report: { sections: { verified: [{ passed: true }, { text: 'Deploy with token: [masked]', passed: false, note: 'secret: [masked] expired' }] } } });
+      // A refused line's error never carries the words.
+      const refused = parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', `- [x] Deploy with token: ${key}: failed: password: hunter22 was refused`), 'cart-api');
+      expect(refused.ok ? null : refused.errors.map((entry) => entry.kind)).toEqual(['verified-ticked']);
+      expect(JSON.stringify(refused)).not.toMatch(/ghp_|hunter22/);
+    });
+  });
+
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
     const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
     const start = performance.now();

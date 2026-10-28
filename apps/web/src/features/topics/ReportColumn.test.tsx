@@ -474,6 +474,17 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     expect(within(hostFoot).getByText(/A message to its agent was not delivered yet: Continue delivers it first\.$/)).toBeTruthy();
   });
 
+  // 0.7.0 fix4 (the check of 76114a1, H1, H2): a message a restart left undelivered in a MERGED item's session (sent after
+  // its merge, or left by the host's merge of the version it objected to) holds the item now; the foot says so and
+  // offers its carers Continue, which delivers it. Nothing to merge "as it is", to leave out or to merge again.
+  it('0.7.0 fix4: a merged item with a message to its agent undelivered: "Merged; a later change is not merged", the message, Continue only', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped', { undelivered: true }), merged: { at: T, by: { userId: 'dev:host', displayName: 'Ian' } }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', decidedAt: T })] });
+    expect(within(foot()).getByText('Merged; a later change is not merged: its last turn did not finish. You decide. A message to its agent was not delivered yet: Continue delivers it first.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
+    expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    for (const name of ['Merge it as it is', 'Leave it out…', 'Merge…']) expect(within(foot()).queryByRole('button', { name })).toBeNull();
+  });
+
   it('0.7.0 review: a merged item whose later turn did not finish: Continue, but nothing to merge "as it is" and nothing to leave out', async () => {
     await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
     expect(within(foot()).getByRole('button', { name: 'Continue' })).toBeTruthy();

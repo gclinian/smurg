@@ -629,8 +629,12 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // 0.7.0 verify: a ticked line whose words say it failed, after its first colon or dash or at the end of what stands
   // before it, read in one pass over its first 2,000 characters: `parseReport` is in LOOKS, and "a ticked check" below.
   // The 0.7.0 last check narrowed the same two expressions, no new one: a failure word after the colon is anchored at its
-  // start and looks ahead over blanks once, at a fixed place; the one at the end of what stands before it lost words)
-  'topics/report-format.ts': 14,
+  // start and looks ahead over blanks once, at a fixed place; the one at the end of what stands before it lost words.
+  // fix4 added four, each on the same 2,000 characters: the runner's upper-case FAIL after the colon, anchored at its
+  // start; a failure word at the end of a line with neither colon nor dash, read from a blank to the end with the
+  // blanks before its parenthesis inside it; a code span; and a count of failures, each alternative of which starts at
+  // a count or a fixed word and reads a bounded stretch after it. 200 lines of 2,000 characters in about 10 ms)
+  'topics/report-format.ts': 18,
   'topics/store.ts': 1,
   'topics/text.ts': 7,
   'workspace/fs-util.ts': 2,

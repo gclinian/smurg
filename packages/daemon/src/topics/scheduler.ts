@@ -648,9 +648,11 @@ export class Scheduler {
    * ends (`merged`), its worktree goes; conversation and report stay. Removing the worktree deletes whatever it holds,
    * so the item is finished only when the main workspace has all of it: the item's CURRENT request is the merged one (a
    * follow-up after a merge makes a new draft, and an older request that is merged later says nothing about it), and
-   * the tree holds nothing no merge carried (a version whose snapshot was refused, edits made after the report). Until
-   * then everything stays as it is and `finishPending` asks again. One at a time per item: two callers never end the
-   * same session twice.
+   * the tree holds nothing no merge carried (a version whose snapshot was refused, edits made after the report). Nor
+   * while a follow-up of its report waits for its answer or its session holds a message no turn has taken (0.7.0 fix4:
+   * the end of the session threw the message away, and Continue was refused for a session that had ended). Until then
+   * everything stays as it is and `finishPending` asks again. One at a time per item: two callers never end the same
+   * session twice.
    */
   finishIfDone(topicId: string, itemId: string): Promise<void> {
     return this.core.serialize(`finish:${topicId}:${itemId}`, () => this.finish(topicId, itemId));
@@ -662,6 +664,11 @@ export class Scheduler {
     const reviewed = this.reports?.isReviewed(topicId, itemId) === true;
     if (topic === null || item === null || topic.archived || !item.merged || !(reviewed || topic.checked !== undefined)) return;
     const agents = this.ctx.services.agents;
+    // (what its session still has to deliver or answer: a follow-up of its report, or a message no turn has taken)
+    if (item.sessionId !== undefined && !isStubService(agents)) {
+      const live = agents.get(item.sessionId);
+      if (live !== null && live.status !== 'ended' && ((this.core.report(topicId, itemId)?.pending.length ?? 0) > 0 || (agents.facts(item.sessionId)?.pendingMessages ?? 0) > 0)) return;
+    }
     if (item.direct === true) {
       // It ran in the folder itself: nothing waits for a merge. Reviewed (or its topic checked), it is complete and its
       // session ends.

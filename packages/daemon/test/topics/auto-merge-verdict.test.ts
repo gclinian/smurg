@@ -56,6 +56,12 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   ['2 merged, a later turn did not finish, its checkout not looked at yet', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6, restart: true }, snapshotOwed: true }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'none' }],
   ['2 merged, a later turn did not finish, its checkout holds nothing more', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false }), { kind: 'none' }],
   ['2 merged with half of a change left: while its agent is at work, it waits', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6 } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: true, session: { turnOpen: true, openCards: 0 } }), { kind: 'wait', reason: 'busy' }],
+  // (0.7.0 fix4, the check of 76114a1 H1, H2: a message nothing delivers by itself waits in a merged item's session, sent
+  // after its merge or left by the host's merge of an earlier version over a person's follow-up; the item was not held,
+  // the topic said ready, and the end of the session threw the message away. Its carers' Continue delivers it)
+  ['2 merged, a message a restart left in its session waits, its checkout holds nothing more', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6, restart: true } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false, undelivered: true }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged, a message waits that its failed process never took (no turn of it was cut): "its last turn did not finish"', (input) => ({ ...input, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged, a message waits, and the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true }, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'wait', reason: 'paused' }],
   // 3.
   ['3 the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true } }), { kind: 'wait', reason: 'paused' }],
   // 4.

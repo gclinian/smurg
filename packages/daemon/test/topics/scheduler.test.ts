@@ -1153,6 +1153,8 @@ describe('DESIGN 0.7.0 D12: when an item is finished', () => {
     const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
     await startPlan(test, topic.id);
     const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    // (its agent takes its start message: a session that holds a message no turn has taken is not ended, below)
+    test.fakes.agents.startTurn(sessionId);
     merge(test, topic.id, 'a');
     await waitFor(() => itemOf(test.plan(topic.id), 'a').merged !== undefined, { what: 'the merge' });
     // Merged by the host here (a request of the fake); not reviewed, the topic not checked: the item is not finished.
@@ -1168,6 +1170,34 @@ describe('DESIGN 0.7.0 D12: when an item is finished', () => {
     await (test.t.ctx.services.plans as PlanServiceImpl).settle();
     await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the item to finish' });
     expect(test.fakes.agents.get(sessionId)?.endReason).toBe('merged');
+    expect(test.fakes.worktrees.log.of('releaseItem')).toHaveLength(1);
+  });
+
+  // 0.7.0 fix4 (the check of 76114a1, W/verify/last3/hold finding 1): a person's follow-up a restart left undelivered,
+  // the host's merge of the version it objected to, and "I've reviewed this": the end of the session at the merge threw
+  // the follow-up away, Continue was refused for a session that had ended, and the topic stayed "executing" for good.
+  it('merged and checked, but its session holds a message no turn has taken: the session and the worktree stay, and go once a turn took it', async () => {
+    test = await setupTopics({ settings: { merging: 'auto' } });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+    await startPlan(test, topic.id);
+    const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    // (the start message: no turn has taken it)
+    expect(test.fakes.agents.facts(sessionId)?.pendingMessages).toBe(1);
+    merge(test, topic.id, 'a');
+    await waitFor(() => itemOf(test.plan(topic.id), 'a').merged !== undefined, { what: 'the merge' });
+    const doc = await test.t.ctx.state.document(TOPICS_DOCUMENT, topicsDocumentSchema, initialTopicsDocument);
+    doc.update((draft) => {
+      const stored = draft.topics.find((candidate) => candidate.id === topic.id);
+      if (stored !== undefined) stored.checked = { by: { userId: 'dev:mei', displayName: 'Mei' }, at: 1 };
+    });
+    await (test.t.ctx.services.plans as PlanServiceImpl).settle();
+    await settle(test);
+    expect(test.fakes.agents.get(sessionId)?.status).not.toBe('ended');
+    expect(test.fakes.worktrees.log.of('releaseItem')).toHaveLength(0);
+    // A turn takes the message: nothing waits in the session any more, and the item is finished.
+    test.fakes.agents.startTurn(sessionId);
+    await (test.t.ctx.services.plans as PlanServiceImpl).settle();
+    await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the item to finish' });
     expect(test.fakes.worktrees.log.of('releaseItem')).toHaveLength(1);
   });
 });
