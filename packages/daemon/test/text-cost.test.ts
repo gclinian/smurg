@@ -639,8 +639,10 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // the first closing one (a quote's body stops at its own opening mark too, so a run of opening marks is not read
   // again from each); and "after" before a number, one run of blanks then a look at one character. It wrote the count's
   // "fail" + blanks + ":" so that its two runs of blanks are never tried against each other (it read `fail` + 1,995
-  // blanks + `x` in the square of the run). A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape:
-  // report-format.test.ts, "takes linear time")
+  // blanks + `x` in the square of the run). fix7 (the check of 06cfc6d) added none: the colon and the dash are looked
+  // for by the same expressions on a copy of the line whose code spans are blanked, one pass each, and the count reads
+  // the line with every quote blanked, then (a quote opens the words after the colon) once more with that quote kept.
+  // A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape: report-format.test.ts, "takes linear time")
   'topics/report-format.ts': 22,
   'topics/store.ts': 1,
   'topics/text.ts': 7,

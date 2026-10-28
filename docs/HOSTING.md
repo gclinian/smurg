@@ -1457,10 +1457,10 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
 - **When an item is finished**: a work item that is merged and reviewed, or whose topic was checked, is finished once
   nothing unmerged is left in its worktree and its agent is not in a turn (a turn that answers a message to it
   finishes first, and what it changes becomes a version of its own; after a later turn that did not finish, smurg
-  continues it as §10.5 says, or it waits for "Continue", and until then the topic is not ready to check:
-  "I've checked the result" names the item): its session ends, its worktree is removed, its conversation and its
-  report stay readable. Until then its session and its worktree stay, so that a follow-up from its report reaches the
-  agent that did the work. When the worktree of an item that smurg merged holds changes that no
+  continues it as §10.5 says (also when you merged it meanwhile), or it waits for "Continue", and until then the topic
+  is not ready to check; ending its session drops that turn): its session ends, its worktree is removed, its
+  conversation and its report stay readable. Until then its session and its worktree stay, so that a follow-up from
+  its report reaches the agent that did the work. When the worktree of an item that smurg merged holds changes that no
   merge carried (a member's save there, a command its agent ran after its report, a later turn that did not finish),
   the item waits for its responsible person: "Merged; a later change is not merged: …", and "Continue" makes the
   change a version of its own, which merges like the first one. A file a member saves in a worktree while it is being

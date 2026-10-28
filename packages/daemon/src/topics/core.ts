@@ -46,7 +46,7 @@ import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { attentionFacts, stoppedItemRecipients } from './attention.ts';
-import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, cutAfterMerge, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
+import { AUTO_MERGE_TRIES, autoContinueOwed, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, cutAfterMerge, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
 import { parsePlan, planFingerprint, type ParsedItem, type PlanParse } from './plan-format.ts';
 import { evenSplit, SIZE_WEIGHT, type SplitPerson } from './split.ts';
 import {
@@ -474,7 +474,8 @@ export class TopicsCore {
    * current request the merged one (an item that ran directly in the folder: counted as merged at registration or
    * accepted), AND nothing of it still in progress: nothing smurg's merge queue waits for or holds, no follow-up whose
    * answer is to come (a message no turn has taken, a suggestion not decided), no open turn and no open card of its
-   * session, no later turn that did not finish after its merge, and nothing in its worktree that no merge carried. A
+   * session, no later turn that did not finish after its merge, no automatic continue owed to its session (D15, also
+   * for a turn that broke before the host's merge: `continueOwed`), and nothing in its worktree that no merge carried. A
    * person's message to a merged item whose turn ended without a new version (`changesAsked` stays until one) is
    * answered: nothing of it is in progress, and a change that turn left without a report is what its worktree holds
    * unmerged. The cheap facts first: what the sessions, the cards and the worktrees say is asked only when every item
@@ -496,6 +497,10 @@ export class TopicsCore {
     for (const item of merged) {
       const session = this.sessionAtWork(topic, item, cards);
       if (session !== null && (session.turnOpen || session.openCards > 0)) return false;
+      // (smurg's continue is to come, whoever merged the item and whenever its turn broke. 0.7.0 fix7: a turn that ended
+      // on an error, a usage limit or the process's death while its version was a draft, then the host's Merge…: the
+      // topic said ready, the review or the check ended the session, and the continue never came)
+      if (this.continueOwed(item)) return false;
       // (a message nothing delivers by itself is no turn to come, and no answer either: its carers' Continue delivers
       // it, D6 row 2; also before the merge queue has looked at the item after a restart. 0.7.0 fix4. Whoever merges
       // the item: the host's Merge… delivers nothing either, and row 2 holds it for its carers too, 0.7.0 fix5. An item
@@ -644,6 +649,19 @@ export class TopicsCore {
     const facts = agents.facts(live.id);
     if ((facts?.pendingMessages ?? 0) === 0 || facts?.hasProcess === true) return false;
     return live.status === 'failed' || item.lastTurn?.restart === true;
+  }
+
+  /**
+   * An automatic continue of D15 is owed to the item (`autoContinueOwed`) and its session is there to take it (it has
+   * not ended): its answer is still to come. Its topic is not settled (D13) and its session stays (D12) until then,
+   * whoever merged the item, also when the turn broke before the merge (0.7.0 fix7). A session that ended takes no
+   * continue: nothing is owed then.
+   */
+  continueOwed(item: StoredItem): boolean {
+    const agents = this.ctx.services.agents;
+    if (item.sessionId === undefined || isStubService(agents) || !autoContinueOwed(item)) return false;
+    const live = agents.get(item.sessionId);
+    return live !== null && live.status !== 'ended';
   }
 
   /**

@@ -1599,7 +1599,7 @@ type WireText = { text: WireRef; fallback: string };          // FileError = Wir
 | `topic.spec.request` [session.drive] | c→d | `{ topicId: string }` → `{}` | "Write the spec now" |
 | `topic.rule.add` [session.drive] | c→d | `{ topicId: string, tool: 'Bash' \| 'WebFetch', pattern: string }` → `{ topic: Topic }` | the checked forms only (`rules.ts`); applies to every session of the topic |
 | `topic.rule.remove` [session.drive] | c→d | `{ topicId: string, ruleId: string }` → `{ topic: Topic }` |  |
-| `topic.check` [discuss] | c→d | `{ topicId: string }` → `{ topic: Topic }` | protocol 6, "I've checked the result": refused unless the phase is `ready` (`topic.check.notReady`, with `atWork`: the number of a merged item whose agent is in a turn, which nothing else shows). Sets `checked`, ends the sessions of the merged items and releases their worktrees; a later Start, or a report version registered after the check, clears it. Checks `topic-open`; audit `topic.check` |
+| `topic.check` [discuss] | c→d | `{ topicId: string }` → `{ topic: Topic }` | protocol 6, "I've checked the result": refused unless the phase is `ready` (`topic.check.notReady`, with `atWork`: the number of a merged item whose agent is in a turn, for a client that asks before the phase is `ready`; the web app asks only then). Sets `checked`, ends the sessions of the merged items and releases their worktrees; a later Start, or a report version registered after the check, clears it. Checks `topic-open`; audit `topic.check` |
 | `topic.undo.preview` [worktree.merge.decide] | c→d | `{ topicId: string, itemIds: string[] \| null }` → `{ preview: UndoPreview }` | protocol 6, the host's: what an undo of these items (null: the whole topic) does, tried with objects only: `history`, `undone` (each with `why`: `asked`, `built-on`, `same-lines`, named with its topic), `leftOut`, the `blockers` (a running dependent, a person's later change of the same lines, typing, uncommitted, staged, busy, another branch, `unavailable`) and `ok`, under a `token` over what it does. In smurg's own history the folder is snapshotted first. The page waits 5 minutes |
 | `topic.undo` [worktree.merge.decide] | c→d | `{ topicId: string, itemIds: string[] \| null, token: string }` → `{ plan: PlanInfo }` | protocol 6: the preview's steps again, refused with `undo.changed` when the token differs and with `undo.notOk`; then one revert commit as the host (the reports stay), the items `undone`, their sessions ended and worktrees released, the `leftOut` ones left out. A record in worktrees.json lets the next start finish or hold an undo a crash cut (§7.8 "Undo"). Checks `topic-open`; audit `worktree.merge.undo` |
 
@@ -3655,7 +3655,8 @@ is an error. Under "How it was verified" at least one check line: `- [x] <text>`
 verified: <why>` did not and must say why, `- [!] <text>: failed: <what happened>` (0.7.0) ran and failed; prose
 between the checks is allowed. A ticked line whose words say the check failed or did not run is refused at its line
 (`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
-`<text>`'s first colon or dash, the runner's upper-case `FAIL` before a file there, an outcome word at the end of what
+`<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7), the runner's upper-case
+`FAIL` before a file there, an outcome word at the end of what
 stands before them (or before a parenthesis followed by the end, punctuation or a word that places the failure:
 `failed (2 of 14) on CI`), a failure word at the end of a line that has neither, a runner's verdict where it prints it
 (`--- FAIL: TestTotal`, `test result: FAILED`, `FAILED tests/test_cart.py::…`, `→ FAIL src/…`), or a count of failures
@@ -3663,8 +3664,11 @@ or errors that is not zero (`12 passed, 2 failed`, `failed with 3 errors`, `2 te
 `due to 2 previous errors`, the zh-TW word for failing after a count of a total; `0 failed` is a pass), read without
 the command's code spans (those before the colon or dash, or the first of a line with neither) but with the runner's
 line quoted after them (in a code span, or in quotes that open the words there), and without other quoted text or a
-count right after "after" (`shows "2 of 10 failed"`, `locks after 5 failures` pass); in English and Traditional Chinese, over the line's first 2,000 characters, each
-expression in one pass. A ticked box is the agent's word: this refuses the common contradictions, not every wording
+count right after "after" (`shows "2 of 10 failed"`, `locks after 5 failures` pass): first with every quote blanked,
+then, when a quote opens the words after the colon or dash (past blanks, U+3000 too), again with that quote kept (0.7.0
+fix7: the blank in a quote's place joins `Lint errors: "src/cart.ts" 2`); in English and Traditional Chinese, over the
+line's first 2,000 characters, each expression in one pass (the count at most twice). A ticked box is the agent's
+word: this refuses the common contradictions, not every wording
 (`two tests fail` and other number words are not read), and what catches the rest is the team's check at the end and
 the undo. The words are read as written and only their masked form is stored (each part of a `- [!]` or `- [ ]` line
 masked on its own, after a key block in the line was masked whole: split first, its BEGIN and END lines could fall in
@@ -3722,8 +3726,10 @@ says by then. None of this happens while smurg itself is stopping.
   reviewed this", the host's merge or the sweep cut the turn that answered a person's message, and its answer never
   became a version), nor while a later turn did not finish after its merge (`cutAfterMerge`: `lastTurn` at or after
   `mergedAs.at`; 0.7.0 fix6: a restart, a hard death, an API error, the process's death or a person's Stop cut it, and
-  the end of the session threw away the continue D15 owed and the carers' Continue). Two cases keep an item open: a
-  follow-up after a merge made a new draft (the item reads "reviewed, waits for the host to merge" again and is
+  the end of the session threw away the continue D15 owed and the carers' Continue), nor while smurg owes its live
+  session an automatic continue (`TopicsCore.continueOwed`; 0.7.0 fix7: the turn broke while its version was a draft,
+  the host merged that version, and the review or the check ended the session before the continue). Two cases keep
+  an item open: a follow-up after a merge made a new draft (the item reads "reviewed, waits for the host to merge" again and is
   finished by merging that draft), and the worktree holds changes no merge carried (a version whose snapshot the merge policy refused, edits
   made after the last report): the item stays reviewed and merged WITH its session and worktree until those changes
   are merged ("Request merge" on the worktree, or a new report version) or the worktree is removed by hand.
@@ -3781,7 +3787,8 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   and was checked in its turn; otherwise it is held for its carers, and the host may "Accept as it is".
 - **The end** (D13). An item is settled when it is left out or undone, or merged with its current request merged and
   nothing of it in progress (no open decision, turn, card, follow-up to answer, message only Continue delivers, later
-  turn that did not finish after its merge, nothing unmerged in its worktree). A merged item whose session holds a
+  turn that did not finish after its merge, automatic continue owed to its live session, whoever merged it and
+  whenever the turn broke, nothing unmerged in its worktree). A merged item whose session holds a
   message nothing delivers by itself (a restart left it there, also behind the host's merge of the version it
   objected to, or the process failed) is held for its carers (`stopped`, `undelivered`), as one whose worktree holds
   a later change is, whoever merges it; so is one whose later turn did not finish after its merge (`stopped`; while
@@ -3790,7 +3797,9 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   after the setting turned to `host`), and its topic is not settled either (0.7.0 fix5, fix6: it said ready, nobody
   was told, and the check made it complete with the message never delivered or the turn's answer lost). After the
   merge, then, a person's Stop of a later turn holds the item `stopped` as it does before it; Continue (whose
-  completed turn ends the hold, a new version or not) or the host's undo ends it. A
+  completed turn ends the hold, a new version or not) or the host's undo ends it, and so does the end of its session
+  (`Scheduler.onSessionExited` forgets the cut turn, `lastTurn`, as "Leave it out" does: nothing can continue it any
+  more; 0.7.0 fix7: "End session" left the hold for good, every answer refused). A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
   or a new version registered after the check, makes it `executing` again.

@@ -248,9 +248,9 @@ const FAILURE_COUNT = new RegExp(
 /** The first code span of a line: the command of a check with neither colon nor dash, for the count only. */
 const FIRST_CODE_SPAN = /`[^`\n]*`/;
 /**
- * A quoted text, for the count only (`shows "2 of 10 failed" when two rows are bad`): words a check looks at. Not the
- * quote that opens the words after the colon or dash (0.7.0 fix6): that is the runner's own line there, quoted as a
- * code span quotes it (`` `pnpm test`: "Tests  2 failed | 12 passed (14)" ``).
+ * A quoted text, for the count only (`shows "2 of 10 failed" when two rows are bad`): words a check looks at. The
+ * quote that opens the words after the colon or dash is also read kept (0.7.0 fix6, fix7): that is the runner's own
+ * line there, quoted as a code span quotes it (`` `pnpm test`: "Tests  2 failed | 12 passed (14)" ``).
  */
 const QUOTED = /"[^"\n]*"|\u201c[^\u201c\u201d\n]*\u201d|\u300c[^\u300c\u300d\n]*\u300d/g;
 /** "after" before a number, for the count only (`locks after 5 failures`): when something happens, no count of what failed. */
@@ -258,24 +258,29 @@ const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
 
 /**
  * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
- * check; 0.7.0 fix4, fix5, fix6): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin
- * with a failure word as FAILURE_WORD reads it, or with the runner's FAIL before a file; `<what>` itself ends with an
- * outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends with a failure word (`pnpm test
- * fails`); a runner's verdict stands where it prints it (`--- FAIL: TestTotal`); or the words count failures or errors
- * that are not zero (`12 passed, 2 failed`), read without the command's code spans (those of `<what>`, or the first
- * one of a line with neither colon nor dash: `pnpm vitest -t "2 tests fail"`), with those after the colon or dash (the
- * runner's own line, quoted), and without quoted texts but one that opens the words after the colon or dash (the
- * runner's line too, 0.7.0 fix6). "14 passed, 0 failed" after a colon is a check that passed, and so is one whose words
- * name a failure it looks at. This is a net for the common ways a ticked line contradicts itself, not a reading of
- * every wording: the team's check at the end and the undo catch the rest. Read in one pass over at most 2,000
- * characters: no expression here can try a run of blanks again from each of its blanks, and a quote's body stops at
- * its own opening mark, so that a run of opening marks is not read again from each.
+ * check; 0.7.0 fix4, fix5, fix6, fix7): the words after `<what>` and its first colon (`:`, or the full-width one) or
+ * dash outside its code spans (`pnpm test:unit`: failed) begin with a failure word as FAILURE_WORD reads it, or with
+ * the runner's FAIL before a file; `<what>` itself ends with an outcome word (`pnpm test failed: …`); a line with
+ * neither colon nor dash ends with a failure word (`pnpm test fails`); a runner's verdict stands where it prints it
+ * (`--- FAIL: TestTotal`); or the words count failures or errors that are not zero (`12 passed, 2 failed`), read
+ * without the command's code spans (those of `<what>`, or the first one of a line with neither colon nor dash: `pnpm
+ * vitest -t "2 tests fail"`), with those after the colon or dash (the runner's own line, quoted), and without quoted
+ * texts, then once more with the quote that opens the words after the colon or dash kept (the runner's line too, 0.7.0
+ * fix6; past the blanks, the ideographic one too, 0.7.0 fix7). "14 passed, 0 failed" after a colon is a check that
+ * passed, and so is one whose words name a failure it looks at. This is a net for the common ways a ticked line
+ * contradicts itself, not a reading of every wording: the team's check at the end and the undo catch the rest. Each
+ * expression reads at most 2,000 characters in one pass (the count at most twice): no expression here can try a run of
+ * blanks again from each of its blanks, and a quote's body stops at its own opening mark, so that a run of opening
+ * marks is not read again from each.
  */
 function tickedSaysFailed(words: string): boolean {
   const text = words.slice(0, 2000);
-  const colon = text.search(/[:\uff1a]/);
+  // (the line's colon and dash stand outside the code spans: `pnpm test:unit`: failed, `pnpm test -- --run`: failed;
+  // 0.7.0 fix7. Each span is blanked to as many characters, so that a place in `plain` is the same place in `text`)
+  const plain = text.replace(CODE_SPAN, (span: string) => '_'.repeat(span.length));
+  const colon = plain.search(/[:\uff1a]/);
   const head = colon === -1 ? text : text.slice(0, colon);
-  const dash = DASH_SEPARATOR.exec(head);
+  const dash = DASH_SEPARATOR.exec(colon === -1 ? plain : plain.slice(0, colon));
   if (dash !== null || colon > 0) {
     const rest = (dash !== null ? text.slice(dash.index + dash[0].length) : text.slice(colon + 1)).replace(/^[ \t]+/, '');
     if (FAILURE_WORD.test(rest) || RUNNER_FAIL.test(rest.startsWith('`') ? rest.slice(1) : rest)) return true;
@@ -285,9 +290,15 @@ function tickedSaysFailed(words: string): boolean {
   if (RUNNER_FAIL_ANYWHERE.test(text.replace(CODE_SPAN, ' '))) return true;
   const cut = dash !== null ? dash.index : colon;
   const counted = cut === -1 ? text.replace(FIRST_CODE_SPAN, ' ') : text.slice(0, cut).replace(CODE_SPAN, ' ') + text.slice(cut);
-  // (where the words after the colon or dash start in `counted`, past their blanks: a quote there is kept)
+  // (the count with every quoted text blanked: a blank in a quote's place also joins the words around it, `Lint errors:
+  // "src/cart.ts" 2`, a zh-TW count, a dash, a quoted name and the word for failing; 0.7.0 fix7)
+  if (FAILURE_COUNT.test(counted.replace(QUOTED, ' ').replace(AFTER_NUMBER, 'after x'))) return true;
+  // (then, only when a quote opens the words after the colon or dash, past their blanks, the ideographic one too: read
+  // again with that quote kept, the runner's own line; 0.7.0 fix6, fix7)
   let keep = cut === -1 ? -1 : counted.length - text.length + cut + (dash !== null ? dash[0].length : 1);
-  while (keep !== -1 && (counted[keep] === ' ' || counted[keep] === '\t')) keep += 1;
+  while (keep !== -1 && (counted[keep] === ' ' || counted[keep] === '\t' || counted[keep] === '\u3000')) keep += 1;
+  const opens = keep === -1 ? undefined : counted[keep];
+  if (opens !== '"' && opens !== '\u201c' && opens !== '\u300c') return false;
   return FAILURE_COUNT.test(counted.replace(QUOTED, (quote: string, at: number) => (at === keep ? quote : ' ')).replace(AFTER_NUMBER, 'after x'));
 }
 

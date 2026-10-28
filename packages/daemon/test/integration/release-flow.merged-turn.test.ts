@@ -14,6 +14,18 @@
 //       the hold stays as it was (its time, its escalation, the host's row), said and audited once (it was stored anew:
 //       the row left the host, and the line and the audit came twice)
 //   (C3) while a merged item's agent is in a turn that does not end, "I've checked the result" is refused naming it
+//
+// The check of 06cfc6d (W/verify/last6/hold, D1 and D2; fix7):
+//   V18 the host merges each item: the turn that answers Mei's message ends on an API error, a usage limit or the loss
+//       of its process while version 1 is still a draft (smurg owes a continue, D15), then the host's Merge… of version
+//       1 (after Mei's review, or without one). The merge came after the turn, so nothing counted the continue: the
+//       topic said ready, the review or the check ended the session, the continue never came and Mei's message was
+//       lost. Now: the topic is not ready, the check is refused and the session stays until smurg's continue; its
+//       version is the host's draft, merged, and the topic is ready and checked.
+//   V19 Mei (or a restart) cuts the turn that answers her message to a merged item, which holds it for its carers, and
+//       Mei then ends the item's session ("End session"): the hold could never end (every answer refused, escalated,
+//       only the host's undo got out). Now: nothing can continue that turn any more, so it is forgotten, as "Leave it
+//       out" forgets it; the hold ends, nothing is offered, and the topic settles.
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
@@ -202,4 +214,87 @@ describe('0.7.0 fix6: a later turn of a merged item that does not finish keeps i
     await flow.mei.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
     await answerMerges(flow, topicId, 'host');
   });
+});
+
+/** Every phase the topic passes through from now on (a 'ready' after anything else is announced to every member). */
+function phasesOf(flow: Flow, topicId: string): string[] {
+  const seen: string[] = [];
+  flow.d.ctx.bus.on('topic.changed', ({ topic, previous }: { readonly topic: { readonly id: string; readonly phase: string }; readonly previous: { readonly phase: string } | null }) => {
+    if (topic.id === topicId && previous?.phase !== topic.phase) seen.push(topic.phase);
+  });
+  return seen;
+}
+
+describe('0.7.0 fix7: a continue smurg owes after the host\'s merge, and a merged item\'s session ended while it is held (release composition, stand-in claude)', { timeout: 300_000 }, () => {
+  const LIMIT = (resetsAt: number): FakeClaudeStep[] => [{ rateLimit: { status: 'rejected', resetsAt } }, { text: "You've hit your limit", apiError: 'rate_limit' }, { result: { subtype: 'success', is_error: true, terminal_reason: 'api_error' } }];
+  const V18 = [
+    { story: 'error', reviewed: true, what: 'ends on an API error, Mei reviews version 1', line: 'conversation.continued.error' },
+    { story: 'error', reviewed: false, what: 'ends on an API error, nobody reviews', line: 'conversation.continued.error' },
+    { story: 'exit', reviewed: true, what: 'loses its process, Mei reviews version 1', line: 'conversation.continued.crash' },
+    { story: 'limit', reviewed: true, what: 'hits the usage limit, Mei reviews version 1 twenty minutes later', line: 'conversation.continued.usageLimit' },
+  ] as const;
+  for (const { story, reviewed, what, line } of V18) {
+    it(`V18 the host merges each item: the turn that answers Mei's message to a version still a draft ${what}, then the host's Merge… of it: not ready, the check refused and the session kept until smurg's continue; its version merges`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging: 'host' }, agents: { parkAfterMs: 1_000 } });
+      const resetsAt = Math.floor((Date.now() + 2 * 3600_000) / 1000);
+      const broken = story === 'limit' ? LIMIT(resetsAt) : STORIES[story];
+      await flow.claude.setScenario({ turns: [FIRST, { match: 'must be in cents', steps: broken }, { match: 'Continue the work item', steps: ANSWER }, { steps: [{ text: 'ok' }] }] });
+      const topicId = await started(flow);
+      const done = await itemIs(flow, topicId, (item) => item.state === 'done' && item.merge?.status === 'draft', 'item 1\'s report');
+      const sessionId = done.sessionId as string;
+      await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the item\'s process to be parked' });
+      const phases = phasesOf(flow, topicId);
+      await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+      await waitFor(() => statusOf(flow, sessionId) === 'running', { timeoutMs: 20_000, what: 'the turn of Mei\'s message' });
+      await waitFor(() => statusOf(flow, sessionId) !== 'running', { timeoutMs: 30_000, what: 'the turn to break' });
+      // (the host reads the whole change later: the account is still limited then)
+      if (story === 'limit') flow.advance(20 * 60_000);
+      if (reviewed) await flow.mei.conn.request('report.review', { topicId, itemId: 'cart-api', version: 1 });
+      await flow.ian.conn.request('worktree.merge.approve', { requestId: done.merge?.requestId as string });
+      await itemIs(flow, topicId, (item) => item.merged !== undefined && item.merged.by !== 'smurg', 'the host\'s merge of version 1');
+      await notSettled(flow, topicId, sessionId);
+      // (smurg goes on by itself: nobody is asked meanwhile, and the item the host merges shows nothing)
+      expect((await itemOf(flow, topicId)).autoMerge).toBeUndefined();
+      expect((await flow.mei.inbox()).some((entry) => entry.kind === 'decision' || entry.kind === 'ready')).toBe(false);
+      flow.advance(story === 'limit' ? 3 * 3600_000 : 61_000);
+      await waitFor(async () => (await lineIds(flow, sessionId)).includes(line), { timeoutMs: 30_000, what: 'smurg\'s continue' });
+      // Nothing said "ready to check" before the answer to Mei's message merged.
+      expect(phases).not.toContain('ready');
+      await answerMerges(flow, topicId, 'host');
+    });
+  }
+
+  for (const merging of ['auto', 'host'] as const) {
+    const who = merging === 'auto' ? 'smurg merges' : 'the host merges each item';
+    for (const cut of ['stop', 'restart'] as const) {
+      it(`V19 ${who}: ${cut === 'stop' ? 'Mei stops' : 'a restart cuts'} the turn that answers her message to a merged item (held for its carers), then Mei ends its session: the hold ends, nothing is offered, and the topic ${cut === 'stop' ? 'is complete (reviewed)' : 'is ready and checked'}`, async () => {
+        const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+        await flow.claude.setScenario({ turns: [FIRST, { match: 'must be in cents', steps: cut === 'stop' ? [{ wait: 'interrupt' }, ...ANSWER] : STORIES.restart }, { steps: [{ text: 'ok' }] }] });
+        const { topicId, sessionId } = await merged(flow, merging);
+        if (cut === 'stop') {
+          await messageAndReview(flow, topicId, sessionId);
+          await flow.mei.conn.request('session.interrupt', { sessionId });
+        } else {
+          await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+          await waitFor(() => statusOf(flow, sessionId) === 'running', { timeoutMs: 20_000, what: 'the turn of Mei\'s message' });
+          await flow.restart();
+        }
+        await heldForCarers(flow, topicId);
+        await flow.mei.conn.request('session.end', { sessionId });
+        // Nothing can continue that turn any more: the hold ends, and with it Mei's decision.
+        const after = await itemIs(flow, topicId, (item) => item.autoMerge === undefined, 'the hold to end with the session', 20_000);
+        expect(after.merged).toBeDefined();
+        await waitFor(async () => !(await flow.mei.inbox()).some((entry) => entry.kind === 'decision' && entry.waiting), { timeoutMs: 20_000, what: 'Mei\'s decision to go' });
+        expect(flow.d.ctx.services.agents.get(sessionId)?.status).toBe('ended');
+        if (cut === 'stop') {
+          await waitFor(() => phaseOf(flow, topicId) === 'complete', { timeoutMs: 30_000, what: 'the reviewed topic to be complete' });
+        } else {
+          await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+          await flow.mei.conn.request('topic.check', { topicId });
+          expect(phaseOf(flow, topicId)).toBe('complete');
+        }
+        expect(await inMain(flow, 'src/cart/total.ts')).toBe('export const total = 1;\n');
+      });
+    }
+  }
 });

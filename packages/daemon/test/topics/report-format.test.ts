@@ -514,6 +514,55 @@ describe('the result report format', () => {
     });
   });
 
+  // The check of 06cfc6d (W/verify/last6/ticked, the lead's D4-D6; fix7): a colon or a dash inside the command's code
+  // span (`pnpm test:unit`, `pnpm test -- --run`) was taken for the line's own, so the outcome after the real one was
+  // never read and smurg merged a check that said it failed or did not run (o); the runner's line quoted after such a
+  // command was missed the same way, and after an ideographic blank (k, w); and keeping the quote that opens the words
+  // after the colon or dash lost counts that a blank in the quote's place joined (z, refused by bb6c323). The colon and
+  // the dash are found outside the code spans, and the count is read with every quote blanked first, then again with
+  // that quote kept.
+  describe('0.7.0 fix7: the colon and the dash of a ticked line stand outside its code spans, and a count is read with the quotes blanked and then with the opening quote kept', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_FIX7: readonly string[] = [
+      // o: the outcome after a command whose code span holds a colon or a dash
+      '- [x] `pnpm test:unit`: failed',
+      '- [x] `pnpm test:unit` \u2014 failed',
+      '- [x] `pnpm test -- --run`: failed',
+      '- [x] `pnpm test:e2e`: not run (no browser)',
+      '- [x] `pnpm test:unit` fails',
+      // k: the runner's line quoted after such a command
+      '- [x] `pnpm test:unit`: "Tests  2 failed | 12 passed (14)"',
+      '- [x] `pnpm test:unit`: \u201cTests  2 failed | 12 passed (14)\u201d',
+      '- [x] `npm run test:py`: "2 failed, 21 passed in 1.02s"',
+      '- [x] `pnpm test:unit`\uff1a\u300c2 failed | 12 passed\u300d',
+      '- [x] `pnpm test:unit`\uff1a\u300c2 \u500b\u6e2c\u8a66\u5931\u6557\u300d',
+      '- [x] `pnpm test:unit` \u2014 "Tests  2 failed | 12 passed (14)"',
+      // w: an ideographic blank before the quote
+      '- [x] `pnpm test`\uff1a\u3000\u300c2 failed | 12 passed\u300d',
+      // z: a count that the blank in a quote's place joins
+      '- [x] Lint errors: "src/cart.ts" 2',
+      '- [x] 2 \u500b\u6e2c\u8a66 \u2014 \u300ccart.test.ts\u300d\u5931\u6557',
+      '- [x] 2 \u500b\u6e2c\u8a66 \u2014 \u300c\u7e3d\u8a08\u300d\u5931\u6557',
+    ];
+    const PASSED_FIX7: readonly string[] = [
+      // p37: a failure word inside the command's code span, before the real colon (refused until now)
+      '- [x] `pnpm vitest run -t "upload: failed chunk is resent"`: 2 passed',
+      '- [x] `pnpm test:unit`: "Tests  14 passed (14)"',
+      '- [x] `pnpm test:unit`: 14 passed',
+      '- [x] `pnpm test -- --run`: 14 passed',
+      '- [x] `curl -i localhost:3000/health` returns 200 OK',
+      '- [x] `pnpm test`\uff1a\u3000\u300c14 passed\u300d',
+    ];
+    it.each(REFUSED_FIX7)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+    it.each(PASSED_FIX7)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+  });
+
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
     const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
     const start = performance.now();
@@ -525,9 +574,10 @@ describe('the result report format', () => {
   // (the square of the run): a 2 MiB report of such lines took 2 s of the daemon's one thread, where 76114a1 took 11 ms.
   // Every shape the check timed (W/verify/last4/ticked/timing*.mts) and those of fix5's own expressions, each as a whole
   // report of TOPIC_FILE_MAX_BYTES made of ticked lines of 2,000 characters (what is read of each): read in one pass,
-  // each takes 10 to 200 ms of processor time on the machine the bounds were measured on (Apple M3, node 22); one that
-  // grows with the square of a line took 1.2 to 4.9 s on d374e39 (W/verify/fix5/corpus/timing1.log). The bound is
-  // absolute, so it is multiplied by how much slower this machine is (`machineSlowness`).
+  // each takes 10 to 200 ms of processor time on the machine the bounds were measured on (Apple M3, node 22), and up to
+  // 400 ms where fix7 reads a count twice (a quote opens the words after the colon: W/verify/fix7/corpus/timing.log);
+  // one that grows with the square of a line took 1.2 to 4.9 s on d374e39 (W/verify/fix5/corpus/timing1.log). The bound
+  // is absolute, so it is multiplied by how much slower this machine is (`machineSlowness`).
   it('0.7.0 fix5: reading a report of TOPIC_FILE_MAX_BYTES of ticked lines takes linear time, for every shape of the expressions that read them', () => {
     const N = 2000;
     const B = (n: number): string => ' '.repeat(n);
@@ -581,6 +631,15 @@ describe('the result report format', () => {
       ['after+blanks+x', `after${B(N - 6)}x`],
       ['未驗證+blanks+中', `x：未驗證${B(N - 7)}中`],
       [' failed (+blanks+x', `a failed (x)${B(N - 14)}x`],
+      // fix7's: the count read again with the quote that opens the words after the colon kept (digits all through it,
+      // after an ideographic blank too), and the colon and the dash looked for outside code spans that hold them
+      ['x: 「+(14)*+,', `x: \u300c${fill('14', N - 5)},`],
+      ['x: “+(9)*+)', `x: \u201c${fill('9', N - 5)})`],
+      ['x: 「+(1(`)*', `x: \u300c${fill('1(`', N - 4)}`],
+      ['x：　「+(14)*', `x\uff1a\u3000\u300c${fill('14', N - 4)}`],
+      ['(`a:` )*', fill('`a:` ', N)],
+      ['(`a:` — )*', fill('`a:` \u2014 ', N)],
+      ['`x:`: "+(2 failed )*', `\`x:\`: "${fill('2 failed ', N - 7)}`],
     ];
     const bound = 1_000 * machineSlowness();
     for (const [name, words] of SHAPES) {
