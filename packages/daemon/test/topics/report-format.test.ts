@@ -487,6 +487,33 @@ describe('the result report format', () => {
     });
   });
 
+  // The check of bb6c323 (W/verify/last5/ticked, the lead's C4; fix6): fix5's blanking of quoted text for the count
+  // (R5) also blanked a quote that opens the words after the colon or dash, which is where R3 reads the runner's own
+  // line: the runner's count in "…", “…” or 「…」 instead of backticks was accepted, and smurg merged untested work (d374e39
+  // refused these lines). That quote is kept now; a quote elsewhere in the words is still what a check looks at.
+  describe('0.7.0 fix6: the runner\'s line quoted after the colon is read as one in a code span is', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_FIX6: readonly string[] = [
+      '- [x] `pnpm test`: "Tests  2 failed | 12 passed (14)"',
+      '- [x] `pnpm test`: \u201cTests  2 failed | 12 passed (14)\u201d',
+      '- [x] `pytest -q`: "2 failed, 21 passed in 1.02s"',
+      '- [x] `pnpm test`\uff1a\u300c2 failed | 12 passed\u300d',
+      '- [x] `pnpm test`\uff1a\u300c2 \u500b\u6e2c\u8a66\u5931\u6557\u300d',
+    ];
+    it.each(REFUSED_FIX6)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+    it.each([
+      '- [x] Batch import: shows "2 of 10 failed" when two rows are bad (`pnpm test import`, 4 passed)',
+      '- [x] `pnpm test`: "Tests  14 passed (14)"',
+      '- [x] `pnpm test` \u2014 "Tests  14 passed (14)", 0 failed',
+    ])('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+  });
+
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
     const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
     const start = performance.now();

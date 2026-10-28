@@ -17,8 +17,10 @@
 //       plan's waitingFor, escalated after the waiting time, and the topic is ready only once it is decided
 //   V8  smurg host stops while an armed item is being started: the item starts after the restart (it was disarmed with
 //       "smurg is stopping on the host")
-//   V9  in smurg's own history, a restart that cuts a merged item's talk-only turn leaves the topic ready (its checkout
-//       was taken for one holding unmerged work until a merge view looked, and the item held)
+//   V9  in smurg's own history, a restart that cuts a merged item's talk-only turn: its checkout is not taken for one
+//       holding unmerged work (it was, until a merge view looked, and the item held). Since 0.7.0 fix6 the cut turn
+//       itself holds the item for its carers (the question was never answered); Continue's answer changes nothing, and
+//       the topic is ready with nothing held
 //   V10 a restart cuts a turn after its check_report and changed nothing after it: the agent is told the restart is why
 //       it checks again, not that it changed files
 //   V11 (the last check, F1) a message a restart left in a done item's session without a process: "Merge it as it is"
@@ -395,7 +397,9 @@ describe('0.7.0 verify: a restart tells nobody anything false (release compositi
     expect((await audited(flow, 'scheduler.disarm')).length).toBe(0);
   });
 
-  it('V9 smurg\'s own history: a restart that cuts a merged item\'s talk-only turn leaves its topic ready to check, with nothing held', async () => {
+  // (0.7.0 fix6, the check of bb6c323 C1: the turn the restart cut is the carers' to continue; before, nothing held the
+  // item, the topic said ready, and the question was never answered)
+  it('V9 smurg\'s own history: a restart that cuts a merged item\'s talk-only turn holds it for its carers; Continue\'s answer changes nothing, and its topic is ready to check with nothing held', async () => {
     const flow = await startFlow({ files: FILES, git: false, ...UNATTENDED });
     await flow.claude.setScenario({ turns: [FIRST, { match: 'why integers', steps: [{ text: 'Because ' }, { sleep: 60_000 }, { text: 'never' }] }, { steps: [{ text: 'Integers, as the spec says.' }] }] });
     const { topicId, item } = await mergedAndReady(flow);
@@ -405,10 +409,15 @@ describe('0.7.0 verify: a restart tells nobody anything false (release compositi
     await flow.mei.conn.request('session.message.send', { sessionId, text: 'Just a question: why integers?' });
     await waitFor(() => flow.mei.events(sessionId).filter((event) => event.kind === 'turn.started').length > before, { timeoutMs: 30_000, what: 'the question\'s turn' });
     await flow.restart();
-    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the restart' });
+    const held = await itemIs(flow, topicId, (candidate) => candidate.autoMerge?.state === 'held', 'the merged item to be held for the cut turn', 30_000);
+    expect(held.autoMerge).toMatchObject({ state: 'held', reason: 'stopped' });
+    expect(phaseOf(flow, topicId)).toBe('executing');
+    await flow.mei.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the answer' });
     await sleep(3_000);
     const after = await itemOf(flow, topicId);
     expect(after.autoMerge).toBeUndefined();
+    expect(after.report?.version).toBe(1);
     expect(phaseOf(flow, topicId)).toBe('ready');
     expect((await flow.mei.inbox()).some((entry) => entry.kind === 'decision')).toBe(false);
   });

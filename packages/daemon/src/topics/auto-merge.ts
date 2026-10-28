@@ -198,10 +198,11 @@ export class AutoMerger {
     const record = item.autoMerge;
     // An item that ran directly in the folder has nothing to merge: its record is the report service's (DESIGN 0.7.0 D10).
     if (isDirect(item)) return false;
-    // (an item the host merges keeps only D6 row 2's hold for a message nothing delivers by itself, as its record: the
-    // decision of its carers, also after the host turned automatic merging off; 0.7.0 fix5)
+    // (an item the host merges keeps only D6 row 2's hold for a message nothing delivers by itself, or for a later turn
+    // that did not finish after its merge, as its record: the decision of its carers, also after the host turned
+    // automatic merging off; 0.7.0 fix5, fix6)
     const policy = this.core.mergingOf(item);
-    const verdict = topic.archived || (policy !== 'auto' && !(policy === 'host' && this.core.messageUndelivered(item))) ? null : this.core.verdictOf(topic, item, cards);
+    const verdict = topic.archived || (policy !== 'auto' && !(policy === 'host' && this.core.keptAfterMerge(item))) ? null : this.core.verdictOf(topic, item, cards);
     if (verdict === null || (policy !== 'auto' && verdict.kind !== 'hold')) {
       if (record === undefined) return false;
       this.drop(topic.id, item.id);
@@ -551,10 +552,13 @@ export class AutoMerger {
   /**
    * "Turning it off is for good" (R-SAFE S5, R-ENG E6): while the workspace's setting says the host merges, every item
    * whose pin says smurg's merge gets the host's, merged ones included (a follow-up's later version is the host's too),
-   * and every record of the queue goes; one topic update per topic, audited once (`plan.merging.host`). Run when the
-   * setting turns to `host` and at every start while it says so (a crash between state.json and topics.json is
-   * repaired there). Archived topics too: restored, they must not be armed again by a later "on". `plan.lastPin` is
-   * not rewritten (it only proposes the next Start's choice).
+   * and every record of the queue goes, but the hold of a merged item kept for its carers whoever merges it (D6 row 2:
+   * a message nothing delivers by itself, a later turn that did not finish after the merge): the host's hold as it is,
+   * with its `since` and its escalation, said and audited once (0.7.0 fix6: stored again, it was new, its row left the
+   * host and the other members, and its line and audit came twice). One topic update per topic, audited once
+   * (`plan.merging.host`). Run when the setting turns to `host` and at every start while it says so (a crash between
+   * state.json and topics.json is repaired there). Archived topics too: restored, they must not be armed again by a
+   * later "on". `plan.lastPin` is not rewritten (it only proposes the next Start's choice).
    */
   settingSaysHost(cause: 'setting' | 'start'): void {
     if (!this.core.started || this.ctx.settings.get().merging !== 'host') return;
@@ -563,14 +567,15 @@ export class AutoMerger {
     for (const topic of this.core.topics()) {
       const rewritten = topic.items.filter((item) => item.pin?.merging === 'auto');
       // (an item that ran directly in the folder keeps what it is held for: that is no merge of anybody's, D10)
-      if (rewritten.length === 0 && !topic.items.some((item) => item.autoMerge !== undefined && !isDirect(item))) continue;
+      const kept = new Set(topic.items.filter((item) => !isDirect(item) && item.autoMerge?.state === 'held' && this.core.keptAfterMerge(item) && this.core.verdictInputOf(topic, item).request?.status === 'merged').map((item) => item.id));
+      if (rewritten.length === 0 && !topic.items.some((item) => item.autoMerge !== undefined && !isDirect(item) && !kept.has(item.id))) continue;
       this.core.update(topic.id, (draft) => {
         for (const item of draft.items) {
           if (item.pin?.merging === 'auto') item.pin = { ...item.pin, merging: 'host' };
-          if (!isDirect(item)) delete item.autoMerge;
+          if (!isDirect(item) && !kept.has(item.id)) delete item.autoMerge;
         }
       });
-      for (const item of topic.items) this.forget(topic.id, item.id);
+      for (const item of topic.items) if (!kept.has(item.id)) this.forget(topic.id, item.id);
       if (rewritten.length > 0) {
         topics += 1;
         items += rewritten.length;

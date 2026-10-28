@@ -218,10 +218,11 @@ const ZH_COUNT_END = String.raw`(?=\u5728|[ \t]*(?:$|[^\p{L}\p{N}\s]))`;
  * lead's addition to the last check's T1): `12 passed, 2 failed`, `2 of 14 failed`, `2/14 failed`, `2 tests fail in
  * cart.test.ts`, `2 tests are failing`, `2 tests still fail`, `2 failing`, `failed with 3 errors`, `1 error`, `1 error
  * during collection`, `due to 2 previous errors`, `2 failures in legacy.test.ts`, `pass 12, fail 2`, the runner's own
- * line quoted after the colon (`` `Tests  2 failed | 12 passed (14)` ``), and in zh-TW a count with its measure word
- * before the word for failing or for errors, or after either word, or a count of a total before the word for failing
- * (0.7.0 fix5). A count of anything else is no failure (`fails with exit code 1`, `retried up to 3 times`, `5 failed
- * attempts lock the account`, `a 500 error page`), nor is one inside quotes (`shows "2 of 10 failed"`) or right after
+ * line quoted after the colon (`` `Tests  2 failed | 12 passed (14)` ``, or in quotes: `"2 failed, 21 passed"`, 0.7.0
+ * fix6), and in zh-TW a count with its measure word before the word for failing or for errors, or after either word,
+ * or a count of a total before the word for failing (0.7.0 fix5). A count of anything else is no failure (`fails with
+ * exit code 1`, `retried up to 3 times`, `5 failed attempts lock the account`, `a 500 error page`), nor is one inside
+ * quotes elsewhere (`shows "2 of 10 failed"`) or right after
  * "after" (`locks after 5 failures`), and neither is a zero (`0 failed`, `0 errors`, `no failures`). Numbers written as
  * words (`two tests fail`) are not read. Each alternative starts at a count or at a fixed word and reads a bounded
  * stretch after it, and no two of its runs of blanks stand side by side (`fail` + blanks + `x` is read once).
@@ -246,24 +247,29 @@ const FAILURE_COUNT = new RegExp(
 
 /** The first code span of a line: the command of a check with neither colon nor dash, for the count only. */
 const FIRST_CODE_SPAN = /`[^`\n]*`/;
-/** A quoted text, for the count only (`shows "2 of 10 failed" when two rows are bad`): words a check looks at. */
+/**
+ * A quoted text, for the count only (`shows "2 of 10 failed" when two rows are bad`): words a check looks at. Not the
+ * quote that opens the words after the colon or dash (0.7.0 fix6): that is the runner's own line there, quoted as a
+ * code span quotes it (`` `pnpm test`: "Tests  2 failed | 12 passed (14)" ``).
+ */
 const QUOTED = /"[^"\n]*"|\u201c[^\u201c\u201d\n]*\u201d|\u300c[^\u300c\u300d\n]*\u300d/g;
 /** "after" before a number, for the count only (`locks after 5 failures`): when something happens, no count of what failed. */
 const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
 
 /**
  * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
- * check; 0.7.0 fix4, fix5): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin
+ * check; 0.7.0 fix4, fix5, fix6): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin
  * with a failure word as FAILURE_WORD reads it, or with the runner's FAIL before a file; `<what>` itself ends with an
  * outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends with a failure word (`pnpm test
  * fails`); a runner's verdict stands where it prints it (`--- FAIL: TestTotal`); or the words count failures or errors
  * that are not zero (`12 passed, 2 failed`), read without the command's code spans (those of `<what>`, or the first
  * one of a line with neither colon nor dash: `pnpm vitest -t "2 tests fail"`), with those after the colon or dash (the
- * runner's own line, quoted), and without quoted texts. "14 passed, 0 failed" after a colon is a check that passed, and
- * so is one whose words name a failure it looks at. This is a net for the common ways a ticked line contradicts
- * itself, not a reading of every wording: the team's check at the end and the undo catch the rest. Read in one pass
- * over at most 2,000 characters: no expression here can try a run of blanks again from each of its blanks, and a
- * quote's body stops at its own opening mark, so that a run of opening marks is not read again from each.
+ * runner's own line, quoted), and without quoted texts but one that opens the words after the colon or dash (the
+ * runner's line too, 0.7.0 fix6). "14 passed, 0 failed" after a colon is a check that passed, and so is one whose words
+ * name a failure it looks at. This is a net for the common ways a ticked line contradicts itself, not a reading of
+ * every wording: the team's check at the end and the undo catch the rest. Read in one pass over at most 2,000
+ * characters: no expression here can try a run of blanks again from each of its blanks, and a quote's body stops at
+ * its own opening mark, so that a run of opening marks is not read again from each.
  */
 function tickedSaysFailed(words: string): boolean {
   const text = words.slice(0, 2000);
@@ -279,7 +285,10 @@ function tickedSaysFailed(words: string): boolean {
   if (RUNNER_FAIL_ANYWHERE.test(text.replace(CODE_SPAN, ' '))) return true;
   const cut = dash !== null ? dash.index : colon;
   const counted = cut === -1 ? text.replace(FIRST_CODE_SPAN, ' ') : text.slice(0, cut).replace(CODE_SPAN, ' ') + text.slice(cut);
-  return FAILURE_COUNT.test(counted.replace(QUOTED, ' ').replace(AFTER_NUMBER, 'after x'));
+  // (where the words after the colon or dash start in `counted`, past their blanks: a quote there is kept)
+  let keep = cut === -1 ? -1 : counted.length - text.length + cut + (dash !== null ? dash[0].length : 1);
+  while (keep !== -1 && (counted[keep] === ' ' || counted[keep] === '\t')) keep += 1;
+  return FAILURE_COUNT.test(counted.replace(QUOTED, (quote: string, at: number) => (at === keep ? quote : ' ')).replace(AFTER_NUMBER, 'after x'));
 }
 
 function error(kind: ReportErrorKind, line: number): ReportError {

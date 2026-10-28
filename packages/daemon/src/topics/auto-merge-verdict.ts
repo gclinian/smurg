@@ -7,10 +7,12 @@
 //
 // The rows, in order; the first that applies decides:
 //    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done → none
-//       (of an item the host merges, only row 2's hold for a message nothing delivers by itself is asked)
+//       (of an item the host merges, only row 2's hold for a message nothing delivers by itself, or for a later turn
+//       that did not finish after its merge, is asked)
 //    2. its current request is merged (unless its checkout holds work no merge carried: a later turn that did not
-//       finish, a command's edits, a person's save; or a message to its agent waits that nothing delivers by itself:
-//       each a hold for it after rows 3 and 4); an undo of its topic claims it                               → none
+//       finish, a command's edits, a person's save; or a message to its agent waits that nothing delivers by itself; or
+//       a later turn did not finish after the merge: each a hold for it after rows 3 and 4); an undo of its topic
+//       claims it                                                                                             → none
 //    3. the plan is paused                                                                                   → wait
 //    4. its session is in a turn, has a card open or a message waiting, or an automatic continue is owed     → wait
 //    5. somebody wrote to its agent since this version: the answer is to come → wait (not when a restart left
@@ -71,6 +73,17 @@ export function autoContinueOwed(item: Pick<StoredItem, 'autoContinue' | 'state'
   return record.cause === 'crash' ? item.state === 'failed' : item.state === 'stalled' && item.stalledBy === 'error';
 }
 
+/**
+ * A later turn of a merged item did not finish AFTER its merge (0.7.0 fix6): a restart or a hard death cut it, it ended
+ * on an error, its process died, or a person stopped it (`lastTurn`, at or after `mergedAs`). Its answer is still to
+ * come, from smurg's automatic continue (D15) or its carers' Continue: like work no merge carried, it keeps the item
+ * open (D6 row 2, whoever merges it), its topic unsettled (D13) and its session (D12). (A turn that did not finish
+ * before the host merged that version is the host's decision: the merge stands, and nothing of that turn is asked.)
+ */
+export function cutAfterMerge(item: Pick<StoredItem, 'lastTurn' | 'mergedAs'>): boolean {
+  return item.lastTurn !== undefined && item.mergedAs !== undefined && item.lastTurn.at >= item.mergedAs.at;
+}
+
 /** The reasons of the state `held` (D9). */
 export type HoldReason = Extract<
   AutoMergeReason,
@@ -111,7 +124,7 @@ export interface AutoMergeVerdictInput {
   readonly topic: { readonly archived: boolean; readonly paused: boolean };
   /** An undo of this topic claims the item while it runs (D14): nothing of it merges meanwhile. */
   readonly claimed: boolean;
-  readonly item: Pick<StoredItem, 'state' | 'stalledBy' | 'merged' | 'leftOut' | 'changesAsked' | 'merge' | 'autoMerge' | 'lastTurn' | 'autoContinue' | 'snapshotOwed'>;
+  readonly item: Pick<StoredItem, 'state' | 'stalledBy' | 'merged' | 'leftOut' | 'changesAsked' | 'merge' | 'autoMerge' | 'lastTurn' | 'autoContinue' | 'snapshotOwed' | 'mergedAs'>;
   /** The item's current request as the worktree module has it: `requested` when someone asked for its merge. */
   readonly request: { readonly id: string; readonly status: MergeRequestStatus; readonly requested: boolean } | null;
   readonly report: {
@@ -157,24 +170,31 @@ export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict
   const { item, report, request } = input;
   const record = item.autoMerge;
   const merged = request?.status === 'merged';
+  // (a later turn did not finish after the merge: its answer is still to come; 0.7.0 fix6)
+  const cut = merged && cutAfterMerge(item);
   // 1. smurg's to merge at all; of an item the host merges only row 2's hold for a message nothing delivers by itself,
-  //    once its version is merged (0.7.0 fix5: the host's Merge… delivers nothing either, and nobody was told)
-  const heldForMessage = input.policy === 'host' && merged && input.undelivered === true;
+  //    once its version is merged (0.7.0 fix5: the host's Merge… delivers nothing either, and nobody was told), and
+  //    for a later turn that did not finish after the merge (0.7.0 fix6: its answer was lost, nobody told)
+  const heldForMessage = input.policy === 'host' && merged && (input.undelivered === true || cut);
   if ((input.policy !== 'auto' && !heldForMessage) || input.topic.archived || item.leftOut !== undefined || (item.state !== 'done' && item.state !== 'reviewed')) return NONE;
   // 2. claimed by an undo; merged already, unless its checkout holds work no merge carried (0.7.0 review and verify: a
   //    later turn that did not finish left half of a change there, a completed one changed files through a command, a
   //    person saved a file there: nothing would ever merge or report it, and its topic would never be ready), or a
   //    message to its agent waits that nothing delivers by itself (0.7.0 fix4: a restart came before a turn took it;
-  //    the topic said ready, and "I've checked the result" ended the session with the message in it)
+  //    the topic said ready, and "I've checked the result" ended the session with the message in it), or a later turn
+  //    did not finish after the merge (0.7.0 fix6: a restart, a hard death, an API error, the process's death or a
+  //    person's Stop cut the turn that answered a message; the topic said ready, the session was ended, and the
+  //    continue D15 owes never came)
   if (input.claimed) return NONE;
-  if (merged && input.unmergedWork !== true && input.undelivered !== true) return NONE;
+  if (merged && input.unmergedWork !== true && input.undelivered !== true && !cut) return NONE;
   // 3. a paused plan merges nothing
   if (input.topic.paused) return { kind: 'wait', reason: 'paused' };
   // 4. the agent is at work, or a person is asked something, or smurg continues it by itself later
   if (input.session !== null && (input.session.turnOpen || input.session.openCards > 0)) return { kind: 'wait', reason: 'busy' };
   if (autoContinueOwed(item)) return { kind: 'wait', reason: 'busy' };
-  // (a merged item: its carers decide; Continue delivers the message that waits and registers what the checkout holds
-  // as a new version. A message that waits is a turn that did not happen: "its last turn did not finish")
+  // (a merged item: its carers decide; Continue delivers the message that waits, goes on with the turn that did not
+  // finish and registers what the checkout holds as a new version. A message that waits is a turn that did not happen:
+  // "its last turn did not finish")
   if (merged) return hold(item.lastTurn !== undefined || input.undelivered === true ? 'stopped' : 'edited');
   // 5. somebody wrote to the agent since this version (R-SAFE S7); a message a restart left behind waits for nothing
   //    that comes by itself (its carers' Continue delivers it: row 6)

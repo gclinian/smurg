@@ -46,7 +46,7 @@ import { PathDeniedError } from '../core/errors.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { attentionFacts, stoppedItemRecipients } from './attention.ts';
-import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
+import { AUTO_MERGE_TRIES, autoMergeInfoOf, autoMergeInfoOfRecord, autoMergeVerdict, cutAfterMerge, type AutoMergeVerdict, type AutoMergeVerdictInput } from './auto-merge-verdict.ts';
 import { parsePlan, planFingerprint, type ParsedItem, type PlanParse } from './plan-format.ts';
 import { evenSplit, SIZE_WEIGHT, type SplitPerson } from './split.ts';
 import {
@@ -474,10 +474,11 @@ export class TopicsCore {
    * current request the merged one (an item that ran directly in the folder: counted as merged at registration or
    * accepted), AND nothing of it still in progress: nothing smurg's merge queue waits for or holds, no follow-up whose
    * answer is to come (a message no turn has taken, a suggestion not decided), no open turn and no open card of its
-   * session, and nothing in its worktree that no merge carried. A person's message to a merged item whose turn ended
-   * without a new version (`changesAsked` stays until one) is answered: nothing of it is in progress, and a change that
-   * turn left without a report is what its worktree holds unmerged. The cheap facts first: what the sessions, the
-   * cards and the worktrees say is asked only when every item is merged.
+   * session, no later turn that did not finish after its merge, and nothing in its worktree that no merge carried. A
+   * person's message to a merged item whose turn ended without a new version (`changesAsked` stays until one) is
+   * answered: nothing of it is in progress, and a change that turn left without a report is what its worktree holds
+   * unmerged. The cheap facts first: what the sessions, the cards and the worktrees say is asked only when every item
+   * is merged.
    */
   private allSettled(topic: StoredTopic, items: readonly StoredItem[]): boolean {
     const merged = items.filter((item) => item.leftOut === undefined && item.undone === undefined);
@@ -485,6 +486,10 @@ export class TopicsCore {
       if (!item.merged || (item.merge !== undefined && item.merge.status !== 'merged')) return false;
       if (item.autoMerge !== undefined) return false;
       if ((this.report(topic.id, item.id)?.pending.length ?? 0) > 0) return false;
+      // (its answer is still to come: smurg's continue, or its carers' Continue after the hold; also before the merge
+      // queue has stored that hold, and whoever merges the item. 0.7.0 fix6: a restart, a hard death, an API error, the
+      // process's death or a person's Stop cut the turn after the merge; the topic said ready, and nobody was told)
+      if (cutAfterMerge(item)) return false;
     }
     if (merged.length === 0) return true;
     const cards = this.sessionsWithCards();
@@ -641,6 +646,15 @@ export class TopicsCore {
     return live.status === 'failed' || item.lastTurn?.restart === true;
   }
 
+  /**
+   * A merged item is kept for its carers whoever merges it (D6 rows 1 and 2): a message nothing delivers by itself waits
+   * in its session (0.7.0 fix4, fix5), or a later turn did not finish after its merge (`cutAfterMerge`, 0.7.0 fix6). The
+   * cheap gate before the verdict of an item the host merges; the verdict decides (its version must be the merged one).
+   */
+  keptAfterMerge(item: StoredItem): boolean {
+    return cutAfterMerge(item) || this.messageUndelivered(item);
+  }
+
   /** What D6 reads of an item (the stores, the session, the request). */
   verdictInputOf(topic: StoredTopic, item: StoredItem, cards: ReadonlySet<string> = this.sessionsWithCards()): AutoMergeVerdictInput {
     const key = itemKey(topic.id, item.id);
@@ -715,11 +729,12 @@ export class TopicsCore {
     const showsResponsible = item.sessionId !== undefined || topic.plan.mode === 'assigned';
     // Protocol 6 (DESIGN 0.7.0 D3, D9): how its change reaches the main workspace, and what smurg's merge waits for.
     // An item that ran directly in the folder has nothing to merge; what it is held for is its record (D10). One the
-    // host merges shows only the hold of D6 row 2 for a message nothing delivers by itself, once its version is merged
-    // (0.7.0 fix5: the host's Merge… delivers nothing, and its carers were told nothing).
+    // host merges shows only the hold of D6 row 2 for a message nothing delivers by itself, or for a later turn that did
+    // not finish after its merge, once its version is merged (0.7.0 fix5, fix6: the host's Merge… delivers nothing, and
+    // its carers were told nothing).
     const merging = this.mergingOf(item);
     const computed =
-      merging === 'auto' || (merging === 'host' && this.messageUndelivered(item))
+      merging === 'auto' || (merging === 'host' && this.keptAfterMerge(item))
         ? autoMergeInfoOf(this.verdictOf(topic, item, cards), {
             record: item.autoMerge,
             tries: item.mergeTries ?? 0,

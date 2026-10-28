@@ -11,7 +11,7 @@ import type { AgentStartInput } from '../../src/core/interfaces.ts';
 import { createTempDir, createTempRunDir, removeTempDir, removeTempRunDir } from '../../src/testing/index.ts';
 import type { PlanServiceImpl } from '../../src/topics/plan-service.ts';
 import { TOPICS_DOCUMENT, initialTopicsDocument, topicsDocumentSchema } from '../../src/topics/store.ts';
-import { SPEC_TEXT, checkReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, storedItem, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
+import { SPEC_TEXT, checkReport, handInReport, itemOf, lineIds, mcpContext, planText, reportText, settle, setupTopics, smurgSent, startPlan, storedItem, topicWithPlan, waitFor, writeReport, type TopicsTest } from './support.ts';
 
 let test: TopicsTest;
 const after: (() => Promise<void>)[] = [];
@@ -745,6 +745,73 @@ describe('after a restart: what a hard death between two records left out of ste
     await settle(test);
     expect((await storedItem(test, topic.id, 'a')).lastTurn).toMatchObject({ outcome: 'interrupted', restart: true });
   });
+
+  // 0.7.0 fix6 (the check of bb6c323, W/verify/last5/hold H3, C1): the daemon dies (kill -9) in the middle of the turn
+  // that answers a person's message to a MERGED item, reviewed or not. No stop marked anything: the runtime finds the
+  // session mid-turn at the start (`stalled`), as after any hard death. The item was not held, the topic said ready (or
+  // complete, once reviewed), its session was ended 'merged' at the start, and the message's answer was lost with
+  // nobody told; with the host merging too. Now it is held for its carers, the topic is not ready, the session stays;
+  // Continue goes on with it, and its completed turn with nothing new settles the topic and finishes the item.
+  for (const merging of ['auto', 'host'] as const) {
+    for (const reviewed of [false, true]) {
+      it(`${merging === 'auto' ? 'smurg merged it' : 'the host merged it'}${reviewed ? ' and it was reviewed' : ''}: a hard death in a later turn holds it for its carers, the topic not ready; Continue's completed turn settles it`, async () => {
+        const { root, stateDir } = await folders('fix6-death');
+        const workspaceId = `ws_test_fix6_death_${merging}_${reviewed ? 'reviewed' : 'plain'}`;
+        test = await setupTopics({ root, stateDir, workspaceId, settings: { merging } });
+        const { topic } = await topicWithPlan(test, [{ id: 'a' }]);
+        await test.mei.conn.request('plan.assign', { topicId: topic.id, itemId: 'a', userId: 'dev:mei' });
+        await startPlan(test, topic.id);
+        await handInReport(test, topic.slug, 'a');
+        await waitFor(() => itemOf(test.plan(topic.id), 'a').merge !== undefined, { what: 'the version' });
+        if (merging === 'host') await test.fakes.worktrees.approve({ requestId: itemOf(test.plan(topic.id), 'a').merge?.requestId as string }, test.principals.host);
+        await waitFor(() => itemOf(test.plan(topic.id), 'a').merged !== undefined, { what: 'the merge' });
+        expect(itemOf(test.plan(topic.id), 'a').merged?.by).toEqual(merging === 'auto' ? 'smurg' : { userId: 'dev:host', displayName: 'Host' });
+        if (reviewed) await test.mei.conn.request('report.review', { topicId: topic.id, itemId: 'a', version: 1 });
+        const sessionId = itemOf(test.plan(topic.id), 'a').sessionId as string;
+        const session = test.fakes.agents.get(sessionId) as NonNullable<ReturnType<typeof test.fakes.agents.get>>;
+        const worktrees = test.fakes.worktrees.list();
+        const requests = test.fakes.worktrees.listMerges(test.principals.host);
+        test.t.advanceClock(1_000);
+        await test.cleanup();
+
+        // The start after the death: the session is found mid-turn (the turn that took Mei's message); the worktree
+        // module still has the item's checkout and its merged request.
+        test = await setupTopics({
+          root,
+          stateDir,
+          workspaceId,
+          settings: { merging },
+          seed: (fakes) => {
+            fakes.agents.adopt({ ...session, status: 'stalled' }, { hasProcess: false });
+            for (const worktree of worktrees) fakes.worktrees.adopt(worktree);
+            for (const request of requests) fakes.worktrees.putRequest(request);
+          },
+        });
+        await settle(test);
+        await waitFor(() => itemOf(test.plan(topic.id), 'a').autoMerge?.state === 'held', { what: 'the merged item to be held for its carers' });
+        expect(itemOf(test.plan(topic.id), 'a').autoMerge).toMatchObject({ state: 'held', reason: 'stopped' });
+        expect((await storedItem(test, topic.id, 'a')).lastTurn).toMatchObject({ outcome: 'interrupted', restart: true });
+        expect(test.topic(topic.id).phase).toBe('executing');
+        expect(await refusal(test.mei.conn.request('topic.check', { topicId: topic.id }))).toMatchObject({ code: 'conflict', text: { id: 'topic.check.notReady' } });
+        await settle(test);
+        expect(test.fakes.agents.get(sessionId)?.status).not.toBe('ended');
+        expect(test.fakes.worktrees.log.of('releaseItem')).toHaveLength(0);
+
+        // Mei's Continue: its turn goes on and completes with nothing new.
+        await test.mei.conn.request('plan.item.continue', { topicId: topic.id, itemId: 'a' });
+        test.fakes.agents.startTurn(sessionId);
+        test.fakes.agents.finishTurn(sessionId, { outcome: 'completed', finalText: 'The totals are in cents already.' });
+        await waitFor(() => itemOf(test.plan(topic.id), 'a').autoMerge === undefined, { what: 'the hold to end' });
+        if (!reviewed) {
+          await waitFor(() => test.topic(topic.id).phase === 'ready', { what: 'ready to check' });
+          await test.mei.conn.request('topic.check', { topicId: topic.id });
+        }
+        await waitFor(() => test.topic(topic.id).phase === 'complete', { what: 'the topic to be complete' });
+        await waitFor(() => test.fakes.agents.get(sessionId)?.status === 'ended', { what: 'the item to finish' });
+        expect(test.fakes.agents.get(sessionId)?.endReason).toBe('merged');
+      }, 30_000);
+    }
+  }
 
   it('a done item whose process is only being started, with nothing to deliver, when smurg host stops: no turn of it was cut', async () => {
     const { root, stateDir } = await folders('p4-stop-starting');

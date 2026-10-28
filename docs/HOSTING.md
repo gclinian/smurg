@@ -1456,9 +1456,11 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
   everyone.
 - **When an item is finished**: a work item that is merged and reviewed, or whose topic was checked, is finished once
   nothing unmerged is left in its worktree and its agent is not in a turn (a turn that answers a message to it
-  finishes first, and what it changes becomes a version of its own): its session ends, its worktree is removed, its
-  conversation and its report stay readable. Until then its session and its worktree stay, so that a follow-up from
-  its report reaches the agent that did the work. When the worktree of an item that smurg merged holds changes that no
+  finishes first, and what it changes becomes a version of its own; after a later turn that did not finish, smurg
+  continues it as §10.5 says, or it waits for "Continue", and until then the topic is not ready to check:
+  "I've checked the result" names the item): its session ends, its worktree is removed, its conversation and its
+  report stay readable. Until then its session and its worktree stay, so that a follow-up from its report reaches the
+  agent that did the work. When the worktree of an item that smurg merged holds changes that no
   merge carried (a member's save there, a command its agent ran after its report, a later turn that did not finish),
   the item waits for its responsible person: "Merged; a later change is not merged: …", and "Continue" makes the
   change a version of its own, which merges like the first one. A file a member saves in a worktree while it is being
@@ -1538,8 +1540,8 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   is not offered, and the report's foot says "A message to its agent was not delivered yet: Continue delivers it
   first." Your own "Merge…" stays yours once you have read the whole change: that version merges, and the item then
   waits for Continue like an item already merged. So does an item you merge yourself (§10.3), also after you turned
-  smurg's merging off while it waited. Until the message is delivered the topic is not ready to check, and "I've
-  reviewed this" does not end the item's session.
+  smurg's merging off while it waited (the decision stays as it was). Until Continue the topic is not ready to check,
+  and "I've reviewed this" does not end the item's session.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view
@@ -1550,7 +1552,7 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   stopped (once, a minute later), and after it could not record an item's changes (once). Never for an item a person
   stopped, nor while the plan is paused or Claude Code is logged out. Until then nobody is asked for it (a usage
   limit is still the item in your inbox for the account); once they are spent, the item waits for its responsible
-  person.
+  person. The same holds for an item already merged, whoever merged it.
 
 ### 10.6 When someone does not answer, leaves or is removed
 

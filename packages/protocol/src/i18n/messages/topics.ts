@@ -192,9 +192,13 @@ export const topics = {
   }),
 
   // ---- decisions, the end of a topic, undo (protocol 6) --------------------------------------------------------
-  'topic.check.notReady': message({}, {
-    en: () => 'This topic is not ready to check yet: a work item is not merged, or something of one is still under way or waits for someone.',
-    'zh-TW': () => '這個主題還不能驗收：還有工作項目沒有合併，或還有工作項目的事在進行中、在等人。',
+  // (`atWork`: the number of a merged work item whose agent is in a turn, which nothing else shows; 0.7.0 fix6)
+  'topic.check.notReady': message({ atWork: 'number?' }, {
+    en: (p) =>
+      p.atWork === undefined
+        ? 'This topic is not ready to check yet: a work item is not merged, or something of one is still under way or waits for someone.'
+        : `This topic is not ready to check yet: the agent of work item ${p.atWork} is still at work.`,
+    'zh-TW': (p) => (p.atWork === undefined ? '這個主題還不能驗收：還有工作項目沒有合併，或還有工作項目的事在進行中、在等人。' : `這個主題還不能驗收：工作項目 ${p.atWork} 的 agent 還在工作。`),
   }),
   'plan.item.leaveOut.merged': message({}, {
     en: () => 'This work item is merged already. To take its change back out, the host undoes it.',

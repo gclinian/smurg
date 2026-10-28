@@ -7,6 +7,7 @@ import { mergingOf } from '../../src/topics/core.ts';
 import type { Pin, StoredAutoMerge } from '../../src/topics/store.ts';
 
 const MEI = { userId: 'dev:mei', displayName: 'Mei' };
+const IAN = { userId: 'dev:host', displayName: 'Ian' };
 
 /** A done item of a Start that smurg merges, its report complete with a passed check, checked in its turn, a draft. */
 function inOrder(): AutoMergeVerdictInput {
@@ -42,6 +43,14 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   ['1 the host merges, such a message waits, and its version is not merged: the host\'s to merge', (input) => ({ ...input, policy: 'host', undelivered: true }), { kind: 'none' }],
   ['1 the host merges, its version is merged, its checkout holds work no merge carried: the host reads the diff', (input) => ({ ...input, policy: 'host', request: { id: 'mr_1', status: 'merged', requested: true }, unmergedWork: true }), { kind: 'none' }],
   ['1 nothing to merge (direct), such a message waits', (input) => ({ ...input, policy: null, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'none' }],
+  // (0.7.0 fix6, the check of bb6c323 C1: the turn that answered a message to an item the host merged was cut after the
+  // merge, by a restart, a hard death, an API error, its process's death or a person's Stop; the topic said ready, the
+  // session was ended, and the answer was lost with nobody told. Row 2's hold for its carers, or the wait for smurg's
+  // continue, which the wire does not show for the host's item)
+  ['1 the host merges, its version is merged, and a later turn did not finish after the merge: row 2\'s hold for its carers', (input) => ({ ...input, policy: 'host', item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 7, restart: true }, mergedAs: { requestId: 'mr_1', at: 6, by: IAN } }, request: { id: 'mr_1', status: 'merged', requested: true } }), { kind: 'hold', reason: 'stopped' }],
+  ['1 the host merges, a later turn after the merge ended on an error, and smurg\'s continue is still to come: it waits', (input) => ({ ...input, policy: 'host', item: { ...input.item, lastTurn: { outcome: 'error', at: 7 }, autoContinue: { cause: 'error', count: 0, at: 7 }, mergedAs: { requestId: 'mr_1', at: 6, by: IAN } }, request: { id: 'mr_1', status: 'merged', requested: true } }), { kind: 'wait', reason: 'busy' }],
+  ['1 the host merged over a turn that did not finish before: the host\'s decision', (input) => ({ ...input, policy: 'host', item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 5 }, mergedAs: { requestId: 'mr_1', at: 6, by: IAN } }, request: { id: 'mr_1', status: 'merged', requested: true } }), { kind: 'none' }],
+  ['1 the host merges, a later version is not merged, a turn after the first merge did not finish: the host\'s to merge', (input) => ({ ...input, policy: 'host', item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 7 }, mergedAs: { requestId: 'mr_0', at: 6, by: IAN } } }), { kind: 'none' }],
   ['1 nothing to merge (direct, never started)', (input) => ({ ...input, policy: null }), { kind: 'none' }],
   ['1 the topic archived', (input) => ({ ...input, topic: { archived: true, paused: false } }), { kind: 'none' }],
   ['1 left out', withItem({ leftOut: { by: MEI, at: 1 } }), { kind: 'none' }],
@@ -69,6 +78,14 @@ const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   ['2 merged, a message a restart left in its session waits, its checkout holds nothing more', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 6, restart: true } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false, undelivered: true }), { kind: 'hold', reason: 'stopped' }],
   ['2 merged, a message waits that its failed process never took (no turn of it was cut): "its last turn did not finish"', (input) => ({ ...input, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'hold', reason: 'stopped' }],
   ['2 merged, a message waits, and the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true }, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'wait', reason: 'paused' }],
+  // (0.7.0 fix6, the check of bb6c323 C1: a later turn that did not finish AFTER the merge is like work no merge
+  // carried: smurg's continue (D15) is waited for, otherwise its carers' Continue. It was none: the topic said ready, the
+  // session was ended, the continue never came and the answer to the message was lost)
+  ['2 merged by smurg, a restart (or a hard death, or a person\'s Stop) cut a later turn, its checkout holds nothing more: held for its carers', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 7, restart: true }, mergedAs: { requestId: 'mr_1', at: 6, by: 'smurg' } }, request: { id: 'mr_1', status: 'merged', requested: false }, unmergedWork: false }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged by smurg, a later turn ended on an API error: smurg\'s continue is still to come', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'error', at: 7 }, autoContinue: { cause: 'error', count: 0, at: 7 }, mergedAs: { requestId: 'mr_1', at: 6, by: 'smurg' } }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'wait', reason: 'busy' }],
+  ['2 merged by smurg, the process of a later turn died: smurg\'s continue is still to come', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'error', at: 7 }, autoContinue: { cause: 'crash', count: 0, at: 7 }, mergedAs: { requestId: 'mr_1', at: 6, by: 'smurg' } }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'wait', reason: 'busy' }],
+  ['2 merged by smurg, a later turn ended on an error and the continues are spent: held for its carers', (input) => ({ ...input, item: { ...input.item, lastTurn: { outcome: 'error', at: 7 }, autoContinue: { cause: 'error', count: 2, at: 7 }, mergedAs: { requestId: 'mr_1', at: 6, by: 'smurg' } }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'hold', reason: 'stopped' }],
+  ['2 merged by smurg, a later turn did not finish, and the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true }, item: { ...input.item, lastTurn: { outcome: 'interrupted', at: 7 }, mergedAs: { requestId: 'mr_1', at: 6, by: 'smurg' } }, request: { id: 'mr_1', status: 'merged', requested: false } }), { kind: 'wait', reason: 'paused' }],
   // 3.
   ['3 the plan is paused', (input) => ({ ...input, topic: { archived: false, paused: true } }), { kind: 'wait', reason: 'paused' }],
   // 4.

@@ -57,7 +57,7 @@ import type { DaemonContext } from '../core/context.ts';
 import type { PlansAtStart } from '../core/interfaces.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL, isHostPrincipal, principalCan } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
-import { AUTO_CONTINUE_DELAYS_MS, autoContinueOwed, type AutoContinueCause } from './auto-merge-verdict.ts';
+import { AUTO_CONTINUE_DELAYS_MS, autoContinueOwed, cutAfterMerge, type AutoContinueCause } from './auto-merge-verdict.ts';
 import { isDirect, itemKey, type TopicsCore } from './core.ts';
 import { DirectFolder } from './direct-folder.ts';
 import { continueItemMessage, directExecutionRolePrompt, executionRolePrompt, retryItemMessage, startItemMessage } from './prompts.ts';
@@ -653,8 +653,10 @@ export class Scheduler {
    * the end of the session threw the message away, and Continue was refused for a session that had ended), nor while
    * its session is at work (`sessionAtWork`: a turn, the end of one being looked at; 0.7.0 fix5: a turn that took a
    * person's message was cut by "I've reviewed this", the host's Merge… or the sweep, and its answer never became a
-   * version). Until then everything stays as it is and `finishPending` asks again, on the module's sweep. One at a time
-   * per item: two callers never end the same session twice.
+   * version), nor while a later turn did not finish after its merge (`cutAfterMerge`; 0.7.0 fix6: a restart, a hard
+   * death, an API error, the process's death or a person's Stop cut it, and the end of the session threw away the
+   * continue D15 owed and the carers' Continue). Until then everything stays as it is and `finishPending` asks again, on
+   * the module's sweep. One at a time per item: two callers never end the same session twice.
    */
   finishIfDone(topicId: string, itemId: string): Promise<void> {
     return this.core.serialize(`finish:${topicId}:${itemId}`, () => this.finish(topicId, itemId));
@@ -665,6 +667,8 @@ export class Scheduler {
     const item = topic === null ? null : this.core.item(topic, itemId);
     const reviewed = this.reports?.isReviewed(topicId, itemId) === true;
     if (topic === null || item === null || topic.archived || !item.merged || !(reviewed || topic.checked !== undefined)) return;
+    // (its answer is still to come: smurg's continue, or its carers' Continue)
+    if (cutAfterMerge(item)) return;
     const agents = this.ctx.services.agents;
     // (what its session still has to deliver or answer: a follow-up of its report, or a message no turn has taken; and
     // what it is doing: a turn, or the end of one being looked at)

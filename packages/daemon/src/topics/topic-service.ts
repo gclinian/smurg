@@ -98,14 +98,19 @@ export class TopicServiceImpl implements TopicService {
 
   /**
    * "I've checked the result" (DESIGN 0.7.0 D13), for anyone who may discuss (the router checked `discuss`): only while
-   * the topic is ready to check (`topic.check.notReady`). The topic is complete from then on; its merged items are
+   * the topic is ready to check (`topic.check.notReady`, which names a merged item whose agent is in a turn: nothing
+   * else shows a turn that does not end, 0.7.0 fix6). The topic is complete from then on; its merged items are
    * finished (their sessions end, their worktrees go; an item that ran in the folder says the result was checked).
    * A later Start, or a report version registered afterwards, clears the mark (plan-service.ts, report-service.ts).
    */
   async check(input: Req<'topic.check'>, principal: Principal): Promise<Topic> {
     const by = userRefOf(principal);
     const topic = this.core.needOpen(input.topicId);
-    if (this.core.phaseOf(topic) !== 'ready') throw new SmurgError('conflict', msg('topic.check.notReady'), { reason: 'not-ready' });
+    if (this.core.phaseOf(topic) !== 'ready') {
+      const cards = this.core.sessionsWithCards();
+      const atWork = topic.items.find((item) => item.number > 0 && item.merged && item.leftOut === undefined && item.undone === undefined && this.core.sessionAtWork(topic, item, cards)?.turnOpen === true);
+      throw new SmurgError('conflict', msg('topic.check.notReady', atWork === undefined ? {} : { atWork: atWork.number }), { reason: 'not-ready' });
+    }
     const at = this.ctx.clock.now();
     this.core.update(topic.id, (draft) => {
       draft.checked = { by, at };

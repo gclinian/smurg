@@ -414,8 +414,9 @@ export const workItemSchema = z.strictObject({
   /**
    * With `merging: 'auto'`: what it waits for before smurg merges it (absent: nothing, or it is merged). With
    * `merging: 'host'`: only the hold of an item whose version is merged while a message nothing delivers by itself
-   * waits in its session (`stopped`, `undelivered`; 0.7.0 fix5). An item that ran directly in the shared folder (no
-   * `merging`): what it is held for before it counts as merged (DESIGN 0.7.0 D10).
+   * waits in its session (`stopped`, `undelivered`; 0.7.0 fix5), or whose later turn did not finish after its merge
+   * (`stopped`; 0.7.0 fix6). An item that ran directly in the shared folder (no `merging`): what it is held for before
+   * it counts as merged (DESIGN 0.7.0 D10).
    */
   autoMerge: autoMergeInfoSchema.optional(),
   /** Its change reached the main workspace (protocol 6): when, and who merged it (`smurg`: on the host's standing consent). */

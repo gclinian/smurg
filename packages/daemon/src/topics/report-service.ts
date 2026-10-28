@@ -854,8 +854,9 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
   /**
    * After a restart, an item with a version whose later turn the stop cut (scheduler.ts `noteStop`, or a session the
    * runtime found mid-turn after a hard death): that turn did not finish (`lastTurn`, `restart`), so the version is held
-   * for its carers (D6 row 6: Continue, "Merge it as it is", Leave it out); an item that ran in the folder no longer
-   * counts as merged (its topic stays paused for the host, D15). Its cut follow-ups get no answer.
+   * for its carers (D6 row 6: Continue, "Merge it as it is", Leave it out; an item already merged, row 2: Continue, 0.7.0
+   * fix6); an item that ran in the folder no longer counts as merged (its topic stays paused for the host, D15). Its
+   * cut follow-ups get no answer.
    */
   cutByStop(topicId: string, itemId: string, at: number, stillWaiting: number): void {
     const topic = this.core.topic(topicId);
