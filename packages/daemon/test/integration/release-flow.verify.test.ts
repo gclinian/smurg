@@ -31,6 +31,14 @@
 //   V13 (the check of 76114a1, H2) a message to a merged item's parked agent, then a restart, in the folder's git and in
 //       smurg's own history: held for its carers, the topic is not ready to check; Continue delivers it and its version
 //       merges (the topic said ready, and "I've checked the result" ended the session with the message in it)
+//   V14 (the check of d374e39, M1) a merged item's session during the turn that answers a person's message: "I've
+//       reviewed this", the host's Merge… (smurg merging, or the host merging each item) and Continue after a restart
+//       and a review do not end it; the turn finishes and its version merges (the session was ended 'merged' in the
+//       middle of the turn, the answer never became a version, and the topic turned complete with nobody told)
+//   V15 (the check of d374e39, S1) a message a restart left undelivered when the host merges each item (sent after the
+//       host's merge, or a report follow-up before it) and when the host turns automatic merging off while the item is
+//       held: held for its carers, the topic not ready, the check refused; Continue delivers it and the host merges its
+//       version (the topic said ready, or "executing" for good, with nobody told)
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
@@ -426,5 +434,160 @@ describe('0.7.0 verify: a restart tells nobody anything false (release compositi
     const words = await told(flow, sessionId);
     expect(words.filter((text) => text.includes('You changed files'))).toEqual([]);
     expect(words.filter((text) => text.includes('smurg was restarted while you worked'))).toHaveLength(1);
+  });
+});
+
+// The check of d374e39 (W/verify/last4/hold, findings 1 and 2; fix5): a merged item's session was ended in the middle of
+// the turn that answered a person's message (V14), and a message a restart left undelivered was told to nobody when
+// the host merges each item, or after the host turned automatic merging off (V15).
+/** The turn of the objection: its agent thinks a while, then changes the totals and hands in a new version. */
+const THINKING_CENTS = { match: 'must be in cents', steps: [{ thinking: true as const, ms: 3_000 }, write('src/cart/total.ts', 'export const total = 100; // cents\n'), ...handIn('Totals in cents.')] };
+const CENTS_TEXT = 'export const total = 100; // cents\n';
+const turnEnds = async (flow: Flow, sessionId: string): Promise<string[]> => {
+  const page = await flow.ian.conn.request('session.watch', { sessionId });
+  return page.events.filter((event) => event.kind === 'turn.finished').map((event) => (event as { outcome?: string }).outcome ?? '');
+};
+
+describe('0.7.0 fix5: a merged item\'s session is never ended in the middle of a turn (release composition, stand-in claude)', { timeout: 300_000 }, () => {
+  it('V14 a message to a merged item\'s parked agent, and "I\'ve reviewed this" while its turn runs: the turn finishes, and what it asked for merges', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({ turns: [FIRST, THINKING_CENTS, { steps: [{ text: 'ok' }] }] });
+    const { topicId, item } = await mergedAndReady(flow);
+    const sessionId = item.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the merged item\'s process to be parked' });
+    await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+    await waitFor(() => flow.d.ctx.services.agents.get(sessionId)?.status === 'running', { timeoutMs: 20_000, what: 'the turn of Mei\'s message' });
+    await flow.mei.conn.request('report.review', { topicId, itemId: 'cart-api', version: 1 });
+    // (the sweep asks again every few seconds: the session stays while the agent thinks)
+    await sleep(1_500);
+    expect(flow.d.ctx.services.agents.get(sessionId)?.status).not.toBe('ended');
+    await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 60_000, what: 'the merge of what Mei asked for' });
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check again' });
+    expect(await turnEnds(flow, sessionId)).toEqual(['completed', 'completed']);
+    await waitFor(async () => (await merges(flow)) === 2, { timeoutMs: 10_000, what: 'smurg\'s second merge in the audit' });
+  });
+
+  for (const merging of ['auto', 'host'] as const) {
+    it(`V14 ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: the host's Merge… of a reviewed version while the turn of a message to its agent runs: the turn finishes, and its version ${merging === 'auto' ? 'merges' : 'waits for the host'}`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      await flow.claude.setScenario({ turns: [FIRST, THINKING_CENTS, { steps: [{ text: 'ok' }] }] });
+      const topicId = await started(flow);
+      if (merging === 'auto') await flow.mei.conn.request('plan.pause', { topicId });
+      const done = await itemIs(flow, topicId, (candidate) => candidate.state === 'done' && candidate.merge !== undefined, 'item 1\'s report');
+      const sessionId = done.sessionId as string;
+      await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the done item\'s process to be parked' });
+      await flow.mei.conn.request('report.review', { topicId, itemId: 'cart-api', version: 1 });
+      await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+      if (merging === 'auto') await flow.mei.conn.request('plan.resume', { topicId });
+      await waitFor(() => flow.d.ctx.services.agents.get(sessionId)?.status === 'running', { timeoutMs: 20_000, what: 'the turn of Mei\'s message' });
+      await flow.ian.conn.request('worktree.merge.approve', { requestId: (await itemOf(flow, topicId)).merge?.requestId as string });
+      await itemIs(flow, topicId, (candidate) => candidate.merged?.by !== undefined && candidate.merged.by !== 'smurg', 'the host\'s merge of version 1');
+      await sleep(1_500);
+      expect(flow.d.ctx.services.agents.get(sessionId)?.status).not.toBe('ended');
+      const two = await itemIs(flow, topicId, (candidate) => candidate.report?.version === 2, 'the version of Mei\'s message', 60_000);
+      expect(await turnEnds(flow, sessionId)).toEqual(['completed', 'completed']);
+      if (merging === 'host') {
+        // Smurg merges nothing of it: the host's Merge… of the new version.
+        await sleep(1_500);
+        expect(await inMain(flow, 'src/cart/total.ts')).toBe('export const total = 1;\n');
+        await flow.ian.conn.request('worktree.merge.approve', { requestId: two.merge?.requestId as string });
+      }
+      await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 60_000, what: 'the merge of what Mei asked for' });
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+      await waitFor(async () => (await merges(flow)) === (merging === 'auto' ? 1 : 0), { timeoutMs: 10_000, what: 'smurg\'s merges in the audit' });
+    });
+  }
+
+  it('V14 a message to a merged item\'s parked agent, a restart, "I\'ve reviewed this", then Continue: the turn finishes, and what it asked for merges', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({ turns: [FIRST, THINKING_CENTS, { steps: [{ text: 'ok' }] }] });
+    const { topicId, item } = await mergedAndReady(flow);
+    const sessionId = item.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the merged item\'s process to be parked' });
+    await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+    await flow.restart();
+    const held = await itemIs(flow, topicId, (candidate) => candidate.autoMerge?.state === 'held', 'the merged item to be held for the message', 30_000);
+    expect(held.autoMerge).toMatchObject({ state: 'held', reason: 'stopped', undelivered: true });
+    await flow.mei.conn.request('report.review', { topicId, itemId: 'cart-api', version: 1 });
+    await flow.mei.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    await waitFor(() => flow.d.ctx.services.agents.get(sessionId)?.status === 'running', { timeoutMs: 20_000, what: 'the turn of Continue' });
+    await sleep(1_500);
+    expect(flow.d.ctx.services.agents.get(sessionId)?.status).not.toBe('ended');
+    await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 60_000, what: 'the merge of what Mei asked for' });
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check again' });
+    expect((await turnEnds(flow, sessionId)).at(-1)).toBe('completed');
+    await waitFor(async () => (await merges(flow)) === 2, { timeoutMs: 10_000, what: 'smurg\'s second merge in the audit' });
+  });
+});
+
+describe('0.7.0 fix5: a message a restart left undelivered is its carers\' decision whoever merges (release composition, stand-in claude)', { timeout: 300_000 }, () => {
+  /** Held for its carers with the message in its session: Mei's decision, the topic not ready, the check refused. */
+  async function heldForTheMessage(flow: Flow, topicId: string, sessionId: string): Promise<void> {
+    const held = await itemIs(flow, topicId, (candidate) => candidate.autoMerge?.state === 'held', 'the merged item to be held for the message', 30_000);
+    expect(held.autoMerge).toMatchObject({ state: 'held', reason: 'stopped', undelivered: true });
+    await inboxItem(flow.mei, (entry) => entry.kind === 'decision' && entry.itemId === 'cart-api' && entry.waiting, 'Mei\'s decision');
+    expect(phaseOf(flow, topicId)).toBe('executing');
+    expect(await refusal(flow.mei.conn.request('topic.check', { topicId }))).toMatchObject({ code: 'conflict', reason: 'not-ready' });
+    expect(flow.d.ctx.services.agents.facts(sessionId)).toMatchObject({ hasProcess: false, pendingMessages: 1 });
+  }
+
+  /** Continue delivers it; its version is the host's to merge; then the topic is ready, and the check is accepted. */
+  async function continuedAndMergedByTheHost(flow: Flow, topicId: string): Promise<void> {
+    await flow.mei.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    const two = await itemIs(flow, topicId, (candidate) => candidate.report?.version === 2 && candidate.merge?.status === 'draft', 'the version of Mei\'s message', 60_000);
+    expect(two.autoMerge).toBeUndefined();
+    await flow.ian.conn.request('worktree.merge.approve', { requestId: two.merge?.requestId as string });
+    await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 60_000, what: 'the host\'s merge of what Mei asked for' });
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+    await flow.mei.conn.request('topic.check', { topicId });
+  }
+
+  it('V15 the host merges each item: a message to a merged item\'s parked agent, then a restart: held for its carers, the topic not ready; Continue delivers it, and the host merges its version', async () => {
+    const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging: 'host' }, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({ turns: [FIRST, CENTS, { steps: [{ text: 'ok' }] }] });
+    const topicId = await started(flow);
+    const done = await itemIs(flow, topicId, (candidate) => candidate.state === 'done' && candidate.merge !== undefined, 'item 1\'s report');
+    const sessionId = done.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the done item\'s process to be parked' });
+    await flow.ian.conn.request('worktree.merge.approve', { requestId: done.merge?.requestId as string });
+    await itemIs(flow, topicId, (candidate) => candidate.merged !== undefined, 'the host\'s merge');
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+    await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+    await flow.restart();
+    await heldForTheMessage(flow, topicId, sessionId);
+    await continuedAndMergedByTheHost(flow, topicId);
+  });
+
+  it('V15 the host merges each item: a report follow-up a restart left undelivered, then the host\'s Merge…: held for its carers, never "executing" with nobody told; Continue delivers it', async () => {
+    const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging: 'host' }, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({ turns: [FIRST, CENTS, { steps: [{ text: 'ok' }] }] });
+    const topicId = await started(flow);
+    const done = await itemIs(flow, topicId, (candidate) => candidate.state === 'done' && candidate.merge !== undefined, 'item 1\'s report');
+    const sessionId = done.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the done item\'s process to be parked' });
+    await flow.mei.conn.request('report.followUp', { topicId, itemId: 'cart-api', text: OBJECTION });
+    await flow.restart();
+    await flow.ian.conn.request('worktree.merge.approve', { requestId: (await itemOf(flow, topicId)).merge?.requestId as string });
+    await itemIs(flow, topicId, (candidate) => candidate.merged !== undefined, 'the host\'s merge');
+    await heldForTheMessage(flow, topicId, sessionId);
+    await continuedAndMergedByTheHost(flow, topicId);
+  });
+
+  it('V15 the host turns automatic merging off while a merged item is held for a message a restart left undelivered: the hold and Mei\'s decision stay, the topic is not ready; Continue delivers it, and the host merges its version', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({ turns: [FIRST, CENTS, { steps: [{ text: 'ok' }] }] });
+    const { topicId, item } = await mergedAndReady(flow);
+    const sessionId = item.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the merged item\'s process to be parked' });
+    await flow.mei.conn.request('session.message.send', { sessionId, text: OBJECTION });
+    await flow.restart();
+    await heldForTheMessage(flow, topicId, sessionId);
+    await flow.ian.conn.request('admin.settings.set', { merging: 'host' });
+    await waitFor(async () => (await itemOf(flow, topicId)).merging === 'host', { timeoutMs: 10_000, what: 'the item to be the host\'s to merge' });
+    // (a pass of the merge queue runs on the change; the hold is still there after it)
+    await sleep(2_000);
+    await heldForTheMessage(flow, topicId, sessionId);
+    await continuedAndMergedByTheHost(flow, topicId);
+    expect(await merges(flow)).toBe(1);
   });
 });

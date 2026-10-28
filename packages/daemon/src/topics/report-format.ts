@@ -153,24 +153,41 @@ const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => 
  * wrong password, as it should`, the zh-TW word followed by its adjective mark). A hyphen is punctuation there only with
  * a blank after it (`FAIL - 2 of 3`, not `fail-safe`). The zh-TW word for "not verified" is also the usual word for
  * "unauthenticated" (`API: <unauthenticated> requests get a 401`): it reads as an outcome only where the words stop
- * after it, punctuation or a parenthesis follows, or a reason does ("because", "due to"; 0.7.0 fix4).
+ * after it, punctuation or a parenthesis follows, or a reason does, also after a blank ("because", "due to", "is
+ * because"; 0.7.0 fix4, fix5), or its mark of experience ("not verified yet"), or a blank and another word (`<not
+ * verified> <no browser>`: the adjective is written without a blank; 0.7.0 fix5).
  */
 const FAILURE_WORD =
-  /^(?:(?:failed|not[ \t]+(?:verified|run))(?![a-z])|(?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?=[ \t]*(?:$|[(\uff08:\uff1a,\uff0c;\uff1b.\u3002!\uff01\u3001\u2014\u2013]|-(?:[ \t]|$)))|\u672a\u9a57\u8b49(?=\u56e0|\u7531\u65bc))/i;
+  /^(?:(?:failed|not[ \t]+(?:verified|run))(?![a-z])|(?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?=[ \t]*(?:$|[(\uff08:\uff1a,\uff0c;\uff1b.\u3002!\uff01\u3001\u2014\u2013]|-(?:[ \t]|$)))|\u672a\u9a57\u8b49(?=[ \t]*(?:\u56e0|\u7531\u65bc|\u662f\u56e0)|\u904e|[ \t]+[\u4e00-\u9fff]))/i;
 /**
  * A blank and an outcome word at the end of what stands before the first colon (`pnpm test failed: ...`), or before a
- * parenthesis that closes at its end (`... failed (2 of 3)`; the zh-TW words too). Not "fails" or "failing" there: `The
- * API answers 503 when the database fails: ...` names what a passed check looks at; nor an outcome word followed by
- * more words after a parenthesis (`Requests that failed (HTTP 503) are retried: ...`, 0.7.0 fix4). The blanks before
- * the parenthesis are read with it, so that two runs of blanks are never tried against each other.
+ * parenthesis (it may hold code spans) after which the words stop, punctuation follows, or a word that places the
+ * failure or says what comes of it (`... failed (2 of 3)`, `... failed (2 of 14) on CI`, `... not run (no browser), will
+ * run in CI`, `... failed (see `total()`)`; the zh-TW words too; 0.7.0 fix5). Not "fails" or "failing" there: `The API
+ * answers 503 when the database fails: ...` names what a passed check looks at; nor an outcome word followed by other
+ * words after a parenthesis (`Requests that failed (HTTP 503) are retried: ...`, 0.7.0 fix4). The blanks before the
+ * parenthesis are read with it, and each place after it starts with its own run of blanks once: two runs of blanks
+ * are never tried against each other.
  */
-const FAILURE_WORD_AFTER = /[ \t](?:failed|not[ \t]+(?:verified|run)|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?:[ \t]*[(\uff08][^()\uff08\uff09]*[)\uff09])?[ \t]*$/i;
+const FAILURE_WORD_AFTER =
+  /[ \t](?:failed|not[ \t]+(?:verified|run)|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?:[ \t]*[(\uff08](?:[^()\uff08\uff09`]|`[^`]*`)*[)\uff09](?:[ \t]*(?:$|[,\uff0c;\uff1b.\u3002\u3001])|[ \t]+(?:on|in|at|after|since|and|see|will|until|again)(?![a-z]))|[ \t]*$)/i;
 /**
  * The test runner's own verdict after the colon or dash (0.7.0 fix4): an upper-case FAIL before a file or a package
- * (`FAIL src/cart.test.ts`, `FAIL github.com/acme/cart 0.41s`). Case-sensitive: `FAIL 0, PASS 42` is a count, and a
- * "fail" in lower case before more words is the behaviour FAILURE_WORD leaves alone.
+ * (`FAIL src/cart.test.ts`, `FAIL github.com/acme/cart 0.41s`), also as the start of a code span (0.7.0 fix5).
+ * Case-sensitive: `FAIL 0, PASS 42` is a count, and a "fail" in lower case before more words is the behaviour
+ * FAILURE_WORD leaves alone.
  */
 const RUNNER_FAIL = /^FAIL[ \t]+[^\s\d]/;
+/**
+ * The runners' verdicts where they stand in their output, anywhere outside a code span (0.7.0 fix5): go test's `---
+ * FAIL: TestTotal`, cargo's `test result: FAILED` at the end, pytest's `FAILED tests/test_cart.py::test_total`, jest's
+ * `FAIL src/cart.test.js` after an arrow, `FAIL (`src/cart.test.ts`)`: an upper-case FAIL or FAILED after the start, a
+ * blank, `>`, `|` or an arrow, and before a colon, the end, or a blank and anything but a digit. Case-sensitive, as
+ * RUNNER_FAIL: `FAIL 0, PASS 42` and the zh-TW "FAIL before the fix, PASS after it" (FAIL before a full-width comma)
+ * are no verdict; `FAIL -> PASS after the fix` reads as one, which costs a rewording. Each start reads one run of
+ * blanks.
+ */
+const RUNNER_FAIL_ANYWHERE = /(?:^|[ \t>\u2192\u276f|])(?:---[ \t]+)?FAIL(?:ED)?(?::|[ \t]+[^\s\d]|$)/;
 /**
  * A line with neither colon nor dash is all `<what>` (0.7.0 fix4): a behaviour word that ends it says the check failed
  * (`pnpm test fails`, `pnpm test FAIL (2 of 14)`, `pnpm test is failing (2 of 14)`), as it does after a colon. A
@@ -189,46 +206,64 @@ const COUNT = String.raw`(?<![\p{L}\p{N}.])[1-9]\d*`;
 /** What a runner counts, in front of its verb (`2 tests fail`, `2 unit tests failed`). */
 const COUNTED = String.raw`(?:[ \t]+(?:unit|e2e|integration|type|lint|snapshot)(?![\p{L}\p{N}]))?[ \t]+(?:tests?|checks?|specs?|cases?|suites?|files?|assertions?|examples?|scenarios?|jobs?|steps?|packages?|runs?)(?![\p{L}\p{N}])`;
 /** What follows a count's failure word: the words stop, punctuation, or a place or a reason (`2 tests fail in cart.test.ts`). */
-const COUNT_END = String.raw`(?=[ \t]*(?:$|[^\p{L}\p{N}\s])|[ \t]+(?:in|on|at|with|because|since|and|remain|remaining|left)(?![\p{L}\p{N}]))`;
+const COUNT_END = String.raw`(?=[ \t]*(?:$|[^\p{L}\p{N}\s])|[ \t]+(?:in|on|at|with|because|since|and|remain|remaining|left|during)(?![\p{L}\p{N}]))`;
 /** A word that may stand between a count and its noun (`3 type errors`, `2 test failures`). */
-const KIND = String.raw`(?:[ \t]+(?:type|lint|test|unit|build|compile|compiler|runtime|syntax|tsc|eslint|e2e)(?![\p{L}\p{N}]))?`;
+const KIND = String.raw`(?:[ \t]+(?:type|lint|test|unit|build|compile|compiler|runtime|syntax|tsc|eslint|e2e|previous)(?![\p{L}\p{N}]))?`;
 /** The zh-TW words between a count's measure word and the word for failing or for errors: at most two, no number, no punctuation. */
 const ZH_COUNTED = String.raw`(?:[ \t]*[^\s\d,\uff0c\u3002.;\uff1b:\uff1a()\uff08\uff09\u3001!\uff01?\uff1f\u0060]{1,12}?){0,2}?[ \t]*`;
 /** What follows the zh-TW word for failing or for errors after a count: the words stop, punctuation, or "in" (and "-ed" after failing). */
 const ZH_COUNT_END = String.raw`(?=\u5728|[ \t]*(?:$|[^\p{L}\p{N}\s]))`;
 /**
- * A count of failures or errors that is not zero, anywhere in a ticked check's words but its code spans (0.7.0 fix4, the
+ * A count of failures or errors that is not zero in a ticked check's words, read without the command (0.7.0 fix4, the
  * lead's addition to the last check's T1): `12 passed, 2 failed`, `2 of 14 failed`, `2/14 failed`, `2 tests fail in
- * cart.test.ts`, `2 failing`, `failed with 3 errors`, `1 error`, `2 failures in legacy.test.ts`, `pass 12, fail 2`, and
- * in zh-TW a count with its measure word before the word for failing or for errors, or after the word for failing. A
- * count of anything else is no failure (`fails with exit code 1`, `retried up to 3 times`, `5 failed attempts lock the
- * account`, `a 500 error page`), and neither is a zero (`0 failed`, `0 errors`, `no failures`). Each alternative
- * starts at a count or at a fixed word and reads a bounded stretch after it.
+ * cart.test.ts`, `2 tests are failing`, `2 tests still fail`, `2 failing`, `failed with 3 errors`, `1 error`, `1 error
+ * during collection`, `due to 2 previous errors`, `2 failures in legacy.test.ts`, `pass 12, fail 2`, the runner's own
+ * line quoted after the colon (`` `Tests  2 failed | 12 passed (14)` ``), and in zh-TW a count with its measure word
+ * before the word for failing or for errors, or after either word, or a count of a total before the word for failing
+ * (0.7.0 fix5). A count of anything else is no failure (`fails with exit code 1`, `retried up to 3 times`, `5 failed
+ * attempts lock the account`, `a 500 error page`), nor is one inside quotes (`shows "2 of 10 failed"`) or right after
+ * "after" (`locks after 5 failures`), and neither is a zero (`0 failed`, `0 errors`, `no failures`). Numbers written as
+ * words (`two tests fail`) are not read. Each alternative starts at a count or at a fixed word and reads a bounded
+ * stretch after it, and no two of its runs of blanks stand side by side (`fail` + blanks + `x` is read once).
  */
 const FAILURE_COUNT = new RegExp(
   [
     // a count and the runner's verb: `2 failed`, `2 of 14 failed`, `2/14 failed`, `2 tests fail in ...`, `2 failing`
-    String.raw`${COUNT}(?:[ \t]+(?:of|out[ \t]+of)[ \t]+\d+|[ \t]*\/[ \t]*\d+)?(?:${COUNTED})?[ \t]+(?:failed|fail(?:s|ing)?)${COUNT_END}`,
+    String.raw`${COUNT}(?:[ \t]+(?:of|out[ \t]+of)[ \t]+\d+|[ \t]*\/[ \t]*\d+)?(?:${COUNTED})?[ \t]+(?:(?:are|is|still|also)[ \t]+)?(?:failed|fail(?:s|ing)?)${COUNT_END}`,
     // a count and its noun, one or many as the noun says: `1 error`, `3 errors`, `2 lint errors`, `2 failures`
     String.raw`(?<![\p{L}\p{N}.])1${KIND}[ \t]+(?:failure|error)${COUNT_END}`,
     String.raw`${COUNT}${KIND}[ \t]+(?:failures|errors)${COUNT_END}`,
     // the runner's word, then its count: `fail 2` (node --test), `failures: 2`, `errors = 3`
-    String.raw`(?<![\p{L}\p{N}])(?:fail(?:ed|ures|ing)?|errors)[ \t]*[:=]?[ \t]*[1-9]\d*(?![\p{N}.])(?=[ \t]*(?:$|[,;)|\uff09\uff0c\uff1b]))`,
-    // zh-TW: a count, its measure word, then the word for failing (also "-ed") or for errors; the word for failing, then a count
+    String.raw`(?<![\p{L}\p{N}])(?:fail(?:ed|ures|ing)?|errors)(?:[ \t]*[:=])?[ \t]*[1-9]\d*(?![\p{N}.])(?=[ \t]*(?:$|[,;)|\uff09\uff0c\uff1b]))`,
+    // zh-TW: a count, its measure word, then the word for failing (also "-ed") or for errors; the word for failing or for
+    // errors, then a count with its measure word; a count of a total, then the word for failing (`2/14 <failed>`)
     String.raw`${COUNT}[ \t]*[\u500b\u9805]${ZH_COUNTED}(?:\u5931\u6557(?:\u4e86|${ZH_COUNT_END})|\u932f\u8aa4${ZH_COUNT_END})`,
-    String.raw`\u5931\u6557\u4e86?[ \t]*[1-9]\d*[ \t]*[\u500b\u9805]`,
+    String.raw`(?:\u5931\u6557\u4e86?|\u932f\u8aa4)[ \t]*[1-9]\d*[ \t]*[\u500b\u9805]`,
+    String.raw`${COUNT}[ \t]*\/[ \t]*\d+[ \t]*\u5931\u6557`,
   ].join('|'),
   'iu',
 );
 
+/** The first code span of a line: the command of a check with neither colon nor dash, for the count only. */
+const FIRST_CODE_SPAN = /`[^`\n]*`/;
+/** A quoted text, for the count only (`shows "2 of 10 failed" when two rows are bad`): words a check looks at. */
+const QUOTED = /"[^"\n]*"|\u201c[^\u201c\u201d\n]*\u201d|\u300c[^\u300c\u300d\n]*\u300d/g;
+/** "after" before a number, for the count only (`locks after 5 failures`): when something happens, no count of what failed. */
+const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
+
 /**
  * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
- * check; 0.7.0 fix4): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin with a
- * failure word as FAILURE_WORD reads it, or with the runner's FAIL before a file; `<what>` itself ends with an outcome
- * word (`pnpm test failed: …`); a line with neither colon nor dash ends with a failure word (`pnpm test fails`); or
- * the words count failures or errors that are not zero (`12 passed, 2 failed`). "14 passed, 0 failed" after a colon is
- * a check that passed, and so is one whose words name a failure it looks at. Read in one pass over at most 2,000
- * characters: no expression here can try a run of blanks again from each of its blanks.
+ * check; 0.7.0 fix4, fix5): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin
+ * with a failure word as FAILURE_WORD reads it, or with the runner's FAIL before a file; `<what>` itself ends with an
+ * outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends with a failure word (`pnpm test
+ * fails`); a runner's verdict stands where it prints it (`--- FAIL: TestTotal`); or the words count failures or errors
+ * that are not zero (`12 passed, 2 failed`), read without the command's code spans (those of `<what>`, or the first
+ * one of a line with neither colon nor dash: `pnpm vitest -t "2 tests fail"`), with those after the colon or dash (the
+ * runner's own line, quoted), and without quoted texts. "14 passed, 0 failed" after a colon is a check that passed, and
+ * so is one whose words name a failure it looks at. This is a net for the common ways a ticked line contradicts
+ * itself, not a reading of every wording: the team's check at the end and the undo catch the rest. Read in one pass
+ * over at most 2,000 characters: no expression here can try a run of blanks again from each of its blanks, and a
+ * quote's body stops at its own opening mark, so that a run of opening marks is not read again from each.
  */
 function tickedSaysFailed(words: string): boolean {
   const text = words.slice(0, 2000);
@@ -237,11 +272,14 @@ function tickedSaysFailed(words: string): boolean {
   const dash = DASH_SEPARATOR.exec(head);
   if (dash !== null || colon > 0) {
     const rest = (dash !== null ? text.slice(dash.index + dash[0].length) : text.slice(colon + 1)).replace(/^[ \t]+/, '');
-    if (FAILURE_WORD.test(rest) || RUNNER_FAIL.test(rest)) return true;
+    if (FAILURE_WORD.test(rest) || RUNNER_FAIL.test(rest.startsWith('`') ? rest.slice(1) : rest)) return true;
   }
   if (FAILURE_WORD_AFTER.test(dash !== null ? head.slice(0, dash.index) : head)) return true;
   if (colon === -1 && dash === null && BEHAVIOUR_AT_END.test(text)) return true;
-  return FAILURE_COUNT.test(text.replace(CODE_SPAN, ' '));
+  if (RUNNER_FAIL_ANYWHERE.test(text.replace(CODE_SPAN, ' '))) return true;
+  const cut = dash !== null ? dash.index : colon;
+  const counted = cut === -1 ? text.replace(FIRST_CODE_SPAN, ' ') : text.slice(0, cut).replace(CODE_SPAN, ' ') + text.slice(cut);
+  return FAILURE_COUNT.test(counted.replace(QUOTED, ' ').replace(AFTER_NUMBER, 'after x'));
 }
 
 function error(kind: ReportErrorKind, line: number): ReportError {
@@ -374,8 +412,11 @@ export function parseReport(source: string, itemId: string): ReportParse {
       // token: failed (…)` lost its "failed" and merged as a passed check, and `- [!] Refresh token: failed: …` could
       // not be written at all). Nothing unmasked leaves this function: the errors are fixed sentences.
       const words = (check[2] as string).trim();
+      // (a key block is masked whole before such a line is cut in two: its BEGIN and END lines could fall in different
+      // parts, and neither part would then hold a whole block to mask; 0.7.0 fix5. A key holds no word read here)
+      const parts = words.includes('PRIVATE KEY-----') ? mask(words) : words;
       if (check[1] === '!') {
-        const failed = lineMatch(FAILED, words);
+        const failed = lineMatch(FAILED, parts);
         const what = failed === null ? '' : mask((failed[1] as string).trim());
         const happened = failed === null ? '' : mask((failed[2] as string).trim());
         if (what.length === 0 || happened.length === 0) {
@@ -395,7 +436,7 @@ export function parseReport(source: string, itemId: string): ReportParse {
         verified.push({ text: wireMultiline(mask(words), REPORT_CHECK_TEXT_MAX_CHARS), passed: true });
         return;
       }
-      const not = lineMatch(NOT_VERIFIED, words);
+      const not = lineMatch(NOT_VERIFIED, parts);
       const what = not === null ? '' : mask((not[1] as string).trim());
       const whyNot = not === null ? '' : mask((not[2] as string).trim());
       if (what.length === 0 || whyNot.length === 0) {

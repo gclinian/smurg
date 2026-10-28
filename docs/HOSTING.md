@@ -1361,8 +1361,12 @@ and gives every work item already started to you, for good; turning it on applie
 then on.
 
 - **Complete and verified** is what the report says: its outcome is "Complete", at least one of its checks passed, and
-  none failed. The checks are what the agent reports: smurg runs none of them. A check the report lists as not
-  verified does not stop the merge; the Result column lists those first (below).
+  none failed. The checks are what the agent reports: smurg runs none of them. A ticked box is the agent's word that a
+  check passed: smurg refuses the common contradictions (a ticked check whose words say `failed`, `not run`,
+  `not verified`, `fails`, a test tool's `FAIL` or `FAILED`, or a count of failures or errors such as `2 failed`), and
+  the agent writes the line again; other wordings it does not read, and what catches those is the team's check at the
+  end and the undo. A check the report lists as not verified does not stop the merge; the Result column lists those
+  first (below).
 - **When smurg merges an item by itself**: its turn ended normally and no later turn was stopped; nobody wrote to its
   agent since its report; the report is the current version, the agent checked it in the turn that made it (smurg
   asks it once when it did not: "Checking its report again"), and it says complete and verified; no file of it was
@@ -1451,14 +1455,15 @@ Topic "Checkout" is ready to check: 3 of 3 work items are merged into the shared
   there without its content for everyone but you, and text that looks like a credential is shown as `[masked]` to
   everyone.
 - **When an item is finished**: a work item that is merged and reviewed, or whose topic was checked, is finished once
-  nothing unmerged is left in its worktree: its session ends, its worktree is removed, its conversation and its
-  report stay readable. Until then its session and its worktree stay, so that a follow-up from its report reaches
-  the agent that did the work. When the worktree of an item that smurg merged holds changes that no merge carried (a
-  member's save there, a command its agent ran after its report, a later turn that did not finish), the item waits
-  for its responsible person: "Merged; a later change is not merged: …", and "Continue" makes the change a version
-  of its own, which merges like the first one. A file a member saves in a worktree while it is being removed (at
-  "I've checked the result", for example) is not deleted: the worktree stays as its owner's. Archiving a topic lists
-  the work items whose changes were never merged and asks whether to keep or delete them.
+  nothing unmerged is left in its worktree and its agent is not in a turn (a turn that answers a message to it
+  finishes first, and what it changes becomes a version of its own): its session ends, its worktree is removed, its
+  conversation and its report stay readable. Until then its session and its worktree stay, so that a follow-up from
+  its report reaches the agent that did the work. When the worktree of an item that smurg merged holds changes that no
+  merge carried (a member's save there, a command its agent ran after its report, a later turn that did not finish),
+  the item waits for its responsible person: "Merged; a later change is not merged: …", and "Continue" makes the
+  change a version of its own, which merges like the first one. A file a member saves in a worktree while it is being
+  removed (at "I've checked the result", for example) is not deleted: the worktree stays as its owner's. Archiving a
+  topic lists the work items whose changes were never merged and asks whether to keep or delete them.
 - **When you merge each item yourself** (the setting "I merge each item myself", a Start that chose
   "The host merges each item", a Start on a detached HEAD, and every work item started before the update to 0.7.0):
   - When a result report has been reviewed, its changes are in your inbox by themselves, as
@@ -1532,8 +1537,9 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   such a message waits, the version is not taken as it is: "Merge it as it is" (and, without git, "Accept as it is")
   is not offered, and the report's foot says "A message to its agent was not delivered yet: Continue delivers it
   first." Your own "Merge…" stays yours once you have read the whole change: that version merges, and the item then
-  waits for Continue like an item already merged. Until the message is delivered the topic is not ready to check,
-  and "I've reviewed this" does not end the item's session.
+  waits for Continue like an item already merged. So does an item you merge yourself (§10.3), also after you turned
+  smurg's merging off while it waited. Until the message is delivered the topic is not ready to check, and "I've
+  reviewed this" does not end the item's session.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view

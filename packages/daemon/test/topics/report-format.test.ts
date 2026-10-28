@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { REPORT_SECTION_MAX_BYTES, reportChecksSchema, wireTextSchema } from '@smurg/protocol';
 import { render } from '@smurg/protocol/i18n';
+import { costOf, machineSlowness } from '@smurg/protocol/testing';
+import { TOPIC_FILE_MAX_BYTES } from '../../src/topics/core.ts';
 import { REPORT_ERROR_SENTENCES, parseReport, reportMarker, type ReportErrorKind } from '../../src/topics/report-format.ts';
 
 export const CART_REPORT = `# Result report: Cart API
@@ -397,11 +399,170 @@ describe('the result report format', () => {
     });
   });
 
+  // The check of d374e39 (W/verify/last4/ticked, the lead's decisions R1-R6; fix5): ticked lines that say the check
+  // failed or did not run before a parenthesis and more words, or 未驗證 and a reason, merged untested work again (R1, a
+  // regression of fix4's narrowing); counts quoted after the colon and in the usual wordings were not read (R3); the
+  // runners' verdicts where they print them were not either (R4); passed checks that name a count of failures in quotes
+  // or after "after" were refused (R5); and a key block split by ": failed:" was stored (R6). The reading stays a net
+  // for the common contradictions: number words (`two tests fail`) are not read, nor is `fails (`total()` is off by one)`.
+  describe('0.7.0 fix5: the runners\' verdicts and counts where they print them, and an outcome before a parenthesis and more words, are refused; counts a check looks at pass', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_FIX5: readonly string[] = [
+      // R1: an outcome word, a parenthesis (with code spans), then a place or what comes of it; 未驗證 and a reason
+      '- [x] `pnpm test` failed (2 of 14) on CI',
+      '- [x] `pnpm test` failed (see `total()`)',
+      '- [x] `pnpm e2e` not run (no browser), will run in CI',
+      '- [x] `pnpm test` failed (exit code 1) after the rebase',
+      '- [x] `pnpm test` failed (2 of 14; `total()` rounds wrong)',
+      '- [x] `pnpm e2e` was not run (no browser) and needs a manual check',
+      '- [x] `pnpm test` failed (2 of 14), see the CI log',
+      '- [x] `pnpm test` 失敗（3 個中 2 個），之後再修',
+      '- [x] `pnpm test` 失敗（見 `total()`）',
+      '- [x] `pnpm e2e` 未驗證（沒有瀏覽器），留待 CI',
+      '- [x] `pnpm e2e`：未驗證 因為沒有瀏覽器',
+      '- [x] 手動測試：未驗證過',
+      '- [x] 手動測試：未驗證是因為沒有瀏覽器',
+      '- [x] 手動測試：未驗證 沒有瀏覽器',
+      // R3: the runner's line quoted after the colon (or in a line with neither), and the usual count wordings
+      '- [x] `pnpm test`: `Tests  2 failed | 12 passed (14)`',
+      '- [x] `pnpm vitest run` printed `Tests  2 failed | 40 passed (42)`',
+      '- [x] `pytest -q`: `2 failed, 21 passed in 1.02s`',
+      '- [x] `go test ./...`: `FAIL github.com/acme/cart 0.41s`',
+      '- [x] `pnpm test`：輸出 `2 failed | 12 passed`',
+      '- [x] `pnpm test`: 2 tests are failing',
+      '- [x] `pnpm test`: 2 tests still fail',
+      '- [x] `pytest`: Interrupted: 1 error during collection',
+      '- [x] `cargo test`: error: could not compile `cart` due to 2 previous errors',
+      '- [x] `pnpm test`：2/14 失敗',
+      '- [x] `pnpm build`：型別錯誤 3 個',
+      // R4: the runners' verdicts where they print them
+      '- [x] `go test ./...`: --- FAIL: TestTotal (0.00s)',
+      '- [x] `go test ./...` exits 1: --- FAIL: TestTotal',
+      '- [x] `go test ./...`：--- FAIL: TestTotal',
+      '- [x] `cargo test`: test result: FAILED',
+      '- [x] `pytest` FAILED tests/test_cart.py::test_total',
+      '- [x] `npx jest` → FAIL src/cart.test.js',
+      '- [x] `pnpm test` FAIL (`src/cart.test.ts`)',
+    ];
+    const PASSED_FIX5: readonly string[] = [
+      // R5: a count inside quotes, or right after "after", is what a check looks at
+      '- [x] Lockout: the account locks after 5 failures (`pnpm test auth`, 3 passed)',
+      '- [x] Circuit breaker opens after 3 errors in a row (`pnpm test breaker`, 4 passed)',
+      '- [x] Retry: gives up after 3 failures and shows an error (`pnpm test retry`, 6 passed)',
+      '- [x] Batch import: shows "2 of 10 failed" when two rows are bad (`pnpm test import`, 4 passed)',
+      '- [x] Alerting: fires after 3 errors (`pnpm test alert`, 2 passed)',
+      '- [x] 匯入結果：顯示「2 個失敗」的紅色標籤（`pnpm test import`，4 個通過）',
+      // next to R1, R3, R4: a parenthesis and other words, a count in the command, FAIL before a count or a comma
+      '- [x] Redis 失敗（逾時）時改用記憶體快取（`pnpm test cache`，5 個通過）',
+      '- [x] `pnpm vitest run -t "2 tests fail"`: 3 passed',
+      '- [x] `pnpm test`: `Tests  14 passed (14)`',
+      '- [x] 回歸測試：修正前 FAIL，修正後 PASS（`pnpm test cart`）',
+      '- [x] Summary line: shows “2 tests failed” in red (`pnpm test summary`, 3 passed)',
+    ];
+
+    it.each(REFUSED_FIX5)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+
+    it.each(PASSED_FIX5)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+
+    it('R6: a key block that ": failed:" or ": not verified:" cuts in two is masked whole before the line is read: refused, nothing of the key stored', () => {
+      const body = 'MIIEpAIBAAKCAQEAsecretkeybody';
+      const failed = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', `- [!] -----BEGIN RSA PRIVATE KEY----- ${body}: failed: x -----END RSA PRIVATE KEY-----`).replace('- outcome: complete', '- outcome: partial');
+      const parse = parseReport(failed, 'cart-api');
+      expect(parse.ok ? null : parse.errors.map((entry) => entry.kind)).toEqual(['verified-failed-why']);
+      expect(JSON.stringify(parse)).not.toContain(body);
+      const notRun = CART_REPORT.replace('- [ ] Manual check in the browser: not verified: no browser in this session', `- [ ] -----BEGIN PRIVATE KEY----- ${body}: not verified: x -----END PRIVATE KEY-----`);
+      const parsed = parseReport(notRun, 'cart-api');
+      expect(parsed.ok ? null : parsed.errors.map((entry) => entry.kind)).toEqual(['verified-why']);
+      expect(JSON.stringify(parsed)).not.toContain(body);
+      // A whole block in one part is masked there, and the line is the failed check it says.
+      const whole = parseReport(failed.replace(`-----BEGIN RSA PRIVATE KEY----- ${body}: failed: x -----END RSA PRIVATE KEY-----`, `Deploy key -----BEGIN RSA PRIVATE KEY----- ${body} -----END RSA PRIVATE KEY-----: failed: refused`), 'cart-api');
+      expect(whole).toMatchObject({ ok: true, report: { checks: { failed: 1 }, sections: { verified: [{ text: 'Deploy key [masked]', failed: true, note: 'refused' }, { passed: false }] } } });
+      expect(JSON.stringify(whole)).not.toContain(body);
+    });
+  });
+
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {
     const long = `- [x] ${'a '.repeat(20_000)}${' '.repeat(20_000)}-${' -'.repeat(20_000)} done`;
     const start = performance.now();
     parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', long), 'cart-api');
     expect(performance.now() - start).toBeLessThan(500);
+  });
+
+  // 0.7.0 fix5 (the check of d374e39, R2): FAILURE_COUNT tried every split of a run of blanks after "fail" or "errors"
+  // (the square of the run): a 2 MiB report of such lines took 2 s of the daemon's one thread, where 76114a1 took 11 ms.
+  // Every shape the check timed (W/verify/last4/ticked/timing*.mts) and those of fix5's own expressions, each as a whole
+  // report of TOPIC_FILE_MAX_BYTES made of ticked lines of 2,000 characters (what is read of each): read in one pass,
+  // each takes 10 to 200 ms of processor time on the machine the bounds were measured on (Apple M3, node 22); one that
+  // grows with the square of a line took 1.2 to 4.9 s on d374e39 (W/verify/fix5/corpus/timing1.log). The bound is
+  // absolute, so it is multiplied by how much slower this machine is (`machineSlowness`).
+  it('0.7.0 fix5: reading a report of TOPIC_FILE_MAX_BYTES of ticked lines takes linear time, for every shape of the expressions that read them', () => {
+    const N = 2000;
+    const B = (n: number): string => ' '.repeat(n);
+    const fill = (unit: string, len: number): string => unit.repeat(Math.ceil(len / unit.length)).slice(0, len);
+    const SHAPES: readonly (readonly [string, string])[] = [
+      ['fail+blanks+x', `fail${B(N - 5)}x`],
+      ['errors+blanks+x', `errors${B(N - 7)}x`],
+      ['failures+blanks+x', `failures${B(N - 9)}x`],
+      ['fail+blanks+=+blanks+x', `fail${B(N / 2 - 4)}=${B(N / 2 - 4)}x`],
+      ['1+blanks+x', `1${B(N - 2)}x`],
+      ['2 of+blanks+x', `2 of${B(N - 5)}x`],
+      ['2+blanks+/+blanks+x', `2${B(N / 2 - 2)}/${B(N / 2 - 2)}x`],
+      ['2 tests+blanks+x', `2 tests${B(N - 8)}x`],
+      ['1 type+blanks+x', `1 type${B(N - 7)}x`],
+      ['2 unit+blanks', `2 unit${B(N - 7)}x`],
+      ['2個+中blank', `2 個${fill('中 ', N - 3)}`],
+      ['2個+中', `2 個${fill('中', N - 3)}`],
+      ['2個+blanks+x', `2 個${B(N - 4)}x`],
+      ['(2個中 )*', fill('2 個中 ', N)],
+      ['失敗+blanks+x', `失敗${B(N - 3)}x`],
+      ['(fail )*', fill('fail ', N)],
+      ['(1 )*', fill('1 ', N)],
+      ['(2 of 3 )*', fill('2 of 3 ', N)],
+      ['( fail (x)*', fill(' fail (', N)],
+      [' fail+blanks+(+x', `a fail${B(N - 10)}(xxx`],
+      [' failed (+a*', `a failed (${fill('a', N - 10)}`],
+      ['code spans', fill('`a` ', N)],
+      ['(FAIL )*', `x: ${fill('FAIL ', N - 3)}`],
+      ['colon fail+blanks', `x: fail${B(N - 8)}x`],
+      ['dash (- )*', fill(' - ', N)],
+      ['(— fail )*', fill(' — fail ', N)],
+      ['(2 failed )*', fill('2 failed ', N)],
+      ['(errors 1 )*', fill('errors 1x ', N)],
+      ['(error: )*', fill('errors: ', N)],
+      [' failed (`a*', `x failed (\`${fill('a', N - 11)}`],
+      [' failed ((`a`)*', `x failed (${fill('`a` ', N - 10)}`],
+      [' failed ((`)*', `x failed (${fill('`(', N - 10)}`],
+      ['(FAILED )*', fill('FAILED ', N)],
+      ['(--- FAIL )*', fill('--- FAIL ', N)],
+      ['2 tests+blanks+are', `2 tests${B(N / 2)}are${B(N / 2 - 12)}x`],
+      ['(錯誤 1 )*', fill('錯誤 1 ', N)],
+      ['未驗證+blanks', `x：未驗證${B(N - 6)}x`],
+      // fix5's own: a verdict after blanks, before blanks; quotes that never close; "after" before blanks
+      ['---+blanks+x', `x ---${B(N - 6)}x`],
+      ['FAIL+blanks+1', `x FAIL${B(N - 8)}1`],
+      ['(“)*', fill('“', N)],
+      ['(「)*', fill('「', N)],
+      ['(")*', fill('"', N)],
+      ['“+a*', `“${fill('a', N - 1)}`],
+      ['(after )*', fill('after ', N)],
+      ['after+blanks+x', `after${B(N - 6)}x`],
+      ['未驗證+blanks+中', `x：未驗證${B(N - 7)}中`],
+      [' failed (+blanks+x', `a failed (x)${B(N - 14)}x`],
+    ];
+    const bound = 1_000 * machineSlowness();
+    for (const [name, words] of SHAPES) {
+      const line = `- [x] ${words}`;
+      const count = Math.floor((TOPIC_FILE_MAX_BYTES - CART_REPORT.length) / (Buffer.byteLength(line) + 1));
+      const report = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', Array.from({ length: count }, () => line).join('\n'));
+      // (the cheaper of two runs when the first is over: a shared runner is slow for a moment now and then)
+      expect(costOf(() => void parseReport(report, 'cart-api'), bound, 2), name).toBeLessThan(bound);
+    }
   });
 
   it('the sections must come in the fixed order, each once', () => {

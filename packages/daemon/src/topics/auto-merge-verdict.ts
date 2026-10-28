@@ -6,7 +6,8 @@
 // the other side) are the worktree module's (worktree-manager.ts `autoMerge`, D7).
 //
 // The rows, in order; the first that applies decides:
-//    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done
+//    1. not smurg's to merge (the host merges, nothing to merge), the topic archived, the item left out, not done → none
+//       (of an item the host merges, only row 2's hold for a message nothing delivers by itself is asked)
 //    2. its current request is merged (unless its checkout holds work no merge carried: a later turn that did not
 //       finish, a command's edits, a person's save; or a message to its agent waits that nothing delivers by itself:
 //       each a hold for it after rows 3 and 4); an undo of its topic claims it                               → none
@@ -141,7 +142,7 @@ export interface AutoMergeVerdictInput {
   /**
    * A message to its agent waits in its session, which has no process, and nothing delivers it by itself (a restart left
    * it there, or the process failed: `TopicsCore.messageUndelivered`): asked only of an item whose request is merged
-   * (row 2; 0.7.0 fix4). Its carers' Continue delivers it. Absent: no.
+   * (row 2; 0.7.0 fix4), whoever merged it (row 1; 0.7.0 fix5). Its carers' Continue delivers it. Absent: no.
    */
   readonly undelivered?: boolean;
 }
@@ -155,15 +156,17 @@ function hold(reason: HoldReason, paths?: readonly string[]): AutoMergeVerdict {
 export function autoMergeVerdict(input: AutoMergeVerdictInput): AutoMergeVerdict {
   const { item, report, request } = input;
   const record = item.autoMerge;
-  // 1. smurg's to merge at all
-  if (input.policy !== 'auto' || input.topic.archived || item.leftOut !== undefined || (item.state !== 'done' && item.state !== 'reviewed')) return NONE;
+  const merged = request?.status === 'merged';
+  // 1. smurg's to merge at all; of an item the host merges only row 2's hold for a message nothing delivers by itself,
+  //    once its version is merged (0.7.0 fix5: the host's Merge… delivers nothing either, and nobody was told)
+  const heldForMessage = input.policy === 'host' && merged && input.undelivered === true;
+  if ((input.policy !== 'auto' && !heldForMessage) || input.topic.archived || item.leftOut !== undefined || (item.state !== 'done' && item.state !== 'reviewed')) return NONE;
   // 2. claimed by an undo; merged already, unless its checkout holds work no merge carried (0.7.0 review and verify: a
   //    later turn that did not finish left half of a change there, a completed one changed files through a command, a
   //    person saved a file there: nothing would ever merge or report it, and its topic would never be ready), or a
   //    message to its agent waits that nothing delivers by itself (0.7.0 fix4: a restart came before a turn took it;
   //    the topic said ready, and "I've checked the result" ended the session with the message in it)
   if (input.claimed) return NONE;
-  const merged = request?.status === 'merged';
   if (merged && input.unmergedWork !== true && input.undelivered !== true) return NONE;
   // 3. a paused plan merges nothing
   if (input.topic.paused) return { kind: 'wait', reason: 'paused' };

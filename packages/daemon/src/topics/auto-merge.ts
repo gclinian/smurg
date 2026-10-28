@@ -198,12 +198,15 @@ export class AutoMerger {
     const record = item.autoMerge;
     // An item that ran directly in the folder has nothing to merge: its record is the report service's (DESIGN 0.7.0 D10).
     if (isDirect(item)) return false;
-    if (topic.archived || this.core.mergingOf(item) !== 'auto') {
+    // (an item the host merges keeps only D6 row 2's hold for a message nothing delivers by itself, as its record: the
+    // decision of its carers, also after the host turned automatic merging off; 0.7.0 fix5)
+    const policy = this.core.mergingOf(item);
+    const verdict = topic.archived || (policy !== 'auto' && !(policy === 'host' && this.core.messageUndelivered(item))) ? null : this.core.verdictOf(topic, item, cards);
+    if (verdict === null || (policy !== 'auto' && verdict.kind !== 'hold')) {
       if (record === undefined) return false;
       this.drop(topic.id, item.id);
       return true;
     }
-    const verdict = this.core.verdictOf(topic, item, cards);
     if (this.isOut(topic, item, verdict)) {
       if (record === undefined) return false;
       this.drop(topic.id, item.id);

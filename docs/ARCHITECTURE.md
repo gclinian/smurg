@@ -1560,6 +1560,7 @@ type WorkItem = {
   autoMerge?: { state: 'waiting' | 'resolving' | 'held'; reason: AutoMergeReason; since; tries; hostOnly; escalated;
                 paths?; branch?: { expected; current }; people?: { path; by: UserRef[]; outside }[]; asked?: UserRef;
                 undelivered?: true };                         // a hold, and a message only Continue delivers waits
+                                                              // (of a 'host' item only this hold, once it is merged)
   merged?: { at; by: 'smurg' | UserRef };                     // who merged it (an accepted direct item: the host)
   leftOut?: { by: UserRef; at }; undone?: { by: UserRef; at };
   waiting?: 'question' | 'permission';                        // its session waits for a person
@@ -3654,12 +3655,21 @@ verified: <why>` did not and must say why, `- [!] <text>: failed: <what happened
 between the checks is allowed. A ticked line whose words say the check failed or did not run is refused at its line
 (`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
 `<text>`'s first colon or dash, the runner's upper-case `FAIL` before a file there, an outcome word at the end of what
-stands before them, a failure word at the end of a line that has neither, or a count of failures or errors that is
-not zero (`12 passed, 2 failed`, `failed with 3 errors`; `0 failed` is a pass); in English and Traditional Chinese,
-over the line's first 2,000 characters. The words are read as written and only their masked form is stored (each
-part of a `- [!]` or `- [ ]` line masked on its own): masked first, `Refresh token: failed` lost its "failed". Each
-section at most 64 KiB and through `mask()`. Lines are cut as in `PLAN.md` (LF, CRLF, a lone CR), and a line that holds U+2028 or U+2029 is
-no section heading, no outcome line and no check line.
+stands before them (or before a parenthesis followed by the end, punctuation or a word that places the failure:
+`failed (2 of 14) on CI`), a failure word at the end of a line that has neither, a runner's verdict where it prints it
+(`--- FAIL: TestTotal`, `test result: FAILED`, `FAILED tests/test_cart.py::…`, `→ FAIL src/…`), or a count of failures
+or errors that is not zero (`12 passed, 2 failed`, `failed with 3 errors`, `2 tests are failing`,
+`due to 2 previous errors`, the zh-TW word for failing after a count of a total; `0 failed` is a pass), read without
+the command's code spans (those before the colon or dash, or the first of a line with neither) but with the runner's
+line quoted after them, and without quoted text or a count right after "after" (`shows "2 of 10 failed"`,
+`locks after 5 failures` pass); in English and Traditional Chinese, over the line's first 2,000 characters, each
+expression in one pass. A ticked box is the agent's word: this refuses the common contradictions, not every wording
+(`two tests fail` and other number words are not read), and what catches the rest is the team's check at the end and
+the undo. The words are read as written and only their masked form is stored (each part of a `- [!]` or `- [ ]` line
+masked on its own, after a key block in the line was masked whole: split first, its BEGIN and END lines could fall in
+different parts): masked first, `Refresh token: failed` lost its "failed". Each section at most 64 KiB and through
+`mask()`. Lines are cut as in `PLAN.md` (LF, CRLF, a lone CR), and a line that holds U+2028 or U+2029 is no section
+heading, no outcome line and no check line.
 
 A report COUNTS only when the agent's own `check_report` answered ok for exactly that content in this session:
 nobody can plant one (people cannot write that folder in an item's worktree, §7.4; a file that is there before the
@@ -3707,7 +3717,9 @@ says by then. None of this happens while smurg itself is stopping.
   when its CURRENT request is the merged one and `WorktreeManager.unmerged` does not list its worktree (a question
   that cannot be answered counts as "it holds something"), and its live session ends only when it holds no message
   no turn has taken and its report no follow-up whose answer is to come (0.7.0 fix4: ending it threw the message
-  away). Two cases keep an item open: a follow-up after a merge
+  away), and when it is not at work (`sessionAtWork`: a turn, the end of one being looked at; 0.7.0 fix5: "I've
+  reviewed this", the host's merge or the sweep cut the turn that answered a person's message, and its answer never
+  became a version). Two cases keep an item open: a follow-up after a merge
   made a new draft (the item reads "reviewed, waits for the host to merge" again and is finished by merging that
   draft), and the worktree holds changes no merge carried (a version whose snapshot the merge policy refused, edits
   made after the last report): the item stays reviewed and merged WITH its session and worktree until those changes
@@ -3758,15 +3770,19 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   for `HOST_HOLDS`, else the responsible person while they hold `session.drive`, after `escalateAfterMs` also the host
   and every member with agent access); it stops only its item, and the per-dependency gate keeps only its dependents
   waiting. What clears it: a new report version, Start again or Try again, "Leave it out", "Merge it as it is"
-  (`asked`, `stopped`, `stale-report`), the host's merge or rejection, the setting turned to `host`, an archive, and
-  for the holds of the main workspace a re-check that finds it no longer in the way.
+  (`asked`, `stopped`, `stale-report`), the host's merge or rejection, the setting turned to `host` (not the hold of
+  a merged item for a message only Continue delivers, below), an archive, and for the holds of the main workspace a
+  re-check that finds it no longer in the way.
 - **Without git** (D10): a direct item counts as merged at registration only when its report is complete and verified
   and was checked in its turn; otherwise it is held for its carers, and the host may "Accept as it is".
 - **The end** (D13). An item is settled when it is left out or undone, or merged with its current request merged and
   nothing of it in progress (no open decision, turn, card, follow-up to answer, message only Continue delivers,
   nothing unmerged in its worktree). A merged item whose session holds a message nothing delivers by itself (a
   restart left it there, also behind the host's merge of the version it objected to, or the process failed) is held
-  for its carers (`stopped`, `undelivered`), as one whose worktree holds a later change is. A
+  for its carers (`stopped`, `undelivered`), as one whose worktree holds a later change is, whoever merges it: an item
+  the host merges has this one hold of D6 (its record kept by the merge queue, also after the setting turned to
+  `host`), and its topic is not settled either (0.7.0 fix5: it said ready, nobody was told, and the check made it
+  complete with the message never delivered). A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
   or a new version registered after the check, makes it `executing` again.

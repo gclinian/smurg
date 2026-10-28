@@ -35,6 +35,13 @@ const withReport = (report: Partial<NonNullable<AutoMergeVerdictInput['report']>
 const ROWS: readonly (readonly [string, Change, AutoMergeVerdict])[] = [
   // 1.
   ['1 the host merges', (input) => ({ ...input, policy: 'host' }), { kind: 'none' }],
+  // (0.7.0 fix5, the check of d374e39 S1: a message nothing delivers by itself waits in the session of an item the host
+  // merges, and its version is merged: the host's Merge… delivers nothing either; the topic said ready, nobody was told,
+  // and "I've checked the result" made it complete with the message never delivered. Its carers' Continue delivers it)
+  ['1 the host merges, its version is merged, and a message nothing delivers by itself waits: row 2\'s hold for its carers', (input) => ({ ...input, policy: 'host', request: { id: 'mr_1', status: 'merged', requested: true }, undelivered: true }), { kind: 'hold', reason: 'stopped' }],
+  ['1 the host merges, such a message waits, and its version is not merged: the host\'s to merge', (input) => ({ ...input, policy: 'host', undelivered: true }), { kind: 'none' }],
+  ['1 the host merges, its version is merged, its checkout holds work no merge carried: the host reads the diff', (input) => ({ ...input, policy: 'host', request: { id: 'mr_1', status: 'merged', requested: true }, unmergedWork: true }), { kind: 'none' }],
+  ['1 nothing to merge (direct), such a message waits', (input) => ({ ...input, policy: null, request: { id: 'mr_1', status: 'merged', requested: false }, undelivered: true }), { kind: 'none' }],
   ['1 nothing to merge (direct, never started)', (input) => ({ ...input, policy: null }), { kind: 'none' }],
   ['1 the topic archived', (input) => ({ ...input, topic: { archived: true, paused: false } }), { kind: 'none' }],
   ['1 left out', withItem({ leftOut: { by: MEI, at: 1 } }), { kind: 'none' }],

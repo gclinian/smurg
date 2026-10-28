@@ -650,9 +650,11 @@ export class Scheduler {
    * follow-up after a merge makes a new draft, and an older request that is merged later says nothing about it), and
    * the tree holds nothing no merge carried (a version whose snapshot was refused, edits made after the report). Nor
    * while a follow-up of its report waits for its answer or its session holds a message no turn has taken (0.7.0 fix4:
-   * the end of the session threw the message away, and Continue was refused for a session that had ended). Until then
-   * everything stays as it is and `finishPending` asks again. One at a time per item: two callers never end the same
-   * session twice.
+   * the end of the session threw the message away, and Continue was refused for a session that had ended), nor while
+   * its session is at work (`sessionAtWork`: a turn, the end of one being looked at; 0.7.0 fix5: a turn that took a
+   * person's message was cut by "I've reviewed this", the host's Merge… or the sweep, and its answer never became a
+   * version). Until then everything stays as it is and `finishPending` asks again, on the module's sweep. One at a time
+   * per item: two callers never end the same session twice.
    */
   finishIfDone(topicId: string, itemId: string): Promise<void> {
     return this.core.serialize(`finish:${topicId}:${itemId}`, () => this.finish(topicId, itemId));
@@ -664,10 +666,12 @@ export class Scheduler {
     const reviewed = this.reports?.isReviewed(topicId, itemId) === true;
     if (topic === null || item === null || topic.archived || !item.merged || !(reviewed || topic.checked !== undefined)) return;
     const agents = this.ctx.services.agents;
-    // (what its session still has to deliver or answer: a follow-up of its report, or a message no turn has taken)
+    // (what its session still has to deliver or answer: a follow-up of its report, or a message no turn has taken; and
+    // what it is doing: a turn, or the end of one being looked at)
     if (item.sessionId !== undefined && !isStubService(agents)) {
       const live = agents.get(item.sessionId);
       if (live !== null && live.status !== 'ended' && ((this.core.report(topicId, itemId)?.pending.length ?? 0) > 0 || (agents.facts(item.sessionId)?.pendingMessages ?? 0) > 0)) return;
+      if (this.core.sessionAtWork(topic, item, this.core.sessionsWithCards())?.turnOpen === true) return;
     }
     if (item.direct === true) {
       // It ran in the folder itself: nothing waits for a merge. Reviewed (or its topic checked), it is complete and its

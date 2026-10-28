@@ -633,8 +633,15 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // fix4 added four, each on the same 2,000 characters: the runner's upper-case FAIL after the colon, anchored at its
   // start; a failure word at the end of a line with neither colon nor dash, read from a blank to the end with the
   // blanks before its parenthesis inside it; a code span; and a count of failures, each alternative of which starts at
-  // a count or a fixed word and reads a bounded stretch after it. 200 lines of 2,000 characters in about 10 ms)
-  'topics/report-format.ts': 18,
+  // a count or a fixed word and reads a bounded stretch after it. 200 lines of 2,000 characters in about 10 ms.
+  // fix5 (the check of d374e39) added four, on the same characters: the runners' verdicts where they print them, each
+  // start one character and one run of blanks; the first code span, and a quoted text, each from its opening mark to
+  // the first closing one (a quote's body stops at its own opening mark too, so a run of opening marks is not read
+  // again from each); and "after" before a number, one run of blanks then a look at one character. It wrote the count's
+  // "fail" + blanks + ":" so that its two runs of blanks are never tried against each other (it read `fail` + 1,995
+  // blanks + `x` in the square of the run). A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape:
+  // report-format.test.ts, "takes linear time")
+  'topics/report-format.ts': 22,
   'topics/store.ts': 1,
   'topics/text.ts': 7,
   'workspace/fs-util.ts': 2,

@@ -492,8 +492,10 @@ export class TopicsCore {
       const session = this.sessionAtWork(topic, item, cards);
       if (session !== null && (session.turnOpen || session.openCards > 0)) return false;
       // (a message nothing delivers by itself is no turn to come, and no answer either: its carers' Continue delivers
-      // it, D6 row 2; also before the merge queue has looked at the item after a restart. 0.7.0 fix4)
-      if (this.mergingOf(item) === 'auto' && this.messageUndelivered(item)) return false;
+      // it, D6 row 2; also before the merge queue has looked at the item after a restart. 0.7.0 fix4. Whoever merges
+      // the item: the host's Merge… delivers nothing either, and row 2 holds it for its carers too, 0.7.0 fix5. An item
+      // that ran directly in the folder has no merge and no such hold: its restart pauses the plan, D15)
+      if (this.mergingOf(item) !== null && this.messageUndelivered(item)) return false;
     }
     // (a suggestion to an item's agent nobody decided yet: 0.7.0 verify, the lead's decision R7)
     const sessions = new Set(merged.flatMap((item) => (item.sessionId === undefined ? [] : [item.sessionId])));
@@ -712,10 +714,12 @@ export class TopicsCore {
     const waitsFor = item.state === 'waiting' ? this.unmergedDependencies(topic, item) : [];
     const showsResponsible = item.sessionId !== undefined || topic.plan.mode === 'assigned';
     // Protocol 6 (DESIGN 0.7.0 D3, D9): how its change reaches the main workspace, and what smurg's merge waits for.
-    // An item that ran directly in the folder has nothing to merge; what it is held for is its record (D10).
+    // An item that ran directly in the folder has nothing to merge; what it is held for is its record (D10). One the
+    // host merges shows only the hold of D6 row 2 for a message nothing delivers by itself, once its version is merged
+    // (0.7.0 fix5: the host's Merge… delivers nothing, and its carers were told nothing).
     const merging = this.mergingOf(item);
-    const autoMerge =
-      merging === 'auto'
+    const computed =
+      merging === 'auto' || (merging === 'host' && this.messageUndelivered(item))
         ? autoMergeInfoOf(this.verdictOf(topic, item, cards), {
             record: item.autoMerge,
             tries: item.mergeTries ?? 0,
@@ -724,9 +728,17 @@ export class TopicsCore {
             ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }),
             ...(item.lastTurn === undefined ? {} : { lastTurnAt: item.lastTurn.at }),
           })
-        : isDirect(item) && item.autoMerge !== undefined
-          ? autoMergeInfoOfRecord(item.autoMerge, { tries: item.mergeTries ?? 0, ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }) })
-          : undefined;
+        : undefined;
+    const autoMerge =
+      merging === 'auto'
+        ? computed
+        : merging === 'host'
+          ? computed?.state === 'held'
+            ? computed
+            : undefined
+          : isDirect(item) && item.autoMerge !== undefined
+            ? autoMergeInfoOfRecord(item.autoMerge, { tries: item.mergeTries ?? 0, ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }) })
+            : undefined;
     // (0.7.0 last check: what the foot offers for a hold while a message nothing delivers by itself waits: Continue)
     const undelivered = autoMerge?.state === 'held' && this.messageUndelivered(item);
     // Its session waits for a person (D9): the plan says so instead of "running".

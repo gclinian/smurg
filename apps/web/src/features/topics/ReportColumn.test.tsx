@@ -485,6 +485,17 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     for (const name of ['Merge it as it is', 'Leave it out…', 'Merge…']) expect(within(foot()).queryByRole('button', { name })).toBeNull();
   });
 
+  // 0.7.0 fix5 (the check of d374e39, S1): an item the host merges has the same hold now, once its version is merged
+  // and a message a restart left undelivered waits; the foot is the same, for the host too.
+  it('0.7.0 fix5: an item the host merged with a message to its agent undelivered: the same foot, Continue only, also for the host', async () => {
+    const plan = autoPlan({ merging: 'host', autoMerge: hold('stopped', { undelivered: true }), merged: { at: T, by: { userId: 'dev:host', displayName: 'Ian' } }, merge: { requestId: 'mr_1', status: 'merged', ready: false } });
+    const { conn } = await setup({ role: 'agent', plan, requests: [draft({ status: 'merged', decidedAt: T })] });
+    expect(within(foot()).getByText('Merged; a later change is not merged: its last turn did not finish. You decide. A message to its agent was not delivered yet: Continue delivers it first.')).toBeTruthy();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
+    expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    for (const name of ['Merge it as it is', 'Leave it out…', 'Merge…', 'I\'ve reviewed this']) expect(within(foot()).queryByRole('button', { name })).toBeNull();
+  });
+
   it('0.7.0 review: a merged item whose later turn did not finish: Continue, but nothing to merge "as it is" and nothing to leave out', async () => {
     await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
     expect(within(foot()).getByRole('button', { name: 'Continue' })).toBeTruthy();
