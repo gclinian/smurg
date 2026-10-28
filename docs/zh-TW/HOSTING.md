@@ -456,8 +456,9 @@ Claude Code 的設定以及指名它們的指令，可能改到專案設定的�
 **你對自動模式的設定也有效。** 你的 `~/.claude/settings.json` 裡的 `autoMode` 規則（Claude Code 的檢查允許什麼、拒絕
 什麼），在這裡的 agent 上和在你自己的終端機裡一樣有效。`disableAutoMode` 會關掉自動模式，`disableBypassPermissionsMode`
 會關掉「什麼都不問」，對這裡的每個 agent 都一樣：session 會照 §5.2 說的退回去，主人控制台的設定也會說你的 Claude Code
-關掉了哪一種。smurg 不會把任何 `CLAUDE_CODE_*` 環境變數傳給 agent，只有選擇你的服務供應商的那些除外，所以你在自己的
-shell 裡設定、會改變自動模式的變數（例如 `CLAUDE_CODE_AUTO_MODE_MODEL`）不會傳到它們那裡。
+關掉了哪一種。smurg 不會把任何 `CLAUDE_CODE_*` 環境變數傳給 agent，只有選擇你的服務供應商的那些和
+`CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` 除外，所以你在自己的 shell 裡設定、會改變自動模式的變數（例如
+`CLAUDE_CODE_AUTO_MODE_MODEL`）不會傳到它們那裡。
 
 **你的 MCP 伺服器、連接器和外掛，agent 預設不能用**，除非你在主人控制台的設定裡打開
 （「agent 可以使用我自己的和這個專案的 MCP 伺服器」；討論 agent 永遠不能用）。打開之前

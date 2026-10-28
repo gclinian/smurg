@@ -5,7 +5,7 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
-## [0.7.0] - YYYY-MM-DD
+## [0.7.0] - 2026-10-29
 
 - **Topics run to the end by themselves.** After Start, smurg merges each work item into the shared folder when its
   result report says complete, at least one of its checks passed and none failed, and the merge is clean; what waits
@@ -31,6 +31,9 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
   and after an agent's process stopped (once); work items that wait for a person no longer keep the others from
   starting. "Pause" stops a plan until someone continues it, also across restarts ([host guide](docs/HOSTING.md)
   §10.5).
+- **A host's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` reaches agent sessions and terminals.** smurg used to drop
+  it, so every agent's Claude Code sent the requests the host had turned off (to `api.anthropic.com` and others) at
+  its start.
 - **The protocol changed (version 6).** Update before you share again (`smurg update`): until then, teammates' pages
   say "The host's smurg is older than this page". A tab from before the update says "This tab is from before an
   update" and needs a reload. If you run your own relay, deploy it again.

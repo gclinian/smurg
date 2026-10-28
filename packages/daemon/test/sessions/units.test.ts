@@ -166,6 +166,7 @@ describe('session environment (every session is the host\'s own, ARCHITECTURE §
         CLAUDE_CODE_SIMPLE: '1',
         CLAUDE_CODE_SKIP_BEDROCK_AUTH: '1',
         CLAUDE_CODE_CLIENT_CERT: '/c',
+        CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: '1',
         SMURG_SESSION_ID: 'parent',
       },
       home: '/fake/home',
@@ -181,6 +182,9 @@ describe('session environment (every session is the host\'s own, ARCHITECTURE §
     expect(env['CLAUDE_CODE_OAUTH_TOKEN']).toBe('oauth');
     expect(env['CLAUDE_CODE_SKIP_BEDROCK_AUTH']).toBe('1');
     expect(env['CLAUDE_CODE_CLIENT_CERT']).toBe('/c');
+    // and so does the host's switch that keeps Claude Code's nonessential requests off (the real-Claude tests set it
+    // too: without it every agent's claude asks api.anthropic.com for its bootstrap)
+    expect(env['CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC']).toBe('1');
     expect(env['HOME']).toBe('/fake/home');
     expect(env['SMURG_SESSION_ID']).toBe('ses_2');
     expect(env['TERM']).toBe('xterm-256color');

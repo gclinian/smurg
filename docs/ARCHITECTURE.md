@@ -3092,11 +3092,13 @@ Adding a version to the verified list means running the real-Claude suites on it
 
 **Session environment** (`sessions/host-env.ts`) — the host's own, minus variables injected by a parent Claude
 session (scrubbed by prefix: `CLAUDECODE`, `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_AGENT_SDK_*`,
-`CLAUDE_PREVIEW_*`, `CLAUDE_CODE_*` except the host's provider variables; always drop `CLAUDE_CODE_SAFE_MODE` and
-`CLAUDE_CODE_SIMPLE`) and minus every `SMURG_*` (a daemon started inside another session must not pass its identity
-on); then `HOME`, `TERM`, `COLORTERM`, `SMURG_SESSION_ID` and, for agent sessions, the hook's `SMURG_HOOK_SOCKET` /
-`SMURG_SESSION_TOKEN`. The host's own login and provider settings (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_USE_*`, …)
-stay: every session uses them.
+`CLAUDE_PREVIEW_*`, `CLAUDE_CODE_*` except the host's provider variables and the switch below; always drop
+`CLAUDE_CODE_SAFE_MODE` and `CLAUDE_CODE_SIMPLE`) and minus every `SMURG_*` (a daemon started inside another session
+must not pass its identity on); then `HOME`, `TERM`, `COLORTERM`, `SMURG_SESSION_ID` and, for agent sessions, the
+hook's `SMURG_HOOK_SOCKET` / `SMURG_SESSION_TOKEN`. The host's own login and provider settings (`ANTHROPIC_API_KEY`,
+`CLAUDE_CODE_USE_*`, …) stay: every session uses them. So does `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (until 0.7.0
+it was dropped, and every agent's `claude` then sent the requests the host had turned off, `api.anthropic.com`'s
+bootstrap among them, whatever `ANTHROPIC_BASE_URL` named).
 
 **PTY** (terminal sessions only). One `PtySession` per PTY, `encoding: null`, output coalesced (5 ms / 64 KiB) and
 addressed by absolute byte offset; fan-out to a daemon-side `@xterm/headless` mirror (5000 lines), a 2 MiB raw tail

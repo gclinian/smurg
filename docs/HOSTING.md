@@ -572,9 +572,9 @@ command that could change a script of the project settings still asks (below).
 **Your settings of auto mode apply too.** The `autoMode` rules in your `~/.claude/settings.json` (what Claude Code's
 check allows and refuses) apply to the agents here as in your own terminal. `disableAutoMode` turns auto mode off,
 and `disableBypassPermissionsMode` turns "Asks for nothing" off, for every agent here: the sessions fall back as
-§5.2 says, and the host console's settings say which one your Claude Code turned off. smurg passes no `CLAUDE_CODE_*`
-environment variable to agents but the ones that choose your provider, so one that changes auto mode in your own
-shell (`CLAUDE_CODE_AUTO_MODE_MODEL`, for example) does not reach them.
+§5.2 says, and the host console's settings say which one your Claude Code turned off. Of the `CLAUDE_CODE_*`
+environment variables, agents get only those that choose your provider and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`,
+so one that changes auto mode in your shell (`CLAUDE_CODE_AUTO_MODE_MODEL`, say) does not reach them.
 
 **Your MCP servers, connectors and plugins are off for agents** unless you switch them on in the host console's
 settings ("Agents may use my own and this project's MCP servers"; never for a discussion agent). Think before you do: an agent that any member with agent access can

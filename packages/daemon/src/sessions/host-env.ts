@@ -1,6 +1,7 @@
 // The environment of every session (ARCHITECTURE §7.6, §11 D-15; claude-hooks.md §1.5): the host's own environment
 // minus what a parent Claude Code session injects (by prefix) and minus the hook kill switches; the host's own provider
-// settings stay (their choice). Every session runs like the host's own, whoever opened it.
+// settings and their switch for Claude Code's nonessential traffic stay (their choice). Every session runs like the
+// host's own, whoever opened it.
 
 /** Variables a parent Claude Code session injects (claude-hooks.md §1.5): scrubbed from host sessions by prefix. */
 function isParentSessionVar(name: string): boolean {
@@ -10,14 +11,16 @@ function isParentSessionVar(name: string): boolean {
   return false;
 }
 
-/** The host's own provider / login choices, kept for host sessions (ARCHITECTURE §7.6). */
+/** The host's own provider / login choices and traffic switch, kept for host sessions (ARCHITECTURE §7.6). */
 function isHostProviderVar(name: string): boolean {
   if (name === 'CLAUDE_CODE_SAFE_MODE' || name === 'CLAUDE_CODE_SIMPLE') return false; // hook kill switches: always dropped
   return (
     name.startsWith('CLAUDE_CODE_USE_') ||
     /^CLAUDE_CODE_SKIP_[A-Z_]+_AUTH$/.test(name) ||
     name.startsWith('CLAUDE_CODE_CLIENT_') ||
-    name === 'CLAUDE_CODE_OAUTH_TOKEN'
+    name === 'CLAUDE_CODE_OAUTH_TOKEN' ||
+    // Without it Claude Code asks api.anthropic.com for its bootstrap at every start, whatever ANTHROPIC_BASE_URL says.
+    name === 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC'
   );
 }
 

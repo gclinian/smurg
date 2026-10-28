@@ -662,14 +662,20 @@ again, beyond the suite (ARCHITECTURE §11 D-23 has the list with the reasons):
    with tool calls (one that passes the gate, one that asks a person: since 0.6.0 the session is opened "Asks before
    commands" for it, as agents run in auto mode by default); and time every `smurg hook` process from the
    moment it appears as a child of `claude` to its exit, watching only (it signals nothing). Check afterwards that
-   the agent's own environment named the fake API and the scratch folders. Making this an opt-in test of the
-   repository is the next step.
+   the agent's own environment named the fake API and the scratch folders, and that nothing else was asked: since
+   0.7.0 the driver gives the host `HTTPS_PROXY`, `HTTP_PROXY` and `ALL_PROXY` naming a local sink that forwards
+   nothing (`NO_PROXY=127.0.0.1`), and the sink must see no request (0.7.0's pass found that agent sessions dropped
+   `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, so each agent's `claude` asked `api.anthropic.com` for its bootstrap).
+   Making this an opt-in test of the repository is the next step.
 4. The release files, the install and the update, from a local file server laid out like the downloads site (the
    updater reads `<base>/latest/VERSION` and `<base>/vX.Y.Z/…`; the installer's base is ONE version's folder, so
    the flat folder of §5 serves the installer only). With `T` a scratch directory:
    `scripts/release-assets.sh --version X.Y.Z --dist packages/cli/dist --out "$T/site/vX.Y.Z"`, then
    `mkdir "$T/site/latest" && printf 'X.Y.Z\n' > "$T/site/latest/VERSION"`, and a file server on `$T/site`
-   (`python3 -m http.server <port> --bind 127.0.0.1 --directory "$T/site"`; stop it afterwards). Install with
+   (`python3 -m http.server <port> --bind 127.0.0.1 --protocol HTTP/1.1 --directory "$T/site"`; stop it afterwards.
+   Without `--protocol HTTP/1.1` it ends each download by closing the connection, and the Node of the published
+   executables, 22.23.3, then now and then stops their `update` with an `AssertionError` from undici, changing
+   nothing). Install with
    `sh "$T/site/vX.Y.Z/install.sh" --base-url http://127.0.0.1:<port>/vX.Y.Z --prefix "$T/try"`; then, with a
    scratch `HOME` and `SMURG_HOME`, `SMURG_INSTALL_BASE_URL=http://127.0.0.1:<port> "$T/try/bin/smurg" update
    --check` says `smurg X.Y.Z is the latest version.` To see an update happen, build an executable with an older

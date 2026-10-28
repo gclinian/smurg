@@ -165,7 +165,8 @@ when the server isn't connected Claude Code lets the edit through (H2, fail-open
   (observed names). Rule: when `CLAUDECODE` or `CLAUDE_CODE_ENTRYPOINT` is present, drop `CLAUDECODE`,
   `AI_AGENT`, `CLAUDE_PID`, `CLAUDE_EFFORT`, `CLAUDE_AGENT_SDK_*`, `CLAUDE_PREVIEW_*` and every
   `CLAUDE_CODE_*`, then re-add only user-intended provider variables (`CLAUDE_CODE_USE_*`,
-  `CLAUDE_CODE_SKIP_*_AUTH`, `CLAUDE_CODE_CLIENT_*`, `CLAUDE_CODE_OAUTH_TOKEN`) if the host opts in.
+  `CLAUDE_CODE_SKIP_*_AUTH`, `CLAUDE_CODE_CLIENT_*`, `CLAUDE_CODE_OAUTH_TOKEN`) if the host opts in, and
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` (since 0.7.0; §6 #35).
   Always drop `CLAUDE_CODE_SAFE_MODE` and `CLAUDE_CODE_SIMPLE`; the `--settings` `env` neutralizers
   (§1.2) cover them too. Keep the host's own `ANTHROPIC_*` settings; that's their choice.
 * Flags: `--settings <file>` (hooks, env neutralizers, `disableBypassPermissionsMode`,
@@ -573,6 +574,7 @@ Caveat, now resolved for the sandboxed case (verifier):
 | 32 | The Unix socket path limit on macOS is 104 bytes; the spike's socket path (137 bytes) had to be reached relative to its directory. | `smurg-hook.mjs` / `mock-daemon.mjs` chdir trick |
 | 33 | `CLAUDE_CODE_SAFE_MODE=1` / `CLAUDE_CODE_SIMPLE=1` (launch env, or `$CLAUDE_CONFIG_DIR/settings.json` `env`) and `--safe-mode` turn off all hooks, `--settings` ones included. An `env` block in `--settings` setting both to `"0"` wins over the env and user-settings values. Project `env` can't flip safe mode; on 2.1.220 it can flip `CLAUDE_CODE_SIMPLE`. | `extra/exp-v-hook-kill.mjs` (both versions) |
 | 34 | Inside the hardened srt profile, `security -i add-generic-password` fails in ~30 ms (exit 152, not a timeout), so Claude Code's secure storage takes the `.credentials.json` fallback. | `extra/exp-v-srt-credstore.mjs` + code read (`et=2000`, `Fs=36`, `primary_transient_skip_fallback`) |
+| 35 | Without `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, 2.1.288 started with `ANTHROPIC_BASE_URL` naming a local fake API and a key in `ANTHROPIC_API_KEY` still sends `GET https://api.anthropic.com/api/claude_cli/bootstrap` and `GET /api/claude_code_penguin_mode`, both with that key in `x-api-key`, and `GET /mcp-registry/v0/servers` at its start; with it set, nothing (`DISABLE_TELEMETRY` and `DISABLE_ERROR_REPORTING` set both times). | 0.7.0 release dry run, 2026-10-29: `HTTPS_PROXY` naming a local sink that forwards nothing, the binary run directly once each way |
 
 ---
 
