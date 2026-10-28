@@ -564,7 +564,8 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   // is not taken "as it is" before; the daemon refuses that too)
   const undelivered = hold.undelivered === true;
   // (0.7.0 fix8: once the item's session has ended, nothing continues or resolves it, and the daemon refuses both; what
-  // the worktree of a merged item holds then is asked to merge as it is: "Request merge", the host's inbox)
+  // the worktree of a merged item holds then is asked to merge as it is: "Request merge", the host's inbox. 0.7.0 fix9:
+  // nor is its agent asked to take files out)
   const sessionEnded = hold.sessionEnded === true;
   const endedWork = reason === 'edited' && sessionEnded && mergedAlready;
 
@@ -577,7 +578,8 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
     ) : null;
   const accept =
     direct && isHost && !undelivered ? <Button onClick={() => void act(() => stores.topics.accept({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.accept')}</Button> : null;
-  const removePaths = reason === 'policy' && isHost ? <Button onClick={() => void act(() => stores.topics.removePaths(topic.id, item.id), failed)}>{t('decision.removePaths')}</Button> : null;
+  // (0.7.0 fix9: not once the session has ended, which the daemon refuses as well; Request merge and Leave it out stay)
+  const removePaths = reason === 'policy' && isHost && !sessionEnded ? <Button onClick={() => void act(() => stores.topics.removePaths(topic.id, item.id), failed)}>{t('decision.removePaths')}</Button> : null;
   // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes
   // (its snapshot was refused, so there may be no draft at all: the host's request makes one, HOSTING §8).
   const requestMerge =

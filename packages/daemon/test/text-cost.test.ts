@@ -644,7 +644,10 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // the line with every quote blanked, then (a quote opens the words after the colon) once more with that quote kept.
   // fix8 (the check of 6f42b50) added none: the colon is one named expression for every place that looks for it (it
   // replaced a literal), and a line is read again by the same expressions from its command after a label, or with the
-  // colon inside a code span taken for its own, at most three ways, each on the same 2,000 characters.
+  // colon inside a code span taken for its own, at most three ways, each on the same 2,000 characters. fix9 (the check
+  // of 13591fb) added none: the first colon or dash is looked for by the same two expressions (`firstSeparator`), the
+  // words before it read with one inside a code span taken for the line's, and a reading from the first code span after
+  // the separator: at most five ways, each on at most the same 2,000 characters.
   // A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape: report-format.test.ts, "takes linear time")
   'topics/report-format.ts': 22,
   'topics/store.ts': 1,

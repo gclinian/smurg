@@ -1561,7 +1561,8 @@ type WorkItem = {
                 paths?; branch?: { expected; current }; people?: { path; by: UserRef[]; outside }[]; asked?: UserRef;
                 undelivered?: true;                           // a hold, and a message only Continue delivers waits
                 sessionEnded?: true };                        // a hold, and the item's session has ended (fix8):
-                                                              // no Continue or resolve; "Request merge" for `edited`
+                                                              // no Continue, resolve or "take them out" (fix9);
+                                                              // "Request merge" for `edited`
                                                               // (of a 'host' item only these holds, that of a later
                                                               // turn that did not finish, or of what its worktree
                                                               // holds once its session ended, once it is merged)
@@ -3658,10 +3659,12 @@ is an error. Under "How it was verified" at least one check line: `- [x] <text>`
 verified: <why>` did not and must say why, `- [!] <text>: failed: <what happened>` (0.7.0) ran and failed; prose
 between the checks is allowed. A ticked line whose words say the check failed or did not run is refused at its line
 (`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
-`<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7; when none stands outside
-them, also the first inside one: `` `pnpm test: failed` ``, 0.7.0 fix8; past blanks, U+3000 too), the runner's upper-case
-`FAIL` before a file there, the same read again from the command after a label (`` Unit tests — `pnpm test`: failed ``,
-0.7.0 fix8), an outcome word at the end of what
+`<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7; also the first inside one
+before it, with quotes blanked: `` `pnpm test: failed` ``, 0.7.0 fix8, and with a separator after the span, `` `pnpm
+test: failed` — see CI ``, 0.7.0 fix9; past blanks, U+3000 too, also after a dash; a closing backtick ends an outcome
+word, the zh-TW ones too, fix9), the runner's upper-case `FAIL` before a file there, the same read again from the first
+code span after the separator (a label before the command: `` Unit tests — `pnpm test`: failed ``, 0.7.0 fix8; a label
+with its own colon or dash, `` CI: unit tests: `pnpm test`: failed ``, fix9), an outcome word at the end of what
 stands before them (or before a parenthesis followed by the end, punctuation or a word that places the failure:
 `failed (2 of 14) on CI`), a failure word at the end of a line that has neither, a runner's verdict where it prints it
 (`--- FAIL: TestTotal`, `test result: FAILED`, `FAILED tests/test_cart.py::…`, `→ FAIL src/…`), or a count of failures
@@ -3672,8 +3675,10 @@ line quoted after them (in a code span, or in quotes that open the words there),
 count right after "after" (`shows "2 of 10 failed"`, `locks after 5 failures` pass): first with every quote blanked,
 then, when a quote opens the words after the colon or dash (past blanks, U+3000 too), again with that quote kept (0.7.0
 fix7: the blank in a quote's place joins `Lint errors: "src/cart.ts" 2`); in English and Traditional Chinese, over the
-line's first 2,000 characters, each expression in one pass, a line at most three ways (as written, from its command
-after a label, with the colon inside a code span taken for its own), the count blanked once per way. A ticked box is the agent's
+line's first 2,000 characters, each expression in one pass, a line at most five ways (as written, and with a colon or
+dash inside a code span before its separator taken for the line's; each of the two from its first code span after its
+separator; and the first of those with a colon or dash inside a span), the count blanked once per way not from a
+command. A ticked box is the agent's
 word: this refuses the common contradictions, not every wording
 (`two tests fail` and other number words are not read), and what catches the rest is the team's check at the end and
 the undo. The words are read as written and only their masked form is stored (each part of a `- [!]` or `- [ ]` line
@@ -3811,7 +3816,14 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   changed stays in the worktree: held `edited` for its carers whoever merges the item (`keptAfterMerge`: its session
   ended and its worktree holds work no merge carried), the wire's `autoMerge.sessionEnded` makes the foot offer the
   worktree's "Request merge" instead of Continue, and the host's merge of that request settles it (0.7.0 fix8: Continue
-  was the only answer offered and was refused, and an item the host merged had no hold or row at all). A
+  was the only answer offered and was refused, and an item the host merged had no hold or row at all). The host's
+  reject of it is the decision too (0.7.0 fix9: the rejected request became the item's current one, held `rejected`
+  for an agent no session can answer, or nobody's row): `Scheduler.onMerge` keeps the item on its merged request, and
+  `TopicsCore.leftOutAfterEnd` (the worktree's branch head is a rejected request's commit, nothing written or found
+  since: `WorktreeManager.holdsOnlyRejected`) makes that change hold nothing and settle the topic, whoever merges. It
+  stays in the worktree, which the item's finish keeps as it keeps any worktree with work no merge carried; anything
+  written there afterwards is held `edited` again. A later version the host rejected while the session lived is left
+  out the same way when the session ends (`onSessionExited`). A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
   or a new version registered after the check, makes it `executing` again.

@@ -1278,6 +1278,21 @@ export class WorktreeManagerImpl implements WorktreeManager {
   }
 
   /**
+   * What git last said of an item worktree (0.7.0 fix9): its branch head is the commit of a request the host rejected,
+   * and nothing was written since or found by the last look, so it holds that change and nothing more. The topics read
+   * it of a merged item whose session has ended: the host's reject left that change out (it stays in the worktree).
+   */
+  holdsOnlyRejected(worktreeId: string): boolean {
+    const record = this.record(worktreeId);
+    if (!record || record.item === undefined) return false;
+    const state = this.trees.get(worktreeId);
+    if (state === undefined || state.dirty || state.found === true) return false;
+    return this.requireDoc()
+      .get()
+      .merges.some((merge) => merge.worktreeId === worktreeId && merge.status === 'rejected' && merge.commit === state.head);
+  }
+
+  /**
    * Looks at an item worktree now (on its queue, 0.7.0 verify): whether it holds anything its newest merge request does
    * not have (uncommitted changes, or a branch head that is not that request's commit; the base commit when it has
    * none). A turn that changed files through a command, not an edit tool, or a person's save is seen so. null: it cannot

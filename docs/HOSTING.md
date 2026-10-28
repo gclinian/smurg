@@ -1532,16 +1532,16 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   nobody can pause anything (the web app shows Pause and "Continue all" turned off), and at the next start the turns
   that go on run with nobody watching (§10.3).
 - **A later turn of a work item whose report was in** (a person's message to its agent, a follow-up) that the stop cut
-  is not told to continue: what it was asked is not known after the start. So is a message to such an item that no
-  turn had taken yet: it waits in its session, and Continue delivers it first. The item waits for its responsible
-  person's decision ("its last turn did not finish": Continue, "Merge it as it is" or "Leave it out"; for an item
-  already merged, Continue, and its merged version stays in the folder), and nothing of it merges until then. While
-  such a message waits, "Merge it as it is" (and, without git, "Accept as it is") is not offered: Continue delivers it
-  first. Your own "Merge…" stays yours once you have read the whole change: that version merges, and the item then
-  waits for Continue like an item already merged. So does an item you merge yourself (§10.3), also after you turned
-  smurg's merging off while it waited (the decision stays as it was). Until Continue the topic is not ready to check,
-  and "I've reviewed this" does not end the item's session. "End session" on an item already merged drops that turn:
-  what it changed stays in the worktree, and "Request merge" there puts it in your inbox.
+  is not told to continue: what it was asked is not known after the start. So is a message to such an item that no turn
+  had taken yet: it waits in its session. The item waits for its responsible person's decision ("its last turn did not
+  finish": Continue, "Merge it as it is" or "Leave it out"; for an item already merged, Continue, and its merged version
+  stays in the folder), and nothing of it merges until then. While such a message waits, "Merge it as it is" (and,
+  without git, "Accept as it is") is not offered: Continue delivers it first. Your own "Merge…" stays yours once you
+  have read the whole change: that version merges, and the item then waits for Continue like an item already merged. So
+  does an item you merge yourself (§10.3), also after you turned smurg's merging off while it waited. Until Continue the
+  topic is not ready to check, and "I've reviewed this" does not end the item's session. "End session" on an item
+  already merged drops that turn: what it changed stays in the worktree, and "Request merge" there puts it in your
+  inbox. Your reject drops it (it stays there), as "End session" drops a later version you rejected.
 - **Two kinds of plan stay paused** after a restart: one a person paused (`smurg host` names it: "Paused by a person,
   and still paused: …"), and one with a work item that ran directly in the shared folder and was interrupted (its
   half-done change is in the folder, which has no history). The web app shows the second on top of the sessions view

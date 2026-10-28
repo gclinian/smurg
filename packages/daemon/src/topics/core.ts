@@ -475,11 +475,11 @@ export class TopicsCore {
    * accepted), AND nothing of it still in progress: nothing smurg's merge queue waits for or holds, no follow-up whose
    * answer is to come (a message no turn has taken, a suggestion not decided), no open turn and no open card of its
    * session, no later turn that did not finish after its merge, no automatic continue owed to its session (D15, also
-   * for a turn that broke before the host's merge: `continueOwed`), and nothing in its worktree that no merge carried. A
-   * person's message to a merged item whose turn ended without a new version (`changesAsked` stays until one) is
-   * answered: nothing of it is in progress, and a change that turn left without a report is what its worktree holds
-   * unmerged. The cheap facts first: what the sessions, the cards and the worktrees say is asked only when every item
-   * is merged.
+   * for a turn that broke before the host's merge: `continueOwed`), and nothing in its worktree that no merge carried
+   * (but a change the host rejected after its session ended: `leftOutAfterEnd`, 0.7.0 fix9). A person's message to a
+   * merged item whose turn ended without a new version (`changesAsked` stays until one) is answered: nothing of it is in
+   * progress, and a change that turn left without a report is what its worktree holds unmerged. The cheap facts first:
+   * what the sessions, the cards and the worktrees say is asked only when every item is merged.
    */
   private allSettled(topic: StoredTopic, items: readonly StoredItem[]): boolean {
     const merged = items.filter((item) => item.leftOut === undefined && item.undone === undefined);
@@ -520,7 +520,9 @@ export class TopicsCore {
         // (a question that cannot be answered counts as "something is still in progress")
         return false;
       }
-      if (merged.some((item) => item.worktreeId !== undefined && unmerged.has(item.worktreeId))) return false;
+      // (a change the host rejected after the item's session ended was left out by that reject: it stays in the
+      // worktree, and settles nothing any more; 0.7.0 fix9)
+      if (merged.some((item) => item.worktreeId !== undefined && unmerged.has(item.worktreeId) && !this.leftOutAfterEnd(item))) return false;
     }
     return true;
   }
@@ -675,6 +677,23 @@ export class TopicsCore {
     return cutAfterMerge(item) || this.messageUndelivered(item) || (this.sessionEnded(item) && this.unmergedWorkOf(item));
   }
 
+  /**
+   * The host rejected what the worktree of a merged item holds, once its session had ended (0.7.0 fix9, the lead's F1:
+   * the foot's "Request merge" of an 'edited' hold, then the host's reject, left a hold nothing could answer, or none at
+   * all, and the topic never settled). That reject is the decision: the item stays on its merged request
+   * (Scheduler.onMerge), and the change the host rejected holds nothing any more, whoever merges. It stays in the
+   * worktree, which nothing deletes; once the worktree holds anything more, its 'edited' hold is back.
+   */
+  leftOutAfterEnd(item: StoredItem): boolean {
+    const worktrees = this.ctx.services.worktrees;
+    if (item.worktreeId === undefined || isStubService(worktrees) || !item.merged || item.merge?.status !== 'merged' || !this.sessionEnded(item)) return false;
+    try {
+      return worktrees.holdsOnlyRejected(item.worktreeId);
+    } catch {
+      return false;
+    }
+  }
+
   /** The item had a session, and it has ended (a person's "End session", the host's): nothing continues the item's work. */
   sessionEnded(item: StoredItem): boolean {
     const agents = this.ctx.services.agents;
@@ -727,11 +746,12 @@ export class TopicsCore {
   /**
    * The item's worktree holds work that no merge carried, as git last said (0.7.0 verify): a tree nothing has looked at
    * yet (right after a start) is not known to, and neither is one that cannot be asked; the plan's phase keeps such a
-   * worktree as unsettled (`allSettled`), and the hold follows once it has been looked at.
+   * worktree as unsettled (`allSettled`), and the hold follows once it has been looked at. A change the host rejected
+   * after the item's session ended is no such work (`leftOutAfterEnd`, 0.7.0 fix9).
    */
   private unmergedWorkOf(item: StoredItem): boolean {
     const worktrees = this.ctx.services.worktrees;
-    if (item.worktreeId === undefined || isStubService(worktrees)) return false;
+    if (item.worktreeId === undefined || isStubService(worktrees) || this.leftOutAfterEnd(item)) return false;
     try {
       return worktrees.unmergedWork(item.worktreeId) === true;
     } catch {

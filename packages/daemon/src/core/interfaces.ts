@@ -2617,6 +2617,11 @@ export interface WorktreeManager {
    */
   unmergedWork(worktreeId: string): boolean | null;
   /**
+   * What git last said of one item worktree (0.7.0 fix9): it holds exactly a commit whose merge the host rejected, and
+   * nothing more (its branch head is that request's commit; nothing was written since, nor found by the last look).
+   */
+  holdsOnlyRejected(worktreeId: string): boolean;
+  /**
    * Looks at an item worktree now: whether it holds anything its newest merge request does not (a command's edits, a
    * person's save). null: it cannot be looked at.
    */

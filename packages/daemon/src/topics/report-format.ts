@@ -149,16 +149,17 @@ const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => 
  * words "failed", "not verified" and "not run", whatever follows them but a letter (`FAILED (2 of 3)`, `failed because
  * ...`, `not run (no browser)`); "fail", "fails", "failing", "failure" and the zh-TW word for failing (also with its
  * particle of a done action) only where the words stop after them or punctuation or a parenthesis follows (`FAIL (2 of
- * 3)`, `fails.`), for they also name a failure that a passed check looks at (`failing writes are retried`, `fails with a
- * wrong password, as it should`, the zh-TW word followed by its adjective mark). A hyphen is punctuation there only with
- * a blank after it (`FAIL - 2 of 3`, not `fail-safe`). The zh-TW word for "not verified" is also the usual word for
+ * 3)`, `fails.`; or the backtick that ends a code span, the zh-TW words too: `` `pnpm test: <failed>` ``, 0.7.0 fix9),
+ * for they also name a failure that a passed check looks at (`failing writes are retried`, `fails with a wrong
+ * password, as it should`, the zh-TW word followed by its adjective mark). A hyphen is punctuation there only with a
+ * blank after it (`FAIL - 2 of 3`, not `fail-safe`). The zh-TW word for "not verified" is also the usual word for
  * "unauthenticated" (`API: <unauthenticated> requests get a 401`): it reads as an outcome only where the words stop
  * after it, punctuation or a parenthesis follows, or a reason does, also after a blank ("because", "due to", "is
  * because"; 0.7.0 fix4, fix5), or its mark of experience ("not verified yet"), or a blank and another word (`<not
  * verified> <no browser>`: the adjective is written without a blank; 0.7.0 fix5).
  */
 const FAILURE_WORD =
-  /^(?:(?:failed|not[ \t]+(?:verified|run))(?![a-z])|(?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?=[ \t]*(?:$|[(\uff08:\uff1a,\uff0c;\uff1b.\u3002!\uff01\u3001\u2014\u2013]|-(?:[ \t]|$)))|\u672a\u9a57\u8b49(?=[ \t]*(?:\u56e0|\u7531\u65bc|\u662f\u56e0)|\u904e|[ \t]+[\u4e00-\u9fff]))/i;
+  /^(?:(?:failed|not[ \t]+(?:verified|run))(?![a-z])|(?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)(?=[ \t]*(?:$|[(\uff08:\uff1a,\uff0c;\uff1b.\u3002!\uff01\u3001\u2014\u2013`]|-(?:[ \t]|$)))|\u672a\u9a57\u8b49(?=[ \t]*(?:\u56e0|\u7531\u65bc|\u662f\u56e0)|\u904e|[ \t]+[\u4e00-\u9fff]))/i;
 /**
  * A blank and an outcome word at the end of what stands before the first colon (`pnpm test failed: ...`), or before a
  * parenthesis (it may hold code spans) after which the words stop, punctuation follows, or a word that places the
@@ -195,8 +196,8 @@ const RUNNER_FAIL_ANYWHERE = /(?:^|[ \t>\u2192\u276f|])(?:---[ \t]+)?FAIL(?:ED)?
  * names what a passed check looks at.
  */
 const BEHAVIOUR_AT_END = /[ \t](?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?)(?:[ \t]*[(\uff08][^`()\uff08\uff09]*[)\uff09])?[ \t]*$/i;
-/** A dash between blanks: what separates a check from what became of it (`pnpm test — failed: …`). */
-const DASH_SEPARATOR = /[ \t][—–-]+(?=[ \t])/;
+/** A dash between blanks (U+3000 after it too, 0.7.0 fix9): what separates a check from what became of it (`pnpm test — failed: …`). */
+const DASH_SEPARATOR = /[ \t][—–-]+(?=[ \t\u3000])/;
 /** The line's colon, or the full-width one (U+FF1A): one expression for each place that looks for it. */
 const COLON = /[:\uff1a]/;
 
@@ -260,13 +261,14 @@ const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
 
 /**
  * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
- * check; 0.7.0 fix4, fix5, fix6, fix7, fix8): the words after `<what>` and its first colon (`:`, or the full-width one)
- * or dash outside its code spans (`pnpm test:unit`: failed; when none stands outside them, the first inside one, too:
- * `pnpm test: failed`, fix8), past their blanks (U+3000 too), begin with a failure word as FAILURE_WORD reads it, or
- * with the runner's FAIL before a file, or, when they begin with a code span (a label before the command: `Unit tests
- * — `pnpm test`: failed`, fix8), say so read as a line of their own; `<what>` itself ends with an outcome word (`pnpm
- * test failed: …`); a line with neither colon nor dash ends with a failure word (`pnpm test fails`); a runner's
- * verdict stands where it prints it
+ * check; 0.7.0 fix4, fix5, fix6, fix7, fix8, fix9): the words after `<what>` and its first colon (`:`, or the full-width
+ * one) or dash outside its code spans (`pnpm test:unit`: failed; and the first inside one before it, too: `pnpm test:
+ * failed`, fix8, also with a separator after the span, `pnpm test: failed` — see the CI log, fix9), past their blanks
+ * (U+3000 too, after a dash too), begin with a failure word as FAILURE_WORD reads it, or with the runner's FAIL before
+ * a file, or, read from their first code span on as a line of their own (a label before the command: `Unit tests —
+ * `pnpm test`: failed`, fix8; a label with its own colon or dash, `CI: unit tests: `pnpm test`: failed`, fix9), say
+ * so; `<what>` itself ends with an outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends with a
+ * failure word (`pnpm test fails`); a runner's verdict stands where it prints it
  * (`--- FAIL: TestTotal`); or the words count failures or errors that are not zero (`12 passed, 2 failed`), read
  * without the command's code spans (those of `<what>`, or the first one of a line with neither colon nor dash: `pnpm
  * vitest -t "2 tests fail"`), with those after the colon or dash (the runner's own line, quoted), and without quoted
@@ -274,22 +276,35 @@ const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
  * fix6; past the blanks, the ideographic one too, 0.7.0 fix7). "14 passed, 0 failed" after a colon is a check that
  * passed, and so is one whose words name a failure it looks at. This is a net for the common ways a ticked line
  * contradicts itself, not a reading of every wording: the team's check at the end and the undo catch the rest. Each
- * expression reads at most 2,000 characters in one pass, and a line is read at most three ways (as written, from its
- * command after a label, with the colon inside a code span taken for its own), the count with the quotes blanked once
- * per way and never in the reading from the command: no expression here can try a run of blanks again from each of
- * its blanks, and a quote's body stops at its own opening mark, so that a run of opening marks is not read again from
- * each.
+ * expression reads at most 2,000 characters in one pass, and a line is read at most five ways: as written; the words
+ * before its separator with a colon or dash inside a code span taken for the line's; each of the two from its first
+ * code span after its separator, as a line of its own (never again from a command there); and the first of those with
+ * a colon or dash inside a code span taken for its own (the second finds none: its first code span pairs the backticks
+ * the other way round). The count with the quotes blanked is read once per way that is not from a command. No
+ * expression here can try a run of blanks again from each of its blanks, and a quote's body stops at its own opening
+ * mark, so that a run of opening marks is not read again from each.
  */
 function tickedSaysFailed(words: string, again = true): boolean {
   const text = words.slice(0, 2000);
   // (the line's colon and dash stand outside the code spans: `pnpm test:unit`: failed, `pnpm test -- --run`: failed;
   // 0.7.0 fix7. Each span is blanked to as many characters, so that a place in `plain` is the same place in `text`)
   const plain = text.replace(CODE_SPAN, (span: string) => '_'.repeat(span.length));
-  // (a line with neither colon nor dash outside its code spans, but one inside a span, is also read with that one
-  // taken for the line's, as 06cfc6d read it: `pnpm test: failed`, Jest `Tests: 2 failed, 40 passed, 42 total`, a
-  // stray backtick before `: failed`; 0.7.0 fix8)
-  const inSpanOnly = !COLON.test(plain) && !DASH_SEPARATOR.test(plain) && (COLON.test(text) || DASH_SEPARATOR.test(text));
-  return readTicked(text, plain, again) || (inSpanOnly && readTicked(text, text, again));
+  // (the words before the line's first colon or dash outside the code spans, all of the line when there is none, are
+  // also read with a colon or dash inside a span taken for the line's, as 06cfc6d read it: `pnpm test: failed`, Jest
+  // `Tests: 2 failed, 40 passed, 42 total`, a stray backtick before `: failed`, 0.7.0 fix8; also when a separator stands
+  // after the span, `pnpm test: failed` — see the CI log, a URL or a time, 0.7.0 fix9. The colon or dash of that
+  // reading is looked for with the quotes blanked: `pnpm vitest -t "cart: total"` names a test)
+  const separator = firstSeparator(plain);
+  const before = separator === -1 ? text : text.slice(0, separator);
+  const unquoted = before.replace(QUOTED, (quote: string) => '_'.repeat(quote.length));
+  return readTicked(text, plain, again) || (firstSeparator(unquoted) !== -1 && readTicked(before, unquoted, again));
+}
+
+/** Where the first colon or dash of `s` stands (-1: none): a dash before the first colon, else that colon. */
+function firstSeparator(s: string): number {
+  const colon = s.search(COLON);
+  const dash = DASH_SEPARATOR.exec(colon === -1 ? s : s.slice(0, colon));
+  return dash !== null ? dash.index : colon;
 }
 
 /** One reading of tickedSaysFailed: the line's colon and dash are those of `plain` (`text` with its spans blanked, or itself). */
@@ -302,8 +317,11 @@ function readTicked(text: string, plain: string, again: boolean): boolean {
     const rest = (dash !== null ? text.slice(dash.index + dash[0].length) : text.slice(colon + 1)).replace(/^[ \t\u3000]+/, '');
     if (FAILURE_WORD.test(rest) || RUNNER_FAIL.test(rest.startsWith('`') ? rest.slice(1) : rest)) return true;
     // (a label before the command, `Unit tests — `pnpm test`: failed`, `Unit tests: `pnpm test` failed`: the words from
-    // the command on are read once more as a line of their own; 0.7.0 fix8)
-    if (again && rest.startsWith('`') && tickedSaysFailed(rest, false)) return true;
+    // the command on are read once more as a line of their own, 0.7.0 fix8; from the first code span after the
+    // separator, also when the label has its own colon or dash, `Unit tests: cart — `pnpm test cart`: failed`, `Tests
+    // - unit: `pnpm test:unit` failed`, 0.7.0 fix9)
+    const command = rest.indexOf('`');
+    if (again && command !== -1 && tickedSaysFailed(rest.slice(command), false)) return true;
   }
   if (FAILURE_WORD_AFTER.test(dash !== null ? head.slice(0, dash.index) : head)) return true;
   if (colon === -1 && dash === null && BEHAVIOUR_AT_END.test(text)) return true;

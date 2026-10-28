@@ -16,10 +16,21 @@
 //       hold (whoever merges), the wire says that its session has ended (`autoMerge.sessionEnded`: the foot offers the
 //       worktree's "Request merge" instead of Continue), the request is the host's row, and the host's merge settles the
 //       topic.
+//   V22 (the check of 13591fb, W/verify/last8/hold, F1; fix9) V21's "Request merge", then the host REJECTS it. The
+//       rejected request became the item's current one: with smurg merging it was held 'rejected', whose only answer
+//       ("Ask the agent to fix it") the daemon refuses ('no-session'); with the host merging nobody had a hold or a row;
+//       and the topic never settled. That reject is the decision now: the item stays on its merged request, the change
+//       stays in the worktree and holds nothing, and the topic settles (ready, announced once; the check; complete),
+//       whoever merges, in the folder's own git and in smurg's history. Controls: the approve still settles in smurg's
+//       history (V21 tells it in the folder's git); the worktree changes again after the reject: the 'edited' hold is
+//       back.
+//   V23 (fix9, the same decision in the other order) the host rejects a later version of a merged item while its
+//       session is there, then Mei ends the session: held 'rejected' for an answer no session can give (smurg merging),
+//       or nobody's row (the host merging), for good. The reject is the decision once the session has ended: as V22.
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
-import { MEI, inboxItem, refusal, startFlow, waitFor, type Flow } from './release-flow.support.ts';
+import { MEI, audited, inboxItem, refusal, startFlow, waitFor, type Flow } from './release-flow.support.ts';
 
 const SLUG = 'checkout';
 const SPEC_PATH = `specs/${SLUG}/SPEC.md`;
@@ -230,5 +241,125 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
         await checked(flow, topicId);
       });
     }
+  }
+
+  /**
+   * V21's story up to the 'edited' hold after "End session" (Mei ends it), then Mei's "Request merge" of what the
+   * worktree holds: the request, pending, and where things stand.
+   */
+  async function requestedAfterEnd(flow: Flow, merging: 'auto' | 'host'): Promise<{ topicId: string; worktreeId: string; requestId: string; mergedId: string; phases: string[] }> {
+    await flow.claude.setScenario({ turns: [FIRST, { match: 'must be in cents', steps: [write('src/cart/total.ts', CENTS_TEXT), { wait: 'interrupt' }, ...handIn('Totals in cents.')] }, { steps: [{ text: 'ok' }] }] });
+    const { topicId, sessionId } = await merged(flow, merging);
+    const phases: string[] = [];
+    flow.d.ctx.bus.on('topic.changed', ({ topic, previous }: { readonly topic: { readonly id: string; readonly phase: string }; readonly previous: { readonly phase: string } | null }) => {
+      if (topic.id === topicId && previous?.phase !== topic.phase) phases.push(topic.phase);
+    });
+    await message(flow, sessionId, OBJECTION);
+    const before = await itemOf(flow, topicId);
+    const worktreeId = before.worktreeId as string;
+    const mergedId = before.merge?.requestId as string;
+    await waitFor(async () => (await inWorktree(flow, worktreeId)) === CENTS_TEXT, { timeoutMs: 30_000, what: 'the turn to write' });
+    await flow.mei.conn.request('session.interrupt', { sessionId });
+    await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held' && item.autoMerge.reason === 'stopped', 'held for the stopped turn', 30_000);
+    await endSession(flow, sessionId, 'mei');
+    await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held' && item.autoMerge.reason === 'edited' && item.autoMerge.sessionEnded === true, 'the half-done change to be held for its carers', 30_000);
+    const { request } = await flow.mei.conn.request('worktree.merge.request', { worktreeId });
+    expect(request.status).toBe('pending');
+    await itemIs(flow, topicId, (item) => item.autoMerge === undefined && item.merge?.requestId === request.id, 'the hold to end with the request', 20_000);
+    return { topicId, worktreeId, requestId: request.id, mergedId, phases };
+  }
+  const inWorktree = async (flow: Flow, worktreeId: string): Promise<string> =>
+    flow.ian.conn.request('file.read', { file: { root: { kind: 'worktree', worktreeId }, path: 'src/cart/total.ts' } }).then((read) => Buffer.from(read.content).toString('utf8'), () => '');
+  const decisionsWaiting = async (flow: Flow): Promise<number> =>
+    [...(await flow.mei.inbox()), ...(await flow.ian.inbox())].filter((entry) => entry.kind === 'decision' && entry.itemId === 'cart-api' && entry.waiting).length;
+
+  for (const history of ['folder', 'smurg'] as const) {
+    for (const merging of ['auto', 'host'] as const) {
+      it(`V22 ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}, ${history === 'folder' ? 'the folder\'s own git' : 'smurg\'s history'}: after "End session", Mei's "Request merge" of the half-done change, and the host rejects it: the item stays merged, nothing holds it, the change stays in the worktree, and the topic settles`, async () => {
+        const flow = await startFlow({ files: FILES, git: history === 'folder', settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+        const { topicId, worktreeId, requestId, mergedId, phases } = await requestedAfterEnd(flow, merging);
+        const sinceReject = phases.length;
+        await flow.ian.conn.request('worktree.merge.reject', { requestId });
+        // The reject is the decision: the item stays on its merged request, and nothing holds it.
+        await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
+        const after = await itemOf(flow, topicId);
+        expect(after.merge).toMatchObject({ requestId: mergedId, status: 'merged' });
+        expect(after.autoMerge).toBeUndefined();
+        expect(await decisionsWaiting(flow)).toBe(0);
+        expect((await flow.ian.conn.request('worktree.merge.list', {})).requests.find((entry) => entry.id === requestId)?.status).toBe('rejected');
+        // (the merge queue's passes and the sweep: the topic stays ready, nothing is held again)
+        flow.advance(70_000);
+        await sleep(2_000);
+        expect(phaseOf(flow, topicId)).toBe('ready');
+        expect((await itemOf(flow, topicId)).autoMerge).toBeUndefined();
+        expect((await audited(flow, 'worktree.merge.held')).filter((entry) => (entry.detail?.['reason'] ?? null) === 'rejected')).toEqual([]);
+        // Nothing is deleted: the change stays in the worktree, and main never got it.
+        expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
+        expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
+        await checked(flow, topicId);
+        // (ready once from the reject on; "End session" itself can say ready for a moment before the merge queue holds
+        // the half-done change, an older race this test does not tell)
+        expect(phases.slice(sinceReject)).toEqual(['ready', 'complete']);
+        await sleep(1_500);
+        expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
+        expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
+      });
+    }
+  }
+
+  for (const merging of ['auto', 'host'] as const) {
+    it(`V22 control, ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}, smurg's history: the host approves Mei's "Request merge" after "End session": the change merges and the topic settles`, async () => {
+      const flow = await startFlow({ files: FILES, git: false, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      const { topicId, requestId } = await requestedAfterEnd(flow, merging);
+      await flow.ian.conn.request('worktree.merge.approve', { requestId });
+      await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 30_000, what: 'the half-done change to merge' });
+      expect((await itemOf(flow, topicId)).merge).toMatchObject({ requestId, status: 'merged' });
+      await checked(flow, topicId);
+    });
+
+    it(`V22 control, ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: after the host's reject, the worktree changes again: the 'edited' hold is back, and a new "Request merge" and the host's merge settle the topic`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      const { topicId, worktreeId, requestId } = await requestedAfterEnd(flow, merging);
+      await flow.ian.conn.request('worktree.merge.reject', { requestId });
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
+      const ROUNDED = 'export const total = 100; // whole cents\n';
+      await flow.ian.conn.request('file.write', { file: { root: { kind: 'worktree', worktreeId }, path: 'src/cart/total.ts' }, content: bytes(ROUNDED) });
+      const held = await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held' && item.autoMerge.reason === 'edited', 'the hold to come back', 30_000);
+      expect(held.autoMerge).toMatchObject({ state: 'held', reason: 'edited', sessionEnded: true });
+      expect(phaseOf(flow, topicId)).toBe('executing');
+      const again = (await flow.mei.conn.request('worktree.merge.request', { worktreeId })).request;
+      await itemIs(flow, topicId, (item) => item.autoMerge === undefined, 'the hold to end with the new request', 20_000);
+      await flow.ian.conn.request('worktree.merge.approve', { requestId: again.id });
+      await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === ROUNDED, { timeoutMs: 30_000, what: 'the new change to merge' });
+      await checked(flow, topicId);
+    });
+  }
+
+  for (const merging of ['auto', 'host'] as const) {
+    it(`V23 ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: the host rejects version 2 of a merged item while its session is there, then Mei ends the session: the item goes back to its merged request, nothing holds it, version 2 stays in the worktree, and the topic settles`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      await flow.claude.setScenario({ turns: [FIRST, { match: 'must be in cents', steps: ANSWER }, { steps: [{ text: 'ok' }] }] });
+      const { topicId, sessionId } = await merged(flow, merging);
+      const mergedId = (await itemOf(flow, topicId)).merge?.requestId as string;
+      // (smurg would merge version 2 at once: the paused plan keeps it a draft for the host's reject)
+      if (merging === 'auto') await flow.mei.conn.request('plan.pause', { topicId });
+      await message(flow, sessionId, OBJECTION);
+      const v2 = await itemIs(flow, topicId, (item) => item.report?.version === 2 && item.merge?.status === 'draft', 'version 2 as a draft');
+      await waitFor(() => statusOf(flow, sessionId) !== 'running', { timeoutMs: 30_000, what: 'the turn of version 2 to end' });
+      await flow.ian.conn.request('worktree.merge.reject', { requestId: v2.merge?.requestId as string });
+      if (merging === 'auto') await flow.mei.conn.request('plan.resume', { topicId });
+      // While the session is there, the reject is its carers' to answer (smurg merging: "Ask the agent to fix it").
+      await itemIs(flow, topicId, (item) => item.merge?.status === 'rejected' && (merging === 'host' || item.autoMerge?.reason === 'rejected'), 'version 2 to be rejected');
+      expect(phaseOf(flow, topicId)).toBe('executing');
+      await endSession(flow, sessionId, 'mei');
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the end' });
+      const after = await itemOf(flow, topicId);
+      expect(after.merge).toMatchObject({ requestId: mergedId, status: 'merged' });
+      expect(after.autoMerge).toBeUndefined();
+      expect(await decisionsWaiting(flow)).toBe(0);
+      expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
+      expect(await inWorktree(flow, after.worktreeId as string)).toBe(CENTS_TEXT);
+      await checked(flow, topicId);
+    });
   }
 });

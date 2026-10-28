@@ -524,6 +524,13 @@ export class FakeWorktreeManager implements WorktreeManager {
     return this.holdsWork(worktree);
   }
 
+  holdsOnlyRejected(worktreeId: string): boolean {
+    const worktree = this.worktrees.get(worktreeId);
+    if (worktree === undefined || worktree.itemId === undefined || this.unsavedEdits.has(worktreeId)) return false;
+    const newest = [...this.requests.values()].reverse().find((request) => request.worktreeId === worktreeId);
+    return newest !== undefined && newest.status === 'rejected';
+  }
+
   async holdsUnsnapshotted(worktreeId: string): Promise<boolean | null> {
     this.log.record('holdsUnsnapshotted', worktreeId);
     return this.unsavedEdits.has(worktreeId);

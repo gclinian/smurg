@@ -588,9 +588,16 @@ export class Scheduler {
       // carers ("Request merge", core.ts `keptAfterMerge`, 0.7.0 fix8). A newer version still a draft keeps the turn: it
       // waits for "Merge it as it is" (D6 row 6; 0.7.0 fix8: smurg merged it by itself). And a session that ended takes
       // no continue of D15 (0.7.0 fix8: row 4 waited for one for good).
-      const forget = item.merged && item.merge?.status === 'merged' && cutAfterMerge(item);
-      if (forget || item.autoContinue !== undefined) {
+      // The host rejected a later version of a merged item, then its session ended: nothing can make that version
+      // right any more, so the reject is the decision, as `onMerge` takes a reject after the end. The item goes back
+      // to its merged request, and the rejected change stays in the worktree and holds nothing
+      // (TopicsCore.leftOutAfterEnd). (0.7.0 fix9: held 'rejected' for an agent no session can answer, or, with the
+      // host merging, nobody's row, and the topic never settled)
+      const keptOn = item.merged && item.undone === undefined && item.merge?.status === 'rejected' && item.mergedAs?.requestId !== undefined && item.mergedAs.requestId !== item.merge.requestId ? item.mergedAs.requestId : null;
+      const forget = item.merged && (item.merge?.status === 'merged' || keptOn !== null) && cutAfterMerge(item);
+      if (keptOn !== null || forget || item.autoContinue !== undefined) {
         this.core.updateItem(topic.id, item.id, (draft) => {
+          if (keptOn !== null) draft.merge = { requestId: keptOn, status: 'merged', ready: false };
           if (forget) delete draft.lastTurn;
           delete draft.autoContinue;
         });
@@ -634,13 +641,23 @@ export class Scheduler {
     const item = topic === null ? null : this.core.item(topic, request.itemId);
     if (topic === null || item === null) return;
     const tracked = item.merge === undefined || item.merge.requestId === request.id || request.status === 'draft' || request.status === 'pending';
+    // The host rejected the current request of a merged item whose session has ended ("Request merge" of what its
+    // worktree held): that reject is the decision, and the item stays on its merged request. The rejected change stays
+    // in the worktree and holds nothing (TopicsCore.leftOutAfterEnd). (0.7.0 fix9, the lead's F1: the rejected request
+    // became the current one, held 'rejected' for an agent no session can answer, or, with the host merging, nobody's
+    // row, and the topic never settled)
+    const keptOn =
+      request.status === 'rejected' && item.merged && item.undone === undefined && item.merge?.requestId === request.id && item.mergedAs?.requestId !== undefined && item.mergedAs.requestId !== request.id && this.core.sessionEnded(item)
+        ? item.mergedAs.requestId
+        : null;
     // Who merged it (DESIGN 0.7.0 D8, R-ENG E3): smurg on the host's standing consent, or the host; written here only,
     // so a merge `reconcile` finds after a crash is recorded the same way. (The merge commit is worktrees.json's, which
     // the wire's request does not carry: the merge queue adds it when its own merge says it, auto-merge.ts `apply`.)
     const hostRef = this.ctx.members.userRef(this.ctx.members.hostUserId()) ?? request.requestedBy ?? null;
     const by = request.auto === true ? ('smurg' as const) : hostRef;
     this.core.updateItem(topic.id, item.id, (draft) => {
-      if (tracked) draft.merge = { requestId: request.id, status: request.status, ready: request.status === 'draft' && request.reviewed };
+      if (keptOn !== null) draft.merge = { requestId: keptOn, status: 'merged', ready: false };
+      else if (tracked) draft.merge = { requestId: request.id, status: request.status, ready: request.status === 'draft' && request.reviewed };
       if (request.status === 'merged') {
         draft.merged = true;
         if (by !== null && (draft.mergedAs === undefined || draft.mergedAs.requestId !== request.id)) {

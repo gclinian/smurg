@@ -561,6 +561,15 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
       expect(within(foot()).queryByRole('button', { name: 'Ask the agent to resolve' })).toBeNull();
     });
 
+    // 0.7.0 fix9 (the check of 13591fb, W/verify/last8/hold, F2): files only the host may merge, then "End session": the
+    // foot still offered the host "Ask the agent to take them out", which the daemon refuses ('no-session')
+    it('files only the host may merge: the agent is not asked to take them out any more; the host\'s Request merge and Leave it out stay', async () => {
+      await setup({ role: 'host', plan: autoPlan({ autoMerge: hold('policy', { paths: ['CLAUDE.md'], sessionEnded: true }) }), report: { ...REPORT, changes: undefined, noChanges: 'host-only-paths' }, requests: [], sessions: [ended] });
+      expect(within(foot()).queryByRole('button', { name: 'Ask the agent to take them out' })).toBeNull();
+      expect(within(foot()).getByRole('button', { name: 'Request merge' })).toBeTruthy();
+      expect(within(foot()).getByRole('button', { name: 'Leave it out…' })).toBeTruthy();
+    });
+
     it('while the session is there, the same holds offer Continue and the resolve, as before', async () => {
       const live = { ...ended, status: 'idle' as const };
       await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('edited'), ...mergedBefore }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })], sessions: [live] });
