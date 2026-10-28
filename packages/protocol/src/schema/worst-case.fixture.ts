@@ -216,7 +216,7 @@ export const worstTopic = {
 /**
  * Protocol 6: the largest merge hold of one work item: a conflict with people's changes, every list at its maximum
  * length, and the paths and the people's paths, ids and names filling AUTO_MERGE_TEXT_MAX_BYTES (each path 389 bytes,
- * each of the 100 people 8: 40 × 389 + 100 × 8 = 16,360 of 16,384).
+ * each of the 100 people 8: 40 × 389 + 100 × 8 = 16,360 of 16,384), and a message only Continue delivers waiting.
  */
 const holdPath = (index: number): string => `${wide(129)}${String(index % 100).padStart(2, '0')}`;
 export const worstAutoMerge = {
@@ -228,6 +228,7 @@ export const worstAutoMerge = {
   escalated: true,
   paths: many(L.AUTO_MERGE_PATHS_MAX, holdPath),
   people: many(L.AUTO_MERGE_PATHS_MAX, (i) => ({ path: holdPath(i + 50), by: many(5, (j) => ({ userId: `dev:${String(i * 5 + j).padStart(3, '0')}`, displayName: 'P' })), outside: true })),
+  undelivered: true,
 };
 const workItem = (index: number): unknown => ({
   id: itemId(index),

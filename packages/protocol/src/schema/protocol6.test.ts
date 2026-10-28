@@ -212,6 +212,17 @@ describe('what a work item says about its merge (D6-D9)', () => {
     expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'stopped', asked: { userId: 'dev:mei', displayName: 'Mei' } }).success).toBe(false);
   });
 
+  // 0.7.0 last check (W/verify/last F1): "Merge it as it is" and "Accept as it is" are refused while a message no turn
+  // has taken waits in the item's session and nothing delivers it by itself; the foot must know to offer Continue instead.
+  it('`undelivered` goes with a hold: a message waits in the item\'s session, and only Continue delivers it', () => {
+    const held = { since: 1, tries: 0, escalated: false, hostOnly: false };
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'stopped', undelivered: true }).success).toBe(true);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'partial', undelivered: true }).success).toBe(true);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'waiting', reason: 'busy', undelivered: true }).success).toBe(false);
+    expect(autoMergeInfoSchema.safeParse({ ...held, state: 'held', reason: 'stopped', undelivered: false }).success).toBe(false);
+    expect(workItemSchema.safeParse({ ...heldItem, autoMerge: { ...heldItem.autoMerge, reason: 'stopped', undelivered: true } }).success).toBe(true);
+  });
+
   it('merged by smurg or by a person; a session waits for a question or a permission request', () => {
     expect(workItemSchema.safeParse({ ...mergedAutoItem, merged: { at: 1, by: { userId: 'dev:ian', displayName: 'Ian' } } }).success).toBe(true);
     expect(workItemSchema.safeParse({ ...mergedAutoItem, merged: { at: 1, by: 'host' } }).success).toBe(false);

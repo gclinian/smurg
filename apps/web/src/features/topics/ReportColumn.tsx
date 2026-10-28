@@ -560,16 +560,19 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
   const failed = (why: string): string => t('item.failed', { item: itemLabel(item), reason: why });
   const selfClearing = SELF_CLEARING.has(reason);
   const reportHold = REPORT_HOLDS.has(reason);
+  // (0.7.0 last check: a message nothing delivers by itself waits in its session: Continue delivers it, and the version
+  // is not taken "as it is" before; the daemon refuses that too)
+  const undelivered = hold.undelivered === true;
 
   const fix = (reportHold || RELEASABLE.has(reason)) && canAsk ? <Button onClick={() => focusFollowUp(topic.id, item.id)}>{t('decision.fix')}</Button> : null;
   const resolve = reason === 'conflict' && canDrive ? <Button onClick={() => void act(() => stores.topics.resolveItem(topic.id, item.id), failed)}>{t('item.resolve')}</Button> : null;
-  const continueTurn = (reason === 'stopped' || reason === 'edited') && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
+  const continueTurn = (reason === 'stopped' || reason === 'edited' || undelivered) && canDrive ? <Button onClick={() => void act(() => stores.topics.continueItem(topic.id, item.id), failed)}>{t('item.continue')}</Button> : null;
   const asIs =
-    RELEASABLE.has(reason) && !direct && !mergedAlready && canDrive ? (
+    RELEASABLE.has(reason) && !direct && !mergedAlready && !undelivered && canDrive ? (
       <Button onClick={() => void act(() => stores.topics.release({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.asIs')}</Button>
     ) : null;
   const accept =
-    direct && isHost ? <Button onClick={() => void act(() => stores.topics.accept({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.accept')}</Button> : null;
+    direct && isHost && !undelivered ? <Button onClick={() => void act(() => stores.topics.accept({ topicId: topic.id, itemId: item.id, version: report.version }), failed)}>{t('decision.accept')}</Button> : null;
   const removePaths = reason === 'policy' && isHost ? <Button onClick={() => void act(() => stores.topics.removePaths(topic.id, item.id), failed)}>{t('decision.removePaths')}</Button> : null;
   // A member with agent access asks the host to merge; for files only the host may merge, the host's own request passes
   // (its snapshot was refused, so there may be no draft at all: the host's request makes one, HOSTING §8).
@@ -584,7 +587,7 @@ function DecisionFoot({ topic, report, item, hold, request, worktree }: { topic:
     ) : null;
 
   return (
-    <Foot className="report-foot report-foot--decision" text={joinSentences([lead, ...people, inTheWay])}>
+    <Foot className="report-foot report-foot--decision" text={joinSentences([lead, undelivered ? t('decision.undelivered') : null, ...people, inTheWay])}>
       {leaveOut}
       {fix}
       {resolve}

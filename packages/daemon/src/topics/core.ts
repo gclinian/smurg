@@ -611,13 +611,29 @@ export class TopicsCore {
     if (live !== null && live.status !== 'ended') {
       const facts = agents.facts(live.id);
       // (a message a failed process never took is no turn to come: "Try again" decides about it; nor is one a restart
-      // left in a session without a process, of an item held for the turn the restart cut: nothing delivers it before
-      // its carers' Continue, 0.7.0 verify)
-      const stranded = item.lastTurn?.restart === true && facts?.hasProcess !== true && live.status !== 'starting';
-      const waiting = live.status === 'failed' || stranded ? 0 : (facts?.pendingMessages ?? 0);
+      // left in a session without a process, of an item held for the turn the restart cut: `messageUndelivered`)
+      const waiting = live.status === 'failed' || this.messageUndelivered(item) ? 0 : (facts?.pendingMessages ?? 0);
       session = { turnOpen: inHand || IN_A_TURN.has(live.status) || waiting > 0, openCards: cards.has(live.id) ? 1 : 0 };
     }
     return session;
+  }
+
+  /**
+   * A message no turn has taken waits in the item's live session, which has no process, and nothing delivers it by
+   * itself: the process failed ("Try again" or Continue starts one), or a restart left it there, in the session of an
+   * item held for the turn the restart cut (0.7.0 verify: its carers' Continue delivers it). Such a message is no turn
+   * to come (`sessionAtWork`), and while it waits "Merge it as it is" and "Accept as it is" are refused: they ended what
+   * made it count as left there, and the item then waited for it for good, with nobody told (0.7.0 last check). A
+   * message that waits for the shared folder or for a process being started is delivered by itself.
+   */
+  messageUndelivered(item: StoredItem): boolean {
+    const agents = this.ctx.services.agents;
+    if (item.sessionId === undefined || isStubService(agents)) return false;
+    const live = agents.get(item.sessionId);
+    if (live === null || live.status === 'ended' || live.status === 'starting') return false;
+    const facts = agents.facts(live.id);
+    if ((facts?.pendingMessages ?? 0) === 0 || facts?.hasProcess === true) return false;
+    return live.status === 'failed' || item.lastTurn?.restart === true;
   }
 
   /** What D6 reads of an item (the stores, the session, the request). */
@@ -706,6 +722,8 @@ export class TopicsCore {
         : isDirect(item) && item.autoMerge !== undefined
           ? autoMergeInfoOfRecord(item.autoMerge, { tries: item.mergeTries ?? 0, ...(item.changesAsked === undefined ? {} : { changesAsked: item.changesAsked }) })
           : undefined;
+    // (0.7.0 last check: what the foot offers for a hold while a message nothing delivers by itself waits: Continue)
+    const undelivered = autoMerge?.state === 'held' && this.messageUndelivered(item);
     // Its session waits for a person (D9): the plan says so instead of "running".
     const waiting = this.sessionWaits(item);
     return structuredClone({
@@ -732,7 +750,7 @@ export class TopicsCore {
       ...(report === null ? {} : { report: this.summaryOf(report) }),
       ...(item.merge === undefined ? {} : { merge: item.merge }),
       ...(merging === null ? {} : { merging }),
-      ...(autoMerge === undefined ? {} : { autoMerge }),
+      ...(autoMerge === undefined ? {} : { autoMerge: undelivered ? { ...autoMerge, undelivered: true as const } : autoMerge }),
       ...(item.mergedAs === undefined ? {} : { merged: { at: item.mergedAs.at, by: item.mergedAs.by } }),
       ...(item.leftOut === undefined ? {} : { leftOut: item.leftOut }),
       ...(item.undone === undefined ? {} : { undone: { by: item.undone.by, at: item.undone.at } }),

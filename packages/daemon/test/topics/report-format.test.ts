@@ -26,6 +26,10 @@ The cart lives in the session store, as decided in question 2 of the spec.
 None.
 `;
 
+/** What the agent reads when a ticked box's words read as a check that failed or did not run (`verified-ticked`). */
+const TICKED_SENTENCE =
+  'A ticked box "- [x]" is a check that passed, and these words read as a check that failed or did not run. If the check passed, keep it ticked and reword it so that its words do not read as a failure. If it failed, write it "- [!] <what>: failed: <what happened>"; if it did not run, "- [ ] <what>: not verified: <why>".';
+
 function kindsOf(source: string, itemId = 'cart-api'): { kind: ReportErrorKind; line: number; id: string }[] {
   const parse = parseReport(source, itemId);
   if (parse.ok) throw new Error('expected the report not to parse');
@@ -155,7 +159,9 @@ describe('the result report format', () => {
     const failedTicked = CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [x] `pnpm test cart`: failed: 2 of 14 tests failed');
     const parse = parseReport(failedTicked, 'cart-api');
     expect(parse.ok).toBe(false);
-    expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.model])).toEqual([['verified-ticked', 'A ticked box "- [x]" is a check that passed. A check that failed is written "- [!] <what>: failed: <what happened>", one that did not run "- [ ] <what>: not verified: <why>".']]);
+    // (changed in the 0.7.0 last check, fix3: the sentence also says what to do with a check that passed, so that a
+    // passed check whose words were taken for a failure is reworded, never written as failed or not run)
+    expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.model])).toEqual([['verified-ticked', TICKED_SENTENCE]]);
     expect(parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [X] Manual check: not verified: no browser'), 'cart-api').ok).toBe(false);
     // Written as the line it means, it parses.
     expect(parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', '- [!] `pnpm test cart`: failed: 2 of 14 tests failed').replace('- outcome: complete', '- outcome: partial'), 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 0, failed: 1 } } });
@@ -169,7 +175,10 @@ describe('the result report format', () => {
       '- [x] `pnpm test`: FAILED (2 of 3 tests failed)',
       '- [x] `pnpm test` failed: 2 of 3 tests',
       '- [x] `pnpm test` — failed: 2 of 3 tests',
-      '- [x] `pnpm test` - fails on CI',
+      // (changed in the 0.7.0 last check, fix3: "- fails on CI" reads like "Login: fails with a wrong password, as it
+      // should", a passed check naming a failure; "fails" says the check failed only where the words stop after it or
+      // punctuation follows, "failed" whatever follows: the table below)
+      '- [x] `pnpm test` - failed on CI',
       '- [x] `pnpm test`: failed (2 of 3 tests)',
       '- [x] `pnpm test`: not verified (no network)',
       '- [x] `pnpm test` failed (2 of 3)',
@@ -184,6 +193,109 @@ describe('the result report format', () => {
     for (const line of ['- [x] `pnpm test`: 14 passed, 0 failed', '- [x] `pnpm test` (14 passed, 0 failed)', '- [x] lint: no failures', '- [x] `pnpm test`: failures fixed, all 14 pass', '- [x] the failover test passes']) {
       expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { checks: { passed: 1 } } });
     }
+  });
+
+  // 0.7.0 last check (W/verify/last F2, the lead's decision; fix3): a failure word at the start of the words after the
+  // first colon, or at the end of the words before it, refused ticked checks that PASSED ("failing writes are
+  // retried", "… when the database fails:"). An agent that followed the sentence rewrote such a check as failed or not
+  // run, and an unattended run stopped on a check that passed. Now: after the first colon or dash, the outcome words
+  // (failed, not verified, not run, 未驗證) say so whatever follows them, and fail, fails, failing, failure and 失敗 only
+  // where the words stop after them or punctuation or a parenthesis follows; before the colon, only the outcome words
+  // at the end of <what> do. The sentence tells the agent to reword a check that passed.
+  describe('0.7.0 last check: a ticked check that names a failure is a passed check; one whose words say it failed or did not run is refused', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const PASSED: readonly string[] = [
+      // the five lines of the last check (they were refused on ce17d71)
+      '- [x] Error handling: failing writes are retried (`pnpm test retry`, 6 passed)',
+      '- [x] `pnpm test upload`: failure path and success path both pass (9 passed)',
+      '- [x] The API answers 503 when the database fails: `pnpm test api` (12 passed)',
+      '- [x] Checkout shows an error when the payment fails: covered by `pnpm test checkout`, 8 passed',
+      '- [x] Login: fails with a wrong password, as it should (`pnpm test auth`, 5 passed)',
+      // more of the same kind
+      '- [x] Upload - failure messages are shown in red (`pnpm test upload`, 3 passed)',
+      '- [x] Storage: fail-safe mode keeps the data (`pnpm test storage`, 4 passed)',
+      '- [x] Retry: a write that fails is retried twice (`pnpm test retry`, 6 passed)',
+      '- [x] Billing: payments that failed are retried (`pnpm test billing`, 7 passed)',
+      '- [x] When the network fails, the page says so (`pnpm test offline`, 2 passed)',
+      '- [x] `pnpm test`: 14 passed, 0 failed',
+      '- [x] `pnpm test` (14 passed, 0 failed)',
+      '- [x] lint: no failures',
+      '- [x] the failover test passes',
+      // Traditional Chinese
+      '- [x] 錯誤處理：失敗的寫入會重試（`pnpm test retry`，6 個通過）',
+      '- [x] `pnpm test upload`：失敗和成功的路徑都通過（9 個通過）',
+      '- [x] 資料庫失敗時 API 回 503：`pnpm test api`（12 個通過）',
+      '- [x] 付款失敗時結帳頁顯示錯誤：`pnpm test checkout` 涵蓋，8 個通過',
+      '- [x] 登入：密碼錯誤時會失敗，這是對的（`pnpm test auth`，5 個通過）',
+      '- [x] 上傳 — 失敗的訊息顯示成紅色（`pnpm test upload`，3 個通過）',
+      '- [x] `pnpm test`：14 個通過，0 個失敗',
+    ];
+    const REFUSED: readonly string[] = [
+      // every form the safe verifier's finding 5 listed (W/verify/safe h2, h3)
+      '- [x] `pnpm test`: FAILED (2 of 3 tests failed)',
+      '- [x] `pnpm test` failed: 2 of 3 tests failed',
+      '- [x] `pnpm test` — failed: 2 of 3 tests failed',
+      '- [x] `pnpm test`: failed (2 of 3 tests)',
+      '- [x] `pnpm test`: not verified (no network)',
+      '- [x] `pnpm test`：失敗：3 個測試中 2 個失敗',
+      // the exact forms
+      '- [x] `pnpm test`: failed: 2 of 3 tests failed',
+      '- [X] Manual check: not verified: no browser',
+      // failed, not verified, not run: whatever follows them
+      '- [x] `pnpm test`: failed because the database was down',
+      '- [x] `pnpm test`: failed with 2 errors in src/cart.ts',
+      '- [x] `pnpm test`: failed 2 of 3 tests',
+      '- [x] `pnpm lint`: Failed!',
+      '- [x] `pnpm test` - failed on CI',
+      '- [x] `pnpm e2e`: not run (no browser)',
+      '- [x] `pnpm e2e`: not run because there is no browser here',
+      '- [x] Manual check: not verified, no browser here',
+      '- [x] `pnpm test` not run',
+      '- [x] `pnpm test` not verified (no network)',
+      '- [x] `pnpm test` failed (2 of 3)',
+      '- [x] `pnpm test` failed',
+      // fail, fails, failing, failure: where the words stop after them or punctuation or a parenthesis follows
+      '- [x] `pnpm test`: FAIL (2 of 3)',
+      '- [x] `pnpm test`: fails.',
+      '- [x] `pnpm test`: fails',
+      '- [x] `pnpm test`: failing, 2 of 3',
+      '- [x] `pnpm test`: failure (exit code 1)',
+      '- [x] `pnpm test` - FAIL - 2 of 3',
+      '- [x] `pnpm test` — fails; see the log',
+      // Traditional Chinese
+      '- [X] `pnpm test`：失敗：2 個測試沒過',
+      '- [x] `pnpm test`：失敗（3 個中 2 個）',
+      '- [x] `pnpm test`：失敗，資料庫沒有開',
+      '- [x] `pnpm test`：失敗了，3 個中 2 個',
+      '- [x] `pnpm test`：失敗。',
+      '- [x] `pnpm test`：失敗',
+      '- [x] `pnpm test`: 失敗 (2 of 3)',
+      '- [x] 手動測試：未驗證（沒有瀏覽器）',
+      '- [x] 手動測試：未驗證，因為沒有瀏覽器',
+      '- [x] 手動測試：未驗證因為沒有瀏覽器',
+      '- [x] `pnpm test` 失敗：3 個中 2 個',
+      '- [x] `pnpm test` 失敗（3 個中 2 個）',
+      '- [x] `pnpm test` — 失敗：3 個中 2 個',
+      '- [x] `pnpm test` 未驗證（沒有網路）',
+    ];
+
+    it.each(PASSED)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+
+    it.each(REFUSED)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+
+    it('a check that passed but was taken for a failure costs one rewording: the same check in other words passes, nothing is written as failed', () => {
+      const taken = '- [x] Billing: failed payments are retried (`pnpm test billing`, 7 passed)';
+      const parse = parseReport(ticked(taken), 'cart-api');
+      expect(parse.ok ? [] : parse.errors.map((entry) => entry.kind)).toEqual(['verified-ticked']);
+      expect(parse.ok ? '' : parse.errors[0]?.model).toContain('If the check passed, keep it ticked and reword it so that its words do not read as a failure.');
+      expect(parseReport(ticked('- [x] Billing: payments that failed are retried (`pnpm test billing`, 7 passed)'), 'cart-api')).toMatchObject({ ok: true, report: { checks: { passed: 1 } } });
+    });
   });
 
   it('0.7.0 verify: reading a ticked check\'s words takes linear time (a long run of blanks and dashes)', () => {

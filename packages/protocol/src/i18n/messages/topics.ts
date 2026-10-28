@@ -208,6 +208,15 @@ export const topics = {
     en: () => 'This work item does not wait for a decision that "Merge it as it is" can settle.',
     'zh-TW': () => '這個工作項目沒有在等「就這樣合併」能處理的決定。',
   }),
+  // (0.7.0 last check: a message no turn has taken waits in the item's session, and nothing but Continue delivers it)
+  'plan.item.accept.undelivered': message({}, {
+    en: () => 'A message to this work item\'s agent was not delivered yet. Press Continue first: it delivers the message, and the agent\'s answer decides the version anew.',
+    'zh-TW': () => '傳給這個工作項目的 agent 的訊息還沒有送出。請先按「繼續」：它會送出這則訊息，agent 的回答會重新決定這個版本。',
+  }),
+  'plan.item.release.undelivered': message({}, {
+    en: () => 'A message to this work item\'s agent was not delivered yet. Press Continue first: it delivers the message, and the agent\'s answer decides the version anew.',
+    'zh-TW': () => '傳給這個工作項目的 agent 的訊息還沒有送出。請先按「繼續」：它會送出這則訊息，agent 的回答會重新決定這個版本。',
+  }),
   'plan.item.removePaths.notHeld': message({}, {
     en: () => 'This work item has no change that only the host may merge.',
     'zh-TW': () => '這個工作項目沒有只有主人能合併的變更。',

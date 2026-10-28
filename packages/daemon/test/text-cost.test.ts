@@ -627,7 +627,9 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'topics/prompts.ts': 1,
   // (0.7.0 D5: the failed check's line, `- [!] <what>: failed: <what happened>`, read like the line not verified; the
   // 0.7.0 verify: a ticked line whose words say it failed, after its first colon or dash or at the end of what stands
-  // before it, read in one pass over its first 2,000 characters: `parseReport` is in LOOKS, and "a ticked check" below)
+  // before it, read in one pass over its first 2,000 characters: `parseReport` is in LOOKS, and "a ticked check" below.
+  // The 0.7.0 last check narrowed the same two expressions, no new one: a failure word after the colon is anchored at its
+  // start and looks ahead over blanks once, at a fixed place; the one at the end of what stands before it lost words)
   'topics/report-format.ts': 14,
   'topics/store.ts': 1,
   'topics/text.ts': 7,

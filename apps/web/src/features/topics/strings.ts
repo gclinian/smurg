@@ -493,6 +493,8 @@ export const t = defineStrings(
     'decision.removePaths': 'Ask the agent to take them out',
     'decision.accept': 'Accept as it is',
     'decision.asIs': 'Merge it as it is',
+    // (0.7.0 last check: a message nothing delivers by itself waits in its session; the daemon refuses "as it is" then)
+    'decision.undelivered': 'A message to its agent was not delivered yet: Continue delivers it first.',
     'decision.people': "{path}: the other side is {names}'s change. Whose lines stay is a person's decision.",
     'decision.people.outside': "{path}: the other side was changed outside smurg. Whose lines stay is a person's decision.",
     'decision.leaveOut': 'Leave it out…',

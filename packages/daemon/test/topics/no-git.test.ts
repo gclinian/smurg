@@ -431,6 +431,44 @@ describe('without a usable git program, an unfinished report no longer lets what
     }
   });
 
+  // 0.7.0 last check (W/verify/last F1, the lead's decision): a message a restart left in the session of an item that
+  // ran in the folder (it waited for the folder while another item worked) is delivered by nothing but its carers'
+  // Continue. "Accept as it is" took away what made it count as stranded: the item counted as merged, the message was
+  // never delivered, nobody had a row, and the topic never became ready. Now it is refused until Continue delivered it.
+  it('0.7.0 last check: a message a restart left in a direct item\'s session: "Accept as it is" is refused with the reason, and Continue delivers the message first', async () => {
+    const { s, topicId, oldGit } = await directPlan(
+      [
+        { match: 'Start work item 1 ', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const cart = 1;\n' } }, ...handIn('cart-api')] },
+        { match: 'Start work item 2 ', once: true, steps: [{ sleep: 60_000 }, { text: 'never' }] },
+        { match: 'rename cart to basket', steps: [{ tool: 'Write', input: { file_path: 'src/cart.ts', content: 'export const basket = 1;\n' } }, ...handIn('cart-api', 'Renamed cart to basket.')] },
+      ],
+      [{ id: 'cart-api' }, { id: 'receipt-email' }],
+    );
+    await planIs(s, topicId, (plan) => plan.items[0]?.state === 'done' && plan.items[1]?.state === 'running', 'item 1 done, item 2 running in the folder');
+    const sessionOne = itemOf(s, topicId, 'cart-api')?.sessionId as string;
+    // (the message waits for the folder, which item 2 holds; then smurg host stops and starts again)
+    await s.mei.conn.request('session.message.send', { sessionId: sessionOne, text: 'Please rename cart to basket everywhere before anyone builds on it.' });
+    await waitFor(() => (s.d.ctx.services.agents.facts(sessionOne)?.pendingMessages ?? 0) === 1, { timeoutMs: 10_000, what: 'the message to wait' });
+    await s.restart(oldGit);
+    const held = await planIs(s, topicId, (plan) => plan.items[0]?.autoMerge?.state === 'held', 'item 1 held after the restart');
+    expect(held.items[0]?.autoMerge).toMatchObject({ state: 'held', reason: 'stopped', undelivered: true });
+    expect(s.d.ctx.services.agents.facts(sessionOne)).toMatchObject({ hasProcess: false, pendingMessages: 1 });
+    // (item 2, cut by the restart, is left out: the folder is free, and the topic needs only item 1)
+    await s.ian.conn.request('plan.item.leaveOut', { topicId, itemId: 'receipt-email' });
+    if (planOf(s, topicId).paused) await s.ian.conn.request('plan.resume', { topicId });
+
+    expect(await refusal(s.ian.conn.request('plan.item.accept', { topicId, itemId: 'cart-api', version: 1 }))).toEqual({ code: 'conflict', reason: 'undelivered', id: 'plan.item.accept.undelivered' });
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    expect(itemOf(s, topicId, 'cart-api')).toMatchObject({ autoMerge: { state: 'held', reason: 'stopped', undelivered: true } });
+    expect(itemOf(s, topicId, 'cart-api')?.merged).toBeUndefined();
+
+    await s.ian.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    await waitFor(async () => (await readFile(join(s.root, 'src', 'cart.ts'), 'utf8')) === 'export const basket = 1;\n', { timeoutMs: 60_000, what: 'the message to be delivered and done' });
+    await waitFor(() => s.d.ctx.services.topics.get(topicId)?.phase === 'ready', { timeoutMs: 60_000, what: 'ready to check' });
+    expect(itemOf(s, topicId, 'cart-api')).toMatchObject({ report: { version: 2 } });
+    expect(itemOf(s, topicId, 'cart-api')?.autoMerge).toBeUndefined();
+  });
+
   // 0.7.0 verify (W/verify/diff): an item that stands on the stopped one through another item started in the shared
   // folder on its half change, and counted as merged by itself.
   it('0.7.0 verify: what stands on an item whose later turn stopped half-way through another item waits too', async () => {

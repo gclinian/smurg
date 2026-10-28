@@ -163,7 +163,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
   'schema/registry.ts': '72cccc325cb37399b7b6d7eead673855d8e03498dfce7c5d29210512863d36a9',
-  'schema/topics.ts': '8800f99d226949d0631eb38057994078a6832d1269bcfb49796c5966b1048c88',
+  'schema/topics.ts': '3bbd095e0d3a7280cc7f80ff9bcd6559ac4896bc3f71cc6cc896eed7781f0cad',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
 

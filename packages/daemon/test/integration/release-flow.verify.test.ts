@@ -21,10 +21,13 @@
 //       was taken for one holding unmerged work until a merge view looked, and the item held)
 //   V10 a restart cuts a turn after its check_report and changed nothing after it: the agent is told the restart is why
 //       it checks again, not that it changed files
+//   V11 (the last check, F1) a message a restart left in a done item's session without a process: "Merge it as it is"
+//       is refused with the reason (it made the item wait "busy" for ever, its message never delivered, nobody told),
+//       the plan says so, and Continue delivers the message first
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
-import { MEI, audited, inboxItem, startFlow, told, waitFor, type Flow } from './release-flow.support.ts';
+import { MEI, audited, inboxItem, refusal, startFlow, told, waitFor, type Flow } from './release-flow.support.ts';
 
 const SLUG = 'checkout';
 const SPEC_PATH = `specs/${SLUG}/SPEC.md`;
@@ -104,6 +107,41 @@ describe('0.7.0 verify: a stop never lets a version merge as if nobody had asked
     await itemIs(flow, topicId, (item) => item.merged?.by === 'smurg', 'the merge of what Mei asked for');
     expect(await inMain(flow, 'src/cart/total.ts')).toBe('export const total = 100; // cents\n');
     expect(await merges(flow)).toBe(1);
+  });
+
+  // The last check of ce17d71 (W/verify/last F1, h/t/x1-release-stranded.test.ts): "Merge it as it is" on V1's hold took
+  // away what made the message count as stranded, and from then on the item waited "busy" for good: nothing merged,
+  // nothing delivered Mei's message, no inbox had a row, and the topic never became ready.
+  it('V11 a message a restart left in a done item\'s session without a process: "Merge it as it is" is refused with the reason, the plan says so, and Continue delivers the message first', async () => {
+    const flow = await startFlow({ files: FILES, ...UNATTENDED, agents: { parkAfterMs: 1_000 } });
+    await flow.claude.setScenario({
+      turns: [FIRST, { match: 'must be in cents', steps: [write('src/cart/total.ts', 'export const total = 100; // cents\n'), ...handIn('Totals in cents.')] }, { steps: [{ text: 'ok' }] }],
+    });
+    const topicId = await started(flow);
+    await flow.mei.conn.request('plan.pause', { topicId });
+    const done = await itemIs(flow, topicId, (item) => item.state === 'done', 'item 1\'s report');
+    const sessionId = done.sessionId as string;
+    await waitFor(() => flow.d.ctx.services.agents.facts(sessionId)?.hasProcess === false, { timeoutMs: 30_000, what: 'the done item\'s process to be parked' });
+    await flow.mei.conn.request('session.message.send', { sessionId, text: 'Wait, do not merge this: the totals must be in cents.' });
+    await flow.mei.conn.request('plan.resume', { topicId });
+    await flow.restart();
+    const held = await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held', 'the version to be held for its carers', 30_000);
+    expect(held.autoMerge).toMatchObject({ state: 'held', reason: 'stopped', undelivered: true });
+    expect(flow.d.ctx.services.agents.facts(sessionId)).toMatchObject({ hasProcess: false, pendingMessages: 1 });
+
+    expect(await refusal(flow.mei.conn.request('plan.item.release', { topicId, itemId: 'cart-api', version: 1 }))).toMatchObject({ code: 'conflict', reason: 'undelivered', id: 'plan.item.release.undelivered' });
+    expect((await audited(flow, 'plan.item.release')).filter((entry) => entry.outcome === 'ok')).toEqual([]);
+    await sleep(1_500);
+    // Still a decision of Mei's, not a wait nobody sees.
+    expect((await itemOf(flow, topicId)).autoMerge).toMatchObject({ state: 'held', reason: 'stopped', undelivered: true });
+    await inboxItem(flow.mei, (entry) => entry.kind === 'decision' && entry.itemId === 'cart-api' && entry.waiting, 'Mei\'s decision');
+    expect(await merges(flow)).toBe(0);
+
+    await flow.mei.conn.request('plan.item.continue', { topicId, itemId: 'cart-api' });
+    await itemIs(flow, topicId, (item) => item.merged?.by === 'smurg', 'the merge of what Mei asked for');
+    expect(await inMain(flow, 'src/cart/total.ts')).toBe('export const total = 100; // cents\n');
+    await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+    expect((await itemOf(flow, topicId)).autoMerge).toBeUndefined();
   });
 
   it('V2 a person\'s turn to a done item that ends while the stop waits for work under way: the version is held, nothing merges', async () => {

@@ -992,7 +992,8 @@ export class PlanServiceImpl implements PlanService {
   /**
    * "Accept as it is" (DESIGN 0.7.0 D10; `worktree.merge.decide`, the host): an item that ran directly in the folder,
    * held because its report is not complete and verified (or was not checked again), counts as merged: who accepted it
-   * is its `mergedAs`, the hold goes, and what depends on it may start.
+   * is its `mergedAs`, the hold goes, and what depends on it may start. Refused while a message nothing delivers by
+   * itself waits in its session (`messageUndelivered`): Continue delivers it first.
    */
   async accept(input: Req<'plan.item.accept'>, principal: Principal): Promise<PlanInfo> {
     const by = userRefOf(principal);
@@ -1000,6 +1001,9 @@ export class PlanServiceImpl implements PlanService {
     const item = this.needPlanItem(topic, input.itemId);
     const hold = item.autoMerge;
     if (!isDirect(item) || item.merged || hold?.state !== 'held') throw new SmurgError('conflict', msg('plan.item.accept.notHeld'), { reason: 'not-held' });
+    // (0.7.0 last check: a message nothing delivers by itself waits in its session; accepting the version took away what
+    // made it count as left there, and the item then waited for it for good, with nobody told. Continue delivers it.)
+    if (this.core.messageUndelivered(item)) throw new SmurgError('conflict', msg('plan.item.accept.undelivered'), { reason: 'undelivered' });
     const report = this.core.report(topic.id, item.id);
     if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
     const at = this.ctx.clock.now();
@@ -1022,7 +1026,8 @@ export class PlanServiceImpl implements PlanService {
    * its work stands): for an item that smurg merges by itself and that is held because somebody wrote to its agent
    * since this version, a later turn was stopped, or its report was not checked again (RELEASABLE_HOLDS). What made it
    * so goes (`changesAsked`, `lastTurn`), the version counts as checked in its turn, and the merge queue merges it when
-   * it is otherwise in order.
+   * it is otherwise in order. Refused while a message nothing delivers by itself waits in its session
+   * (`messageUndelivered`): Continue delivers it first.
    */
   async release(input: Req<'plan.item.release'>, principal: Principal): Promise<PlanInfo> {
     const by = userRefOf(principal);
@@ -1034,6 +1039,9 @@ export class PlanServiceImpl implements PlanService {
     // item merged before is a draft like any other: 0.7.0 verify)
     const current = verdict === null ? null : this.core.verdictInputOf(topic, item).request;
     if (verdict?.kind !== 'hold' || !(RELEASABLE_HOLDS as readonly string[]).includes(verdict.reason) || current?.status === 'merged') throw new SmurgError('conflict', msg('plan.item.release.notHeld'), { reason: 'not-held' });
+    // (0.7.0 last check: a message nothing delivers by itself waits in its session; what this clears made it count as left
+    // there, and the item then waited "busy" for it for good, with nobody told. Continue delivers it first.)
+    if (this.core.messageUndelivered(item)) throw new SmurgError('conflict', msg('plan.item.release.undelivered'), { reason: 'undelivered' });
     const report = this.core.report(topic.id, item.id);
     if (report === null || report.version !== input.version) throw new SmurgError('conflict', msg('report.changed'), { reason: 'report-changed' });
     this.core.updateItem(topic.id, item.id, (draft) => {

@@ -456,6 +456,24 @@ describe('the report column: an item smurg merges by itself (protocol 6, DESIGN 
     expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
   });
 
+  // 0.7.0 last check (W/verify/last F1): "Merge it as it is" on the hold of a message a restart left undelivered made the
+  // item wait for good; the daemon refuses it now, and the foot neither offers it nor "Accept as it is" then.
+  it('0.7.0 last check: a message to its agent waits undelivered: the foot says Continue delivers it, offers Continue, and neither "Merge it as it is" nor "Accept as it is"', async () => {
+    const { conn } = await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped', { undelivered: true }) }) });
+    expect(within(foot()).getByText('Not merged: its last turn did not finish. You decide. Items 2 wait for it. A message to its agent was not delivered yet: Continue delivers it first.')).toBeTruthy();
+    expect(within(foot()).queryByRole('button', { name: 'Merge it as it is' })).toBeNull();
+    fireEvent.click(within(foot()).getByRole('button', { name: 'Continue' }));
+    expect(conn.lastRequest('plan.item.continue')?.payload).toEqual({ topicId: 'tp_1', itemId: 'cart-api' });
+    expect(within(foot()).getByRole('button', { name: 'Leave it out…' })).toBeTruthy();
+    // An item that ran directly in the folder, the host's: no "Accept as it is" either, and Continue (for any hold).
+    const direct = buildPlan({ items: [buildWorkItem({ state: 'done', sessionId: 'sess_i', attempt: 1, responsible: { ...MEI, source: 'chosen' }, report: buildReportSummary({ outcome: 'partial', reviewers: [MEI] }), autoMerge: hold('partial', { undelivered: true }) })] });
+    const host = await setup({ role: 'host', plan: direct, requests: [] });
+    const hostFoot = host.container.querySelector('.report-foot') as HTMLElement;
+    expect(within(hostFoot).queryByRole('button', { name: 'Accept as it is' })).toBeNull();
+    expect(within(hostFoot).getByRole('button', { name: 'Continue' })).toBeTruthy();
+    expect(within(hostFoot).getByText(/A message to its agent was not delivered yet: Continue delivers it first\.$/)).toBeTruthy();
+  });
+
   it('0.7.0 review: a merged item whose later turn did not finish: Continue, but nothing to merge "as it is" and nothing to leave out', async () => {
     await setup({ role: 'agent', plan: autoPlan({ autoMerge: hold('stopped'), merged: { at: T, by: 'smurg' }, merge: { requestId: 'mr_1', status: 'merged', ready: false } }), requests: [draft({ status: 'merged', auto: true, decidedAt: T })] });
     expect(within(foot()).getByRole('button', { name: 'Continue' })).toBeTruthy();

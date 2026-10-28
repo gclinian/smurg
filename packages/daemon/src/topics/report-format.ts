@@ -98,7 +98,10 @@ export const REPORT_ERROR_SENTENCES: Readonly<Record<ReportErrorKind, string>> =
   'verified-why': 'A check that did not pass is written "- [ ] <what>: not verified: <why>" and must say why.',
   'verified-failed-why': 'A check that failed is written "- [!] <what>: failed: <what happened>" and must say what happened.',
   'verified-too-many': `Under "How it was verified" list at most ${REPORT_CHECKS_MAX} checks.`,
-  'verified-ticked': 'A ticked box "- [x]" is a check that passed. A check that failed is written "- [!] <what>: failed: <what happened>", one that did not run "- [ ] <what>: not verified: <why>".',
+  // (0.7.0 last check: the words of a check that passed can be taken for a failure; the agent rewords such a check, it
+  // never writes a check that passed as failed or not run)
+  'verified-ticked':
+    'A ticked box "- [x]" is a check that passed, and these words read as a check that failed or did not run. If the check passed, keep it ticked and reword it so that its words do not read as a failure. If it failed, write it "- [!] <what>: failed: <what happened>"; if it did not run, "- [ ] <what>: not verified: <why>".',
   'outcome-failed': 'A report with a failed check is not complete: set the outcome line to partial, or make the check pass and mark it "- [x]".',
 });
 
@@ -139,18 +142,32 @@ const FAILED = /^(.*?):[ \t]*failed[ \t]*:[ \t]*(.*)$/i;
 const DOT_REFUSES = /[\n\r\u2028\u2029]/;
 const lineMatch = (expression: RegExp, line: string): RegExpExecArray | null => (DOT_REFUSES.test(line) ? null : expression.exec(line));
 
-/** A word that says a check failed or did not run, at the start of what follows (`FAILED (2 of 3)`; the zh-TW words too). */
-const FAILURE_WORD = /^(?:fail(?:ed|s|ing|ure)?|not[ \t]+(?:verified|run)|\u5931\u6557|\u672a\u9a57\u8b49)(?![a-z])/i;
-/** A blank and a failure word at the end of what stands before the first colon (`pnpm test failed`, `… failed (2 of 3)`). */
-const FAILURE_WORD_AFTER = /[ \t](?:fail(?:ed|s|ing|ure)?|not[ \t]+(?:verified|run)|\u5931\u6557|\u672a\u9a57\u8b49)[ \t]*(?:[(\uff08][^]*)?$/i;
+/**
+ * Words at the start of what follows `<what>` that say the check failed or did not run (0.7.0 last check): the outcome
+ * words "failed", "not verified", "not run" and their zh-TW one, whatever follows them but a letter (`FAILED (2 of 3)`,
+ * `failed because ...`, `not run (no browser)`); "fail", "fails", "failing", "failure" and the zh-TW word for
+ * failing (also with its particle of a done action) only where the words stop after them or punctuation or a
+ * parenthesis follows (`FAIL (2 of 3)`, `fails.`), for they also name a failure that a passed check looks at (`failing
+ * writes are retried`, `fails with a wrong password, as it should`, the zh-TW word followed by its adjective mark). A
+ * hyphen is punctuation there only with a blank after it (`FAIL - 2 of 3`, not `fail-safe`).
+ */
+const FAILURE_WORD =
+  /^(?:(?:failed|not[ \t]+(?:verified|run)|\u672a\u9a57\u8b49)(?![a-z])|(?:fail(?:s|ing|ure)?|\u5931\u6557\u4e86?)(?=[ \t]*(?:$|[(\uff08:\uff1a,\uff0c;\uff1b.\u3002!\uff01\u3001\u2014\u2013]|-(?:[ \t]|$))))/i;
+/**
+ * A blank and an outcome word at the end of what stands before the first colon (`pnpm test failed: ...`, `... failed (2
+ * of 3)`; the zh-TW words too). Not "fails" or "failing" there: `The API answers 503 when the database fails: ...`
+ * names what a passed check looks at.
+ */
+const FAILURE_WORD_AFTER = /[ \t](?:failed|not[ \t]+(?:verified|run)|\u5931\u6557\u4e86?|\u672a\u9a57\u8b49)[ \t]*(?:[(\uff08][^]*)?$/i;
 /** A dash between blanks: what separates a check from what became of it (`pnpm test — failed: …`). */
 const DASH_SEPARATOR = /[ \t][—–-]+(?=[ \t])/;
 
 /**
- * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify): the words after `<what>` and
- * its first colon (`:`, or the full-width one) or dash begin with a failure word, or `<what>` itself ends with one
- * (`pnpm test failed: …`). "14 passed, 0 failed" after a colon is a check that passed. Read in one pass over at most
- * 2,000 characters: no expression here can try a run of blanks again from each of its blanks.
+ * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
+ * check): the words after `<what>` and its first colon (`:`, or the full-width one) or dash begin with a failure word as
+ * FAILURE_WORD reads it, or `<what>` itself ends with an outcome word (`pnpm test failed: …`). "14 passed, 0 failed"
+ * after a colon is a check that passed, and so is one whose words name a failure it looks at. Read in one pass over at
+ * most 2,000 characters: no expression here can try a run of blanks again from each of its blanks.
  */
 function tickedSaysFailed(body: string): boolean {
   const text = body.slice(0, 2000);
