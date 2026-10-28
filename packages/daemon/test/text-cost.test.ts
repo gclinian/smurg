@@ -647,9 +647,12 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   // colon inside a code span taken for its own, at most three ways, each on the same 2,000 characters. fix9 (the check
   // of 13591fb) added none: the first colon or dash is looked for by the same two expressions (`firstSeparator`), the
   // words before it read with one inside a code span taken for the line's, and a reading from the first code span after
-  // the separator: at most five ways, each on at most the same 2,000 characters.
+  // the separator: at most five ways, each on at most the same 2,000 characters. fix10 (the check of 85d2bfc) added one:
+  // the shell's single-quoted text inside a code span, blanked only where the colon or dash of the reading inside a span
+  // is looked for (a colon there names a test), from its opening mark to the first closing one, on the spans of the
+  // words before the separator; and the count with a kept quote that never closes is no longer read again.
   // A whole report of TOPIC_FILE_MAX_BYTES of such lines, every shape: report-format.test.ts, "takes linear time")
-  'topics/report-format.ts': 22,
+  'topics/report-format.ts': 23,
   'topics/store.ts': 1,
   'topics/text.ts': 7,
   'workspace/fs-util.ts': 2,

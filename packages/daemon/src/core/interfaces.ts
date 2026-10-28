@@ -2608,7 +2608,7 @@ export interface WorktreeManager {
   releaseItem(worktreeId: string, options?: { readonly keepWork?: 'attached' | 'detached' }): Promise<'released' | 'kept'>;
   /**
    * Item worktrees of a topic that hold changes that were never merged: a newest snapshot that is not merged, or
-   * edits since it (the Archive confirmation: `unmergedError`).
+   * edits since it (the Archive confirmation: `unmergedError`), also while a commit of them is in flight (0.7.0 fix10).
    */
   unmerged(topicId: string): WorktreeInfo[];
   /**
@@ -2618,7 +2618,8 @@ export interface WorktreeManager {
   unmergedWork(worktreeId: string): boolean | null;
   /**
    * What git last said of one item worktree (0.7.0 fix9): it holds exactly a commit whose merge the host rejected, and
-   * nothing more (its branch head is that request's commit; nothing was written since, nor found by the last look).
+   * nothing more (its branch head is that request's commit, and the last look found nothing beyond it; a write the
+   * look has not seen yet does not count, as in `unmergedWork`, 0.7.0 fix10).
    */
   holdsOnlyRejected(worktreeId: string): boolean;
   /**

@@ -256,31 +256,38 @@ const FIRST_CODE_SPAN = /`[^`\n]*`/;
  * line there, quoted as a code span quotes it (`` `pnpm test`: "Tests  2 failed | 12 passed (14)" ``).
  */
 const QUOTED = /"[^"\n]*"|\u201c[^\u201c\u201d\n]*\u201d|\u300c[^\u300c\u300d\n]*\u300d/g;
+/**
+ * The shell's single-quoted text inside a code span, for the colon or dash of the reading inside a span only (0.7.0
+ * fix10): `` `pnpm vitest -t 'upload: failed chunk'`: 2 passed `` names a test. Not in QUOTED: the count would pair the
+ * apostrophes of the words (`it's`, `don't`).
+ */
+const SHELL_QUOTED = /'[^'\n]*'/g;
 /** "after" before a number, for the count only (`locks after 5 failures`): when something happens, no count of what failed. */
 const AFTER_NUMBER = /(?<![\p{L}\p{N}])after[ \t]+(?=\d)/giu;
 
 /**
  * Whether the words of a ticked check say that it failed or did not run (0.7.0 verify; narrowed in the 0.7.0 last
- * check; 0.7.0 fix4, fix5, fix6, fix7, fix8, fix9): the words after `<what>` and its first colon (`:`, or the full-width
- * one) or dash outside its code spans (`pnpm test:unit`: failed; and the first inside one before it, too: `pnpm test:
- * failed`, fix8, also with a separator after the span, `pnpm test: failed` — see the CI log, fix9), past their blanks
- * (U+3000 too, after a dash too), begin with a failure word as FAILURE_WORD reads it, or with the runner's FAIL before
- * a file, or, read from their first code span on as a line of their own (a label before the command: `Unit tests —
- * `pnpm test`: failed`, fix8; a label with its own colon or dash, `CI: unit tests: `pnpm test`: failed`, fix9), say
- * so; `<what>` itself ends with an outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends with a
- * failure word (`pnpm test fails`); a runner's verdict stands where it prints it
- * (`--- FAIL: TestTotal`); or the words count failures or errors that are not zero (`12 passed, 2 failed`), read
- * without the command's code spans (those of `<what>`, or the first one of a line with neither colon nor dash: `pnpm
- * vitest -t "2 tests fail"`), with those after the colon or dash (the runner's own line, quoted), and without quoted
- * texts, then once more with the quote that opens the words after the colon or dash kept (the runner's line too, 0.7.0
- * fix6; past the blanks, the ideographic one too, 0.7.0 fix7). "14 passed, 0 failed" after a colon is a check that
- * passed, and so is one whose words name a failure it looks at. This is a net for the common ways a ticked line
- * contradicts itself, not a reading of every wording: the team's check at the end and the undo catch the rest. Each
- * expression reads at most 2,000 characters in one pass, and a line is read at most five ways: as written; the words
- * before its separator with a colon or dash inside a code span taken for the line's; each of the two from its first
- * code span after its separator, as a line of its own (never again from a command there); and the first of those with
- * a colon or dash inside a code span taken for its own (the second finds none: its first code span pairs the backticks
- * the other way round). The count with the quotes blanked is read once per way that is not from a command. No
+ * check; 0.7.0 fix4, fix5, fix6, fix7, fix8, fix9, fix10): the words after `<what>` and its first colon (`:`, or the
+ * full-width one) or dash outside its code spans (`pnpm test:unit`: failed; and the first inside one before it, too:
+ * `pnpm test: failed`, fix8, also with a separator after the span, `pnpm test: failed` — see the CI log, fix9), past
+ * their blanks (U+3000 too, after a dash too), begin with a failure word as FAILURE_WORD reads it, or with the runner's
+ * FAIL before a file, or, read from their first code span on as a line of their own (a label before the command: `Unit
+ * tests — `pnpm test`: failed`, fix8; a label with its own colon or dash, `CI: unit tests: `pnpm test`: failed`, fix9),
+ * say so; `<what>` itself ends with an outcome word (`pnpm test failed: …`); a line with neither colon nor dash ends
+ * with a failure word (`pnpm test fails`); a runner's verdict stands where it prints it (`--- FAIL: TestTotal`); or the
+ * words count failures or errors that are not zero (`12 passed, 2 failed`), read without the command's code spans
+ * (those of `<what>`, or the first one of a line with neither colon nor dash: `pnpm vitest -t "2 tests fail"`), with
+ * those after the colon or dash (the runner's own line, quoted), and without quoted texts, then once more with the
+ * quote that opens the words after the colon or dash kept (the runner's line too, 0.7.0 fix6; past the blanks, the
+ * ideographic one too, 0.7.0 fix7; when that quote closes, or in a reading from a command, which has not read the count
+ * with the quotes blanked: a quote that never closes, kept, is the same words, fix10). "14 passed, 0 failed" after a
+ * colon is a check that passed, and so is one whose words name a failure it looks at. This is a net for the common ways
+ * a ticked line contradicts itself, not a reading of every wording: the team's check at the end and the undo catch the
+ * rest. Each expression reads at most 2,000 characters in one pass, and a line is read at most five ways: as written;
+ * the words before its separator with a colon or dash inside a code span taken for the line's; each of the two from its
+ * first code span after its separator, as a line of its own (never again from a command there); and the first of those
+ * with a colon or dash inside a code span taken for its own (the second finds none: its first code span pairs the
+ * backticks the other way round). The count with the quotes blanked is read once per way that is not from a command. No
  * expression here can try a run of blanks again from each of its blanks, and a quote's body stops at its own opening
  * mark, so that a run of opening marks is not read again from each.
  */
@@ -293,10 +300,14 @@ function tickedSaysFailed(words: string, again = true): boolean {
   // also read with a colon or dash inside a span taken for the line's, as 06cfc6d read it: `pnpm test: failed`, Jest
   // `Tests: 2 failed, 40 passed, 42 total`, a stray backtick before `: failed`, 0.7.0 fix8; also when a separator stands
   // after the span, `pnpm test: failed` — see the CI log, a URL or a time, 0.7.0 fix9. The colon or dash of that
-  // reading is looked for with the quotes blanked: `pnpm vitest -t "cart: total"` names a test)
+  // reading is looked for with the quotes blanked: `pnpm vitest -t "cart: total"` names a test; and the shell's single
+  // quotes inside a span, `pnpm vitest -t 'cart: total'`, but not a quote that holds a backtick: `"`pnpm test: failed`"
+  // — see CI` quotes the span itself; 0.7.0 fix10)
   const separator = firstSeparator(plain);
   const before = separator === -1 ? text : text.slice(0, separator);
-  const unquoted = before.replace(QUOTED, (quote: string) => '_'.repeat(quote.length));
+  const unquoted = before
+    .replace(QUOTED, (quote: string) => (quote.includes('`') ? quote : '_'.repeat(quote.length)))
+    .replace(CODE_SPAN, (span: string) => span.replace(SHELL_QUOTED, (quote: string) => '_'.repeat(quote.length)));
   return readTicked(text, plain, again) || (firstSeparator(unquoted) !== -1 && readTicked(before, unquoted, again));
 }
 
@@ -323,7 +334,10 @@ function readTicked(text: string, plain: string, again: boolean): boolean {
     const command = rest.indexOf('`');
     if (again && command !== -1 && tickedSaysFailed(rest.slice(command), false)) return true;
   }
-  if (FAILURE_WORD_AFTER.test(dash !== null ? head.slice(0, dash.index) : head)) return true;
+  // (before a dash, only the words in front of it; but a dash with U+3000 after it was no separator until fix9, and the
+  // words up to the colon or the end are read as they were then: `Unit tests —<U+3000>pnpm test failed: see CI`, 0.7.0
+  // fix10)
+  if (FAILURE_WORD_AFTER.test(dash !== null && text[dash.index + dash[0].length] !== '\u3000' ? head.slice(0, dash.index) : head)) return true;
   if (colon === -1 && dash === null && BEHAVIOUR_AT_END.test(text)) return true;
   if (RUNNER_FAIL_ANYWHERE.test(text.replace(CODE_SPAN, ' '))) return true;
   const cut = dash !== null ? dash.index : colon;
@@ -338,7 +352,11 @@ function readTicked(text: string, plain: string, again: boolean): boolean {
   while (keep !== -1 && (counted[keep] === ' ' || counted[keep] === '\t' || counted[keep] === '\u3000')) keep += 1;
   const opens = keep === -1 ? undefined : counted[keep];
   if (opens !== '"' && opens !== '\u201c' && opens !== '\u300c') return false;
-  return FAILURE_COUNT.test(counted.replace(QUOTED, (quote: string, at: number) => (at === keep ? quote : ' ')).replace(AFTER_NUMBER, 'after x'));
+  let closed = false;
+  const kept = counted.replace(QUOTED, (quote: string, at: number) => (at === keep ? ((closed = true), quote) : ' '));
+  // (no closed quote opens there: the same words as the count with every quote blanked, just read; 0.7.0 fix10)
+  if (again && !closed) return false;
+  return FAILURE_COUNT.test(kept.replace(AFTER_NUMBER, 'after x'));
 }
 
 function error(kind: ReportErrorKind, line: number): ReportError {

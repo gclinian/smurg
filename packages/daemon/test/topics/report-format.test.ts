@@ -1,5 +1,5 @@
 // A result report file → its sections (design Appendix B.2). Pure: a string in, a result out.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { REPORT_SECTION_MAX_BYTES, reportChecksSchema, wireTextSchema } from '@smurg/protocol';
 import { render } from '@smurg/protocol/i18n';
 import { costOf, machineSlowness } from '@smurg/protocol/testing';
@@ -571,9 +571,12 @@ describe('the result report format', () => {
   // the word for failing (f06). Each was accepted, and smurg merged a check that said it failed or did not run. The
   // words from the command on are read once more as a line of their own; a line with neither colon nor dash outside
   // its spans is also read with the one inside taken for the line's; U+3000 is a blank there. Accepted costs: a label,
-  // then a passed check whose words begin with a failure word (m09, m10), is refused as its form without the label is;
-  // c10 is refused as its form without a colon is (x08 too until fix9). A runner's line in a second code span with neither
-  // colon nor dash outside it (`` `go test ./...` `--- FAIL: TestTotal` ``) stays accepted: a known limit.
+  // then a passed check whose words begin with a failure word (m09, m10), is refused as its form without the label is,
+  // and so is a label, then a behaviour that ends in `fails (2 passed)` (B01, since fix9: `Toast: an error is shown when
+  // `save()` fails (2 passed)`); c10 is refused as its form without a colon is (x08 too until fix9), and so is A03 with a
+  // colon after the span (`` `pnpm vitest run -- failure.test.ts`: 3 passed ``, since fix9). A runner's line in a second
+  // code span with neither colon nor dash outside it (`` `go test ./...` `--- FAIL: TestTotal` ``) stays accepted: a
+  // known limit.
   describe('0.7.0 fix8: a label before the command, and a colon or a dash only inside a code span, do not hide the outcome', () => {
     const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
     const REFUSED_FIX8: readonly string[] = [
@@ -663,6 +666,40 @@ describe('the result report format', () => {
       expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
     });
     it.each(PASSED_FIX9)('passes: %s', (line) => {
+      expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
+    });
+  });
+
+  // The check of 85d2bfc (W/verify/last9/ticked, the lead's G4, G5, G7; fix10): fix9 made a dash with U+3000 after it
+  // the line's separator, and the words in front of an outcome word before the colon were then read only up to that dash
+  // (D01-D03, which every earlier commit refused); the colon of the reading inside a code span was looked for with only
+  // the double, curly and corner quotes blanked, so a colon inside the shell's single quotes in a span was taken for
+  // the line's (A01, A02, B05, which 13591fb accepted); and a quote that holds the whole code span was blanked with it,
+  // so the colon inside the span was never found (A08, which 06cfc6d and bb6c323 refused). The words up to the colon are
+  // read after a dash with U+3000 after it, single quotes inside a span are blanked for that search, and a quote that
+  // holds a backtick is not.
+  describe('0.7.0 fix10: a dash with U+3000 after it, the shell\'s single quotes inside a code span, and a quote around a code span do not change the verdict', () => {
+    const ticked = (line: string): string => CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line);
+    const REFUSED_FIX10: readonly string[] = [
+      // D01-D03: an outcome word before the colon or the end, after a dash with U+3000 after it
+      '- [x] \u55ae\u5143\u6e2c\u8a66 \u2014\u3000pnpm test \u5931\u6557\uff1a\u898b CI',
+      '- [x] \u55ae\u5143\u6e2c\u8a66 \u2014\u3000pnpm test \u672a\u9a57\u8b49\uff08\u6c92\u6709\u700f\u89bd\u5668\uff09',
+      '- [x] Unit tests \u2014\u3000pnpm test failed: see CI',
+      // A08: a quote that holds the whole code span, the outcome inside the span
+      '- [x] "`pnpm test: failed`" \u2014 see CI',
+    ];
+    const PASSED_FIX10: readonly string[] = [
+      // A01, A02, B05: a colon inside the shell's single quotes in a code span names a test or a pattern
+      "- [x] `pnpm vitest -t 'upload: failed chunk is resent'`: 2 passed",
+      "- [x] `grep -c 'status: failed' logs/app.log`: 0",
+      "- [x] Upload: resumes, `pnpm vitest -t 'upload: failed chunk'` 2 passed",
+    ];
+    it.each(REFUSED_FIX10)('refused at its line, with the sentence that says how to write it: %s', (line) => {
+      const parse = parseReport(ticked(line), 'cart-api');
+      expect(parse.ok, line).toBe(false);
+      expect(parse.ok ? [] : parse.errors.map((entry) => [entry.kind, entry.line, entry.model]), line).toEqual([['verified-ticked', 13, TICKED_SENTENCE]]);
+    });
+    it.each(PASSED_FIX10)('passes: %s', (line) => {
       expect(parseReport(ticked(line), 'cart-api'), line).toMatchObject({ ok: true, report: { outcome: 'complete', checks: { passed: 1, notVerified: 1 } } });
     });
   });
@@ -760,6 +797,11 @@ describe('the result report format', () => {
       ['L: x — `a`: 「+(14)*+,', `L: x \u2014 \`a\`: \u300c${fill('14', N - 15)},`],
       ['(L: x — `a:` )*', fill('L: x \u2014 `a:` ', N)],
       ['x —+(U+3000)*+失敗', `x \u2014${fill('\u3000', N - 5)}\u5931\u6557`],
+      // fix10's: the costliest count four times in one line (the whole line and the reading inside its code span, each
+      // with every quote blanked and with the quote after its separator kept; a quote that never closes is read once):
+      // W/verify/last9/ticked/counts9.mts S2, S3
+      ['`a: 「x` 「+(14)*+, — 「x', `\`a: \u300cx\` \u300c${fill('14', N - 17)}, \u2014 \u300cx`],
+      ['`a: 「x` 「+(14)*+,', `\`a: \u300cx\` \u300c${fill('14', N - 11)},`],
     ];
     const bound = 1_000 * machineSlowness();
     for (const [name, words] of SHAPES) {
@@ -769,8 +811,37 @@ describe('the result report format', () => {
       // (the cheaper of two runs when the first is over: a shared runner is slow for a moment now and then)
       expect(costOf(() => void parseReport(report, 'cart-api'), bound, 2), name).toBeLessThan(bound);
     }
-    // (some 70 shapes of up to 430 ms each, twice when the first run is over: more than vitest's 5 s; fix8, fix9)
+    // (some 70 shapes of up to 430 ms each, twice when the first run is over: more than vitest's 5 s; fix8, fix9, fix10)
   }, 120_000);
+
+  // The check of 85d2bfc (W/verify/last9/ticked, the lead's G6; fix10): fix9 also read the words before the line's
+  // separator with a colon inside a code span taken for the line's when a separator stands after the span, so a line
+  // read the costliest count four times: the whole line and that reading, each with every quote blanked and once more
+  // with the quote after its separator kept. A kept quote that never closes is the same words as the count with every
+  // quote blanked, read just before: 1.38 times 13591fb's worst 2 MiB report (W/verify/last9/ticked/timing9.log). The
+  // count is read once per reading there (the timing of these shapes: the linear-time test above).
+  it('0.7.0 fix10: a kept quote that never closes does not read the count of failures again', () => {
+    const N = 2000;
+    const fill = (unit: string, len: number): string => unit.repeat(Math.ceil(len / unit.length)).slice(0, len);
+    const LINES: readonly (readonly [string, string, number])[] = [
+      // S2, S3 of W/verify/last9/ticked/counts9.mts: two readings, each reads the count once (85d2bfc: 4 and 3 times)
+      ['S2', `- [x] \`a: \u300cx\` \u300c${fill('14', N - 17)}, \u2014 \u300cx`, 2],
+      ['S3', `- [x] \`a: \u300cx\` \u300c${fill('14', N - 11)},`, 2],
+      // (a quote that closes is the runner's line kept, read again: the whole line, its quote after the dash kept)
+      ['closed', `- [x] \`a\` \u300c${fill('14', N - 12)}, \u2014 \u300cx\u300d`, 2],
+    ];
+    for (const [name, line, reads] of LINES) {
+      const test = vi.spyOn(RegExp.prototype, 'test');
+      try {
+        parseReport(CART_REPORT.replace('- [x] `pnpm test cart`: 14 tests passed', line), 'cart-api');
+        // (FAILURE_COUNT, the one expression that reads a count of failures or errors, on this line's long run)
+        const counts = test.mock.contexts.filter((expression, call) => expression instanceof RegExp && expression.source.includes('(?:failures|errors)') && String(test.mock.calls[call]?.[0]).includes('1414'));
+        expect(counts.length, name).toBe(reads);
+      } finally {
+        test.mockRestore();
+      }
+    }
+  });
 
   it('the sections must come in the fixed order, each once', () => {
     const swapped = CART_REPORT.replace('## What was done', '## TEMP').replace('## Why it was done this way', '## What was done').replace('## TEMP', '## Why it was done this way');

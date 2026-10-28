@@ -10,6 +10,7 @@ import { PathDeniedError } from '../../src/core/errors.ts';
 import { fakesModule, fakesOf } from '../../src/core/fakes/index.ts';
 import { SYSTEM_PRINCIPAL } from '../../src/core/permissions.ts';
 import { waitFor } from '../../src/testing/index.ts';
+import type { GitRunner } from '../../src/worktree/git.ts';
 import type { WorktreeManagerImpl } from '../../src/worktree/worktree-manager.ts';
 import { restartDaemonWith } from './restart.ts';
 import { settleError, startWorktreeStack, utf8, type WorktreeStack } from './support.ts';
@@ -275,6 +276,66 @@ describe('a work item\'s worktree', { timeout: 60_000 }, () => {
     await fakes.agents.end(session.id, { by: { kind: 'system' }, reason: 'stopped', keepWorktree: true });
     await mei.conn.request('worktree.remove', { worktreeId: handle.worktree.id });
     expect(s.manager.get(handle.worktree.id)).toBeNull();
+  });
+
+  // The check of 85d2bfc (W/verify/last9/hold, the lead's G3; fix10): a commit clears the tree's `dirty` mark before it
+  // reads the tree, and its branch head is the old one until it ends; `unmerged` read only `dirty` and the head, so for
+  // that moment a worktree whose last look found changes held nothing (the topic said "Ready to check", and the finish
+  // could act on the item). What the last look found counts until git finds the tree clean: the next look, or the
+  // commit itself.
+  it('0.7.0 fix10: what the last look found is unmerged work until git finds the tree clean, also while a commit of it is in flight', async () => {
+    const s = await itemStack();
+    const mei = await s.connect('dev:mei', 'agent');
+    const handle = await acquire(s, 'cart-api');
+    const id = handle.worktree.id;
+    const file = join(s.worktreeDir(id), 'src', 'app.ts');
+    const unmerged = (): string[] => s.manager.unmerged(TOPIC.id).map((worktree) => worktree.id);
+    const save = async (text: string): Promise<boolean | null> => {
+      await writeFile(file, text);
+      s.manager.noteChange(id);
+      // (a look now, on the worktree's queue)
+      return s.manager.holdsUnsnapshotted(id);
+    };
+    expect(await s.manager.holdsUnsnapshotted(id)).toBe(false);
+    expect(unmerged()).toEqual([]);
+    // A save the look finds, then the file as it was: the next look finds the tree clean, and nothing is unmerged.
+    expect(await save('export const answer = 43;\n')).toBe(true);
+    expect(unmerged()).toEqual([id]);
+    expect(await save(FILES['src/app.ts'])).toBe(false);
+    expect(unmerged()).toEqual([]);
+    expect(s.manager.unmergedWork(id)).toBe(false);
+    // The save again, and a commit of it held in flight (after `dirty` was cleared, before the branch moves).
+    expect(await save('export const answer = 43;\n')).toBe(true);
+    const runners = s.manager as unknown as { readonly runner: GitRunner | null; readonly available?: { readonly git?: GitRunner } };
+    const held = [...new Set([runners.runner, runners.available?.git])].filter((runner): runner is GitRunner => runner !== null && runner !== undefined);
+    expect(held.length).toBeGreaterThan(0);
+    let reached: () => void = () => {};
+    const atGate = new Promise<void>((resolve) => (reached = resolve));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const runs = held.map((runner) => [runner, runner.run] as const);
+    for (const [runner, run] of runs) runner.run = (options) => (options.args[0] === 'write-tree' ? (reached(), gate.then(() => run.call(runner, options))) : run.call(runner, options));
+    try {
+      const requested = mei.conn.request('worktree.merge.request', { worktreeId: id });
+      await atGate;
+      // (85d2bfc: [] for as long as the commit took)
+      expect(unmerged()).toEqual([id]);
+      expect(s.manager.unmergedWork(id)).toBe(true);
+      release();
+      const { request } = await requested;
+      expect(request.status).toBe('pending');
+      // Committed: the commit is the change now (no merged request carries it yet), and the tree is clean.
+      expect(unmerged()).toEqual([id]);
+      expect(await s.manager.holdsUnsnapshotted(id)).toBe(false);
+      // Merged: nothing is unmerged any more, so the item can finish.
+      const { request: merged } = await s.host.conn.request('worktree.merge.approve', { requestId: request.id });
+      expect(merged.status).toBe('merged');
+      expect(unmerged()).toEqual([]);
+      expect(s.manager.unmergedWork(id)).toBe(false);
+    } finally {
+      release();
+      for (const [runner, run] of runs) runner.run = run;
+    }
   });
 
   it('survives a restart as the item\'s worktree: its root keeps the item, and what it holds is looked at again', async () => {

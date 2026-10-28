@@ -790,6 +790,8 @@ export class Scheduler {
    *     a draft that is gone gives way to the worktree's newest open request, or to none; so does a request that
    *     still WAITED for the host and is gone (worktrees.json was set aside: nobody can decide it any more, and the
    *     item must not go on saying that it waits). A request that was decided is history: the item keeps saying so.
+   *     An item on its merged request whose later request still waits tracks that request again (the host's reject
+   *     of it after the end of the item's session was written to topics.json first, 0.7.0 fix10).
    *   - An item session the runtime has and no item names (the death came between its start and the item's record):
    *     it is ended. The item is still armed and starts a session of its own when it may.
    * An item that is merged and reviewed and still has its session or worktree is finished by `finishPending`.
@@ -821,6 +823,15 @@ export class Scheduler {
           if (current !== undefined) {
             if (current.undone !== undefined) continue;
             if (current.status !== pointer.status || pointer.ready !== (current.status === 'draft' && current.reviewed)) this.onMerge(current);
+            else if (pointer.status === 'merged') {
+              // (the host's reject of a later request of a merged item whose session has ended keeps the item on its
+              // merged request, `onMerge`'s keptOn, before worktrees.json says the request was rejected: a death in
+              // between left the item there while that request still waits. The item tracks it again, and the host's
+              // answer to it is the decision, as before the death. 0.7.0 fix10: the foot's "Request merge" made a
+              // second request, and the first one waited on the complete topic for good)
+              const later = mine.find((request) => request.status === 'pending' && request.undone === undefined && request.createdAt > current.createdAt);
+              if (later !== undefined) this.onMerge(later);
+            }
             continue;
           }
           // (a full page is not every request: what is not in it may still exist)

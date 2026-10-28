@@ -3661,11 +3661,13 @@ between the checks is allowed. A ticked line whose words say the check failed or
 (`verified-ticked`): an outcome word (failed, not verified, not run) or a failure word before punctuation after
 `<text>`'s first colon or dash outside its code spans (`pnpm test:unit`: failed, 0.7.0 fix7; also the first inside one
 before it, with quotes blanked: `` `pnpm test: failed` ``, 0.7.0 fix8, and with a separator after the span, `` `pnpm
-test: failed` — see CI ``, 0.7.0 fix9; past blanks, U+3000 too, also after a dash; a closing backtick ends an outcome
+test: failed` — see CI ``, 0.7.0 fix9; the shell's single quotes inside a span blanked too, a quote around the span
+not, 0.7.0 fix10; past blanks, U+3000 too, also after a dash; a closing backtick ends an outcome
 word, the zh-TW ones too, fix9), the runner's upper-case `FAIL` before a file there, the same read again from the first
 code span after the separator (a label before the command: `` Unit tests — `pnpm test`: failed ``, 0.7.0 fix8; a label
 with its own colon or dash, `` CI: unit tests: `pnpm test`: failed ``, fix9), an outcome word at the end of what
-stands before them (or before a parenthesis followed by the end, punctuation or a word that places the failure:
+stands before them (past a dash with U+3000 after it, up to the colon or the end, 0.7.0 fix10; or before a
+parenthesis followed by the end, punctuation or a word that places the failure:
 `failed (2 of 14) on CI`), a failure word at the end of a line that has neither, a runner's verdict where it prints it
 (`--- FAIL: TestTotal`, `test result: FAILED`, `FAILED tests/test_cart.py::…`, `→ FAIL src/…`), or a count of failures
 or errors that is not zero (`12 passed, 2 failed`, `failed with 3 errors`, `2 tests are failing`,
@@ -3674,7 +3676,8 @@ the command's code spans (those before the colon or dash, or the first of a line
 line quoted after them (in a code span, or in quotes that open the words there), and without other quoted text or a
 count right after "after" (`shows "2 of 10 failed"`, `locks after 5 failures` pass): first with every quote blanked,
 then, when a quote opens the words after the colon or dash (past blanks, U+3000 too), again with that quote kept (0.7.0
-fix7: the blank in a quote's place joins `Lint errors: "src/cart.ts" 2`); in English and Traditional Chinese, over the
+fix7: the blank in a quote's place joins `Lint errors: "src/cart.ts" 2`; only when that quote closes, or in a reading
+from a command, which did not read it blanked: 0.7.0 fix10); in English and Traditional Chinese, over the
 line's first 2,000 characters, each expression in one pass, a line at most five ways (as written, and with a colon or
 dash inside a code span before its separator taken for the line's; each of the two from its first code span after its
 separator; and the first of those with a colon or dash inside a span), the count blanked once per way not from a
@@ -3819,10 +3822,11 @@ audited once (`worktree.merge.held`). The scheduler's `onMerge` is the one write
   was the only answer offered and was refused, and an item the host merged had no hold or row at all). The host's
   reject of it is the decision too (0.7.0 fix9: the rejected request became the item's current one, held `rejected`
   for an agent no session can answer, or nobody's row): `Scheduler.onMerge` keeps the item on its merged request, and
-  `TopicsCore.leftOutAfterEnd` (the worktree's branch head is a rejected request's commit, nothing written or found
-  since: `WorktreeManager.holdsOnlyRejected`) makes that change hold nothing and settle the topic, whoever merges. It
-  stays in the worktree, which the item's finish keeps as it keeps any worktree with work no merge carried; anything
-  written there afterwards is held `edited` again. A later version the host rejected while the session lived is left
+  `TopicsCore.leftOutAfterEnd` (the worktree's branch head is a rejected request's commit, nothing found since:
+  `WorktreeManager.holdsOnlyRejected`; a write git does not count, a same-bytes save or a file git ignores, holds
+  nothing, 0.7.0 fix10) makes that change hold nothing and settle the topic, whoever merges. It stays in the worktree,
+  which the item's finish keeps as it keeps any worktree with work no merge carried; anything git finds there
+  afterwards is held `edited` again. A later version the host rejected while the session lived is left
   out the same way when the session ends (`onSessionExited`). A
   started topic whose items are all settled is `ready`: the inbox kind `ready` for every member, Viewers included,
   `host.topicReady` in `smurg host`'s terminal; `topic.check` makes it `complete` and finishes the items. A later Start,
@@ -3849,7 +3853,10 @@ and the pins are persisted; sessions that were mid-turn are `stalled` (`restart`
 turn the stop cut (`Scheduler.noteStop` marks it) or that the runtime finds `stalled` after a hard death is held for
 its carers; a turn found mid-way is cut when the start finds it, an older mark dates the cut only when nothing ran
 since (0.7.0 fix8: dated with a break before the host's merge, the death in the turn of smurg's continue was no cut
-after the merge, and nothing held the item). A topic stays **paused** only when
+after the merge, and nothing held the item). An item on its merged request whose later request still waits for the
+host tracks that request again (`Scheduler.reconcile`; 0.7.0 fix10: a hard death inside the host's reject of the
+request after the end of the item's session left topics.json ahead of worktrees.json), and the host's answer to it is
+the decision. A topic stays **paused** only when
 a person paused it (`plan.pausedBy`, `plan.pause`) or it has an interrupted item that runs directly in the shared
 folder (its half-done change is in a folder without history; 0.6.0's pause, with one attention item per topic,
 `plan-paused`); any other pause, 0.6.0's restart pause included, is lifted. The pin and history checks run before
@@ -4915,8 +4922,10 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   tool rate; Enter-to-send with a Chinese input method (the guard is `event.isComposing`); a 320 px column with a
   permission card that holds a diff.
 - **Unmerged work after a restart**: whether an item's worktree holds changes that were never merged (the Archive
-  confirmation) is known from what smurg saw written plus a `git status` shortly after; right after a restart of the
-  host's smurg every item worktree is listed until it was looked at (a few seconds).
+  confirmation) is known from what smurg saw written plus a `git status` shortly after, and what that found counts
+  until git finds the tree clean again (also while a commit of it is in flight: `WorktreeManager.unmerged`, 0.7.0
+  fix10); right after a restart of the host's smurg every item worktree is listed until it was looked at (a few
+  seconds).
 
 Left after the review round of 2026-09-29, and the decisions that stand until changed:
 

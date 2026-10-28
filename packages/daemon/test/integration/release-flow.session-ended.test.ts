@@ -27,9 +27,20 @@
 //   V23 (fix9, the same decision in the other order) the host rejects a later version of a merged item while its
 //       session is there, then Mei ends the session: held 'rejected' for an answer no session can give (smurg merging),
 //       or nobody's row (the host merging), for good. The reject is the decision once the session has ended: as V22.
+//   The check of 85d2bfc (W/verify/last9/hold, the lead's G1-G3; fix10), in V22's story: after the reject, a write git
+//       does not count (the same bytes, a file .gitignore excludes) held the item 'edited' again for a moment, a row
+//       for Mei, "Ready to check" announced again, also after the check (G1); a hard death inside the host's reject
+//       left topics.json on the merged request while worktrees.json still had the request waiting, and the foot's
+//       "Request merge" then left that request pending on the complete topic for good (G2: the start tracks it again;
+//       a normal start takes nothing); while the commit of Mei's "Request merge" was in flight the worktree counted as
+//       holding nothing (`unmerged`), and the topic could say "Ready to check" for that moment (G3; V22 counts "ready"
+//       from the end of the session).
+import { readFile, readdir, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
+import type { GitRunner } from '../../src/worktree/git.ts';
 import { MEI, audited, inboxItem, refusal, startFlow, waitFor, type Flow } from './release-flow.support.ts';
 
 const SLUG = 'checkout';
@@ -65,6 +76,24 @@ const inMain = async (flow: Flow, path: string): Promise<string> => Buffer.from(
 const phaseOf = (flow: Flow, topicId: string): string | undefined => flow.d.ctx.services.topics.get(topicId)?.phase;
 const statusOf = (flow: Flow, sessionId: string): string | undefined => flow.d.ctx.services.agents.get(sessionId)?.status;
 const lineIds = async (flow: Flow, sessionId: string): Promise<string[]> => (await flow.ian.conn.request('session.watch', { sessionId })).events.flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
+
+/**
+ * worktrees.json as a hard death inside the host's reject leaves it (0.7.0 fix10, W/verify/last9/hold H8): the request
+ * still waits there, while topics.json already has the reject's own write (the item back on its merged request).
+ */
+async function rejectNotWritten(stateDir: string, requestId: string): Promise<void> {
+  const names = (await readdir(stateDir, { recursive: true })).map(String).filter((name) => name === 'worktrees.json' || name.endsWith('/worktrees.json'));
+  expect(names).toHaveLength(1);
+  const path = join(stateDir, names[0] as string);
+  const doc = JSON.parse(await readFile(path, 'utf8')) as { merges: { id: string; status: string; decidedAt?: number; rejectReason?: string }[] };
+  const merge = doc.merges.find((entry) => entry.id === requestId);
+  expect(merge?.status).toBe('rejected');
+  if (merge === undefined) return;
+  merge.status = 'pending';
+  delete merge.decidedAt;
+  delete merge.rejectReason;
+  await writeFile(path, JSON.stringify(doc), { mode: 0o600 });
+}
 
 /** Mei creates the topic, Ian writes its spec and its one-item plan, Mei is responsible for the item and presses Start. */
 async function started(flow: Flow): Promise<string> {
@@ -243,11 +272,8 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
     }
   }
 
-  /**
-   * V21's story up to the 'edited' hold after "End session" (Mei ends it), then Mei's "Request merge" of what the
-   * worktree holds: the request, pending, and where things stand.
-   */
-  async function requestedAfterEnd(flow: Flow, merging: 'auto' | 'host'): Promise<{ topicId: string; worktreeId: string; requestId: string; mergedId: string; phases: string[] }> {
+  /** V21's story up to the 'edited' hold after "End session" (Mei ends it): where things stand, and the phases since. */
+  async function heldAfterEnd(flow: Flow, merging: 'auto' | 'host'): Promise<{ topicId: string; worktreeId: string; mergedId: string; phases: string[]; sinceEnd: number }> {
     await flow.claude.setScenario({ turns: [FIRST, { match: 'must be in cents', steps: [write('src/cart/total.ts', CENTS_TEXT), { wait: 'interrupt' }, ...handIn('Totals in cents.')] }, { steps: [{ text: 'ok' }] }] });
     const { topicId, sessionId } = await merged(flow, merging);
     const phases: string[] = [];
@@ -261,12 +287,19 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
     await waitFor(async () => (await inWorktree(flow, worktreeId)) === CENTS_TEXT, { timeoutMs: 30_000, what: 'the turn to write' });
     await flow.mei.conn.request('session.interrupt', { sessionId });
     await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held' && item.autoMerge.reason === 'stopped', 'held for the stopped turn', 30_000);
+    const sinceEnd = phases.length;
     await endSession(flow, sessionId, 'mei');
     await itemIs(flow, topicId, (item) => item.autoMerge?.state === 'held' && item.autoMerge.reason === 'edited' && item.autoMerge.sessionEnded === true, 'the half-done change to be held for its carers', 30_000);
-    const { request } = await flow.mei.conn.request('worktree.merge.request', { worktreeId });
+    return { topicId, worktreeId, mergedId, phases, sinceEnd };
+  }
+
+  /** heldAfterEnd, then Mei's "Request merge" of what the worktree holds: the request, pending, and where things stand. */
+  async function requestedAfterEnd(flow: Flow, merging: 'auto' | 'host'): Promise<{ topicId: string; worktreeId: string; requestId: string; mergedId: string; phases: string[]; sinceEnd: number }> {
+    const held = await heldAfterEnd(flow, merging);
+    const { request } = await flow.mei.conn.request('worktree.merge.request', { worktreeId: held.worktreeId });
     expect(request.status).toBe('pending');
-    await itemIs(flow, topicId, (item) => item.autoMerge === undefined && item.merge?.requestId === request.id, 'the hold to end with the request', 20_000);
-    return { topicId, worktreeId, requestId: request.id, mergedId, phases };
+    await itemIs(flow, held.topicId, (item) => item.autoMerge === undefined && item.merge?.requestId === request.id, 'the hold to end with the request', 20_000);
+    return { ...held, requestId: request.id };
   }
   const inWorktree = async (flow: Flow, worktreeId: string): Promise<string> =>
     flow.ian.conn.request('file.read', { file: { root: { kind: 'worktree', worktreeId }, path: 'src/cart/total.ts' } }).then((read) => Buffer.from(read.content).toString('utf8'), () => '');
@@ -277,8 +310,7 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
     for (const merging of ['auto', 'host'] as const) {
       it(`V22 ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}, ${history === 'folder' ? 'the folder\'s own git' : 'smurg\'s history'}: after "End session", Mei's "Request merge" of the half-done change, and the host rejects it: the item stays merged, nothing holds it, the change stays in the worktree, and the topic settles`, async () => {
         const flow = await startFlow({ files: FILES, git: history === 'folder', settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
-        const { topicId, worktreeId, requestId, mergedId, phases } = await requestedAfterEnd(flow, merging);
-        const sinceReject = phases.length;
+        const { topicId, worktreeId, requestId, mergedId, phases, sinceEnd } = await requestedAfterEnd(flow, merging);
         await flow.ian.conn.request('worktree.merge.reject', { requestId });
         // The reject is the decision: the item stays on its merged request, and nothing holds it.
         await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
@@ -297,9 +329,9 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
         expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
         expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
         await checked(flow, topicId);
-        // (ready once from the reject on; "End session" itself can say ready for a moment before the merge queue holds
-        // the half-done change, an older race this test does not tell)
-        expect(phases.slice(sinceReject)).toEqual(['ready', 'complete']);
+        // (ready once from the end of the session on: also not for the moment the commit of Mei's "Request merge" is in
+        // flight, before the merge queue holds the half-done change; 0.7.0 fix10)
+        expect(phases.slice(sinceEnd)).toEqual(['ready', 'complete']);
         await sleep(1_500);
         expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
         expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
@@ -332,6 +364,137 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
       await flow.ian.conn.request('worktree.merge.approve', { requestId: again.id });
       await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === ROUNDED, { timeoutMs: 30_000, what: 'the new change to merge' });
       await checked(flow, topicId);
+    });
+  }
+
+  /**
+   * Holds every commit the worktree module makes from now on until `release`, after it cleared the tree's `dirty` mark
+   * and staged the tree, before `git write-tree`: the moment a commit is in flight, made certain.
+   */
+  function holdCommits(flow: Flow): { readonly reached: Promise<void>; release(): void; restore(): void } {
+    const manager = flow.d.ctx.services.worktrees as unknown as { readonly runner: GitRunner | null; readonly available?: { readonly git?: GitRunner } };
+    const runners = new Set<GitRunner>([manager.runner, manager.available?.git].filter((runner): runner is GitRunner => runner !== null && runner !== undefined));
+    let reached: () => void = () => {};
+    const atGate = new Promise<void>((resolve) => (reached = resolve));
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const undo: (() => void)[] = [];
+    for (const runner of runners) {
+      const run = runner.run;
+      runner.run = (options) => (options.args[0] === 'write-tree' ? (reached(), gate.then(() => run.call(runner, options))) : run.call(runner, options));
+      undo.push(() => {
+        runner.run = run;
+      });
+    }
+    expect(runners.size).toBeGreaterThan(0);
+    return { reached: atGate, release: () => release(), restore: () => undo.forEach((step) => step()) };
+  }
+
+  for (const merging of ['auto', 'host'] as const) {
+    it(`V22 control, ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: while the commit of Mei's "Request merge" after "End session" is in flight, the half-done change still counts as unmerged work, and the topic does not say ready`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      const { topicId, worktreeId, phases, sinceEnd } = await heldAfterEnd(flow, merging);
+      const worktrees = flow.d.ctx.services.worktrees;
+      const held = holdCommits(flow);
+      try {
+        const requested = flow.mei.conn.request('worktree.merge.request', { worktreeId });
+        await held.reached;
+        // (the commit cleared `dirty` and the branch head is still the merged commit: what the last look found counts
+        // until git finds the tree clean; 85d2bfc: nothing unmerged, and the topic could say "Ready to check")
+        for (let look = 0; look < 10; look++) {
+          expect(worktrees.unmerged(topicId).map((worktree) => worktree.id)).toEqual([worktreeId]);
+          expect(phaseOf(flow, topicId)).toBe('executing');
+          await sleep(50);
+        }
+        held.release();
+        const { request } = await requested;
+        expect(request.status).toBe('pending');
+        await itemIs(flow, topicId, (item) => item.autoMerge === undefined && item.merge?.requestId === request.id, 'the hold to end with the request', 20_000);
+        await flow.ian.conn.request('worktree.merge.approve', { requestId: request.id });
+        await waitFor(async () => (await inMain(flow, 'src/cart/total.ts').catch(() => '')) === CENTS_TEXT, { timeoutMs: 30_000, what: 'the half-done change to merge' });
+        await checked(flow, topicId);
+        expect(phases.slice(sinceEnd)).toEqual(['ready', 'complete']);
+      } finally {
+        held.release();
+        held.restore();
+      }
+    });
+
+    it(`V22 control, ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: after the host's reject, a save git does not count (the same bytes, a file .gitignore excludes) holds nothing: the topic stays ready, nobody gets a row, nothing is announced again; also after the check`, async () => {
+      const flow = await startFlow({ files: { ...FILES, '.gitignore': '*.log\n' }, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      const { topicId, worktreeId, requestId, phases, sinceEnd } = await requestedAfterEnd(flow, merging);
+      await flow.ian.conn.request('worktree.merge.reject', { requestId });
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
+      const heldEdited = async (): Promise<number> => (await audited(flow, 'worktree.merge.held')).filter((entry) => (entry.detail?.['reason'] ?? null) === 'edited').length;
+      const heldBefore = await heldEdited();
+      // Right after each write and once git has looked at it (the look comes 2 s after the last write): no hold, the
+      // same phase. (85d2bfc: held 'edited' with a row for Mei until the look, "Ready to check" announced again)
+      const quiet = async (phase: string, what: string): Promise<void> => {
+        for (let look = 0; look < 12; look++) {
+          expect((await itemOf(flow, topicId)).autoMerge, what).toBeUndefined();
+          expect(phaseOf(flow, topicId), what).toBe(phase);
+          expect(await decisionsWaiting(flow), what).toBe(0);
+          await sleep(250);
+        }
+      };
+      const saves = async (phase: string): Promise<void> => {
+        await flow.ian.conn.request('file.write', { file: { root: { kind: 'worktree', worktreeId }, path: 'src/cart/total.ts' }, content: bytes(CENTS_TEXT) });
+        await quiet(phase, `the same bytes saved (${phase})`);
+        await flow.ian.conn.request('file.write', { file: { root: { kind: 'worktree', worktreeId }, path: 'debug.log' }, content: bytes('x\n') });
+        await quiet(phase, `a file git ignores (${phase})`);
+      };
+      await saves('ready');
+      expect(phases.slice(sinceEnd)).toEqual(['ready']);
+      await checked(flow, topicId);
+      await saves('complete');
+      expect(phases.slice(sinceEnd)).toEqual(['ready', 'complete']);
+      expect(await heldEdited()).toBe(heldBefore);
+      expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
+      expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
+    });
+
+    it(`V22 after a restart, ${merging === 'auto' ? 'smurg merges' : 'the host merges each item'}: a normal start keeps the waiting request and the reject as they were; after a hard death inside the host's reject (topics.json written, worktrees.json not yet) the item tracks the request that still waits, and the host's answer to it settles the topic`, async () => {
+      const flow = await startFlow({ files: FILES, settings: { permissionMode: 'auto', merging }, agents: { parkAfterMs: 1_000 } });
+      const { topicId, worktreeId, requestId, mergedId } = await requestedAfterEnd(flow, merging);
+      const requests = async (): Promise<string[]> =>
+        (await flow.ian.conn.request('worktree.merge.list', {})).requests
+          .filter((entry) => entry.worktreeId === worktreeId)
+          .map((entry) => `${entry.id === requestId ? 'R2' : entry.id === mergedId ? 'v1' : entry.id}:${entry.status}`)
+          .sort();
+      // A normal start while the request waits: it is the item's, as before.
+      await flow.restart();
+      await itemIs(flow, topicId, (item) => item.merge?.requestId === requestId && item.merge.status === 'pending', 'the request to be the item\'s after the start', 30_000);
+      await flow.ian.conn.request('worktree.merge.reject', { requestId });
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
+      // A normal start after the reject: the item stays on its merged request, and no request is taken.
+      await flow.restart();
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the start' });
+      expect((await itemOf(flow, topicId)).merge).toMatchObject({ requestId: mergedId, status: 'merged' });
+      expect(await requests()).toEqual(['R2:rejected', 'v1:merged']);
+      // The torn write: topics.json has the item back on its merged request (the reject's own write), worktrees.json
+      // still has the request waiting (the death came before the reject was written there).
+      await flow.stop();
+      await rejectNotWritten(flow.stateDir, requestId);
+      await flow.restart();
+      const phases: string[] = [];
+      flow.d.ctx.bus.on('topic.changed', ({ topic, previous }: { readonly topic: { readonly id: string; readonly phase: string }; readonly previous: { readonly phase: string } | null }) => {
+        if (topic.id === topicId && previous?.phase !== topic.phase) phases.push(topic.phase);
+      });
+      // (85d2bfc: the item stayed on its merged request, held 'edited' with a row for Mei, and her "Request merge" left
+      // this request waiting on the complete topic for good)
+      const tracked = await itemIs(flow, topicId, (item) => item.merge?.requestId === requestId && item.merge.status === 'pending', 'the item to track the request that still waits', 30_000);
+      expect(tracked.autoMerge).toBeUndefined();
+      expect(await decisionsWaiting(flow)).toBe(0);
+      await inboxItem(flow.ian, (entry) => entry.kind === 'merge', 'the host\'s merge row');
+      expect(phaseOf(flow, topicId)).toBe('executing');
+      await flow.ian.conn.request('worktree.merge.reject', { requestId });
+      await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check after the reject' });
+      expect((await itemOf(flow, topicId)).merge).toMatchObject({ requestId: mergedId, status: 'merged' });
+      await checked(flow, topicId);
+      expect(await requests()).toEqual(['R2:rejected', 'v1:merged']);
+      expect(phases.filter((phase) => phase === 'ready')).toHaveLength(1);
+      expect(await inMain(flow, 'src/cart/total.ts')).toBe(ONE_TEXT);
+      expect(await inWorktree(flow, worktreeId)).toBe(CENTS_TEXT);
     });
   }
 

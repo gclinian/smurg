@@ -1255,8 +1255,11 @@ export class WorktreeManagerImpl implements WorktreeManager {
       .filter((record) => record.item?.topicId === topicId)
       .filter((record) => {
         const state = this.trees.get(record.id);
-        // Not looked at yet (right after a start): it may hold anything.
-        if (state === undefined || state.dirty) return true;
+        // Not looked at yet (right after a start): it may hold anything. What the last look found counts until git
+        // says otherwise (0.7.0 fix10: a commit in flight clears `dirty` before it reads the tree, and its head is still
+        // the merged one until it ends; the topic said "Ready to check" for that moment, and the finish could act on the
+        // item). `found` goes as soon as git finds the tree clean again: the next look, or the commit itself.
+        if (state === undefined || state.dirty || state.found === true) return true;
         // Commits on its branch that no merged request carried into the main workspace.
         return state.head !== record.baseCommit && !merged.has(`${record.id} ${state.head}`);
       })
@@ -1279,14 +1282,16 @@ export class WorktreeManagerImpl implements WorktreeManager {
 
   /**
    * What git last said of an item worktree (0.7.0 fix9): its branch head is the commit of a request the host rejected,
-   * and nothing was written since or found by the last look, so it holds that change and nothing more. The topics read
-   * it of a merged item whose session has ended: the host's reject left that change out (it stays in the worktree).
+   * and the last look found nothing beyond it, so it holds that change and nothing more. The topics read it of a merged
+   * item whose session has ended: the host's reject left that change out (it stays in the worktree). A write the last
+   * look has not seen yet does not count, as in `unmergedWork` (0.7.0 fix10: a same-bytes save, a file git ignores,
+   * held the item 'edited' again for a moment, also after the check); what git then finds does.
    */
   holdsOnlyRejected(worktreeId: string): boolean {
     const record = this.record(worktreeId);
     if (!record || record.item === undefined) return false;
     const state = this.trees.get(worktreeId);
-    if (state === undefined || state.dirty || state.found === true) return false;
+    if (state === undefined || state.found === true) return false;
     return this.requireDoc()
       .get()
       .merges.some((merge) => merge.worktreeId === worktreeId && merge.status === 'rejected' && merge.commit === state.head);
