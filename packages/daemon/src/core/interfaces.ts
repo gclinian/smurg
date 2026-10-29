@@ -2116,7 +2116,8 @@ export interface PlansAtStart {
  * only while `inUse - waitingForPeople` is below it and `inUse` below twice it (and `maxAgentProcesses`): sessions that
  * wait for a person keep their process and no longer keep unrelated items from starting (DESIGN 0.7.0 D16). The
  * scheduler runs again on `agent.process` (a slot was freed or taken), and may free a slot itself with
- * `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request.
+ * `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request or a
+ * message no turn has taken (`pendingMessages`).
  * A session's start for an item passes `item: { id, number, title, attempt }` and `keepWorktree: true` at its end.
  */
 export interface PlanService {

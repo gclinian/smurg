@@ -184,6 +184,27 @@ describe('T4.1 items start when they can', () => {
     await test.t.ctx.settings.update({ maxLiveAgents: 4 }, test.principals.host);
     await waitFor(() => test.plan(topic.id).slots.max === 4, { what: 'the new limit' });
   });
+
+  it('a session with a message no turn has taken yet is not idle: its process is never the one given up (0.7.0 release: a busy CI runner saw the second item between its start and its first turn, and the third item waited for that whole turn)', async () => {
+    test = await setupTopics({ settings: { maxLiveAgents: 2 } });
+    const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
+    await startPlan(test, topic.id);
+    await waitFor(() => test.plan(topic.id).slots.inUse === 2, { what: 'two agents to run' });
+    const sessionA = itemOf(test.plan(topic.id), 'a').sessionId as string;
+    const sessionB = itemOf(test.plan(topic.id), 'b').sessionId as string;
+    // Both have their first message and no turn yet: idle with a process, as a real runner is for a moment.
+    for (const id of [sessionA, sessionB]) expect([test.fakes.agents.get(id)?.status, test.fakes.agents.facts(id)?.pendingMessages]).toEqual(['idle', 1]);
+    await settle(test);
+    expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
+    expect(itemOf(test.plan(topic.id), 'c').state).toBe('queued');
+
+    // Both work; a person stops A: idle, nothing waits. Its process is the one to give up.
+    test.fakes.agents.startTurn(sessionA);
+    test.fakes.agents.startTurn(sessionB);
+    await test.fakes.agents.interrupt(sessionA, test.principals.mei.actor);
+    await waitFor(() => itemOf(test.plan(topic.id), 'c').state === 'running', { what: 'the queued item to start' });
+    expect(test.fakes.agents.log.of('restartProcess')).toEqual([[sessionA, 'slot']]);
+  });
 });
 
 describe('T4.1 a changed spec or plan starts nothing', () => {

@@ -171,9 +171,10 @@ describe('the built site', () => {
       // git (DESIGN 0.6.0 D20): the page's bound was 168 KB, and 210 KB with what it loads. 0.7.0: about 187 KB,
       // since §8 has one row per reason a work item is not merged, §9.2 says what the update to 0.7.0 changes, §10.3
       // says how work items merge by themselves, what stops them and who decides, the end of a topic and undo with its
-      // limits, and §10.5 what goes on by itself after a restart (DESIGN 0.7.0 D21): the page's bound is 192 KB, and
-      // 234 KB with what it loads.
-      expect(size(path), `${path} itself`).toBeLessThan(192 * 1024);
+      // limits, and §10.5 what goes on by itself after a restart (DESIGN 0.7.0 D21): the page's bound was 192 KB, and
+      // 234 KB with what it loads. The fixes before the release brought the English page to 192 KB (§5 names the one
+      // other `CLAUDE_CODE_*` variable agents get): the page's bound is 196 KB, and 234 KB with what it loads.
+      expect(size(path), `${path} itself`).toBeLessThan(196 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
       expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(234 * 1024);
     }

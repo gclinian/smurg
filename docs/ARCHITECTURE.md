@@ -3631,10 +3631,11 @@ a failure on the way: the item is disarmed (`start-failed`) with what went wrong
 The scheduler never commits and never reads a newer plan than the pinned one: an item that starts by itself hours
 later starts from exactly the two files a member with agent access confirmed (§2 rule 6). Any change to either file
 in between costs one "Start again", whose dialog shows the change (`plan.changes`). `maxLiveAgents` is enforced here
-and nowhere else; the scheduler may ask the runtime to park the longest-idle item session
-(`restartProcess(…, 'slot')`), and `PlanInfo.slots` says how many are in use and how many wait for a person. An item
-whose starter is removed before it started is disarmed (`starter-removed`, §3 "When a member goes"). While an item
-runs, its session is a conversation like any other.
+and nowhere else; the scheduler may ask the runtime to park the longest-idle item session that has no message a turn
+has not taken (`restartProcess(…, 'slot')`; until 0.7.0 it could ask one that had just started, before its first
+turn, which gave its process up only after that turn), and `PlanInfo.slots` says how many are in use and how many
+wait for a person. An item whose starter is removed before it started is disarmed (`starter-removed`, §3 "When a
+member goes"). While an item runs, its session is a conversation like any other.
 
 **The result report** (`report-format.ts`, pure; `report-service.ts`). A report is a file the agent writes in its
 worktree, `specs/<slug>/reports/<item id>.md`, so it is part of the item's change and reaches the main workspace
