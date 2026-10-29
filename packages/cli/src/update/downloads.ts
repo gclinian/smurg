@@ -11,7 +11,12 @@
 //
 // Redirects are followed by hand, never away from the scheme of <base> (install.sh's `--proto-redir`). Nothing here
 // sends anything about this machine but the request itself, and nothing here words a download failure: the commands turn
-// a DownloadError into what the person reads.
+// a DownloadError into what the person reads. The small files are read with fetch, the executable with node:http(s)
+// (requestBody).
+import { request as httpRequest, type IncomingMessage } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { pipeline, type Transform } from 'node:stream';
+import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib';
 import { usageError } from '../cli/errors.ts';
 import { m } from '../i18n/index.ts';
 import { parseVersion } from './versions.ts';
@@ -75,11 +80,6 @@ export interface RequestOptions {
   readonly fetch?: FetchLike;
   /** Ends the request: the caller's timeout, a Ctrl-C. */
   readonly signal: AbortSignal;
-  /**
-   * Ask for the bytes as they are stored (`Accept-Encoding: identity`): the executable, whose Content-Length is then
-   * the size of what arrives. The small text files may come compressed (the site serves SHA256SUMS with brotli).
-   */
-  readonly identity?: boolean;
 }
 
 function isTimeout(err: unknown, signal: AbortSignal): boolean {
@@ -95,9 +95,22 @@ export function asDownloadError(err: unknown, url: string, signal: AbortSignal):
   return new DownloadError('network', url, { cause: err });
 }
 
+/** Where a redirect from `current` leads: on the scheme of the base (an http base stays on this machine), or a DownloadError. */
+function redirectTarget(base: DownloadsBase, first: string, current: string, location: string): string {
+  let next: URL;
+  try {
+    next = new URL(location, current);
+  } catch {
+    throw new DownloadError('redirect', first);
+  }
+  if (allowedUrl(next, base.scheme) === null) throw new DownloadError('redirect', first);
+  return next.href;
+}
+
 /**
- * GET `<base>/<path>`: the 200 response with its body unread. Redirects stay on the scheme of the base (and an http
- * base stays on this machine); anything else is a DownloadError.
+ * GET `<base>/<path>` of a small file: the 200 response with its body unread. Redirects stay on the scheme of the base
+ * (and an http base stays on this machine); anything else is a DownloadError. The body may come compressed (the site
+ * serves SHA256SUMS with brotli).
  */
 export async function download(base: DownloadsBase, path: string, options: RequestOptions): Promise<Response> {
   const fetchImpl = options.fetch ?? globalThis.fetch;
@@ -106,25 +119,14 @@ export async function download(base: DownloadsBase, path: string, options: Reque
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     let response: Response;
     try {
-      response = await fetchImpl(current, {
-        redirect: 'manual',
-        signal: options.signal,
-        headers: { accept: '*/*', ...(options.identity ? { 'accept-encoding': 'identity' } : {}) },
-      });
+      response = await fetchImpl(current, { redirect: 'manual', signal: options.signal, headers: { accept: '*/*' } });
     } catch (err) {
       throw asDownloadError(err, first, options.signal);
     }
     const location = response.status >= 300 && response.status < 400 ? response.headers.get('location') : null;
     if (location !== null) {
       await response.body?.cancel().catch(() => {});
-      let next: URL;
-      try {
-        next = new URL(location, current);
-      } catch {
-        throw new DownloadError('redirect', first);
-      }
-      if (allowedUrl(next, base.scheme) === null) throw new DownloadError('redirect', first);
-      current = next.href;
+      current = redirectTarget(base, first, current, location);
       continue;
     }
     if (response.status !== 200 || response.body === null) {
@@ -134,6 +136,75 @@ export async function download(base: DownloadsBase, path: string, options: Reque
     return response;
   }
   throw new DownloadError('redirect', first);
+}
+
+export interface BodyOptions {
+  /** Ends the request and its body: a stall, a Ctrl-C. */
+  readonly signal: AbortSignal;
+  /** Asks for the bytes from this offset on (`Range: bytes=<from>-`): the answer is a 206, or a 200 with all of them. */
+  readonly from?: number;
+}
+
+export interface Body {
+  /** 200, or 206 to a request with `from`; its body unread. */
+  readonly response: IncomingMessage;
+  /** No Content-Encoding: the bytes as stored, the only ones Content-Length, Content-Range and `from` describe. */
+  readonly identity: boolean;
+  /** The bytes as stored: decoded when the server compressed them although asked not to (gzip, deflate, br, as fetch). */
+  readonly body: AsyncIterable<Uint8Array>;
+}
+
+const DECODERS: ReadonlyMap<string, () => Transform> = new Map([
+  ['gzip', createGunzip],
+  ['x-gzip', createGunzip],
+  ['deflate', createInflate],
+  ['br', createBrotliDecompress],
+]);
+
+/**
+ * GET `<base>/<path>` of a large file (the executable) with node:http(s), `Accept-Encoding: identity`; redirects as
+ * download() follows them. Not fetch: the undici of Node 22.23.3, which the published executables embed, now and then
+ * stopped delivering the executable's body until the stall timeout (a paused body that never resumed is the suspect),
+ * and crashed with an AssertionError against a server that ends the body by closing the connection.
+ */
+export async function requestBody(base: DownloadsBase, path: string, options: BodyOptions): Promise<Body> {
+  const first = `${base.url}/${path}`;
+  const ranged = options.from !== undefined && options.from > 0;
+  // The user-agent fetch sends: the site sees the same request as from earlier updaters.
+  const headers = { accept: '*/*', 'accept-encoding': 'identity', 'user-agent': 'node', ...(ranged ? { range: `bytes=${options.from}-` } : {}) };
+  let current = first;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    let response: IncomingMessage;
+    try {
+      response = await get(current, headers, options.signal);
+    } catch (err) {
+      throw asDownloadError(err, first, options.signal);
+    }
+    const status = response.statusCode ?? 0;
+    const location = status >= 300 && status < 400 ? (response.headers.location ?? null) : null;
+    if (location !== null) {
+      response.destroy();
+      current = redirectTarget(base, first, current, location);
+      continue;
+    }
+    if (status !== 200 && !(status === 206 && ranged)) {
+      response.destroy();
+      throw new DownloadError('http', first, { status });
+    }
+    const coding = (response.headers['content-encoding'] ?? '').trim().toLowerCase();
+    const decoder = DECODERS.get(coding);
+    return { response, identity: coding === '' || coding === 'identity', body: decoder === undefined ? response : pipeline(response, decoder(), () => {}) };
+  }
+  throw new DownloadError('redirect', first);
+}
+
+function get(url: string, headers: Readonly<Record<string, string>>, signal: AbortSignal): Promise<IncomingMessage> {
+  return new Promise((resolve, reject) => {
+    // A connection of its own (agent: false), closed with the response: a try after a stall never reuses that one.
+    const request = (url.startsWith('https:') ? httpsRequest : httpRequest)(url, { headers, signal, agent: false }, resolve);
+    request.on('error', reject);
+    request.end();
+  });
 }
 
 /** A small text file (VERSION, SHA256SUMS): at most `maxBytes`, UTF-8. */

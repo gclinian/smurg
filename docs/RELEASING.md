@@ -687,8 +687,11 @@ again, beyond the suite (ARCHITECTURE §11 D-23 has the list with the reasons):
    each in a scratch `HOME` and `SMURG_HOME` of its own: each must end with `Updated smurg: <version> -> X.Y.Z`, and
    `$T/old-<version>/smurg --version` must then say `smurg X.Y.Z (protocol v…)`. (A change to the build marker, the
    `--version` line or `SHA256SUMS` that an older updater refuses would otherwise show only after `latest/` moved,
-   when those hosts can recover only with the install line.) Never run a release's `install.sh` without `--base-url`
-   or `SMURG_INSTALL_BASE_URL`: its built-in location is the real downloads site.
+   when those hosts can recover only with the install line.) The updaters of 0.7.0 and earlier read the executable
+   with fetch and, against the real site, now and then stop mid-download with "The download location took too long to
+   answer" (nothing is changed; a rerun works); later ones read it with node:http(s) and go on from the bytes they
+   have, with a Range request (`packages/cli/src/commands/update.ts`). Never run a release's `install.sh` without
+   `--base-url` or `SMURG_INSTALL_BASE_URL`: its built-in location is the real downloads site.
 5. **The upgrade from every published version that `smurg update` can start from** (since 0.5.1; for 0.5.1: 0.4.0
    and 0.5.0; for 0.6.0: 0.4.0, 0.5.0, 0.5.1 and 0.5.2; for 0.7.0: those and 0.6.0), with the real executables.
    Download each one from `https://downloads.smurg.ai/v<version>/` into a scratch folder and check it against that
