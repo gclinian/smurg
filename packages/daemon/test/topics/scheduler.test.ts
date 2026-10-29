@@ -197,11 +197,20 @@ describe('T4.1 items start when they can', () => {
     await settle(test);
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
     expect(itemOf(test.plan(topic.id), 'c').state).toBe('queued');
-
-    // Both work; a person stops A: idle, nothing waits. Its process is the one to give up.
-    test.fakes.agents.startTurn(sessionA);
+    // Claude Code took A's message and its turn is not open yet: idle, nothing waits, still busy. Not asked either, on
+    // a pass (the status of B moves) nor on the sweep.
+    test.fakes.agents.take(sessionA);
+    expect([test.fakes.agents.get(sessionA)?.status, test.fakes.agents.facts(sessionA)?.pendingMessages, test.fakes.agents.facts(sessionA)?.busy]).toEqual(['idle', undefined, true]);
     test.fakes.agents.startTurn(sessionB);
-    await test.fakes.agents.interrupt(sessionA, test.principals.mei.actor);
+    await settle(test);
+    await new Promise((resolve) => setTimeout(resolve, 100)); // (five sweeps)
+    expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
+    expect(itemOf(test.plan(topic.id), 'c').state).toBe('queued');
+
+    // Claude Code ends what A took without a turn: no status and no process changes, so no pass looks; the sweep asks
+    // A, whose process is the one to give up.
+    test.fakes.agents.endTaken(sessionA);
+    expect([test.fakes.agents.get(sessionA)?.status, test.fakes.agents.facts(sessionA)?.busy]).toEqual(['idle', undefined]);
     await waitFor(() => itemOf(test.plan(topic.id), 'c').state === 'running', { what: 'the queued item to start' });
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([[sessionA, 'slot']]);
   });

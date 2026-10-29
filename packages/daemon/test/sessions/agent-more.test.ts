@@ -127,7 +127,10 @@ describe('messages that wait', { timeout: 60_000 }, () => {
   });
 
   it('a session whose process cannot be given up now is `busy`: from a message written to the end of its turn, also after Claude Code took the message and before the turn opened, while it reads idle with nothing waiting (0.7.0 release)', async () => {
-    const r = await rig([{ steps: [{ text: 'Done.' }] }], { scenario: { initAfterStartedMs: 1_500 } });
+    const dir = await createTempDir();
+    dirs.push(dir);
+    const go = join(dir, 'init');
+    const r = await rig([{ steps: [{ text: 'Done.' }] }], { scenario: { holdInitUntil: go } });
     const { session } = await r.host.conn.request('session.create', AGENT);
     await r.until(session.id, idle, 'the start');
     expect(r.agents.facts(session.id)).toMatchObject({ hasProcess: true });
@@ -138,6 +141,7 @@ describe('messages that wait', { timeout: 60_000 }, () => {
     expect(r.agents.get(session.id)?.status).toBe('idle');
     expect(r.agents.facts(session.id)?.pendingMessages).toBeUndefined();
     expect(r.agents.facts(session.id)?.busy).toBe(true);
+    await writeFile(go, '');
     await waitFor(() => r.bus.some((entry) => entry.name === 'agent.turn.finished'), { timeoutMs: 15_000, what: 'the turn' });
     await r.until(session.id, idle, 'idle after the turn');
     expect(r.agents.facts(session.id)?.busy).toBeUndefined();

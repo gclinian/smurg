@@ -40,6 +40,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type PlanInfo, type WorkItem } from '@smurg/protocol';
 import type { FakeClaudeStep } from '../../src/testing/index.ts';
+import type { ReportServiceImpl } from '../../src/topics/report-service.ts';
 import type { GitRunner } from '../../src/worktree/git.ts';
 import { MEI, audited, inboxItem, refusal, startFlow, waitFor, type Flow } from './release-flow.support.ts';
 
@@ -133,8 +134,18 @@ async function endSession(flow: Flow, sessionId: string, by: 'mei' | 'ian'): Pro
 }
 
 /** The topic is ready, the check is accepted, and it is complete. */
+/**
+ * The phase may move with git's look at a worktree, which only the reports' sweep announces (every 15 ms here): it runs
+ * now, so the members were told "Ready to check" before Mei acts on it (0.7.0 release: on a loaded machine the check
+ * came first, and the topic went from executing to complete as announced).
+ */
+function announced(flow: Flow): void {
+  (flow.d.ctx.services.reports as ReportServiceImpl).sweep();
+}
+
 async function checked(flow: Flow, topicId: string): Promise<void> {
   await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+  announced(flow);
   await flow.mei.conn.request('topic.check', { topicId });
   expect(phaseOf(flow, topicId)).toBe('complete');
 }
@@ -232,6 +243,7 @@ describe('0.7.0 fix8: the session of a held item is ended (release composition, 
         flow.advance(61_000);
         await waitFor(async () => (await lineIds(flow, sessionId)).includes('conversation.continued.error'), { timeoutMs: 30_000, what: 'smurg\'s continue' });
         await waitFor(() => phaseOf(flow, topicId) === 'ready', { timeoutMs: 30_000, what: 'ready to check' });
+        announced(flow);
         await flow.mei.conn.request('report.review', { topicId, itemId: 'cart-api', version: 1 });
         await waitFor(() => phaseOf(flow, topicId) === 'complete', { timeoutMs: 30_000, what: 'the reviewed topic to be complete' });
         expect(phases.filter((phase) => phase === 'ready')).toHaveLength(1);

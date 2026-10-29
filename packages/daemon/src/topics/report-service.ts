@@ -1028,6 +1028,12 @@ export class ReportServiceImpl implements ReportService, SchedulerReports {
       } catch (err) {
         this.ctx.log.error('automatic continues not looked at', { error: err instanceof Error ? err.name : 'unknown' });
       }
+      // A queued item asks again for a process to be given up (0.7.0 release: one that was busy may be free now).
+      try {
+        this.scheduler.sweepSlots();
+      } catch (err) {
+        this.ctx.log.error('slots not looked at', { error: err instanceof Error ? err.name : 'unknown' });
+      }
       // The shared folder's `.git`, looked at again (file calls only while nothing changed): a repository the host made
       // while sharing counts without a restart, and the topics' `versioned` follows (0.5.2).
       const worktrees = this.ctx.services.worktrees;

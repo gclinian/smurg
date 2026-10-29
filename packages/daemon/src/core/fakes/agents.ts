@@ -94,6 +94,8 @@ interface FakeRecord {
   turn: number;
   turnOpen: string | null;
   turnMessages: TurnMessage[];
+  /** How many of `turnMessages` Claude Code took while no turn was open yet (`take`): not pending, still busy. */
+  taken: number;
   /** The display name of who chose the mode (`conversation.mode.reset` names them). */
   modeChangedByName: string | null;
   /** The display name of who chose the model (`conversation.model.reset` names them). */
@@ -206,6 +208,7 @@ export class FakeAgentSessions implements AgentSessions {
       turn: 0,
       turnOpen: null,
       turnMessages: [],
+      taken: 0,
       modeChangedByName: input.purpose !== 'discussion' && input.modeChoice !== null ? (input.modeChangedBy?.displayName ?? null) : null,
       modelChangedByName: input.model !== null ? (input.modelChangedBy?.displayName ?? null) : null,
     };
@@ -232,9 +235,10 @@ export class FakeAgentSessions implements AgentSessions {
     const record = this.records.get(sessionId);
     if (!record) return null;
     // Messages no turn has taken yet: sent since the last turn's end while no turn runs (as the runner keeps `pending`).
-    const waiting = record.turnOpen === null ? record.turnMessages.length : 0;
-    // Its process cannot be given up now: a turn runs, a message waits for one, or a request is open (the runner's `parkable`).
-    const busy = record.facts.hasProcess && (record.turnOpen !== null || waiting > 0 || record.open.size > 0);
+    const waiting = record.turnOpen === null ? record.turnMessages.length - record.taken : 0;
+    // Its process cannot be given up now: a turn runs, a message waits for one or was taken for one not open yet, or a
+    // request is open (the runner's `parkable`).
+    const busy = record.facts.hasProcess && (record.turnOpen !== null || record.turnMessages.length > 0 || record.open.size > 0);
     return { ...record.facts, ...(waiting > 0 ? { pendingMessages: waiting } : {}), ...(busy ? { busy: true as const } : {}) };
   }
 
@@ -279,6 +283,7 @@ export class FakeAgentSessions implements AgentSessions {
       if (mine.length === 0) continue;
       record.queued = record.queued.filter((entry) => !mine.includes(entry));
       record.turnMessages = record.turnMessages.filter((entry) => !mine.some((gone) => gone.messageId === entry.messageId));
+      record.taken = Math.min(record.taken, record.turnMessages.length);
       for (const entry of mine) this.push(record, { kind: 'delivery', messageId: entry.messageId, state: 'cancelled' });
       out.push({ sessionId: record.session.id, messageIds: mine.map((entry) => entry.messageId) });
     }
@@ -668,6 +673,26 @@ export class FakeAgentSessions implements AgentSessions {
     this.env.bus.emit('agent.tool.gate', { sessionId, tool: denial.tool, row: denial.row, ...(denial.path === undefined ? {} : { path: denial.path }) });
   }
 
+  /**
+   * Claude Code took what waits (`command_lifecycle` `started`) and its turn is not open yet (`system/init` not read):
+   * the session still reads `idle`, nothing waits, and its process cannot be given up (`busy`).
+   */
+  take(sessionId: string): void {
+    const record = this.need(sessionId);
+    if (record.turnOpen === null) record.taken = record.turnMessages.length;
+  }
+
+  /**
+   * Claude Code ended what it took without opening a turn (`command_lifecycle` `completed` or `cancelled` while no turn
+   * is open): the session is no longer busy, and no status and no process changes.
+   */
+  endTaken(sessionId: string): void {
+    const record = this.need(sessionId);
+    if (record.turnOpen !== null) return;
+    record.turnMessages = record.turnMessages.slice(record.taken);
+    record.taken = 0;
+  }
+
   /** A turn begins: status `running`, `runningSince`, a `turn.started` event, bus `agent.turn.started`. Returns the turn id. */
   startTurn(sessionId: string): string {
     const record = this.need(sessionId);
@@ -738,6 +763,7 @@ export class FakeAgentSessions implements AgentSessions {
     record.streaming = [];
     const messages = record.turnMessages;
     record.turnMessages = [];
+    record.taken = 0;
     const edited = this.editedThisTurn.get(sessionId) ?? [];
     this.editedThisTurn.delete(sessionId);
     this.update(record, { status: 'idle', waitingSince: undefined, runningSince: undefined, noteworthyAt: this.env.clock.now() });
@@ -842,6 +868,7 @@ export class FakeAgentSessions implements AgentSessions {
       turn: 0,
       turnOpen: null,
       turnMessages: [],
+      taken: 0,
       modeChangedByName: null,
       modelChangedByName: null,
     });

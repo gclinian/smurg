@@ -1343,9 +1343,10 @@ export interface AgentSessionFacts {
    */
   readonly pendingMessages?: number;
   /**
-   * Its process cannot be given up now (0.7.0 release): it is starting, a turn runs, a message was written that no turn
-   * has opened yet (also after Claude Code took it, while the session still reads `idle`), or a request is open. A
-   * restart asked now waits for the end of that turn. Absent: it can, or it has no process.
+   * Its process cannot be given up now (0.7.0 release; the runner's `parkable`): it is starting, a turn runs, a message
+   * was written that no turn has opened yet (also after Claude Code took it, while the session still reads `idle`), a
+   * message waits to be written (a direct item's, held for the shared folder), or a request is open. A restart asked
+   * now waits for its next idle moment. Absent: it can, or it has no process.
    */
   readonly busy?: true;
 }

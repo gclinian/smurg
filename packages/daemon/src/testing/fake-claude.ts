@@ -97,10 +97,11 @@ export interface FakeClaudeScenario {
   /** A control request answered with this error (`code`: its `error_code`; none: no code, like 2.1.288's other errors). */
   readonly controlErrors?: Readonly<Record<string, { readonly error: string; readonly code?: string }>>;
   /**
-   * Milliseconds between a turn's `command_lifecycle` `started` and its `system/init` line (default 0). 2.1.288 writes
-   * them together; a busy machine may read them apart, and in between the session reads `idle` with nothing waiting.
+   * A file: a turn's `system/init` line waits after its `command_lifecycle` `started` until the file exists (default:
+   * no wait). 2.1.288 writes the two together; a busy machine may read them apart, and in between the session reads
+   * `idle` with nothing waiting.
    */
-  readonly initAfterStartedMs?: number;
+  readonly holdInitUntil?: string;
 }
 
 /** One entry of Claude Code's `initialize.models` (the SDK's ModelInfo). */

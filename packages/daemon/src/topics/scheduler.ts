@@ -1129,6 +1129,18 @@ export class Scheduler {
     });
   }
 
+  /**
+   * The reports' sweep (a few seconds): while an item is queued and every slot is in use, a process is asked to be given
+   * up again. A session that was `busy` when the last pass looked may give it up now without an event of its own
+   * (Claude Code ended a message without opening a turn: no status and no process changed), and nothing else would
+   * ask it (0.7.0 release). No git and no pass: only the sessions.
+   */
+  sweepSlots(): void {
+    if (!this.core.started || !this.restored || !this.goneOn || this.ctx.stopping.aborted || isStubService(this.ctx.services.agents)) return;
+    const queued = this.core.topics().some((topic) => !topic.archived && !topic.plan.paused && topic.items.some((item) => item.armed && item.state === 'queued' && historyOf(item) !== 'direct'));
+    if (queued && !this.core.slotFree()) this.freeSlot();
+  }
+
   /** The account works again (`account.changed`): what a usage limit stopped is continued now. */
   onAccount(): void {
     if (this.core.started) this.sweepContinues();

@@ -3634,7 +3634,9 @@ in between costs one "Start again", whose dialog shows the change (`plan.changes
 and nowhere else; the scheduler may ask the runtime to park the longest-idle item session that can give its process
 up now (`restartProcess(…, 'slot')`; not `busy`: no turn runs or waits to open, no request is open; before 0.7.0 it
 could ask one whose process had just started, or that had just been written to, before its turn opened, which gave
-its process up only after that turn), and `PlanInfo.slots` says how many are in use and how many wait for a person. An item whose starter is removed before it started is disarmed (`starter-removed`, §3 "When a
+its process up only after that turn). While an item is queued the reports' sweep asks again (no git), so a session
+that stops being busy without an event of its own is asked too. `PlanInfo.slots` says how many are in use and how
+many wait for a person. An item whose starter is removed before it started is disarmed (`starter-removed`, §3 "When a
 member goes"). While an item runs, its session is a conversation like any other.
 
 **The result report** (`report-format.ts`, pure; `report-service.ts`). A report is a file the agent writes in its
