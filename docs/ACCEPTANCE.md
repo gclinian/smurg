@@ -73,26 +73,27 @@ SMURG_RELEASE_GATE=1 pnpm check   # the same, for a release: nothing may be pend
 - **Expected result, v0.7.0** (English and zh-TW, protocol 6; `SMURG_RELEASE_GATE=1` with the published executables
   of 0.4.0, 0.5.0, 0.5.1, 0.5.2 and 0.6.0 in `SMURG_PREVIOUS_BINARIES`, each downloaded from `downloads.smurg.ai` and
   checked against its `SHA256SUMS`, and this tree's build in `SMURG_SEA_BINARY`, so the upgrade from all five ran with
-  the real files; 2026-10-29, the release's code, its changelog heading still `YYYY-MM-DD`):
+  the real files; 2026-10-29, the release's code, after the fixes of its CI):
   - macOS 26.5.1 on an Apple M3 (arm64), Node 22.22.1, `SMURG_TEST_CLAUDE_BIN` naming Claude Code 2.1.288, the gate
     run as its four parts (`docs/RELEASING.md` §4.5 step 1), each with the same variables: `pnpm typecheck` exit 0;
-    `--project @smurg/daemon`: `Test Files  178 passed (178)`, `Tests  2685 passed | 10 skipped (2695)`, 360 s;
+    `--project @smurg/daemon`: `Test Files  178 passed (178)`, `Tests  2687 passed | 10 skipped (2697)`, 404 s;
     `--project @smurg/web --project @smurg/web-smoke --project @smurg/e2e`: `Test Files  168 passed (168)`,
-    `Tests  1870 passed (1870)`, 449 s; `--project @smurg/cli --project @smurg/protocol --project @smurg/relay
+    `Tests  1870 passed (1870)`, 459 s; `--project @smurg/cli --project @smurg/protocol --project @smurg/relay
     --project @smurg/site --project @smurg/lint`: `Test Files  132 passed (132)`, `Tests  6622 passed | 1 skipped
-    (6623)`, 94 s. Together `Test Files  478 passed (478)` and `Tests  11177 passed | 11 skipped (11188)`, about
-    900 s of vitest, exit 0; no file skipped (the tests of the packaged executable ran, the upgrade from the five
+    (6623)`, 99 s (the last two parts ran on the tree before the last fix, which changed only the topics tests'
+    setup). Together `Test Files  478 passed (478)` and `Tests  11179 passed | 11 skipped (11190)`, about 960 s of
+    vitest, exit 0; no file skipped (the tests of the packaged executable ran, the upgrade from the five
     published executables among them, 5 of 5: the build is 113.2 MiB; the real-Claude suite and `flow.claude.smoke`
     ran). The eleven skipped tests: the seven Linux-only ones, the three comparisons of
     `daemon/upgrade/wire.test.ts` with v0.6.0 (the protocol changed on purpose, and they say so) and the opt-in test of
     `cli/test/dev-stack.test.ts`. The real-Claude suite alone (eight files, "Other ways to run" below; 0.7.0 adds none):
-    `Test Files  8 passed (8)`, `Tests  60 passed (60)`, 51 s. The web-smoke project's flow smokes run both flows since
+    `Test Files  8 passed (8)`, `Tests  60 passed (60)`, 57 s. The web-smoke project's flow smokes run both flows since
     0.7.0 (automatic merging, and "I merge each item myself"), and P3 stayed under the 10-minute rule, so the gate is
     still four parts.
   - The Ubuntu 24.04 arm64 VM, Linux 6.8, Node 22.22.1, with `SMURG_TEST_CHROME`, the published Linux executables of
     the five versions and a build made in the VM (122.7 MiB), from a copy of the checkout with its tags,
-    `SMURG_RELEASE_GATE=1 pnpm check`: `Test Files  468 passed | 10 skipped (478)` and `Tests  11113 passed | 75
-    skipped (11188)`, 937 s, exit 0; the upgrade from the five published Linux executables 5 of 5; `shellcheck -S
+    `SMURG_RELEASE_GATE=1 pnpm check`: `Test Files  468 passed | 10 skipped (478)` and `Tests  11115 passed | 75
+    skipped (11190)`, 1021 s, exit 0; the upgrade from the five published Linux executables 5 of 5; `shellcheck -S
     warning scripts/*.sh` clean. The ten skipped files: seven of the real-Claude suite (the eighth,
     `daemon/hooks/mock-anthropic.test.ts`, runs its tests that need no `claude`), `flow.claude.smoke` and the two
     browser files that take only Google Chrome (the relay's and the web unit project's).
@@ -884,8 +885,8 @@ that runs on Anthropic's side, were never seen (HOSTING §10.8).
 | v0.5.0: a long conversation in the browser (`web/e2e/smoke/conversation.perf.smoke.test.ts`; its budgets are 300 ms and 16 ms of scripting) | a transcript of 5,007 events (1,000 tool cards with bodies) opens with 59.1 ms of scripting and 200 rows mounted; during a 60 s stream at 5 deltas per second, 267 intervals of about 200 ms: scripting per interval 1.18 ms at the median, 8.06 ms at the worst (2026-10-07, one run) |
 | v0.5.0: texts that are dear to format, in the same file (its budget is no task over 200 ms once the texts are on screen) | 400 messages of one 16 KiB text that stays just inside its own budget, shown 128 at a time: all 400 formatted and none shown as written; the longest task 70 to 75 ms in three runs (119 ms once, with other suites running beside it); a click on the language menu answered after 5 to 75 ms while texts waited (2026-10-07) |
 | v0.5.0: `smurg hook` per tool call, in the packaged executable, called by real Claude Code 2.1.288 (fake API) | 31.1 ms at the median, 33.4 ms at the worst (2026-10-07, macOS arm64, one session with 22 tool calls: the lifetime of each `smurg hook` process Claude Code started before a tool, from the moment it appeared as a child of `claude` to its exit; with the session's three other hook runs 25 runs, median 31.2 ms, worst 35.1 ms; Claude Code's own record of its Stop hook says 32 ms). A tool call costs one such run, a command three (the gate and the notice before and after it). One Read as the fake API saw it, from the answer that names the tool to the next request: 43.5 ms at the median, 54.3 ms at the worst (20 calls). The same command without a daemon, which denies: 30.7 ms at the median |
-| v0.7.0: `smurg hook` per tool call, in the packaged executable, called by real Claude Code 2.1.288 (fake API) | 32.3 ms at the median, 38.3 ms at the worst (2026-10-29, macOS arm64, the release dry run's pass, `docs/RELEASING.md` §4.5 step 3: one session opened "Asks before commands" with 22 tool calls, 18 Read, a Glob, a Grep, an Edit and a command that asked and that a member with agent access allowed; measured as for v0.5.0; with the session's other hook runs 30 runs, the same median and worst; Claude Code's own record of its Stop hook says 32 ms; `smurg mcp` once). One Read as the fake API saw it: 44.7 ms at the median, 67.4 ms at the worst (18 calls). Without a daemon (it denies): 34.5 ms at the median. The host's `HTTPS_PROXY` named a local sink that forwards nothing, and it saw no request (before the fix of 0.7.0, the session's `claude` asked `api.anthropic.com` for its bootstrap: ARCHITECTURE §7.6 "Session environment") |
-| v0.7.0: frames of the owner's flow through the local relay (`web/e2e/smoke/flow.smoke.test.ts`, the stand-in `claude`, four browsers) | one run of 128 s (2026-10-29): 5,697 WebSocket frames received by the relay (4,393 from the host, 1,304 from the four browsers), 5,717 sent on, 3.52 MB received, 40 HTTP requests: 2,675 received frames per minute, about 670 per person and minute (v0.5.0: 2,388 and 2,409 in two runs of 114 s, a shorter flow) |
+| v0.7.0: `smurg hook` per tool call, in the packaged executable, called by real Claude Code 2.1.288 (fake API) | 32.3 ms at the median, 36.9 ms at the worst (2026-10-29, macOS arm64, the release dry run's pass, `docs/RELEASING.md` §4.5 step 3: one session opened "Asks before commands" with 22 tool calls, 18 Read, a Glob, a Grep, an Edit and a command that asked and that a member with agent access allowed; measured as for v0.5.0; with the session's other hook runs 30 runs, 32.2 ms at the median and the same worst; Claude Code's own record of its Stop hook says 33 ms; `smurg mcp` once). One Read as the fake API saw it: 44.5 ms at the median, 61.6 ms at the worst (18 calls). Without a daemon (it denies): 35.7 ms at the median. The host's `HTTPS_PROXY` named a local sink that forwards nothing, and it saw no request (before the fix of 0.7.0, the session's `claude` asked `api.anthropic.com` for its bootstrap: ARCHITECTURE §7.6 "Session environment") |
+| v0.7.0: frames of the owner's flow through the local relay (`web/e2e/smoke/flow.smoke.test.ts`, the stand-in `claude`, four browsers) | one run of 124 s (2026-10-29): 5,681 WebSocket frames received by the relay (4,380 from the host, 1,301 from the four browsers), 5,701 sent on, 3.51 MB received, 40 HTTP requests: 2,750 received frames per minute, about 690 per person and minute (v0.5.0: 2,388 and 2,409 in two runs of 114 s, a shorter flow) |
 
 The values above the v0.5.0 rows were measured on v0.4.0 or earlier and are not re-measured for v0.5.0 unless their
 row says so; R2.2b's is from before D-15.
