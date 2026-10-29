@@ -67,7 +67,10 @@ export async function setupTopics(options: TopicsTestOptions = {}): Promise<Topi
     agents: { escalationSweepMs: 20, ...options.agents },
     // These tests tell the story of 0.6.0's flow: the host reads each item and merges it ("I merge each item myself",
     // DESIGN 0.7.0 D3). The default of a new workspace is automatic merging; the tests of the merge queue say so.
-    settings: { merging: 'host', ...options.settings },
+    // `maxLiveAgents` is fixed, not the machine's (2 on a 7 GB runner: a third item then waited for a slot, and only
+    // the parking of a session whose first message no turn had taken made room, which the scheduler no longer does,
+    // scheduler.ts freeSlot); the tests of the limit set their own.
+    settings: { merging: 'host', maxLiveAgents: 8, ...options.settings },
     ...(options.root === undefined ? { project: { files: { 'README.md': '# project\n', ...options.files } } } : { root: options.root }),
     ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
     ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
