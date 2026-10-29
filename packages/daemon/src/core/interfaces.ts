@@ -1342,6 +1342,12 @@ export interface AgentSessionFacts {
    * its turn starts. Absent: none.
    */
   readonly pendingMessages?: number;
+  /**
+   * Its process cannot be given up now (0.7.0 release): it is starting, a turn runs, a message was written that no turn
+   * has opened yet (also after Claude Code took it, while the session still reads `idle`), or a request is open. A
+   * restart asked now waits for the end of that turn. Absent: it can, or it has no process.
+   */
+  readonly busy?: true;
 }
 
 /**
@@ -2116,8 +2122,8 @@ export interface PlansAtStart {
  * only while `inUse - waitingForPeople` is below it and `inUse` below twice it (and `maxAgentProcesses`): sessions that
  * wait for a person keep their process and no longer keep unrelated items from starting (DESIGN 0.7.0 D16). The
  * scheduler runs again on `agent.process` (a slot was freed or taken), and may free a slot itself with
- * `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session without an open request or a
- * message no turn has taken (`pendingMessages`).
+ * `AgentSessions.restartProcess(sessionId, 'slot')` for the longest-idle item session that can give its process up now
+ * (not `AgentSessionFacts.busy`).
  * A session's start for an item passes `item: { id, number, title, attempt }` and `keepWorktree: true` at its end.
  */
 export interface PlanService {

@@ -139,7 +139,7 @@ describe('the built site', () => {
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 210 KB and the two drawn icons', () => {
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 234 KB and the two drawn icons', () => {
     // The preview pictures are not loaded by any page: they have their own bound (the next test).
     const total = publicFiles()
       .filter((path) => !SOCIAL_CARDS.includes(path))

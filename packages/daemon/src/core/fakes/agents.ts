@@ -233,7 +233,9 @@ export class FakeAgentSessions implements AgentSessions {
     if (!record) return null;
     // Messages no turn has taken yet: sent since the last turn's end while no turn runs (as the runner keeps `pending`).
     const waiting = record.turnOpen === null ? record.turnMessages.length : 0;
-    return { ...record.facts, ...(waiting > 0 ? { pendingMessages: waiting } : {}) };
+    // Its process cannot be given up now: a turn runs, a message waits for one, or a request is open (the runner's `parkable`).
+    const busy = record.facts.hasProcess && (record.turnOpen !== null || waiting > 0 || record.open.size > 0);
+    return { ...record.facts, ...(waiting > 0 ? { pendingMessages: waiting } : {}), ...(busy ? { busy: true as const } : {}) };
   }
 
   async send(sessionId: string, message: OutboundMessage): Promise<{ readonly messageId: string; readonly seq: number }> {

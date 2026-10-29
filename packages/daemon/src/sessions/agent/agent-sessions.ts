@@ -479,6 +479,7 @@ export class AgentSessionsImpl implements AgentSessions {
       hasProcess: entry.runner.hasProcess,
       // (0.7.0: what no turn has taken yet, so a person's message counts from the moment it is sent)
       ...((record.pending?.length ?? 0) > 0 ? { pendingMessages: record.pending?.length ?? 0 } : {}),
+      ...(entry.runner.hasProcess && !entry.runner.parkable ? { busy: true as const } : {}),
     };
   }
 

@@ -185,7 +185,7 @@ describe('T4.1 items start when they can', () => {
     await waitFor(() => test.plan(topic.id).slots.max === 4, { what: 'the new limit' });
   });
 
-  it('a session with a message no turn has taken yet is not idle: its process is never the one given up (0.7.0 release: a busy CI runner saw the second item between its start and its first turn, and the third item waited for that whole turn)', async () => {
+  it('a session that cannot give its process up now (`busy`: a message no turn has opened yet) is never the one asked to (0.7.0 release: a busy CI runner saw the second item between its start and its first turn, and the third item waited for that whole turn)', async () => {
     test = await setupTopics({ settings: { maxLiveAgents: 2 } });
     const { topic } = await topicWithPlan(test, [{ id: 'a' }, { id: 'b' }, { id: 'c' }]);
     await startPlan(test, topic.id);
@@ -193,7 +193,7 @@ describe('T4.1 items start when they can', () => {
     const sessionA = itemOf(test.plan(topic.id), 'a').sessionId as string;
     const sessionB = itemOf(test.plan(topic.id), 'b').sessionId as string;
     // Both have their first message and no turn yet: idle with a process, as a real runner is for a moment.
-    for (const id of [sessionA, sessionB]) expect([test.fakes.agents.get(id)?.status, test.fakes.agents.facts(id)?.pendingMessages]).toEqual(['idle', 1]);
+    for (const id of [sessionA, sessionB]) expect([test.fakes.agents.get(id)?.status, test.fakes.agents.facts(id)?.pendingMessages, test.fakes.agents.facts(id)?.busy]).toEqual(['idle', 1, true]);
     await settle(test);
     expect(test.fakes.agents.log.of('restartProcess')).toEqual([]);
     expect(itemOf(test.plan(topic.id), 'c').state).toBe('queued');

@@ -787,6 +787,8 @@ async function runTurn(first) {
   const started = Date.now();
   out({ type: 'command_lifecycle', command_uuid: first.uuid, state: 'queued', uuid: randomUUID(), session_id: claudeSessionId });
   out({ type: 'command_lifecycle', command_uuid: first.uuid, state: 'started', uuid: randomUUID(), session_id: claudeSessionId });
+  const pause = loadScenario().initAfterStartedMs ?? 0;
+  if (pause > 0) await sleep(pause);
   denials = [];
   out(initLine());
   if (restrictedAtStart !== null) {

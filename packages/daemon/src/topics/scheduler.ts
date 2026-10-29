@@ -249,9 +249,10 @@ export class Scheduler {
   }
 
   /**
-   * Asks the longest-idle item session that holds a process and waits for nobody to give it up. A session with a
-   * message no turn has taken yet is not idle: it reads `idle` between its process's start and its first turn, and
-   * one asked then gave its process up only after that turn, while no other session was asked (0.7.0 release).
+   * Asks the longest-idle item session that holds a process and waits for nobody to give it up, and only one that can
+   * give it up now (not `busy`). A session reads `idle` from its process's start, and from a message written, until
+   * its turn opens; one asked then gave its process up only after that turn, and while it was being parked no other
+   * session was asked (0.7.0 release).
    */
   private freeSlot(): void {
     const agents = this.ctx.services.agents;
@@ -260,7 +261,7 @@ export class Scheduler {
       .filter((session) => session.purpose === 'item' && (session.status === 'idle' || session.status === 'done' || session.status === 'stalled'))
       .filter((session) => {
         const facts = agents.facts(session.id);
-        return facts?.hasProcess === true && (facts.pendingMessages ?? 0) === 0 && !this.parking.has(session.id);
+        return facts?.hasProcess === true && facts.busy !== true && !this.parking.has(session.id);
       })
       .sort((a, b) => a.lastActivityAt - b.lastActivityAt);
     const session = candidates[0];

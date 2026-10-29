@@ -125,6 +125,23 @@ describe('messages that wait', { timeout: 60_000 }, () => {
     await expect(r.say(session.id, TEST_HOST_USER, '​‍ ⁠')).rejects.toMatchObject({ code: 'bad_request', text: { id: 'session.text.invalid' }, detail: { reason: 'invalid-text' } });
     expect(r.agents.get(session.id)?.lastSeq).toBe(before);
   });
+
+  it('a session whose process cannot be given up now is `busy`: from a message written to the end of its turn, also after Claude Code took the message and before the turn opened, while it reads idle with nothing waiting (0.7.0 release)', async () => {
+    const r = await rig([{ steps: [{ text: 'Done.' }] }], { scenario: { initAfterStartedMs: 1_500 } });
+    const { session } = await r.host.conn.request('session.create', AGENT);
+    await r.until(session.id, idle, 'the start');
+    expect(r.agents.facts(session.id)).toMatchObject({ hasProcess: true });
+    expect(r.agents.facts(session.id)?.busy).toBeUndefined();
+    const sent = await r.say(session.id, TEST_HOST_USER, 'go on');
+    expect(r.agents.facts(session.id)?.busy).toBe(true);
+    await waitFor(async () => (await r.deliveries(session.id, sent.messageId)).includes('started'), { what: 'Claude Code to take the message' });
+    expect(r.agents.get(session.id)?.status).toBe('idle');
+    expect(r.agents.facts(session.id)?.pendingMessages).toBeUndefined();
+    expect(r.agents.facts(session.id)?.busy).toBe(true);
+    await waitFor(() => r.bus.some((entry) => entry.name === 'agent.turn.finished'), { timeoutMs: 15_000, what: 'the turn' });
+    await r.until(session.id, idle, 'idle after the turn');
+    expect(r.agents.facts(session.id)?.busy).toBeUndefined();
+  });
 });
 
 describe('what a message can pull in', { timeout: 60_000 }, () => {

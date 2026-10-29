@@ -34,9 +34,9 @@ section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.m
 - **A host's `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` reaches agent sessions and terminals.** smurg used to drop
   it, so every agent's Claude Code sent the requests the host had turned off (to `api.anthropic.com` and others) at
   its start.
-- **A work item that waits for a free agent no longer waits for another item's whole first turn.** smurg could ask an
-  item that had just started, before its first turn, to give its agent up; it did so only when that turn ended, and
-  no idle item was asked in the meantime.
+- **A work item that waits for a free agent no longer waits for another item's whole turn.** smurg could ask an item
+  whose agent had just started or had just been sent a message, before its turn began, to give the agent up; it did
+  so only when that turn ended, and no idle item was asked in the meantime.
 - **The protocol changed (version 6).** Update before you share again (`smurg update`): until then, teammates' pages
   say "The host's smurg is older than this page". A tab from before the update says "This tab is from before an
   update" and needs a reload. If you run your own relay, deploy it again.
