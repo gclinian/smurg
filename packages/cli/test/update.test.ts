@@ -2,10 +2,12 @@
 // https://downloads.smurg.ai (SMURG_INSTALL_BASE_URL), a scratch file for the installed executable (deps.executable; the
 // real process.execPath is the test's Node and is never touched), tiny shell scripts for the released executables and a
 // stub for macOS's xattr. Covered: a newer / the same / an older latest version, --check, a sha256 mismatch, a
-// truncated and a stalled download, a missing platform file, a wrong build marker, an executable that does not start,
-// a directory that cannot be written, a running `smurg host`, a source checkout, the download rule (https only),
-// redirects, Ctrl-C, the quarantine attribute, and that no temp file is ever left behind.
+// truncated and a stalled download, one that goes on where it stopped (a Range request) or starts again, a server
+// error, a body that ends with the connection, a missing platform file, a wrong build marker, an executable that does
+// not start, a directory that cannot be written, a running `smurg host`, a source checkout, the download rule (https
+// only), redirects, Ctrl-C, the quarantine attribute, and that no temp file is ever left behind.
 import { chmod, mkdir, readFile, readdir, stat, utimes, writeFile } from 'node:fs/promises';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { brotliCompressSync, gzipSync } from 'node:zlib';
@@ -81,6 +83,59 @@ async function expectUnchanged(s: Setup): Promise<void> {
   expect(await readFile(s.executable, 'utf8')).toBe(OLD);
   expect(await readdir(s.bin)).toEqual(['smurg']);
 }
+
+const ETAG = '"0123456789abcdef"';
+
+const rangeFrom = (req: IncomingMessage): number => Number(/^bytes=([0-9]+)-$/.exec(req.headers.range ?? '')?.[1] ?? 0);
+
+/** The head the downloads site answers a request from byte `from` with: 200 for all of `body`, 206 for the rest. */
+function siteHead(res: ServerResponse, body: Buffer, from: number): ServerResponse {
+  return from === 0
+    ? res.writeHead(200, { 'content-length': String(body.length), etag: ETAG })
+    : res.writeHead(206, { 'content-length': String(body.length - from), 'content-range': `bytes ${from}-${body.length - 1}/${body.length}`, etag: ETAG });
+}
+
+/** Answers as the downloads site does (`Range: bytes=<from>-` gets the rest). */
+function serveFrom(req: IncomingMessage, res: ServerResponse, body: Buffer): void {
+  const from = rangeFrom(req);
+  siteHead(res, body, from).end(body.subarray(from));
+}
+
+/** Answers as the site does, but only `bytes` of the answer arrive before the connection drops. */
+function trickle(body: Buffer, bytes: number): Route {
+  return (req, res) => {
+    const from = rangeFrom(req);
+    siteHead(res, body, from).write(body.subarray(from, from + bytes), () => setTimeout(() => res.destroy(), 20));
+  };
+}
+
+/** The executable's route: request n gets `odd[n]` when there is one, else what the site answers; `ranges` is what each asked. */
+function flaky(body: Buffer, odd: Record<number, Route>): { route: Route; ranges: (string | null)[] } {
+  const ranges: (string | null)[] = [];
+  const route: Route = (req, res) => {
+    const answer = odd[ranges.length];
+    ranges.push(req.headers.range ?? null);
+    if (typeof answer === 'function') answer(req, res);
+    else serveFrom(req, res, body);
+  };
+  return { route, ranges };
+}
+
+/**
+ * Any request (a Range too) gets the first `bytes` of `body`, announced as all of it; then the connection drops (once
+ * they are all on their way), or nothing more comes.
+ */
+function cutOff(body: Buffer, bytes: number, how: 'drop' | 'stall'): Route {
+  return (_req, res) => {
+    res.writeHead(200, { 'content-length': String(body.length), etag: ETAG });
+    res.write(body.subarray(0, bytes), () => {
+      if (how === 'drop') setTimeout(() => res.destroy(), 50);
+    });
+  };
+}
+
+/** A released executable of a few MB (several chunks), its build marker near the start. */
+const bigExecutable = (version: string): Buffer => Buffer.from(`${fakeExecutable(version)}#${'x'.repeat(3_000_000)}\n`);
 
 async function hostDaemon(dirs: Dirs, workspaceId: string): Promise<Daemon> {
   const daemon = await createDaemon({
@@ -202,17 +257,13 @@ describe('smurg update', () => {
 
   it('a truncated download (the connection drops, or fewer bytes than SHA256SUMS describes): nothing is replaced', async () => {
     const body = Buffer.from(fakeExecutable('0.3.0'));
-    const dropped = await setup({
-      ...release('0.3.0', TARGET),
-      [`v0.3.0/${TARGET}`]: (_req, res) => {
-        res.writeHead(200, { 'content-length': String(body.length) });
-        res.write(body.subarray(0, 20));
-        setTimeout(() => res.destroy(), 50);
-      },
-    });
-    const a = await update(dropped);
+    // Every try breaks off after the same 20 bytes: the one that brought them, then three in a row that bring nothing new.
+    const dropped = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: cutOff(body, 20, 'drop') });
+    const a = await update(dropped, [], { deps: { retryPauseMs: 0 } });
     expect(a.code).toBe(1);
-    expect(a.io.err()).toContain('The download is incomplete');
+    expect(a.io.err()).toContain(`The download is incomplete (the connection dropped, or the size differs from what the server said): ${dropped.server.base}/v0.3.0/${TARGET}`);
+    expect(a.io.err()).toContain('smurg was not changed. Run the command again.');
+    expect(dropped.server.requests.filter((path) => path === `v0.3.0/${TARGET}`)).toHaveLength(4);
     await expectUnchanged(dropped);
 
     // No length announced and the body simply ends early: the sha256 catches it.
@@ -231,23 +282,120 @@ describe('smurg update', () => {
 
   it('a download that stalls, or a site that does not answer, ends with a timeout and leaves nothing behind', async () => {
     const body = Buffer.from(fakeExecutable('0.3.0'));
-    const stalled = await setup({
-      ...release('0.3.0', TARGET),
-      [`v0.3.0/${TARGET}`]: (_req, res) => {
-        res.writeHead(200, { 'content-length': String(body.length) });
-        res.write(body.subarray(0, 20)); // … and then nothing
-      },
-    });
-    const a = await update(stalled, [], { deps: { stallTimeoutMs: 300 } });
+    // Every try stalls after the same 20 bytes: four tries, as above.
+    const stalled = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: cutOff(body, 20, 'stall') });
+    const a = await update(stalled, [], { deps: { stallTimeoutMs: 300, retryPauseMs: 0 } });
     expect(a.code).toBe(1);
-    expect(a.io.err()).toContain('The download location took too long to answer');
+    expect(a.io.err()).toContain(`The download location took too long to answer: ${stalled.server.base}/v0.3.0/${TARGET}`);
+    expect(a.io.err()).toContain('smurg was not changed. Check your network connection and run the command again.');
+    expect(stalled.server.requests.filter((path) => path === `v0.3.0/${TARGET}`)).toHaveLength(4);
     await expectUnchanged(stalled);
+    // A server that never answers the executable's request: three tries without a byte.
+    const mute = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: () => {} });
+    const c = await update(mute, [], { deps: { stallTimeoutMs: 300, retryPauseMs: 0 } });
+    expect(c.io.err()).toContain(`The download location took too long to answer: ${mute.server.base}/v0.3.0/${TARGET}`);
+    expect(mute.server.requests.filter((path) => path === `v0.3.0/${TARGET}`)).toHaveLength(3);
+    await expectUnchanged(mute);
 
     const silent = await setup({ 'latest/VERSION': () => {} });
     const b = await update(silent, [], { deps: { metaTimeoutMs: 300 } });
     expect(b.code).toBe(1);
     expect(b.io.err()).toContain(`The download location took too long to answer: ${silent.server.base}/latest/VERSION`);
     await expectUnchanged(silent);
+  });
+
+  it('a download that stalls or breaks off goes on where it stopped (a Range request), and the checks see one file', async () => {
+    const body = bigExecutable('0.3.0');
+    const marker = body.indexOf('smurg-build-version=');
+    // Cut inside the build marker (each try sees half of it), and deep into the file.
+    for (const cut of [marker + 7, 2_000_001]) {
+      for (const how of ['stall', 'drop'] as const) {
+        const site = flaky(body, { 0: cutOff(body, cut, how) });
+        const s = await setup({ ...release('0.3.0', TARGET, body), [`v0.3.0/${TARGET}`]: site.route });
+        // A stall only where the test makes one: a second of nothing, in a transfer on this machine.
+        const { code, io } = await update(s, [], { deps: { stallTimeoutMs: how === 'stall' ? 1_000 : 30_000, retryPauseMs: 0 } });
+        expect(io.err(), `${how} at ${cut}`).toBe('');
+        expect(code).toBe(0);
+        expect(io.out()).toBe([`Downloading smurg 0.3.0 (${TARGET}, ${s.server.base}/v0.3.0)...`, `Updated smurg: 0.2.0 -> 0.3.0 (${s.executable})`, CHANGELOG, ''].join('\n'));
+        expect(site.ranges).toEqual([null, `bytes=${cut}-`]);
+        expect((await readFile(s.executable)).equals(body)).toBe(true);
+        expect(await readdir(s.bin)).toEqual(['smurg']);
+      }
+    }
+  });
+
+  it('a server that does not continue (all of it again, another range or another ETag) is read again from the first byte', async () => {
+    const body = bigExecutable('0.3.0');
+    const cut = 1_000_000;
+    const all: Route = (_req, res) => void res.writeHead(200, { 'content-length': String(body.length), etag: ETAG }).end(body);
+    const elsewhere: Route = (_req, res) => void res.writeHead(206, { 'content-range': `bytes 0-${body.length - 1}/${body.length}`, etag: ETAG }).end(body);
+    const changed: Route = (_req, res) => void res.writeHead(206, { 'content-range': `bytes ${cut}-${body.length - 1}/${body.length}`, etag: '"another"' }).end(body.subarray(cut));
+    const cases: [string, Record<number, Route>, (string | null)[]][] = [
+      ['all of it', { 0: cutOff(body, cut, 'drop'), 1: all }, [null, `bytes=${cut}-`]],
+      ['another range', { 0: cutOff(body, cut, 'drop'), 1: elsewhere }, [null, `bytes=${cut}-`, null]],
+      ['another ETag', { 0: cutOff(body, cut, 'drop'), 1: changed }, [null, `bytes=${cut}-`, null]],
+    ];
+    for (const [what, odd, ranges] of cases) {
+      const site = flaky(body, odd);
+      const s = await setup({ ...release('0.3.0', TARGET, body), [`v0.3.0/${TARGET}`]: site.route });
+      const { code, io } = await update(s, [], { deps: { retryPauseMs: 0 } });
+      expect(io.err(), what).toBe('');
+      expect(code).toBe(0);
+      expect(site.ranges, what).toEqual(ranges);
+      expect((await readFile(s.executable)).equals(body), what).toBe(true);
+    }
+  });
+
+  it('a server error is tried again, a missing file is not; at most five tries in all, also when each brings new bytes', async () => {
+    const body = bigExecutable('0.3.0');
+    const busy = flaky(body, { 0: (_req, res) => void res.writeHead(503).end('busy') });
+    const s = await setup({ ...release('0.3.0', TARGET, body), [`v0.3.0/${TARGET}`]: busy.route });
+    expect((await update(s, [], { deps: { retryPauseMs: 0 } })).code).toBe(0);
+    expect(busy.ranges).toEqual([null, null]);
+    expect((await readFile(s.executable)).equals(body)).toBe(true);
+
+    const gone = flaky(body, { 0: (_req, res) => void res.writeHead(404).end('not found') });
+    const missing = await setup({ ...release('0.3.0', TARGET, body), [`v0.3.0/${TARGET}`]: gone.route });
+    const a = await update(missing, [], { deps: { retryPauseMs: 0 } });
+    expect(a.io.err()).toContain(`The download location does not have this file (HTTP 404): ${missing.server.base}/v0.3.0/${TARGET}`);
+    expect(gone.ranges).toEqual([null]);
+    await expectUnchanged(missing);
+
+    // Ten new bytes per try: the fifth try is the last.
+    const trickled = flaky(body, Object.fromEntries([0, 1, 2, 3, 4].map((n) => [n, trickle(body, 10)])));
+    const slow = await setup({ ...release('0.3.0', TARGET, body), [`v0.3.0/${TARGET}`]: trickled.route });
+    const b = await update(slow, [], { deps: { retryPauseMs: 0 } });
+    expect(b.code).toBe(1);
+    expect(b.io.err()).toContain(`The download is incomplete (the connection dropped, or the size differs from what the server said): ${slow.server.base}/v0.3.0/${TARGET}`);
+    expect(trickled.ranges).toEqual([null, 'bytes=10-', 'bytes=20-', 'bytes=30-', 'bytes=40-']);
+    await expectUnchanged(slow);
+  });
+
+  it("a body that ends when the server closes the connection (HTTP/1.0, as python's http.server sends it) is read whole", async () => {
+    const body = bigExecutable('0.3.0');
+    const s = await setup({
+      ...release('0.3.0', TARGET, body),
+      [`v0.3.0/${TARGET}`]: (req) => void req.socket.end(Buffer.concat([Buffer.from('HTTP/1.0 200 OK\r\ncontent-type: application/octet-stream\r\n\r\n'), body])),
+    });
+    const { code, io } = await update(s);
+    expect(io.err()).toBe('');
+    expect(code).toBe(0);
+    expect((await readFile(s.executable)).equals(body)).toBe(true);
+  });
+
+  it('Ctrl-C in the pause between two tries ends the update at once', async () => {
+    const s = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: (_req, res) => void res.destroy() });
+    const io = testIo({ env: s.env });
+    const started = Date.now();
+    const done = runCli(['update'], io, { update: { ...s.deps, retryPauseMs: 60_000 } });
+    await waitFor(() => s.server.requests.includes(`v0.3.0/${TARGET}`), { what: 'the first try' });
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    io.signal('SIGINT');
+    expect(await done).toBe(130);
+    expect(Date.now() - started).toBeLessThan(10_000);
+    expect(io.out()).toContain('Cancelled; smurg was not changed.');
+    expect(s.server.requests.filter((path) => path === `v0.3.0/${TARGET}`)).toHaveLength(1);
+    await expectUnchanged(s);
   });
 
   it('no executable for this platform in the release (not in SHA256SUMS, or not on the site): nothing is replaced', async () => {
@@ -384,6 +532,19 @@ describe('smurg update', () => {
       expect(code, location).toBe(1);
       expect(io.err(), location).toContain('The download location redirected to a URL that is not allowed');
     }
+
+    // The executable, read with node:http(s), follows the same rule.
+    const exe = await setup(release('0.3.0', TARGET));
+    exe.server.routes['moved/exe'] = exe.server.routes[`v0.3.0/${TARGET}`] as Route;
+    exe.server.routes[`v0.3.0/${TARGET}`] = (_req, res) => void res.writeHead(302, { location: '/moved/exe' }).end();
+    expect((await update(exe)).code).toBe(0);
+    expect(exe.server.requests).toEqual(['latest/VERSION', 'v0.3.0/SHA256SUMS', `v0.3.0/${TARGET}`, 'moved/exe']);
+    expect(await readFile(exe.executable, 'utf8')).toBe(fakeExecutable('0.3.0'));
+    const away = await setup({ ...release('0.3.0', TARGET), [`v0.3.0/${TARGET}`]: (_req, res) => void res.writeHead(302, { location: 'https://downloads.example.com/x' }).end() });
+    const c = await update(away);
+    expect(c.code).toBe(1);
+    expect(c.io.err()).toContain(`The download location redirected to a URL that is not allowed: ${away.server.base}/v0.3.0/${TARGET}`);
+    await expectUnchanged(away);
   });
 
   it('Ctrl-C during the download: exit 130, the old executable stays and the temp file is gone', async () => {
