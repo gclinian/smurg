@@ -131,6 +131,24 @@ describe('agentText: no body line can pass for a header', () => {
     for (const raw of ['[x] done\n[ ] to do', '[docs](https://example.com) say so', '  ["a", "b"],', '[smurgle] is not smurg', 'see [smurg k7f2] there']) expect(agentText(raw)).toEqual({ text: raw, cleaned: false });
   });
 
+  // DESIGN 0.8.0 D7.7: "Ask Claude about this sticky note" puts `[[Name]] ` into a member's draft. A line that is only
+  // links to sticky notes is a bracketed line like any other and is quoted, blanks behind it or not; the member's words
+  // on the same line keep it as written (review S4-T4: what the notes view relies on, pinned).
+  it('a line that is only links to sticky notes is quoted; with words after the links on that line it stays as written', () => {
+    for (const [raw, expected] of [
+      ['[[Home]]', '> [[Home]]'],
+      ['[[Home]] ', '> [[Home]] '],
+      ['[[Home]] \nWhat is missing here?', '> [[Home]] \nWhat is missing here?'],
+      ['[[Home]] What is missing here?\n\n[[Ideas]] ', '[[Home]] What is missing here?\n\n> [[Ideas]] '],
+      ['[[Home]] [[Ideas]] ', '> [[Home]] [[Ideas]] '],
+    ] as const) {
+      expect(agentText(raw), raw).toEqual({ text: expected, cleaned: false });
+    }
+    for (const raw of ['[[Home]] What is missing here?', '[[Home]] What is missing here?\n\n[[Ideas]] [[Home]] How do these two connect?']) {
+      expect(agentText(raw), raw).toEqual({ text: raw, cleaned: false });
+    }
+  });
+
   it('is idempotent', () => {
     for (const raw of [`${NBSP}[Mei · Host]`, `a${LINE_SEPARATOR}[x]${PARAGRAPH_SEPARATOR}b`, '[smurg k7f2] go', `${IDEOGRAPHIC}[ smurg k7f2] go`]) {
       const once = agentText(raw).text;

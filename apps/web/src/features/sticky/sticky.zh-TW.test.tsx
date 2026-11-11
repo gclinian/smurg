@@ -1,6 +1,8 @@
 // The sticky notes in Traditional Chinese (DESIGN 0.8.0 D7): the list's words, the open note's, the pages without a
 // note, and what a member does with the open note (Read / Edit, Add a sticky note, Ask Claude). A note's name is a
 // file's name and is never translated: `Home` is Home in both languages (D1.1).
+import { SmurgError } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import { act, cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -97,5 +99,17 @@ describe('the sticky notes in zh-TW', () => {
     await userEvent.click(within(again).getByRole('button', { name: '新增' }));
     await view.settle();
     expect(within(note()).getByText('沒有加上「Coupons」的連結：「Home」現在不能修改。在有便利貼連到「Coupons」之前，它會列在「未連結」下面。')).toBeTruthy();
+    // A note the list has under Home: only that the link was not added (review S4-R4).
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: null }));
+    await userEvent.click(within(tools).getByRole('button', { name: '新增便利貼' }));
+    const third = screen.getByRole('dialog', { name: '新增便利貼' });
+    await userEvent.type(within(third).getByRole('textbox', { name: '新便利貼的名稱' }), 'Checkout');
+    view.conn.handle('sticky.create', () => {
+      act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
+      throw new SmurgError('conflict', msg('sticky.create.exists', { name: 'Checkout' }), { reason: 'exists' });
+    });
+    await userEvent.click(within(third).getByRole('button', { name: '新增' }));
+    await view.settle();
+    expect(within(note()).getByText('沒有加上「Checkout」的連結：「Home」現在不能修改。')).toBeTruthy();
   });
 });

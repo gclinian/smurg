@@ -16,6 +16,8 @@ export const zhTW = {
   'notes.chat.again': '重新啟動 Claude',
   'notes.chat.others': '可使用 agent 的成員可以啟動它。',
   'notes.chat.failed': '沒有啟動 Claude：{reason}',
+  'notes.chat.loadFailed': '無法載入 session 清單：{reason}',
+  'notes.chat.retry': '再試一次',
   'tab.activity': '活動',
   'tab.conflicts': '衝突',
   'tab.transfers': '傳輸',

@@ -110,6 +110,11 @@ describe('drafts', () => {
     expect(drafts.get('s1').focusToken).toBe(1);
     drafts.append('s2', 'quote', null);
     expect(drafts.get('s2')).toMatchObject({ text: 'quote', source: null, focusToken: 1 });
+    // On the same line (the notes view's links, review S4-R3): after a space at the end of the last line.
+    drafts.append('s2', '[[Home]] ', null, { sameLine: true });
+    expect(drafts.get('s2')).toMatchObject({ text: 'quote [[Home]] ', focusToken: 2 });
+    drafts.append('s3', '[[Home]] ', null, { sameLine: true });
+    expect(drafts.get('s3')).toMatchObject({ text: '[[Home]] ', focusToken: 1 });
 
     storage.setItem('smurg.drafts.ws_9', '{"not":"a list"}');
     expect(createDraftsStore('ws_9', storage).getState().size).toBe(0);

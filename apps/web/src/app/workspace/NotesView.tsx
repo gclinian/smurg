@@ -15,14 +15,15 @@
 // Claude's pane (D7.7) is the conversation of the one agent session of purpose `notes` that has not ended (D3.5),
 // found in the sessions store: the frame of a column (features/columns ColumnFrame, keyed by the session's id) around
 // the conversation feature's body, so its composer is the same as everywhere (a message for a member with agent
-// access, a suggestion for an Editor, no box for a Viewer). Before the session list is loaded, a spinner; while there
-// is none, or only an ended one: "Start Claude" / "Start Claude again" (sticky.assistant.start) for a member who may
-// start sessions, a sentence for the others. "Ask Claude about this sticky note" (for a member with a box) puts the
-// note's link and a space into that box's draft (features/conversation/drafts.ts), which takes the focus.
+// access, a suggestion for an Editor, no box for a Viewer). Before the session list is loaded, a spinner; a list that
+// could not be loaded is said, with "Try again"; while there is none, or only an ended one: "Start Claude" / "Start
+// Claude again" (sticky.assistant.start) for a member who may start sessions, a sentence for the others. "Ask Claude
+// about this sticky note" (for a member with a box) puts the note's link and a space into that box's draft
+// (features/conversation/drafts.ts), which takes the focus.
 //
 // This module is a lazy chunk (WorkspaceShell loads it when the sticky notes are first shown): the feature, its
 // renderer and the shared documents it holds come with it, never with the sessions view.
-import { isSessionOver, type AgentSession } from '@smurg/protocol';
+import { isSessionOver, wikiLinkSpans, type AgentSession } from '@smurg/protocol';
 import { useCallback, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { columnId, type ColumnRef } from '../../lib/columns/target.ts';
 import { describeError } from '../../lib/errors.ts';
@@ -50,19 +51,43 @@ function regionStops(root: HTMLElement): HTMLElement[] {
   return [list, ...root.querySelectorAll<HTMLElement>('[data-region-focus]')].filter((element): element is HTMLElement => element !== null && element.closest('[hidden]') === null);
 }
 
-/** Claude for the sticky notes as this page knows it (D3.5): the session list is loaded, the one that has not ended, whether one ended. */
+/**
+ * Claude for the sticky notes as this page knows it (D3.5): what became of the session list (the store stays `ready`
+ * while it reads a list it has again, so `loading` is a new channel's first read), the one that has not ended, whether
+ * one ended.
+ */
 interface NotesAssistant {
-  readonly loaded: boolean;
+  readonly list: 'loading' | 'failed' | 'ready';
+  /** The store's sentence when the list could not be loaded. */
+  readonly error: string | null;
   readonly live: AgentSession | null;
   readonly ended: boolean;
 }
 
 function useNotesAssistant(): NotesAssistant {
   const stores = useStores();
-  const loaded = useStore(stores.sessions, (state) => state.status === 'ready');
+  const list = useStore(stores.sessions, (state) => (state.status === 'ready' ? 'ready' : state.status === 'error' ? 'failed' : 'loading'));
+  const error = useStore(stores.sessions, (state) => state.error);
   const live = useStore(stores.sessions, (state) => selectAgentList(state).find((session) => session.purpose === 'notes' && !isSessionOver(session)) ?? null);
   const ended = useStore(stores.sessions, (state) => selectAgentList(state).some((session) => session.purpose === 'notes' && isSessionOver(session)));
-  return { loaded, live, ended };
+  return { list, error, live, ended };
+}
+
+/**
+ * The draft's last line holds links to sticky notes and nothing else: "Ask Claude" put them there and nothing was
+ * typed after them yet. One pass over that line (wikiLinkSpans), no regular expression.
+ */
+function endsWithLinksOnly(text: string): boolean {
+  const end = text.trimEnd();
+  const line = end.slice(end.lastIndexOf('\n') + 1);
+  const spans = wikiLinkSpans(line);
+  if (spans.length === 0) return false;
+  let at = 0;
+  for (const span of spans) {
+    if (line.slice(at, span.start).trim() !== '') return false;
+    at = span.end;
+  }
+  return line.slice(at).trim() === '';
 }
 
 const NO_ANCHOR = (): void => {};
@@ -77,15 +102,16 @@ function NotesChat({ shown, assistant }: { shown: boolean; assistant: NotesAssis
   const liveId = assistant.live?.id ?? null;
   const target = useMemo<ColumnRef | null>(() => (liveId === null ? null : { kind: 'session', sessionId: liveId }), [liveId]);
 
-  if (!assistant.loaded) {
+  // The conversation the page knows of stays, whatever the list is doing.
+  if (target !== null) {
+    return <ColumnFrame key={liveId} target={target} id={columnId(target)} place="notes" focused visible={shown} anchor={null} onAnchorShown={NO_ANCHOR} />;
+  }
+  if (assistant.list === 'loading') {
     return (
       <div className="app-notes__claude app-notes__claude--waiting">
         <Spinner label={tWorkbench('notes.chat.loading')} />
       </div>
     );
-  }
-  if (target !== null) {
-    return <ColumnFrame key={liveId} target={target} id={columnId(target)} place="notes" focused visible={shown} anchor={null} onAnchorShown={NO_ANCHOR} />;
   }
   const start = (): void => {
     setBusy(true);
@@ -103,6 +129,30 @@ function NotesChat({ shown, assistant }: { shown: boolean; assistant: NotesAssis
       <h2 id={headingId} className="app-notes__claude-title" tabIndex={-1} data-region-focus="">
         {tWorkbench('region.notesChat')}
       </h2>
+      {assistant.list === 'failed' ? (
+        // Whether Claude runs is not known: nothing is offered on a list the page does not have (review S4-R2).
+        <>
+          <p className="app-notes__claude-problem" role="alert">
+            {tWorkbench('notes.chat.loadFailed', { reason: assistant.error ?? '' })}
+          </p>
+          <Button onClick={() => void stores.sessions.reload().catch(() => {})}>{tWorkbench('notes.chat.retry')}</Button>
+        </>
+      ) : (
+        <NotesChatOffer assistant={assistant} canStart={canStart} busy={busy} start={start} />
+      )}
+      {problem !== null ? (
+        <p className="app-notes__claude-problem" role="alert">
+          {problem}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+/** No Claude for the sticky notes, or only an ended one: what it does, and who can start it. */
+function NotesChatOffer({ assistant, canStart, busy, start }: { assistant: NotesAssistant; canStart: boolean; busy: boolean; start: () => void }) {
+  return (
+    <>
       <p className="app-notes__claude-line">{assistant.ended ? tWorkbench('notes.chat.ended') : tWorkbench('notes.chat.none')}</p>
       {canStart ? (
         <Button variant="primary" icon={<IconPlay size={14} />} loading={busy} onClick={start}>
@@ -111,12 +161,7 @@ function NotesChat({ shown, assistant }: { shown: boolean; assistant: NotesAssis
       ) : (
         <p className="app-notes__claude-line">{tWorkbench('notes.chat.others')}</p>
       )}
-      {problem !== null ? (
-        <p className="app-notes__claude-problem" role="alert">
-          {problem}
-        </p>
-      ) : null}
-    </section>
+    </>
   );
 }
 
@@ -128,12 +173,16 @@ export default function NotesView({ shown, note }: NotesViewProps) {
   const liveId = assistant.live?.id ?? null;
   // A member with a box in Claude's conversation: a message (agent access) or a suggestion (an Editor).
   const hasBox = liveId !== null && (caps.canDrive || caps.can('suggest.create'));
-  // The link and a space, on the line the question goes on: a line that is only `[[Name]]` would look like the header
-  // of a message, and the daemon puts `> ` in front of such a line (agentText, @smurg/protocol), so everyone would see
-  // the person's own message quoted.
+  // The link and a space: an invitation to write the question on the link's line. A line that holds only links is a
+  // bracketed line like any other, which the daemon quotes (agentText, @smurg/protocol: `> ` in front, so everyone
+  // would see that part of the person's message as a quotation); a line with the person's words after its links is
+  // left as typed. So a link asked for before anything was typed after the last one joins that line instead of
+  // starting a paragraph: the button itself never leaves a line of links alone, unless nothing at all is typed.
   const askClaude = useCallback(
     (name: string): void => {
-      if (liveId !== null) draftsOf(workspace, workspace.workspaceId).append(liveId, `[[${name}]] `, null);
+      if (liveId === null) return;
+      const drafts = draftsOf(workspace, workspace.workspaceId);
+      drafts.append(liveId, `[[${name}]] `, null, { sameLine: endsWithLinksOnly(drafts.get(liveId).text) });
     },
     [liveId, workspace],
   );

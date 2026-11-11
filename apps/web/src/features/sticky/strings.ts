@@ -39,7 +39,10 @@ export const t = defineStrings(
     'add.name': 'Name of the new sticky note',
     'add.confirm': 'Add',
     'add.done': '{name} is linked at the end of {note}.',
-    'add.readOnly': 'The link to {name} was not added: {note} cannot be changed right now. {name} is under "Not linked" until a sticky note links to it.',
+    'add.readOnly': 'The link to {name} was not added: {note} cannot be changed right now.',
+    // Said after add.readOnly only when the list really has the new note under "Not linked" (review S4-R4): a note
+    // another one already linked to is under that one, and one that was there may be anywhere.
+    'add.notLinked': '{name} is under "Not linked" until a sticky note links to it.',
     // The pages without a note (D7.6).
     'first.title': 'Start with one sticky note',
     'first.body': 'Every sticky note grows from the first one, Home: a sticky note links to the next with [[Name]].',

@@ -35,8 +35,11 @@ export interface DraftsStore extends ReadableStore<ReadonlyMap<string, Draft>> {
   get(sessionId: string): Draft;
   setText(sessionId: string, text: string): void;
   setSource(sessionId: string, source: DraftSource | null): void;
-  /** Adds `text` under what is there (a quoted selection) and asks the composer to take the focus. */
-  append(sessionId: string, text: string, source: DraftSource | null): void;
+  /**
+   * Adds `text` under what is there (a quoted selection), or with `sameLine` at the end of the draft's last line after
+   * a space, and asks the composer to take the focus.
+   */
+  append(sessionId: string, text: string, source: DraftSource | null, options?: { readonly sameLine?: boolean }): void;
   clear(sessionId: string): void;
   /** The member's access has ended: every draft goes, from the page and from the storage, and none is kept from now on. */
   forget(): void;
@@ -126,9 +129,9 @@ export function createDraftsStore(workspaceId: string | null, storage: Preferenc
     setSource(sessionId, source) {
       put(sessionId, (draft) => (draft.source === source ? draft : { ...draft, source }));
     },
-    append(sessionId, text, source) {
+    append(sessionId, text, source, options = {}) {
       put(sessionId, (draft) => ({
-        text: draft.text.trim() === '' ? text : `${draft.text.trimEnd()}\n\n${text}`,
+        text: draft.text.trim() === '' ? text : `${draft.text.trimEnd()}${options.sameLine === true ? ' ' : '\n\n'}${text}`,
         source: source ?? draft.source,
         focusToken: draft.focusToken + 1,
       }));

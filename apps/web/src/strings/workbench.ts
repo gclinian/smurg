@@ -24,6 +24,9 @@ export const tWorkbench = defineStrings(
     'notes.chat.again': 'Start Claude again',
     'notes.chat.others': 'A member with agent access can start it.',
     'notes.chat.failed': 'Claude was not started: {reason}',
+    // The session list could not be loaded: whether Claude runs is not known, so nothing is offered (review S4-R2).
+    'notes.chat.loadFailed': 'The session list could not be loaded: {reason}',
+    'notes.chat.retry': 'Try again',
     'tab.activity': 'Activity',
     'tab.conflicts': 'Conflicts',
     'tab.transfers': 'Transfers',

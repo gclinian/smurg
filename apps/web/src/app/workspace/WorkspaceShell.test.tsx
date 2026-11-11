@@ -2,7 +2,7 @@
 // commands that move between them, the overlays, the tab's title, F6, and the empty states of the right side.
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MAIN_ROOT, SmurgError, type AgentSession, type ConversationEvent, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
+import { MAIN_ROOT, SmurgError, agentText, type AgentSession, type ConversationEvent, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildAgentSession, buildEvent, buildInboxItem, buildTopic } from '@smurg/protocol/testing';
 import { useEffect } from 'react';
@@ -353,6 +353,8 @@ describe('the workspace shell: Claude for the sticky notes, on the right of the 
     const title = await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
     expect(title.hasAttribute('data-region-focus')).toBe(true);
     expect(pane().textContent).toContain('Claude helps you write and order the sticky notes. It reads the project and writes only sticky notes, which everyone sees at once.');
+    // No conversation, no box: nothing to ask Claude in (review S4-T3).
+    expect(within(view('notes')).queryByRole('button', { name: 'Ask Claude about this sticky note' })).toBeNull();
     // A new channel: the session list is loaded again, and until it is the pane offers nothing.
     act(() => conn.admit(makeWelcome({ role: 'host', channelId: 'ch_2' })));
     expect(within(pane()).getByText('Loading Claude for the sticky notes…')).toBeTruthy();
@@ -372,12 +374,78 @@ describe('the workspace shell: Claude for the sticky notes, on the right of the 
     expect(column.getAttribute('data-column-id')).toBe('session:s_notes');
     expect(within(column).getByTestId('body-session:s_notes').getAttribute('data-place')).toBe('notes');
     expect(within(column).getByTestId('body-session:s_notes').getAttribute('data-visible')).toBe('true');
+    expect(within(view('notes')).getByRole('button', { name: 'Ask Claude about this sticky note' })).toBeTruthy();
+  }, 30_000);
+
+  it('the session list read again over the one the page has (a topic restored by anyone) leaves Claude\'s conversation where it is: the same column, its one watch, the focus in its box; a read that fails too (review S4-R1)', async () => {
+    const { conn } = await withClaude('host');
+    const box = (await within(pane()).findByRole('combobox', { name: 'Message Claude · Sticky notes' }, { timeout: 15_000 })) as HTMLTextAreaElement;
+    const column = within(pane()).getByRole('region', { name: 'Sticky notes' });
+    await userEvent.click(box);
+    await userEvent.type(box, 'Half a question');
+    const watches = conn.requestsOf('session.watch').length;
+    for (const answer of ['list', 'failure'] as const) {
+      const lists = conn.requestsOf('session.list').length;
+      act(() => conn.emit('topic.updated', { topic: { ...TOPIC, archived: true } }));
+      act(() => conn.emit('topic.updated', { topic: TOPIC }));
+      expect(conn.requestsOf('session.list'), answer).toHaveLength(lists + 1);
+      expect(within(pane()).queryByText('Loading Claude for the sticky notes…'), answer).toBeNull();
+      expect(within(pane()).getByRole('region', { name: 'Sticky notes' }), answer).toBe(column);
+      await act(async () => {
+        if (answer === 'list') conn.respond('session.list', { sessions: [NOTES_SESSION], hasMore: false });
+        else conn.fail('session.list', new SmurgError('internal', 'not implemented: sessions'));
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      expect(within(pane()).getByRole('region', { name: 'Sticky notes' }), answer).toBe(column);
+      expect(document.activeElement, answer).toBe(box);
+      expect(box.value, answer).toBe('Half a question');
+      expect(conn.requestsOf('session.watch'), answer).toHaveLength(watches);
+    }
+  }, 30_000);
+
+  it('a session list that could not be loaded is said with the host\'s words, nothing is offered on it, and "Try again" reads it again (review S4-R2)', async () => {
+    const { conn } = await shownNotes({ path: NOTES_PATH, role: 'host', notes: HOME, sessions: [] });
+    await within(pane()).findByRole('button', { name: 'Start Claude' }, { timeout: 15_000 });
+    // A new channel whose session list fails: the store keeps the failure until the next new channel.
+    act(() => conn.admit(makeWelcome({ role: 'host', channelId: 'ch_2' })));
+    await act(async () => {
+      conn.fail('session.list', new SmurgError('internal', 'not implemented: sessions'));
+      answerLoads(conn);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(pane()).getByRole('heading', { level: 2, name: 'Claude for the sticky notes' })).toBeTruthy();
+    expect(within(pane()).getByRole('alert').textContent).toBe('The session list could not be loaded: Something went wrong on the host.');
+    expect(within(pane()).queryByText('Loading Claude for the sticky notes…')).toBeNull();
+    expect(within(pane()).queryByRole('button', { name: /Start Claude/ })).toBeNull();
+    expect(within(view('notes')).queryByRole('button', { name: 'Ask Claude about this sticky note' })).toBeNull();
+    const lists = conn.requestsOf('session.list').length;
+    await userEvent.click(within(pane()).getByRole('button', { name: 'Try again' }));
+    expect(conn.requestsOf('session.list')).toHaveLength(lists + 1);
+    expect(within(pane()).getByText('Loading Claude for the sticky notes…')).toBeTruthy();
+    await act(async () => {
+      conn.respond('session.list', { sessions: [ENDED], hasMore: false });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(pane()).queryByRole('alert')).toBeNull();
+    expect(within(pane()).getByRole('button', { name: 'Start Claude again' })).toBeTruthy();
+    // Without a list, a conversation the page comes to know of (its session.state) is shown all the same.
+    act(() => conn.admit(makeWelcome({ role: 'host', channelId: 'ch_3' })));
+    await act(async () => {
+      conn.fail('session.list', new SmurgError('internal', 'not implemented: sessions'));
+      answerLoads(conn);
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(pane()).getByRole('alert').textContent).toBe('The session list could not be loaded: Something went wrong on the host.');
+    act(() => conn.emit('session.state', { session: NOTES_SESSION }));
+    expect(within(pane()).getByRole('region', { name: 'Sticky notes' }).getAttribute('data-column-id')).toBe('session:s_notes');
   }, 30_000);
 
   it('only an ended one: "Start Claude again"; a member who may not start sessions is told who can; a refusal is said', async () => {
     const { conn } = await shownNotes({ path: NOTES_PATH, role: 'host', notes: HOME, sessions: [ENDED] });
     await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
     expect(pane().textContent).toContain('Claude for the sticky notes has ended.');
+    // An ended conversation has no box: nothing to ask Claude in (review S4-T3).
+    expect(within(view('notes')).queryByRole('button', { name: 'Ask Claude about this sticky note' })).toBeNull();
     conn.handle('sticky.assistant.start', () => {
       throw new SmurgError('conflict', msg('session.limit.agents', { max: 8 }), { reason: 'limit' });
     });
@@ -387,12 +455,18 @@ describe('the workspace shell: Claude for the sticky notes, on the right of the 
     });
     expect(within(pane()).getByRole('alert').textContent).toMatch(/^Claude was not started: /);
     cleanup();
+    // None, or only an ended one (review S4-T2): the same sentence about who can start it, and no button.
     for (const role of ['editor', 'viewer'] as const) {
-      await shownNotes({ path: NOTES_PATH, role, notes: HOME, sessions: [] });
-      await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
-      expect(pane().textContent, role).toContain('A member with agent access can start it.');
-      expect(within(pane()).queryByRole('button'), role).toBeNull();
-      cleanup();
+      for (const sessions of [[], [ENDED]]) {
+        const what = `${role}, ${sessions.length === 0 ? 'none' : 'ended'}`;
+        await shownNotes({ path: NOTES_PATH, role, notes: HOME, sessions });
+        await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
+        expect(pane().textContent, what).toContain(sessions.length === 0 ? 'Claude helps you write and order the sticky notes.' : 'Claude for the sticky notes has ended.');
+        expect(pane().textContent, what).toContain('A member with agent access can start it.');
+        expect(within(pane()).queryByRole('button'), what).toBeNull();
+        expect(within(view('notes')).queryByRole('button', { name: 'Ask Claude about this sticky note' }), what).toBeNull();
+        cleanup();
+      }
     }
   }, 60_000);
 
@@ -421,6 +495,17 @@ describe('the workspace shell: Claude for the sticky notes, on the right of the 
     await within(view('notes')).findByRole('heading', { level: 2, name: 'Ideas' });
     await userEvent.click(await within(view('notes')).findByRole('button', { name: 'Ask Claude about this sticky note' }));
     expect(box.value).toBe('[[Home]] What is missing here?\n\n[[Ideas]] ');
+    // Asked again before anything was typed after the last link: the next link joins that line, so the button never
+    // leaves a line of the draft that is only links (review S4-R3).
+    await userEvent.click(within(screen.getByRole('treeitem', { name: 'Home' })).getByText('Home'));
+    await within(view('notes')).findByRole('heading', { level: 2, name: 'Home' });
+    await userEvent.click(await within(view('notes')).findByRole('button', { name: 'Ask Claude about this sticky note' }));
+    expect(box.value).toBe('[[Home]] What is missing here?\n\n[[Ideas]] [[Home]] ');
+    expect(document.activeElement).toBe(box);
+    await userEvent.type(box, 'How do these two connect?');
+    // What the host stores, shows and sends is what was typed: a line with words after its links is no header
+    // look-alike, so the daemon quotes none of it (agentText; a link left alone on its line would be quoted).
+    expect(agentText(box.value).text).toBe('[[Home]] What is missing here?\n\n[[Ideas]] [[Home]] How do these two connect?');
     cleanup();
     await withClaude('viewer');
     await within(pane()).findByText('As a viewer you can watch this session. You cannot send messages, make suggestions or vote.', {}, { timeout: 15_000 });
@@ -437,9 +522,17 @@ describe('the workspace shell: Claude for the sticky notes, on the right of the 
     expect(document.querySelector('.app-shell')?.getAttribute('data-mode')).toBe('notes');
     expect(await within(view('notes')).findByRole('heading', { level: 2, name: 'Ideas' })).toBeTruthy();
     expect(view('code').childElementCount).toBe(0);
-    // A file that is no sticky note's (notes/CLAUDE.md is never one) opens in code mode, as before.
     const opened = vi.fn();
     session.commands.observe('openFile', opened);
+    // A work item's copy, notes/Ideas.md of a worktree, is no sticky note (the notes are the main folder's files): it
+    // opens in code mode, on that worktree (review S4-T1).
+    const copy = { kind: 'worktree', worktreeId: 'wt_1' } as const;
+    act(() => void session.commands.dispatch('openInCodeMode', { root: copy, file: 'notes/Ideas.md', sessionId: 's_notes' }).catch(() => {}));
+    expect(path()).toBe(CODE_PATH);
+    await waitFor(() => expect(opened).toHaveBeenCalledWith({ file: { root: copy, path: 'notes/Ideas.md' } }), { timeout: 15_000 });
+    await dispatch('setMode', { mode: 'notes' });
+    expect(path()).toBe(`${NOTES_PATH}/Ideas`);
+    // A file that is no sticky note's (notes/CLAUDE.md is never one) opens in code mode, as before.
     act(() => void session.commands.dispatch('openInCodeMode', { root: MAIN_ROOT, file: 'notes/CLAUDE.md', sessionId: 's_notes' }).catch(() => {}));
     expect(path()).toBe(CODE_PATH);
     await waitFor(() => expect(opened).toHaveBeenCalledWith({ file: { root: MAIN_ROOT, path: 'notes/CLAUDE.md' } }), { timeout: 15_000 });

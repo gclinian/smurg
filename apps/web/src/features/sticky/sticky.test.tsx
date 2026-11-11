@@ -452,6 +452,48 @@ describe('the open sticky note, edited (D7.5)', () => {
     expect(within(tools()).getByRole('button', { name: 'Add a sticky note' })).toBeTruthy();
   });
 
+  it('the note became read-only while the name was on its way, and the new note is not under "Not linked": the page says only that the link was not added (review S4-R4, S4-SEC-1)', async () => {
+    // Ideas already links to Coupons before Coupons is written (a "not written yet" link, D7.6), so the new note is
+    // under Ideas the moment it exists; Checkout is there, under Home; Home is never under "Not linked".
+    const notes = NOTES.map((one) => (one.name === 'Ideas' ? { ...one, links: ['Checkout', 'Coupons'] } : one));
+    const cases = [
+      { from: 'Home', typed: 'Coupons', answer: 'created' },
+      { from: 'Home', typed: 'checkout', answer: 'exists' },
+      { from: 'Checkout', typed: 'Home', answer: 'exists' },
+    ] as const;
+    for (const { from, typed, answer } of cases) {
+      const view = await shown({ path: notePath(from), notes });
+      const what = `${typed} from ${from}`;
+      const before = roomOf(view, from).text;
+      if (answer === 'exists') {
+        view.conn.handle('sticky.create', () => {
+          throw new SmurgError('conflict', msg('sticky.create.exists', { name: typed }), { reason: 'exists' });
+        });
+      }
+      await userEvent.click(within(tools()).getByRole('button', { name: 'Add a sticky note' }));
+      await userEvent.type(nameBox(), typed);
+      // Claude takes the note's lock while the dialog is open (an "exists" is answered at once).
+      act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: `notes/${from}.md` }, lock: makeAgentLock(`notes/${from}.md`) }));
+      await userEvent.click(within(addDialog()).getByRole('button', { name: 'Add' }));
+      if (answer === 'created') {
+        await act(async () => {
+          view.conn.respond('sticky.create', { note: { name: 'Coupons', links: [] } });
+        });
+      }
+      await view.settle();
+      expect(screen.queryByRole('dialog'), what).toBeNull();
+      expect(roomOf(view, from).text, what).toBe(before);
+      const linked = typed === 'checkout' ? 'Checkout' : typed;
+      expect(within(note()).getByText(`The link to ${linked} was not added: ${from} cannot be changed right now.`), what).toBeTruthy();
+      expect(note().textContent, what).not.toContain('"Not linked"');
+      expect(within(within(list()).getByRole('tree', { name: 'Not linked' })).queryByRole('treeitem', { name: linked }), what).toBeNull();
+      // Where the list has it: in the tree grown from Home (Coupons under Ideas, whose row is folded).
+      const tree = selectNoteTree(view.stores.sticky.getState());
+      expect(linked === 'Home' ? tree.home?.name : ancestorsOf(tree.home, linked), what).toEqual(linked === 'Home' ? 'Home' : linked === 'Coupons' ? [HOME_KEY, noteKey('Ideas')] : [HOME_KEY]);
+      cleanup();
+    }
+  });
+
   it('"Ask Claude about this sticky note" hands the view the note\'s name on disk; without the view\'s handler there is no button', async () => {
     const ask = vi.fn();
     const view = await shown({ path: notePath('payment form'), onAskClaude: ask });

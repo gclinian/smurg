@@ -3,13 +3,15 @@
 // its shared document, as if typed: everyone who has the note open sees the link at once, and the autosave writes it.
 // "exists" is no failure: the note is there, and the link is added all the same. The button is there only while the
 // open note takes a change (the role may write, the replica has the daemon's text, no agent holds its lock); when the
-// note stopped taking one while the name was on its way, nothing is written into it, and the page says so: the new
-// note is in the list under "Not linked". One press makes one note: a second press while the first is on its way does
-// nothing.
+// note stopped taking one while the name was on its way, nothing is written into it, and the page says so, and says
+// that the new note is under "Not linked" only when the list has it there (a note another one already linked to is
+// under that one; one that was there may be anywhere). One press makes one note: a second press while the first is on
+// its way does nothing.
 import { errorReasonOf, isSmurgError } from '@smurg/protocol';
 import { useId, useRef, useState, type FormEvent } from 'react';
 import { describeError } from '../../lib/errors.ts';
-import { selectNote } from '../../lib/stores/sticky.ts';
+import { joinSentences } from '../../lib/format.ts';
+import { selectNote, selectNoteTree } from '../../lib/stores/sticky.ts';
 import { useMember, useStores } from '../../lib/workspace/context.tsx';
 import { tApp } from '../../strings/app.ts';
 import { Button, Dialog, Input } from '../../ui/index.ts';
@@ -67,7 +69,10 @@ export function AddNote({ held, from, available, onSaid }: AddNoteProps) {
       }
       const session = held.session;
       if (session === undefined || !heldDocumentWritable(held, stores, userId)) {
-        onSaid(t('add.readOnly', { name: linked, note: from }));
+        // The list decides where the note is: under "Not linked" only when no note Home reaches links to it.
+        const key = noteKey(linked);
+        const notLinked = selectNoteTree(stores.sticky.getState()).notLinked.some((note) => note.shadowed !== true && noteKey(note.name) === key);
+        onSaid(joinSentences([t('add.readOnly', { name: linked, note: from }), notLinked ? t('add.notLinked', { name: linked }) : null]));
         close();
         return;
       }

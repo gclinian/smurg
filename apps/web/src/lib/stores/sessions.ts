@@ -186,9 +186,16 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
 
   const load = (): Promise<void> => {
     const c = context();
+    // A read of the list while the page has one (a restored topic brings its sessions back) never shows it loading or
+    // failed: a view would take that for a first load and put a spinner in the place of what it shows, a conversation
+    // among them (review S4-R1). Its answer replaces the list as any snapshot does; a failure keeps the list and is
+    // reported. A new channel's list (after reset) and a read after a failed one are loads.
+    const refresh = state.getState().status === 'ready';
     return loadSnapshot(
       c,
-      (loadable) => state.setState((previous) => ({ ...previous, ...loadable })),
+      (loadable) => {
+        if (!refresh) state.setState((previous) => ({ ...previous, ...loadable }));
+      },
       () => listAll(c),
       (sessions) => state.setState((previous) => ({ ...previous, ...readyState(), sessions: mapFrom(sessions, (s) => s.id) })),
     );

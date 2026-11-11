@@ -1,6 +1,7 @@
 // @vitest-environment node
 // The sessions store: the union of agent sessions and terminals, the requests about an agent session, what an
 // archived or deleted topic does to the list, and the one name of a session (P0-API §3.1).
+import { SmurgError } from '@smurg/protocol';
 import { buildAgentSession, buildTerminalSession, buildTopic } from '@smurg/protocol/testing';
 import { describe, expect, it } from 'vitest';
 import { applyLocale } from '../locale.ts';
@@ -100,6 +101,31 @@ describe('sessions store', () => {
     conn.emit('topic.updated', { topic: buildTopic({ archived: true }) });
     conn.emit('topic.removed', { topicId: 'tp_1' });
     expect(selectSession(stores.sessions.getState(), 's_disc')).toBeUndefined();
+  });
+
+  it('read again over the list it has (a restored topic), the list stays ready and as it was until the answer replaces it; a read that fails keeps it and is reported (review S4-R1)', async () => {
+    const { conn, stores, flush } = await ready();
+    const seen: string[] = [];
+    const off = stores.sessions.subscribe(() => seen.push(stores.sessions.getState().status));
+    conn.emit('topic.updated', { topic: buildTopic({ archived: true }) });
+    conn.emit('topic.updated', { topic: buildTopic({ archived: false }) });
+    expect(conn.pendingOf('session.list')).toHaveLength(1);
+    // While the answer comes, what the page has stays: a view never takes it for a first load (a spinner in its place).
+    expect(stores.sessions.getState()).toMatchObject({ status: 'ready', error: null });
+    expect([...stores.sessions.getState().sessions.keys()].sort()).toEqual(['s_free', 's_term']);
+    conn.respond('session.list', { sessions: [discussion, item, free, terminal], hasMore: false });
+    await flush();
+    expect(stores.sessions.getState().sessions.size).toBe(4);
+    conn.emit('topic.updated', { topic: buildTopic({ archived: true }) });
+    conn.emit('topic.updated', { topic: buildTopic({ archived: false }) });
+    conn.fail('session.list', new SmurgError('internal', 'not implemented: sessions'));
+    await flush();
+    expect(stores.sessions.getState()).toMatchObject({ status: 'ready', error: null });
+    expect([...stores.sessions.getState().sessions.keys()].sort()).toEqual(['s_free', 's_term']);
+    expect(stores.errors.getState().map((event) => event.area)).toEqual(['sessions']);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((status) => status === 'ready')).toBe(true);
+    off();
   });
 
   it('ofTopic() reads every session of a topic, newest first, and keeps the ones the list does not hold', async () => {
