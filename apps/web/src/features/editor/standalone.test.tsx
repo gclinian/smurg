@@ -1,15 +1,16 @@
 // A document on its own inside a column (standalone.tsx) and the holds that keep it open (doc-holds.ts): what the
 // spec and plan columns of the sessions view mount (DESIGN §5.4).
-import { DOC_TEXT_NAME, MAIN_ROOT, fileRefKey, type FileRef } from '@smurg/protocol';
-import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { DOC_TEXT_NAME, MAIN_ROOT, fileRefKey, type FileRef, type Role } from '@smurg/protocol';
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { useState } from 'react';
 import { afterEach, describe, expect, it } from 'vitest';
 import { ChunkLoadError } from '../../lib/chunks.ts';
+import { makeAgentLock } from '../../testing/fixtures.ts';
 import { renderInWorkspace } from '../../testing/services.tsx';
 import { docHoldsFor, selectEditorDocs } from './doc-holds.ts';
 import { EditorEngineContext } from './engine.ts';
 import { EditorArea } from './index.tsx';
-import { DOCUMENT_TEXT_INTERVAL_MS, StandaloneDocument, useDocumentText, useHeldDocument } from './standalone.tsx';
+import { DOCUMENT_TEXT_INTERVAL_MS, StandaloneDocument, heldDocumentWritable, useDocumentText, useHeldDocument, useHeldDocumentWritable, type HeldDocument } from './standalone.tsx';
 import { createFakeEngine } from './testing/fake-engine.ts';
 import { bridgeDocs, testUser } from './testing/test-room.ts';
 
@@ -22,23 +23,29 @@ afterEach(() => {
   for (const dispose of disposers.splice(0)) dispose();
 });
 
+/** The document the column holds, for a test that looks at it from outside. */
+let lastHeld: HeldDocument | null = null;
+
 /** A column that shows the document's text and, on request, its editor; beside it the editor area of code mode. */
-function Column({ file, startEditing = false }: { file: FileRef | null; startEditing?: boolean }) {
+function Column({ file, startEditing = false, sendToAgent }: { file: FileRef | null; startEditing?: boolean; sendToAgent?: boolean }) {
   const held = useHeldDocument(file);
   const text = useDocumentText(held?.session);
+  const writable = useHeldDocumentWritable(held);
   const [editing, setEditing] = useState(startEditing);
+  lastHeld = held;
   return (
     <div>
       <output data-testid="text">{text ?? '(none)'}</output>
+      <output data-testid="writable">{String(writable)}</output>
       <button type="button" onClick={() => setEditing((on) => !on)}>
         toggle editing
       </button>
-      {held !== null && editing ? <StandaloneDocument held={held} active /> : null}
+      {held !== null && editing ? <StandaloneDocument held={held} active {...(sendToAgent === undefined ? {} : { sendToAgent })} /> : null}
     </div>
   );
 }
 
-function setup(options: { column?: boolean; startEditing?: boolean; role?: 'editor' | 'viewer' } = {}) {
+function setup(options: { column?: boolean; startEditing?: boolean; role?: Role; sendToAgent?: boolean } = {}) {
   const fake = createFakeEngine();
   function Page() {
     const [shown, setShown] = useState(options.column !== false);
@@ -47,7 +54,7 @@ function setup(options: { column?: boolean; startEditing?: boolean; role?: 'edit
         <button type="button" onClick={() => setShown((on) => !on)}>
           toggle column
         </button>
-        {shown ? <Column file={SPEC} startEditing={options.startEditing === true} /> : null}
+        {shown ? <Column file={SPEC} startEditing={options.startEditing === true} {...(options.sendToAgent === undefined ? {} : { sendToAgent: options.sendToAgent })} /> : null}
         <EditorArea />
       </EditorEngineContext.Provider>
     );
@@ -173,6 +180,55 @@ describe('the editor of a held document, on its own', () => {
     // Typing in the column's editor is what the rendered view shows.
     act(() => view.fake.bindings[0]?.ytext.insert(0, '> draft\n\n'));
     await waitFor(() => expect(screen.getByTestId('text').textContent).toBe(`> draft\n\n${TEXT}`), { timeout: DOCUMENT_TEXT_INTERVAL_MS * 10 });
+  });
+
+  it('"Send to agent" is there for a role that may send, unless the place says none (sendToAgent false: the open sticky note)', async () => {
+    // The default: the header's menu and the editor's action, for the host.
+    const view = setup({ column: false, startEditing: true, role: 'host' });
+    await view.settle();
+    fireEvent.click(screen.getByRole('button', { name: 'toggle column' }));
+    await view.settle();
+    await waitFor(() => expect(view.fake.bindings).toHaveLength(1));
+    expect(screen.getByRole('button', { name: /Send to agent/ })).toBeTruthy();
+    expect(view.fake.editors.at(-1)?.actions.has('smurg.sendToAgent')).toBe(true);
+    view.session.dispose();
+    cleanup();
+
+    // sendToAgent false: neither, for the same host; the editor itself is the same (it writes).
+    const without = setup({ column: false, startEditing: true, role: 'host', sendToAgent: false });
+    await without.settle();
+    fireEvent.click(screen.getByRole('button', { name: 'toggle column' }));
+    await without.settle();
+    await waitFor(() => expect(without.fake.bindings).toHaveLength(1));
+    expect(screen.getByRole('group', { name: 'Editor for specs/checkout/SPEC.md' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Send to agent/ })).toBeNull();
+    expect(without.fake.editors.at(-1)?.actions.has('smurg.sendToAgent')).toBe(false);
+    await waitFor(() => expect(without.fake.editors.at(-1)?.readOnly).toBe(false));
+  });
+
+  it('whether a change made now would hold: not before the first sync, yes once synced, no while an agent holds the lock, never for a viewer', async () => {
+    const view = setup({ column: false });
+    await view.settle();
+    fireEvent.click(screen.getByRole('button', { name: 'toggle column' }));
+    expect(screen.getByTestId('writable').textContent).toBe('false');
+    await view.settle();
+    expect(screen.getByTestId('writable').textContent).toBe('true');
+    expect(heldDocumentWritable(lastHeld as HeldDocument, view.stores, 'dev:amy')).toBe(true);
+    act(() => view.conn.emit('lock.state', { file: SPEC, lock: makeAgentLock(SPEC.path) }));
+    expect(screen.getByTestId('writable').textContent).toBe('false');
+    expect(heldDocumentWritable(lastHeld as HeldDocument, view.stores, 'dev:amy')).toBe(false);
+    act(() => view.conn.emit('lock.state', { file: SPEC, lock: null }));
+    expect(screen.getByTestId('writable').textContent).toBe('true');
+    view.session.dispose();
+    cleanup();
+
+    const viewer = setup({ column: false, role: 'viewer' });
+    await viewer.settle();
+    fireEvent.click(screen.getByRole('button', { name: 'toggle column' }));
+    await viewer.settle();
+    expect(screen.getByTestId('text').textContent).toBe(TEXT);
+    expect(screen.getByTestId('writable').textContent).toBe('false');
+    expect(heldDocumentWritable(lastHeld as HeldDocument, viewer.stores, 'dev:amy')).toBe(false);
   });
 
   it('a viewer’s editor is read-only', async () => {

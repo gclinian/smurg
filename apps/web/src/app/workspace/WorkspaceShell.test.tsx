@@ -1,16 +1,19 @@
 // The workspace shell (DESIGN §5.1, AD-12; UX §1, §2, §11, §12): the mode is a route, both views stay mounted, the
 // commands that move between them, the overlays, the tab's title, F6, and the empty states of the right side.
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MAIN_ROOT, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
-import { buildInboxItem, buildTopic } from '@smurg/protocol/testing';
+import { MAIN_ROOT, SmurgError, type AgentSession, type ConversationEvent, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
+import { buildAgentSession, buildEvent, buildInboxItem, buildTopic } from '@smurg/protocol/testing';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { CommandMap } from '../../lib/commands.ts';
 import { createSlotRegistry, type FeatureSlots } from '../../lib/slots.ts';
 import { useCommandHandler } from '../../lib/workspace/context.tsx';
-import { CART, DISCUSSION, FREE, PROBES, TERMINAL, TOPIC } from '../../features/columns/test-support.tsx';
-import { WORKSPACE_ID, makeConflict, makeWelcome } from '../../testing/fixtures.ts';
+import { CART, DISCUSSION, FREE, IAN, PROBES, TERMINAL, TOPIC } from '../../features/columns/test-support.tsx';
+import { slots as conversationSlots } from '../../features/conversation/slots.tsx';
+import { watchReply } from '../../features/conversation/test-support.tsx';
+import { WORKSPACE_ID, makeConflict, makeEntry, makeWelcome } from '../../testing/fixtures.ts';
 import { createTestServices } from '../../testing/services.tsx';
 import { answerLoads } from '../../testing/stores.ts';
 import { ToastProvider } from '../../ui/index.ts';
@@ -302,19 +305,150 @@ describe('the workspace shell: the sticky notes, a third view', () => {
     expect(services.router.assigned[0]).not.toMatch(/Payment/i);
   }, 30_000);
 
-  it('F6 and Shift+F6 move between the list of sticky notes and the open note; the skip link leads to the note', async () => {
+  it('F6 and Shift+F6 move between the list of sticky notes, the open note and Claude\'s pane; the skip link leads to the note', async () => {
     await open({ path: NOTES_PATH, notes: [{ name: 'Home', links: [] }] });
     const home = await screen.findByRole('treeitem', { name: 'Home' }, { timeout: 15_000 });
     const name = screen.getByRole('heading', { level: 2, name: 'Home' });
+    // Claude's pane is the third stop since it has something to say (BUILD-PLAN S4, DESIGN 0.8.0 D7.7): until then the
+    // right pane was empty and F6 went from the note back to the list.
+    const claude = within(view('notes')).getByRole('heading', { level: 2, name: 'Claude for the sticky notes' });
     act(() => home.focus());
     await userEvent.keyboard('{F6}');
     expect(document.activeElement).toBe(name);
     await userEvent.keyboard('{F6}');
+    expect(document.activeElement).toBe(claude);
+    await userEvent.keyboard('{F6}');
     expect(document.activeElement).toBe(home);
+    await userEvent.keyboard('{Shift>}{F6}{/Shift}');
+    expect(document.activeElement).toBe(claude);
     await userEvent.keyboard('{Shift>}{F6}{/Shift}');
     expect(document.activeElement).toBe(name);
     expect(within(view('notes')).getByRole('link', { name: 'Skip to the sticky note' }).getAttribute('href')).toBe('#notes-main');
   }, 30_000);
+});
+
+describe('the workspace shell: Claude for the sticky notes, on the right of the sticky notes (DESIGN 0.8.0 D7.7)', () => {
+  const NOTES_SESSION = buildAgentSession({ id: 's_notes', purpose: 'notes', modeFixed: true, openedBy: IAN, createdAt: 5 });
+  const ENDED = buildAgentSession({ id: 's_notes_old', purpose: 'notes', modeFixed: true, openedBy: IAN, createdAt: 1, status: 'ended' });
+  const HOME: NoteInfo[] = [{ name: 'Home', links: ['Ideas'] }, { name: 'Ideas', links: [] }];
+  const pane = (): HTMLElement => view('notes').querySelector('.app-notes__chat') as HTMLElement;
+  /** The real conversation feature in the column (its composer is what each role is shown). */
+  const REAL: readonly FeatureSlots[] = [conversationSlots];
+
+  /** The sticky notes at Home, once their chunk is there. */
+  async function shownNotes(options: OpenOptions) {
+    const opened = await open(options);
+    await screen.findByRole('main', { name: 'Open sticky note' }, { timeout: 15_000 });
+    return opened;
+  }
+
+  async function withClaude(role: Role, sessions: readonly SessionInfo[] = [NOTES_SESSION], events: readonly ConversationEvent[] = []) {
+    const opened = await shownNotes({ path: NOTES_PATH, role, notes: HOME, sessions, slots: REAL });
+    opened.conn.handle('session.watch', ({ sessionId }) => watchReply(sessions.find((session) => session.id === sessionId) as AgentSession, events));
+    return opened;
+  }
+
+  it('a spinner until the session list is loaded; with no Claude for the sticky notes, "Start Claude" for a member who may start sessions, and its conversation once started', async () => {
+    const { conn } = await shownNotes({ path: NOTES_PATH, role: 'host', notes: HOME, sessions: [] });
+    const title = await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
+    expect(title.hasAttribute('data-region-focus')).toBe(true);
+    expect(pane().textContent).toContain('Claude helps you write and order the sticky notes. It reads the project and writes only sticky notes, which everyone sees at once.');
+    // A new channel: the session list is loaded again, and until it is the pane offers nothing.
+    act(() => conn.admit(makeWelcome({ role: 'host', channelId: 'ch_2' })));
+    expect(within(pane()).getByText('Loading Claude for the sticky notes…')).toBeTruthy();
+    expect(within(pane()).queryByRole('button')).toBeNull();
+    await act(async () => {
+      answerLoads(conn, { 'session.list': { sessions: [], hasMore: false } });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    await userEvent.click(within(pane()).getByRole('button', { name: 'Start Claude' }));
+    expect(conn.requestsOf('sticky.assistant.start').map((request) => request.payload)).toEqual([{}]);
+    await act(async () => {
+      conn.respond('sticky.assistant.start', { session: NOTES_SESSION });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    // The column of that session, keyed by its id: its body is told where it stands.
+    const column = within(pane()).getByRole('region', { name: 'Sticky notes' });
+    expect(column.getAttribute('data-column-id')).toBe('session:s_notes');
+    expect(within(column).getByTestId('body-session:s_notes').getAttribute('data-place')).toBe('notes');
+    expect(within(column).getByTestId('body-session:s_notes').getAttribute('data-visible')).toBe('true');
+  }, 30_000);
+
+  it('only an ended one: "Start Claude again"; a member who may not start sessions is told who can; a refusal is said', async () => {
+    const { conn } = await shownNotes({ path: NOTES_PATH, role: 'host', notes: HOME, sessions: [ENDED] });
+    await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
+    expect(pane().textContent).toContain('Claude for the sticky notes has ended.');
+    conn.handle('sticky.assistant.start', () => {
+      throw new SmurgError('conflict', msg('session.limit.agents', { max: 8 }), { reason: 'limit' });
+    });
+    await userEvent.click(within(pane()).getByRole('button', { name: 'Start Claude again' }));
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(within(pane()).getByRole('alert').textContent).toMatch(/^Claude was not started: /);
+    cleanup();
+    for (const role of ['editor', 'viewer'] as const) {
+      await shownNotes({ path: NOTES_PATH, role, notes: HOME, sessions: [] });
+      await within(pane()).findByRole('heading', { level: 2, name: 'Claude for the sticky notes' }, { timeout: 15_000 });
+      expect(pane().textContent, role).toContain('A member with agent access can start it.');
+      expect(within(pane()).queryByRole('button'), role).toBeNull();
+      cleanup();
+    }
+  }, 60_000);
+
+  it('a running one is its conversation, with the composer\'s own words: a message for the host, a suggestion for an Editor, no box for a Viewer', async () => {
+    await withClaude('host', [ENDED, NOTES_SESSION]);
+    expect(await within(pane()).findByRole('combobox', { name: 'Message Claude · Sticky notes' }, { timeout: 15_000 })).toBeTruthy();
+    cleanup();
+    await withClaude('editor');
+    expect(await within(pane()).findByRole('combobox', { name: 'Suggest to Claude · Sticky notes' }, { timeout: 15_000 })).toBeTruthy();
+    expect(pane().textContent).toContain('as a suggestion. It reaches the agent only when accepted.');
+    cleanup();
+    await withClaude('viewer');
+    expect(await within(pane()).findByText('As a viewer you can watch this session. You cannot send messages, make suggestions or vote.', {}, { timeout: 15_000 })).toBeTruthy();
+    expect(within(pane()).queryByRole('combobox')).toBeNull();
+  }, 60_000);
+
+  it('"Ask Claude about this sticky note" puts its link and a space into the box of Claude\'s conversation, which takes the focus; a Viewer has no such button', async () => {
+    await withClaude('editor');
+    const box = (await within(pane()).findByRole('combobox', { name: 'Suggest to Claude · Sticky notes' }, { timeout: 15_000 })) as HTMLTextAreaElement;
+    await userEvent.click(within(view('notes')).getByRole('button', { name: 'Ask Claude about this sticky note' }));
+    expect(box.value).toBe('[[Home]] ');
+    expect(document.activeElement).toBe(box);
+    // What was in the box stays: the link goes under it.
+    await userEvent.type(box, 'What is missing here?');
+    await userEvent.click(within(screen.getByRole('treeitem', { name: 'Ideas' })).getByText('Ideas'));
+    await within(view('notes')).findByRole('heading', { level: 2, name: 'Ideas' });
+    await userEvent.click(await within(view('notes')).findByRole('button', { name: 'Ask Claude about this sticky note' }));
+    expect(box.value).toBe('[[Home]] What is missing here?\n\n[[Ideas]] ');
+    cleanup();
+    await withClaude('viewer');
+    await within(pane()).findByText('As a viewer you can watch this session. You cannot send messages, make suggestions or vote.', {}, { timeout: 15_000 });
+    expect(within(view('notes')).queryByRole('button', { name: 'Ask Claude about this sticky note' })).toBeNull();
+  }, 60_000);
+
+  it('a sticky note\'s file named in Claude\'s text opens that note while the sticky notes are on screen; any other file, and the same file from another view, open in code mode', async () => {
+    const said = [buildEvent('turn.started', { seq: 1, turnId: 't_1' }), buildEvent('text', { seq: 2, turnId: 't_1', blockId: 'b_2', text: 'I wrote notes/Ideas.md and linked it from Home.' })];
+    const { conn, path, dispatch, session } = await withClaude('host', [NOTES_SESSION], said);
+    conn.handle('file.stat', (ref) => ({ entry: makeEntry(ref.path) }));
+    const link = await within(pane()).findByRole('button', { name: /notes\/Ideas\.md/ }, { timeout: 15_000 });
+    await userEvent.click(link);
+    expect(path()).toBe(`${NOTES_PATH}/Ideas`);
+    expect(document.querySelector('.app-shell')?.getAttribute('data-mode')).toBe('notes');
+    expect(await within(view('notes')).findByRole('heading', { level: 2, name: 'Ideas' })).toBeTruthy();
+    expect(view('code').childElementCount).toBe(0);
+    // A file that is no sticky note's (notes/CLAUDE.md is never one) opens in code mode, as before.
+    const opened = vi.fn();
+    session.commands.observe('openFile', opened);
+    act(() => void session.commands.dispatch('openInCodeMode', { root: MAIN_ROOT, file: 'notes/CLAUDE.md', sessionId: 's_notes' }).catch(() => {}));
+    expect(path()).toBe(CODE_PATH);
+    await waitFor(() => expect(opened).toHaveBeenCalledWith({ file: { root: MAIN_ROOT, path: 'notes/CLAUDE.md' } }), { timeout: 15_000 });
+    // From code mode (or the sessions view) a note's file is a file like any other.
+    await dispatch('setMode', { mode: 'sessions' });
+    act(() => void session.commands.dispatch('openInCodeMode', { root: MAIN_ROOT, file: 'notes/Ideas.md', sessionId: 's_notes' }).catch(() => {}));
+    expect(path()).toBe(CODE_PATH);
+    await waitFor(() => expect(opened).toHaveBeenCalledWith({ file: { root: MAIN_ROOT, path: 'notes/Ideas.md' } }), { timeout: 15_000 });
+  }, 60_000);
 });
 
 describe('the workspace shell: commands', () => {

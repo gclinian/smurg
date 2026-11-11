@@ -1,6 +1,8 @@
 // The sticky notes in Traditional Chinese (DESIGN 0.8.0 D7): the list's words, the open note's, the pages without a
-// note. A note's name is a file's name and is never translated: `Home` is Home in both languages (D1.1).
+// note, and what a member does with the open note (Read / Edit, Add a sticky note, Ask Claude). A note's name is a
+// file's name and is never translated: `Home` is Home in both languages (D1.1).
 import { act, cleanup, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { makeAgentLock } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
@@ -66,5 +68,34 @@ describe('the sticky notes in zh-TW', () => {
     view.navigate(notePath('Broken'));
     await view.settle();
     expect(within(note()).getByText('smurg 無法讀取這張便利貼的檔案。')).toBeTruthy();
+  });
+
+  it('what a member does with the open note: Read / Edit, "Add a sticky note" and its dialog, the line after it, "Ask Claude"', async () => {
+    const view = await shown({ onAskClaude: () => {} });
+    const tools = within(note()).getByRole('group', { name: '這張便利貼可以做的事' });
+    expect(within(tools).getByRole('radiogroup', { name: '便利貼的檢視方式' })).toBeTruthy();
+    expect(within(tools).getAllByRole('radio').map((radio) => radio.textContent)).toEqual(['閱讀', '編輯']);
+    expect(within(tools).getByRole('button', { name: '就這張便利貼問 Claude' })).toBeTruthy();
+    await userEvent.click(within(tools).getByRole('button', { name: '新增便利貼' }));
+    const dialog = screen.getByRole('dialog', { name: '新增便利貼' });
+    expect(dialog.textContent).toContain('一張新的空白便利貼。它的連結會加在「Home」的最後。');
+    view.conn.handle('sticky.create', ({ name }) => ({ note: { name, links: [] } }));
+    await userEvent.type(within(dialog).getByRole('textbox', { name: '新便利貼的名稱' }), 'Refunds');
+    await userEvent.click(within(dialog).getByRole('button', { name: '新增' }));
+    await view.settle();
+    expect(within(note()).getByRole('status').textContent).toBe('「Refunds」的連結已加在「Home」的最後。');
+    // While Claude holds the note's lock, nothing is written into it: the page says so.
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: null }));
+    await userEvent.click(within(tools).getByRole('button', { name: '新增便利貼' }));
+    const again = screen.getByRole('dialog', { name: '新增便利貼' });
+    await userEvent.type(within(again).getByRole('textbox', { name: '新便利貼的名稱' }), 'Coupons');
+    view.conn.handle('sticky.create', ({ name }) => {
+      act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
+      return { note: { name, links: [] } };
+    });
+    await userEvent.click(within(again).getByRole('button', { name: '新增' }));
+    await view.settle();
+    expect(within(note()).getByText('沒有加上「Coupons」的連結：「Home」現在不能修改。在有便利貼連到「Coupons」之前，它會列在「未連結」下面。')).toBeTruthy();
   });
 });

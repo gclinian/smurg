@@ -54,6 +54,11 @@ export interface DocumentPaneProps {
   onClose?(): void;
   /** Opens the document again (after a refusal); records a new failure on the session. */
   onReopen(): void;
+  /**
+   * "Send to agent" (the header's menu and the editor's action) for those whose role may send. False: neither, for
+   * any role (the open sticky note: Claude for the sticky notes is beside it, DESIGN 0.8.0 D7.5). Default true.
+   */
+  readonly sendToAgent?: boolean;
 }
 
 const IDLE_SESSION: DocSessionState | undefined = undefined;
@@ -106,7 +111,7 @@ function usePresence(session: DocSession | undefined, selfUserId: string | null,
 
 const NULL_STORE = { getState: (): DocSessionState | undefined => undefined, subscribe: () => () => {} };
 
-export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, reveal, onRevealed, onClose, onReopen }: DocumentPaneProps) {
+export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, reveal, onRevealed, onClose, onReopen, sendToAgent = true }: DocumentPaneProps) {
   const stores = useStores();
   const member = useMember();
   const userId = member?.userId ?? null;
@@ -118,7 +123,7 @@ export function DocumentPane({ doc, session, active, tabId, panelId, rootLabel, 
   const menuRef = useRef<SendToAgentMenuHandle | null>(null);
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const [everActive, setEverActive] = useState(active);
-  const canSend = useCanSendToAgent();
+  const canSend = useCanSendToAgent() && sendToAgent;
   if (active && !everActive) setEverActive(true);
 
   const body =

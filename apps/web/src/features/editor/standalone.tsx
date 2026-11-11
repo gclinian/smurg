@@ -6,15 +6,21 @@
 //   const held = useHeldDocument(file);                      // opens it (doc-holds.ts) while the component is mounted
 //   const text = useDocumentText(held.session);               // the live text for a rendered view; null until synced
 //   <StandaloneDocument held={held} active={mode === 'edit'} />   // the editor itself, mounted on first view
+//   const writable = useHeldDocumentWritable(held);           // a change made now would be the host's (not read-only)
+//
+// The open sticky note (DESIGN 0.8.0 D7.5) mounts the same editor without "Send to agent" (`sendToAgent={false}`),
+// and adds a line to the note in one local transaction only while `heldDocumentWritable` says the change would hold.
 import { fileRefKey, type FileRef } from '@smurg/protocol';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useStore } from '../../lib/store.ts';
 import type { OpenDoc } from '../../lib/stores/docs.ts';
-import { useStores } from '../../lib/workspace/context.tsx';
+import type { WorkspaceStores } from '../../lib/stores/index.ts';
+import { useMember, useStores } from '../../lib/workspace/context.tsx';
 import { docHoldsFor } from './doc-holds.ts';
 import { docSessionsFor, type DocSession, type DocSessionState } from './doc-session.ts';
 import { DocumentPane } from './DocumentPane.tsx';
 import { t } from './strings.ts';
+import { editorView, liveLockOf } from './view-model.ts';
 import './editor.css';
 
 export interface HeldDocument {
@@ -89,17 +95,53 @@ export function useDocumentText(session: DocSession | undefined): string | null 
   return text;
 }
 
+/**
+ * Whether a change made to the held document right now would be the host's: the editor would not be read-only for
+ * `userId` (the role may write, the replica has the daemon's text and is connected, no agent holds the file's lock,
+ * the file is there). Read from the stores as they are at this moment, for an action that writes after a wait.
+ */
+export function heldDocumentWritable(held: HeldDocument, stores: Pick<WorkspaceStores, 'docs' | 'locks'>, userId: string | null): boolean {
+  const doc = stores.docs.getState().docs.get(fileRefKey(held.file));
+  if (doc === undefined || held.session === undefined) return false;
+  return !editorView({ doc, session: held.session.getState(), userId, lock: liveLockOf(stores.locks.getState(), held.file) }).readOnly;
+}
+
+/** The same, kept current: false while there is no held document. */
+export function useHeldDocumentWritable(held: HeldDocument | null): boolean {
+  const stores = useStores();
+  const userId = useMember()?.userId ?? null;
+  const file = held?.file ?? null;
+  const doc = held?.doc;
+  const sessionState = useStore(held?.session ?? NO_SESSION, (state) => state);
+  const lock = useStore(stores.locks, (state) => (file === null ? undefined : liveLockOf(state, file)));
+  if (doc === undefined || sessionState === undefined) return false;
+  return !editorView({ doc, session: sessionState, userId, lock }).readOnly;
+}
+
 export interface StandaloneDocumentProps {
   readonly held: HeldDocument;
   /** Shown right now. The editor is created the first time this is true and then kept (hidden), like a tab's. */
   readonly active: boolean;
+  /** "Send to agent" for the roles that may send (default true); false: none, whoever looks. */
+  readonly sendToAgent?: boolean;
 }
 
 /** The collaborative editor of one held document, without tabs. */
-export function StandaloneDocument({ held, active }: StandaloneDocumentProps) {
+export function StandaloneDocument({ held, active, sendToAgent = true }: StandaloneDocumentProps) {
   const { doc, session, reopen } = held;
   // Nothing was asked to be revealed: a column opens its file at the top.
   const noReveal = useCallback(() => {}, []);
   if (doc === undefined) return null;
-  return <DocumentPane doc={doc} session={session} active={active} rootLabel={doc.file.root.kind === 'main' ? t('root.main') : t('root.worktree', { name: doc.file.root.worktreeId })} reveal={null} onRevealed={noReveal} onReopen={reopen} />;
+  return (
+    <DocumentPane
+      doc={doc}
+      session={session}
+      active={active}
+      rootLabel={doc.file.root.kind === 'main' ? t('root.main') : t('root.worktree', { name: doc.file.root.worktreeId })}
+      reveal={null}
+      onRevealed={noReveal}
+      onReopen={reopen}
+      sendToAgent={sendToAgent}
+    />
+  );
 }

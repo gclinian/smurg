@@ -515,10 +515,50 @@
 .app-notes__main:focus-visible {
   box-shadow: inset var(--focus-ring);
 }
-/* Claude's pane: empty until the conversation comes to it (BUILD-PLAN S4); the room of the note around it until then. */
+/* Claude's pane (DESIGN 0.8.0 D7.7): the conversation's column, or what stands in for it while there is none. */
 .app-notes__chat {
   height: 100%;
+  min-width: 0;
+  display: flex;
   background: var(--color-bg);
+}
+.app-notes__claude {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-5);
+  padding: var(--space-10) var(--space-8);
+  background: var(--color-surface-1);
+}
+.app-notes__claude--waiting {
+  align-items: center;
+  justify-content: center;
+}
+.app-notes__claude-icon {
+  display: inline-flex;
+  color: var(--color-text-subtle);
+}
+.app-notes__claude-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: var(--weight-semibold);
+}
+.app-notes__claude-title:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+.app-notes__claude-line {
+  margin: 0;
+  max-width: 32rem;
+  color: var(--color-text-muted);
+  line-height: var(--leading-normal);
+}
+.app-notes__claude-problem {
+  margin: 0;
+  color: var(--color-danger-text);
 }
 /* The right side while no column is open. */
 .app-empty {

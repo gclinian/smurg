@@ -3,6 +3,7 @@
 // connection screens in zh-TW, with <html lang="zh-Hant-TW">.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { buildAgentSession } from '@smurg/protocol/testing';
 import { describe, expect, it, vi } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX } from '../boot/capture-invite.ts';
 import { ChunkLoadError } from '../lib/chunks.ts';
@@ -105,6 +106,39 @@ describe('the app in zh-TW', () => {
     expect(screen.getByRole('heading', { level: 2, name: 'Payment form' })).toBeTruthy();
     expect(services.connections).toHaveLength(1);
   }, 30_000);
+
+  it('Claude\'s pane of the sticky notes in zh-TW: the spinner, "Start Claude" and its sentence, "Start Claude again", who can start it', async () => {
+    const shell = async (role: 'agent' | 'editor', sessions: readonly unknown[]) => {
+      const services = createTestServices({ path: `/w/${WORKSPACE_ID}/notes` });
+      const view = render(<App services={services} />);
+      await waitFor(() => expect(services.connections).toHaveLength(1), { timeout: 15_000 });
+      const { conn } = services.connections[0]!;
+      conn.handle('sticky.list', () => ({ notes: [{ name: 'Home', links: [] }], hasMore: false, truncated: false, sources: [] }));
+      act(() => conn.admit(makeWelcome({ role })));
+      await screen.findByRole('main', { name: '開啟的便利貼' }, { timeout: 15_000 });
+      const pane = document.querySelector('.app-notes__chat') as HTMLElement;
+      // Until the session list is there.
+      expect(within(pane).getByText('正在載入便利貼的 Claude…')).toBeTruthy();
+      await act(async () => {
+        conn.respond('session.list', { sessions: [...sessions] as never, hasMore: false });
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      });
+      return { pane, unmount: view.unmount };
+    };
+    const first = await shell('agent', []);
+    expect(within(first.pane).getByRole('heading', { level: 2, name: '便利貼的 Claude' })).toBeTruthy();
+    expect(first.pane.textContent).toContain('Claude 幫你寫便利貼、整理便利貼。它會讀這個專案，但只寫便利貼；它寫了什麼，大家馬上都看得到。');
+    expect(within(first.pane).getByRole('button', { name: '啟動 Claude' })).toBeTruthy();
+    first.unmount();
+    const ended = buildAgentSession({ id: 's_notes', purpose: 'notes', modeFixed: true, status: 'ended' });
+    const again = await shell('agent', [ended]);
+    expect(again.pane.textContent).toContain('便利貼的 Claude 已經結束了。');
+    expect(within(again.pane).getByRole('button', { name: '重新啟動 Claude' })).toBeTruthy();
+    again.unmount();
+    const editor = await shell('editor', []);
+    expect(editor.pane.textContent).toContain('可使用 agent 的成員可以啟動它。');
+    expect(within(editor.pane).queryByRole('button')).toBeNull();
+  }, 60_000);
 
   it('a refused connection and the key-mismatch warning', async () => {
     const services = createTestServices({ path: `/w/${WORKSPACE_ID}` });

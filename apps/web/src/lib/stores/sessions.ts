@@ -58,6 +58,11 @@ export interface SessionsStore extends ReadableStore<SessionsState> {
    * daemon goes on (DESIGN 0.6.0 D14).
    */
   create(input: PayloadInputOf<'session.create'>): Promise<SessionInfo>;
+  /**
+   * Claude for the sticky notes (sticky.assistant.start, `session.create`; DESIGN 0.8.0 D3.5): the one agent session of
+   * purpose `notes` that has not ended, or one the daemon starts now for this member. In the list at once.
+   */
+  startNotesAssistant(): Promise<AgentSession>;
   /** Who may: `mayEndSession` (@smurg/protocol). `keepWorktree` answers "Keep the worktree?" of a free session. */
   end(sessionId: string, options?: { keepWorktree?: boolean }): Promise<void>;
   /** Host only: end anyone's session (admin.session.terminate). */
@@ -207,6 +212,9 @@ export function createSessionsArea(): { store: SessionsStore; lifecycle: AreaLif
     reload: load,
     async create(input) {
       return upsert((await context().conn.request('session.create', input, createsWorktree(input) ? { timeoutMs: LONG_REQUEST_TIMEOUT_MS } : undefined)).session);
+    },
+    async startNotesAssistant() {
+      return upsert((await context().conn.request('sticky.assistant.start', {})).session);
     },
     async end(sessionId, options = {}) {
       await context().conn.request('session.end', options.keepWorktree === undefined ? { sessionId } : { sessionId, keepWorktree: options.keepWorktree });

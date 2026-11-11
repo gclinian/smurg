@@ -3,18 +3,25 @@
 // Home. Only a note the index lists is held as a shared document (a name typed into the address never asks the host
 // to open a file that is not there), keyed by its folded name, so a quick switch from one note to the next releases
 // each one as it goes. A line says when Claude holds the note's lock.
+//
+// Above the text, for a member who may write: Read / Edit (the shared editor of that one note, NoteEdit.tsx) and
+// "Add a sticky note" (AddNote.tsx, only while the note takes a change); for a member with a box in Claude's
+// conversation, "Ask Claude about this sticky note" (the notes view puts the link into that box, D7.7). A Viewer
+// reads, and has none of them.
 import { NOTES_HOME, fileRefKey, type NoteInfo } from '@smurg/protocol';
-import { useEffect, useId, useMemo } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { useAppServices } from '../../app/services.tsx';
 import { routePath } from '../../lib/router.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectNote, type StickyState } from '../../lib/stores/sticky.ts';
-import { useStores, useWorkspaceSession } from '../../lib/workspace/context.tsx';
-import { Button, Spinner } from '../../ui/index.ts';
-import { IconAgent } from '../../ui/icons.tsx';
-import { useDocumentText, useHeldDocument } from '../editor/standalone.tsx';
+import { useCan, useStores, useWorkspaceSession } from '../../lib/workspace/context.tsx';
+import { Button, Segmented, Spinner } from '../../ui/index.ts';
+import { IconAgent, IconComment, IconEdit, IconEye } from '../../ui/icons.tsx';
+import { useDocumentText, useHeldDocument, useHeldDocumentWritable } from '../editor/standalone.tsx';
 import { Markdown, type MarkdownWikiLinks } from '../markdown/index.ts';
+import { AddNote } from './AddNote.tsx';
 import { HOME_KEY, findWikiLinks, noteFile, noteKey } from './model.ts';
+import { NoteEdit } from './NoteEdit.tsx';
 import { NoPage } from './NoPage.tsx';
 import { t } from './strings.ts';
 import './sticky.css';
@@ -60,10 +67,15 @@ export interface OpenNoteProps {
   readonly note: string | undefined;
   /** The notes view is on screen: the address is its own. */
   readonly shown: boolean;
+  /**
+   * "Ask Claude about this sticky note": the view puts the note's link into the box of Claude's conversation (D7.7).
+   * Absent: no button (Claude for the sticky notes is not running, or this member has no box there).
+   */
+  readonly onAskClaude?: (name: string) => void;
 }
 
 /** The middle of the notes view: the note in the address, or the page that stands in for it. */
-export function OpenNote({ note, shown }: OpenNoteProps) {
+export function OpenNote({ note, shown, onAskClaude }: OpenNoteProps) {
   const stores = useStores();
   const index = useStickyIndex();
   const navigation = useNoteNavigation();
@@ -102,19 +114,36 @@ export function OpenNote({ note, shown }: OpenNoteProps) {
     );
   }
   if (info === undefined) return noteKey(name) === HOME_KEY ? <NoPage kind="first" name={NOTES_HOME} /> : <NoPage kind="missing" name={name} />;
-  return <NoteRead key={noteKey(info.name)} note={info} />;
+  return <NoteRead key={noteKey(info.name)} note={info} {...(onAskClaude === undefined ? {} : { onAskClaude })} />;
 }
 
+type View = 'read' | 'edit';
+
 /** A sticky note the index lists, read: its text as Markdown with its links, live as people and Claude write it. */
-export function NoteRead({ note }: { note: NoteInfo }) {
+export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: (name: string) => void }) {
   const stores = useStores();
   const headingId = useId();
+  const canWrite = useCan('file.write');
   const file = useMemo(() => noteFile(note.name), [note.name]);
   // A file the index could not read as a member without rights is not asked for (D2.2).
   const held = useHeldDocument(note.unreadable === true ? null : file);
   const text = useDocumentText(held?.session);
+  const writable = useHeldDocumentWritable(held);
   const agentWriting = useStore(stores.locks, (state) => state.locks.get(fileRefKey(file))?.kind === 'agent');
   const wikiLinks = useWikiLinks();
+  const [view, setView] = useState<View>('read');
+  const [edited, setEdited] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+
+  // The editor is made the first time Edit is chosen, then kept (hidden) like a tab's.
+  useEffect(() => {
+    if (view === 'edit') setEdited(true);
+  }, [view]);
+  // A member who can no longer write (made a Viewer while editing) goes back to reading.
+  const editing = view === 'edit' && canWrite && held !== null;
+  useEffect(() => {
+    if (view === 'edit' && !editing) setView('read');
+  }, [view, editing]);
 
   let body;
   if (note.unreadable === true) body = <p className="sticky-card__quiet">{t('note.unreadable')}</p>;
@@ -133,19 +162,52 @@ export function NoteRead({ note }: { note: NoteInfo }) {
   } else if (text.trim() === '') body = <p className="sticky-card__quiet">{t('note.empty')}</p>;
   else body = <Markdown text={text} headingBase={3} wikiLinks={wikiLinks} className="sticky-card__text" />;
 
+  const tools =
+    (canWrite && held !== null) || onAskClaude !== undefined ? (
+      <div className="sticky-card__tools" role="group" aria-label={t('note.actions')}>
+        {canWrite && held !== null ? (
+          <Segmented<View>
+            label={t('note.view')}
+            size="sm"
+            value={view}
+            onChange={setView}
+            options={[
+              { id: 'read', label: t('note.read'), icon: <IconEye size={14} /> },
+              { id: 'edit', label: t('note.edit'), icon: <IconEdit size={14} /> },
+            ]}
+          />
+        ) : null}
+        {canWrite && held !== null ? <AddNote held={held} from={note.name} available={writable} onSaid={setSaid} /> : null}
+        {onAskClaude !== undefined ? (
+          <Button size="sm" variant="ghost" icon={<IconComment size={14} />} onClick={() => onAskClaude(note.name)}>
+            {t('note.ask')}
+          </Button>
+        ) : null}
+      </div>
+    ) : null;
+
   return (
     <article className="sticky-page" aria-labelledby={headingId}>
       <div className="sticky-card" data-note={note.name}>
         <h2 id={headingId} className="sticky-card__name" tabIndex={-1} data-region-focus>
           {note.name}
         </h2>
+        {tools}
         {agentWriting ? (
           <p className="sticky-card__lock" role="status">
             <IconAgent size={14} />
             <span>{t('note.agentWriting')}</span>
           </p>
         ) : null}
-        <div className="sticky-card__body">{body}</div>
+        <div className="sticky-card__body" hidden={editing}>
+          {body}
+        </div>
+        {held !== null && edited && canWrite ? <NoteEdit held={held} active={editing} /> : null}
+        {said !== null ? (
+          <p className="sticky-card__said" role="status">
+            {said}
+          </p>
+        ) : null}
       </div>
       {note.oversized === true ? <p className="sticky-page__aside">{t('note.oversized')}</p> : null}
     </article>

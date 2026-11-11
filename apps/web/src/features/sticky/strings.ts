@@ -27,6 +27,19 @@ export const t = defineStrings(
     'note.unreadable': 'smurg could not read the file of this sticky note.',
     'note.openFailed': 'This sticky note could not be opened.',
     'note.oversized': 'This sticky note is larger than 64 KiB: the list on the left does not follow its links.',
+    // What a member does with the open note (D7.5, D7.7): read it or edit it together, add a note linked from it, ask
+    // Claude for the sticky notes about it.
+    'note.actions': 'What to do with this sticky note',
+    'note.view': 'How the sticky note is shown',
+    'note.read': 'Read',
+    'note.edit': 'Edit',
+    'note.ask': 'Ask Claude about this sticky note',
+    'add.title': 'Add a sticky note',
+    'add.body': 'A new, empty sticky note. Its link goes at the end of {note}.',
+    'add.name': 'Name of the new sticky note',
+    'add.confirm': 'Add',
+    'add.done': '{name} is linked at the end of {note}.',
+    'add.readOnly': 'The link to {name} was not added: {note} cannot be changed right now. {name} is under "Not linked" until a sticky note links to it.',
     // The pages without a note (D7.6).
     'first.title': 'Start with one sticky note',
     'first.body': 'Every sticky note grows from the first one, Home: a sticky note links to the next with [[Name]].',

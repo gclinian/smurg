@@ -201,3 +201,44 @@
   margin: var(--space-5) 0 0;
   color: var(--color-danger-text);
 }
+
+/* ---- what a member does with the open note (D7.5, D7.7): Read / Edit, Add a sticky note, Ask Claude */
+.sticky-card__tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: calc(-1 * var(--space-3)) 0 var(--space-6);
+}
+.sticky-card__body[hidden] {
+  display: none;
+}
+/* The shared editor of the one note, inside the card: a pane of its own height, the card's tint around it. The
+   document pane fills its nearest positioned box (editor.css `.editor-doc`): this one, never the whole card. */
+.sticky-card__editor {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: clamp(18rem, 60vh, 40rem);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-surface-1);
+}
+.sticky-card__editor[hidden] {
+  display: none;
+}
+.sticky-card__editor > .editor-doc {
+  flex: 1;
+  min-height: 0;
+}
+.sticky-card__said {
+  margin: var(--space-6) 0 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sticky-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}

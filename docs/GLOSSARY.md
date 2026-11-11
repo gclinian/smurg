@@ -176,6 +176,9 @@ Sticky notes, and Claude for the sticky notes.
 | A link from one sticky note to another, written `[[Name]]`; the reader sees the note's name | wiki link (prose; never a label) | wiki 連結 | `[[Name]]` |
 | The sticky notes that Home does not reach by its links | Not linked | 未連結 | `sticky.tree.notLinked` |
 | A sticky note that a link names and that has no file yet | not written yet | 還沒寫 | `markdown.wiki.missing`, `sticky.missing.body` |
+| A new, empty sticky note, linked at the end of the open one | Add a sticky note | 新增便利貼 | `sticky.add.title` |
+| Put the open sticky note's link into the box of Claude's conversation | Ask Claude about this sticky note | 就這張便利貼問 Claude | `sticky.note.ask` |
+| Start the one Claude for the sticky notes of the workspace | Start Claude / Start Claude again (after it ended) | 啟動 Claude / 重新啟動 Claude | `sticky.assistant.start`, `workbench.notes.chat.start` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
 of a file (`Home` reads Home in the zh-TW notes view too). What Claude for the sticky notes may do is said in its own

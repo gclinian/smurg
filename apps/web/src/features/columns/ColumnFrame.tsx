@@ -8,7 +8,7 @@ import { describeColumn, type ColumnDescription, type ColumnPicture } from '../.
 import { columnBodyProps, type ColumnBodyProps, type ColumnKind, type ColumnRef } from '../../lib/columns/target.ts';
 import { statusLabel } from '../../lib/session-status.ts';
 import { useStore } from '../../lib/store.ts';
-import type { ColumnAnchorRequest } from '../../lib/columns/context.tsx';
+import type { ColumnAnchorRequest, ColumnPlace } from '../../lib/columns/context.tsx';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { useSlots } from '../../lib/workspace/slots.tsx';
 import { Button, EmptyState, IconButton, Menu, SlotBoundary, Spinner, StatusGlyph, cx, type MenuItem } from '../../ui/index.ts';
@@ -58,7 +58,7 @@ export function columnName(description: ColumnDescription): string {
 export interface ColumnFrameProps {
   target: ColumnRef;
   id: string;
-  place: 'strip' | 'code';
+  place: ColumnPlace;
   focused: boolean;
   /** On screen (lib/columns/context.tsx `visible`). */
   visible: boolean;

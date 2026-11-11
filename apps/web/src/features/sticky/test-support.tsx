@@ -1,11 +1,15 @@
 // TEST ONLY. The sticky notes on a FakeConnection: the list of notes and the open note as the notes view composes them,
 // with the address of a memory router, the index the test gives (sticky.list), and the notes' files in test rooms
-// (bridgeDocs answers doc.open and moves the Yjs traffic).
+// (bridgeDocs answers doc.open and moves the Yjs traffic). The editor of "Edit" runs on the fake engine (no Monaco in
+// jsdom): `fake` records what it was asked.
 import { fileRefKey, type NoteInfo, type ResultOf, type Role } from '@smurg/protocol';
 import { act, render } from '@testing-library/react';
 import { useRoute } from '../../app/navigation.tsx';
 import { WORKSPACE_ID } from '../../testing/fixtures.ts';
+import { answerLoads } from '../../testing/stores.ts';
 import { createTestServices, createTestWorkspace, WorkspaceTestProviders } from '../../testing/services.tsx';
+import { EditorEngineContext } from '../editor/engine.ts';
+import { createFakeEngine } from '../editor/testing/fake-engine.ts';
 import { bridgeDocs, testUser } from '../editor/testing/test-room.ts';
 import { NoteTree, OpenNote } from './index.tsx';
 import { noteFile } from './model.ts';
@@ -33,7 +37,7 @@ export const TEXTS: Readonly<Record<string, string>> = {
 };
 
 /** The notes view's two parts, at the note of the address, on screen. */
-function Notes() {
+function Notes({ onAskClaude }: { onAskClaude?: (name: string) => void }) {
   const route = useRoute();
   const note = route.name === 'notes' ? route.note : undefined;
   return (
@@ -42,7 +46,7 @@ function Notes() {
         <NoteTree open={note} />
       </aside>
       <main aria-label="Open sticky note">
-        <OpenNote note={note} shown />
+        <OpenNote note={note} shown {...(onAskClaude === undefined ? {} : { onAskClaude })} />
       </main>
     </>
   );
@@ -57,6 +61,8 @@ export interface NotesOptions {
   readonly texts?: Readonly<Record<string, string>>;
   /** What the host answers to sticky.list, instead of `notes` (a refusal, a cut index). */
   readonly list?: () => ResultOf<'sticky.list'>;
+  /** The notes view's "Ask Claude about this sticky note" (absent: no button). */
+  readonly onAskClaude?: (name: string) => void;
 }
 
 export function openNotes(options: NotesOptions = {}) {
@@ -67,11 +73,16 @@ export function openNotes(options: NotesOptions = {}) {
   context.conn.handle('sticky.list', options.list ?? (() => ({ notes, hasMore: false, truncated: false, sources: [] })));
   const bridge = bridgeDocs(context.conn, testUser('Amy', 'dev:amy'), undefined, { canWrite: role !== 'viewer' });
   for (const [name, text] of Object.entries(options.texts ?? TEXTS)) bridge.addFile(noteFile(name), text);
+  const fake = createFakeEngine();
   const view = render(
     <WorkspaceTestProviders context={context}>
-      <Notes />
+      <EditorEngineContext.Provider value={fake.loader}>
+        <Notes {...(options.onAskClaude === undefined ? {} : { onAskClaude: options.onAskClaude })} />
+      </EditorEngineContext.Provider>
     </WorkspaceTestProviders>,
   );
+  // The channel's first loads (the locks among them: who holds a note's lock is known from here on).
+  act(() => answerLoads(context.conn));
   const settle = async (): Promise<void> => {
     for (let i = 0; i < 8; i++) {
       await act(async () => {
@@ -84,6 +95,7 @@ export function openNotes(options: NotesOptions = {}) {
     ...view,
     ...context,
     bridge,
+    fake,
     settle,
     /** The index the host answers with from now on (the next sticky.list). */
     notes,

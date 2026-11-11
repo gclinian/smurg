@@ -1,7 +1,8 @@
 // The list of sticky notes on the left of the notes view (DESIGN 0.8.0 D7.4): the tree grown from Home by the links
 // (Home first, each note under the note that reached it first), then "Not linked", the notes Home does not reach, by
 // name. A row with notes below opens its note like any row; its twisty only folds it. Which rows are unfolded lives
-// in memory only (the view stays mounted); the open note's row is marked and the rows above it unfold.
+// in memory only (the view stays mounted); the open note's row is marked and the rows above it unfold. The open note's
+// own row unfolds when "Add a sticky note" just linked a new note from it (model.ts unfoldRequestsOf).
 import { NOTES_HOME, NOTES_MAX } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../lib/store.ts';
@@ -9,7 +10,7 @@ import { selectNoteTree } from '../../lib/stores/sticky.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
 import { Button, Spinner, Tree, type TreeNode } from '../../ui/index.ts';
 import { IconChevronRight } from '../../ui/icons.tsx';
-import { HOME_KEY, ancestorsOf, homeRows, noteKey, notLinkedRows, type NoteRow } from './model.ts';
+import { HOME_KEY, ancestorsOf, homeRows, noteKey, notLinkedRows, unfoldRequestsOf, type NoteRow } from './model.ts';
 import { useNoteNavigation, useStickyIndex } from './NoteRead.tsx';
 import { t } from './strings.ts';
 import './sticky.css';
@@ -69,6 +70,15 @@ export function NoteTree({ open }: NoteTreeProps) {
     unfoldedFor.current = openKey;
     setExpanded((previous) => (above.every((key) => previous.has(key)) ? previous : new Set([...previous, ...above])));
   }, [tree.home, open, openKey]);
+
+  // A row asked for from the open note (a sticky note just linked from it): unfolded, so the new row shows below it.
+  useEffect(() => {
+    const requests = unfoldRequestsOf(stores.sticky);
+    return requests.subscribe(() => {
+      const request = requests.getState();
+      if (request !== null) setExpanded((previous) => (previous.has(request.key) ? previous : new Set([...previous, request.key])));
+    });
+  }, [stores]);
 
   const rows = useMemo(() => ({ home: homeRows(tree.home, index.notes), notLinked: notLinkedRows(tree.notLinked, index.notes) }), [tree, index.notes]);
   const names = useMemo(() => {

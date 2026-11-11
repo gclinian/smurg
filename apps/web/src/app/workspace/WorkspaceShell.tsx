@@ -5,9 +5,10 @@
 // (Monaco, xterm) is loaded when code mode is first shown; the sticky notes' chunk when they are first shown.
 //
 // The shell also owns what belongs to neither view: the top bar, the connection banners, the commands that move
-// between the views (openColumn, setMode, openInCodeMode), the overlays the features registered (dialogs and command
-// handlers that must exist in both modes), the notices, and the browser tab's title with the waiting count.
-import type { Topic } from '@smurg/protocol';
+// between the views (openColumn, setMode, openInCodeMode: a sticky note's file stays in the sticky notes while they
+// are on screen), the overlays the features registered (dialogs and command handlers that must exist in both modes),
+// the notices, and the browser tab's title with the waiting count.
+import { noteNameOf, type Topic } from '@smurg/protocol';
 import { Suspense, useEffect, useRef, useState } from 'react';
 import { lazyChunk } from '../../lib/chunks.ts';
 import { columnId, columnRefOf, isColumnRef, type ColumnRef } from '../../lib/columns/target.ts';
@@ -124,6 +125,13 @@ export function WorkspaceShell({ mode, note }: WorkspaceShellProps) {
   }, [stores]);
 
   useCommandHandler('openInCodeMode', async ({ root, file, line, sessionId }) => {
+    // While the sticky notes are on screen, a sticky note's file (a link in Claude's conversation, its tool line's
+    // "Open") opens that note where it is, not in code mode (DESIGN 0.8.0 D7.7).
+    const noteName = modeRef.current === 'notes' && root.kind === 'main' && file !== undefined ? noteNameOf(file) : null;
+    if (noteName !== null) {
+      router.navigate(routePath({ name: 'notes', workspaceId, note: noteName }));
+      return;
+    }
     if (sessionId !== undefined) stores.columns.setCodeSession(sessionId);
     stores.columns.setCodeOrigin({ root, ...(sessionId === undefined ? {} : { sessionId }), ...(file === undefined ? {} : { path: file }) });
     stores.files.setActiveRoot(root);

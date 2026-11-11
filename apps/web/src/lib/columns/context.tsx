@@ -19,12 +19,17 @@ export interface ColumnAnchorRequest extends ColumnAnchor {
   readonly token: number;
 }
 
+/**
+ * Where a column stands. `strip`: a column of the sessions view. `code`: the one session column beside the editor in
+ * code mode. `notes`: the conversation of Claude for the sticky notes, beside the open sticky note (DESIGN 0.8.0 D7.7).
+ */
+export type ColumnPlace = 'strip' | 'code' | 'notes';
+
 export interface ColumnContextValue {
   /** `columnId(target)`. */
   readonly id: string;
   readonly target: ColumnRef;
-  /** `strip`: a column of the sessions view. `code`: the one session column beside the editor in code mode. */
-  readonly place: 'strip' | 'code';
+  readonly place: ColumnPlace;
   /** The focused column: where a click on the left opens; only its composer has the accent border. */
   readonly focused: boolean;
   /**

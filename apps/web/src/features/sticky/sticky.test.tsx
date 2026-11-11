@@ -1,14 +1,16 @@
-// The sticky notes, read half (DESIGN 0.8.0 D7.3-D7.6): the list of notes grown from Home, the open note read as
-// Markdown with its wiki links, the pages without a note, the lock line, and the index in the store.
+// The sticky notes (DESIGN 0.8.0 D7.3-D7.6): the list of notes grown from Home, the open note read as Markdown with
+// its wiki links, the pages without a note, the lock line, and the index in the store; and the edit half (D7.5): Edit
+// with the shared editor, "Add a sticky note", "Ask Claude about this sticky note".
 import { NOTES_MAX, SmurgError, noteTree, type NoteInfo } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
-import { act, cleanup, screen, within } from '@testing-library/react';
+import { msg, renderEnglish } from '@smurg/protocol/i18n';
+import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { selectNoteTree } from '../../lib/stores/sticky.ts';
 import { makeAgentLock, makeHumanLock, makeWelcome } from '../../testing/fixtures.ts';
 import { setupStores } from '../../testing/stores.ts';
-import { HOME_KEY, ancestorsOf, homeRows, noteKey, notLinkedRows } from './model.ts';
+import { DOCUMENT_TEXT_INTERVAL_MS } from '../editor/standalone.tsx';
+import { HOME_KEY, ancestorsOf, homeRows, linkLineAfter, noteKey, notLinkedRows } from './model.ts';
 import { NOTES, notePath, openNotes } from './test-support.tsx';
 
 const disposers: (() => void)[] = [];
@@ -313,6 +315,163 @@ describe('the pages without a sticky note (D7.6)', () => {
     await userEvent.click(within(note()).getByRole('button', { name: 'Try again' }));
     await view.settle();
     expect(within(note()).getByRole('article', { name: 'Home' })).toBeTruthy();
+  });
+});
+
+describe('the open sticky note, edited (D7.5)', () => {
+  const tools = (): HTMLElement => within(note()).getByRole('group', { name: 'What to do with this sticky note' });
+  const roomOf = (view: Awaited<ReturnType<typeof shown>>, name: string) => {
+    const room = view.bridge.rooms.get(view.keyOf(name));
+    if (room === undefined) throw new Error(`no room for ${name}`);
+    return room;
+  };
+  const addDialog = (): HTMLElement => screen.getByRole('dialog', { name: 'Add a sticky note' });
+  const nameBox = (): HTMLElement => within(addDialog()).getByRole('textbox', { name: 'Name of the new sticky note' });
+
+  it('Edit shows the shared editor of that one note, the same document the Read view shows, without "Send to agent"', async () => {
+    const view = await shown({ role: 'host' });
+    expect(within(tools()).getByRole('radio', { name: 'Read' }).getAttribute('aria-checked')).toBe('true');
+    // No editor until Edit is chosen.
+    expect(view.fake.bindings).toHaveLength(0);
+    await userEvent.click(within(tools()).getByRole('radio', { name: 'Edit' }));
+    await view.settle();
+    await waitFor(() => expect(view.fake.bindings).toHaveLength(1));
+    expect(within(note()).getByRole('group', { name: 'Editor for notes/Home.md' })).toBeTruthy();
+    expect(view.fake.bindings[0]?.ytext.toString()).toBe(roomOf(view, 'Home').text);
+    await waitFor(() => expect(view.fake.editors.at(-1)?.readOnly).toBe(false));
+    // The host could send a selection anywhere, but not from here: Claude for the sticky notes is beside the note.
+    expect(screen.queryByRole('button', { name: /Send to agent/ })).toBeNull();
+    expect(view.fake.editors.at(-1)?.actions.has('smurg.sendToAgent')).toBe(false);
+    // One document: the Read view and the editor are the same replica, opened once.
+    expect(view.opened()).toEqual(['notes/Home.md']);
+    act(() => view.fake.bindings[0]?.ytext.insert(0, 'Typed here. '));
+    await userEvent.click(within(tools()).getByRole('radio', { name: 'Read' }));
+    await waitFor(() => expect(within(note()).getByText(/Typed here\./)).toBeTruthy(), { timeout: DOCUMENT_TEXT_INTERVAL_MS * 10 });
+    // The editor is kept, hidden, like a tab's.
+    expect(view.fake.editors.at(-1)?.disposed).toBe(false);
+    expect((note().querySelector('.sticky-card__editor') as HTMLElement).hidden).toBe(true);
+  });
+
+  it('a Viewer reads: no Edit, no "Add a sticky note", nothing to do with the note without the view\'s "Ask Claude"', async () => {
+    await shown({ role: 'viewer' });
+    expect(within(note()).getByRole('heading', { level: 3, name: 'Welcome' })).toBeTruthy();
+    expect(within(note()).queryByRole('radio', { name: 'Edit' })).toBeNull();
+    expect(within(note()).queryByRole('button', { name: 'Add a sticky note' })).toBeNull();
+    expect(within(note()).queryByRole('group', { name: 'What to do with this sticky note' })).toBeNull();
+    expect(within(note()).queryByRole('button')).toBeNull();
+  });
+
+  it('"Add a sticky note": the name goes to sticky.create once, however often Add is pressed; then `- [[Name]]` at the end of the open note, in one local transaction', async () => {
+    const view = await shown({ path: notePath('Checkout') });
+    const room = roomOf(view, 'Checkout');
+    const before = room.text;
+    const updates: unknown[] = [];
+    room.doc.on('update', (_update: Uint8Array, origin: unknown) => updates.push(origin));
+    await userEvent.click(within(tools()).getByRole('button', { name: 'Add a sticky note' }));
+    expect(addDialog().textContent).toContain('A new, empty sticky note. Its link goes at the end of Checkout.');
+    await userEvent.type(nameBox(), 'Coupons');
+    const add = within(addDialog()).getByRole('button', { name: 'Add' });
+    await userEvent.click(add);
+    await userEvent.click(add);
+    await userEvent.type(nameBox(), '{Enter}');
+    expect(view.conn.requestsOf('sticky.create').map((request) => request.payload)).toEqual([{ name: 'Coupons' }]);
+    // Nothing is written into the note before the new note is there.
+    expect(room.text).toBe(before);
+    await act(async () => {
+      view.conn.respond('sticky.create', { note: { name: 'Coupons', links: [] } });
+    });
+    await view.settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(view.conn.requestsOf('sticky.create')).toHaveLength(1);
+    expect(room.text).toBe(`${before}\n- [[Coupons]]\n`);
+    expect(updates).toHaveLength(1);
+    expect(within(note()).getByRole('status').textContent).toBe('Coupons is linked at the end of Checkout.');
+    // The link leads to the new note (no "not written yet"): the store has it from sticky.create's answer.
+    await waitFor(() => expect(within(note()).getByRole('link', { name: 'Coupons' }).classList.contains('md-wiki--missing')).toBe(false), { timeout: DOCUMENT_TEXT_INTERVAL_MS * 10 });
+    // The open note's row unfolds: once the index has the link, the new row shows under it.
+    act(() => view.conn.emit('sticky.changed', { upserted: [{ name: 'Checkout', links: ['Payment form', 'Home', 'Coupons'] }], removed: [], truncated: false }));
+    expect(rows('Sticky notes from Home')).toEqual([
+      ['Home', '1', 'true'],
+      ['Checkout', '2', 'true'],
+      ['Payment form', '3', null],
+      ['Coupons', '3', null],
+      ['Ideas', '2', null],
+    ]);
+  });
+
+  it('"exists" is no failure: the link is added all the same, spelled as the index has the note on disk', async () => {
+    const view = await shown({ path: notePath('Apple') });
+    view.conn.handle('sticky.create', () => {
+      throw new SmurgError('conflict', msg('sticky.create.exists', { name: 'Ideas' }), { reason: 'exists' });
+    });
+    await userEvent.click(within(tools()).getByRole('button', { name: 'Add a sticky note' }));
+    await userEvent.type(nameBox(), 'ideas');
+    await userEvent.click(within(addDialog()).getByRole('button', { name: 'Add' }));
+    await view.settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(roomOf(view, 'Apple').text).toBe('An apple.\n- [[Ideas]]\n');
+  });
+
+  it('a refusal is said in the dialog with the host\'s words, and nothing is written into the note', async () => {
+    const view = await shown();
+    const refusal = msg('sticky.name.invalid', { rule: 'markup' });
+    view.conn.handle('sticky.create', () => {
+      throw new SmurgError('bad_request', refusal, { reason: 'invalid-name' });
+    });
+    const before = roomOf(view, 'Home').text;
+    await userEvent.click(within(tools()).getByRole('button', { name: 'Add a sticky note' }));
+    // Nothing to add yet: the button waits for a name.
+    expect((within(addDialog()).getByRole('button', { name: 'Add' }) as HTMLButtonElement).disabled).toBe(true);
+    await userEvent.type(nameBox(), 'a*b');
+    await userEvent.click(within(addDialog()).getByRole('button', { name: 'Add' }));
+    await view.settle();
+    expect(within(addDialog()).getByRole('alert').textContent).toBe(`The sticky note was not written: ${renderEnglish(refusal)}`);
+    expect(roomOf(view, 'Home').text).toBe(before);
+  });
+
+  it('the note became read-only while the name was on its way (Claude took its lock): nothing is written into it, the page says so, and the new note is under "Not linked"', async () => {
+    const view = await shown();
+    const before = roomOf(view, 'Home').text;
+    await userEvent.click(within(tools()).getByRole('button', { name: 'Add a sticky note' }));
+    await userEvent.type(nameBox(), 'Refunds');
+    await userEvent.click(within(addDialog()).getByRole('button', { name: 'Add' }));
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
+    // The button goes while the note takes no change; the dialog on its way stays.
+    expect(within(tools()).queryByRole('button', { name: 'Add a sticky note', hidden: true })).toBeNull();
+    expect(addDialog()).toBeTruthy();
+    await act(async () => {
+      view.conn.respond('sticky.create', { note: { name: 'Refunds', links: [] } });
+    });
+    await view.settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(roomOf(view, 'Home').text).toBe(before);
+    expect(within(note()).getByText('The link to Refunds was not added: Home cannot be changed right now. Refunds is under "Not linked" until a sticky note links to it.')).toBeTruthy();
+    expect(within(within(list()).getByRole('tree', { name: 'Not linked' })).getByRole('treeitem', { name: 'Refunds' })).toBeTruthy();
+    // Claude lets go: the button is back.
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: null }));
+    expect(within(tools()).getByRole('button', { name: 'Add a sticky note' })).toBeTruthy();
+  });
+
+  it('"Ask Claude about this sticky note" hands the view the note\'s name on disk; without the view\'s handler there is no button', async () => {
+    const ask = vi.fn();
+    const view = await shown({ path: notePath('payment form'), onAskClaude: ask });
+    expect(view.path()).toBe(notePath('Payment form'));
+    await userEvent.click(within(tools()).getByRole('button', { name: 'Ask Claude about this sticky note' }));
+    expect(ask.mock.calls).toEqual([['Payment form']]);
+    cleanup();
+    // A Viewer the view gives the handler (it decides who has a box in Claude's conversation) has only that button.
+    await shown({ role: 'viewer', onAskClaude: ask });
+    expect(within(tools()).getAllByRole('button').map((button) => button.textContent)).toEqual(['Ask Claude about this sticky note']);
+    cleanup();
+    await shown();
+    expect(within(note()).queryByRole('button', { name: 'Ask Claude about this sticky note' })).toBeNull();
+  });
+
+  it('the line of a new link: on a line of its own, after a line break when the note does not end with one', () => {
+    expect(linkLineAfter('', 'Ideas')).toBe('- [[Ideas]]\n');
+    expect(linkLineAfter('Text.\n', 'Ideas')).toBe('- [[Ideas]]\n');
+    expect(linkLineAfter('Text.', 'Payment form')).toBe('\n- [[Payment form]]\n');
+    expect(linkLineAfter('- [[A]]\n', '結帳流程')).toBe('- [[結帳流程]]\n');
   });
 });
 
