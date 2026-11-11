@@ -7,6 +7,7 @@
 // (the daemon's own definition), independently of the protocol helper the engine uses.
 import { createHash } from 'node:crypto';
 import {
+  PROTOCOL_VERSION,
   SmurgError,
   getMessageSpec,
   parentRelPath,
@@ -693,6 +694,7 @@ export class FakeTransferLink implements TransferLink {
       kind: 'online',
       resumed: false,
       welcome: {
+        protocol: PROTOCOL_VERSION,
         channelId: `ch_${this.seq++}`,
         resumed: false,
         member: { userId: 'dev:amy', displayName: 'Amy', role: 'editor', color: '#3366ff', online: true, joinedAt: 1_780_000_000_000 },

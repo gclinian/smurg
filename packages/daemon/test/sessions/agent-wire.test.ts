@@ -558,7 +558,8 @@ describe('topic sessions: profiles, names, what the topics module tells them', {
     await r.until(item.id, idle, 'the item');
     const outcome = await r.s.sessions.teardownUser('dev:mei', 'kicked');
     expect(outcome.ended).toEqual([free.id]);
-    expect(outcome.handedOver).toEqual(expect.arrayContaining([{ sessionId: discussion.id, topicId: TOPIC.id, stopped: true }, { sessionId: item.id, topicId: TOPIC.id, stopped: true }]));
+    // 0.8.0 on purpose (DESIGN 0.8.0 D3.5): a session handed over names its purpose (Claude for the sticky notes has no topic).
+    expect(outcome.handedOver).toEqual(expect.arrayContaining([{ sessionId: discussion.id, purpose: 'discussion', topicId: TOPIC.id, stopped: true }, { sessionId: item.id, purpose: 'item', topicId: TOPIC.id, stopped: true }]));
     expect([...outcome.cleared].sort()).toEqual([discussion.id, hostsOwn.id, item.id, free.id].filter((id) => id !== free.id || true).sort());
     expect(r.agents.get(free.id)).toMatchObject({ status: 'ended', endReason: 'kicked' });
     // Handed over: the host owns it now, the opener stays who started it, the path rights stay a member's.
@@ -583,7 +584,7 @@ describe('topic sessions: profiles, names, what the topics module tells them', {
     const noas = await r.topicSession('discussion', noaPrincipal, { topic: { id: 'tp_noa', slug: 'noa', name: 'Noa' }, responsible: { userId: 'dev:noa', displayName: 'Noa' } });
     await r.until(noas.id, idle, "Noa's discussion");
     const demoted = await r.s.sessions.teardownUser('dev:noa', 'role-changed', 'editor');
-    expect(demoted).toEqual({ ended: [], handedOver: [{ sessionId: noas.id, topicId: 'tp_noa', stopped: false }], cleared: [] });
+    expect(demoted).toEqual({ ended: [], handedOver: [{ sessionId: noas.id, purpose: 'discussion', topicId: 'tp_noa', stopped: false }], cleared: [] });
     expect(r.agents.get(noas.id)?.responsible).toEqual({ userId: 'dev:noa', displayName: 'Noa' });
     expect(await r.ids(noas.id)).toContain('conversation.owner.handover');
     expect((await r.s.sessions.teardownUser('dev:noa', 'role-changed', 'viewer')).cleared).toEqual([noas.id]);

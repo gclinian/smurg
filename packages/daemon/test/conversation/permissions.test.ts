@@ -412,6 +412,25 @@ describe('a permission request becomes a card', { timeout: 60_000 }, () => {
     expect(s.service.question('q1')?.status).toBe('open');
   });
 
+  // 0.8.0 D3.2: every permission request of a confined session is refused with no card, Claude for the sticky notes too.
+  it('Claude for the sticky notes gets no card for anything but a question, whoever started it', async () => {
+    const s = await startStack();
+    const host = await openSession(s, HOST, { purpose: 'notes' });
+    const mei = await openSession(s, MEI, { purpose: 'notes' });
+    s.fakes.agents.raise(host.id, bashRequest('pn1', 'pnpm test'));
+    s.fakes.agents.raise(host.id, editRequest('pn2', 'notes/Home.md', { kind: 'write', text: '# Home' }));
+    s.fakes.agents.raise(mei.id, editRequest('pn3', 'src/app.ts', { kind: 'write', text: 'x' }));
+    await quiet(s);
+    for (const [sessionId, id] of [[host.id, 'pn1'], [host.id, 'pn2'], [mei.id, 'pn3']] as const) {
+      expect(s.service.permission(id, true)).toBeNull();
+      expect(s.fakes.agents.answerTo(sessionId, id)).toEqual({ allow: false, message: 'This session only reads the project, writes sticky notes (Markdown files directly in notes/), and asks the team. This tool does not run here. Ask the team with AskUserQuestion, or say in the conversation what you need.' });
+    }
+    expect((await auditOf(s, 'permission.auto')).map((entry) => entry.detail?.['answer'])).toEqual(['discussion', 'discussion', 'discussion']);
+    const { questionRequest } = await import('./support.ts');
+    s.fakes.agents.raise(host.id, questionRequest('qn1'));
+    expect(s.service.question('qn1')?.status).toBe('open');
+  });
+
   it('an edit shows the diff it would make, against the file as it is', async () => {
     const s = await startStack({ project: { files: { 'src/cart.ts': 'export const items = [];\nexport const total = 0;\n' } } });
     const session = await openSession(s, MEI);

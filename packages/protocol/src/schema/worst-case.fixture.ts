@@ -1,4 +1,4 @@
-// Test fixture: the LARGEST sample of every protocol 4, 5 and 6 message, for worst-case.test.ts. A sample is built at the
+// Test fixture: the LARGEST sample of every protocol 4, 5, 6 and 7 message, for worst-case.test.ts. A sample is built at the
 // schema's own maxima (arrays at their maximum length, character-limited strings at their maximum length in
 // three-byte characters, byte-limited strings at their byte limit), EXCEPT where the registry names a size rule: then
 // the daemon bounds the message and the sample is the largest one that rule lets through.
@@ -80,6 +80,14 @@ export const worstSession = {
   endedBy: user,
 };
 const agentSession = worstSession;
+/**
+ * Claude for the sticky notes at its largest (protocol 7, 0.8.0): no topic, no item, no attempt, the main workspace,
+ * its mode fixed (`ask-all`, following nothing). Smaller than a work item's session: the list budget holds for it.
+ */
+export const worstNotesSession = (() => {
+  const { topicId: _topicId, itemId: _itemId, attempt: _attempt, topicName: _topicName, item: _item, modeFallback: _fallback, ...rest } = worstSession;
+  return { ...rest, purpose: 'notes', root: { kind: 'main' }, permissionMode: 'ask-all', modeChoice: null, modeInUse: 'ask-all', modeFixed: true };
+})();
 
 // ---- events --------------------------------------------------------------------------------------------------------
 const stamp = (seq: number): { seq: number; at: number } => ({ seq, at: T });

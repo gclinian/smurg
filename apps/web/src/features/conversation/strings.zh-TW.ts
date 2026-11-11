@@ -30,6 +30,8 @@ export const zhTW = {
   'mode.title': '權限模式：{mode}',
   'mode.fixed': '可讀程式碼，只能寫 spec 和計畫',
   'mode.fixedTitle': '權限模式：可讀程式碼，只能寫 spec 和計畫。討論不能做更多事。',
+  'mode.fixedNotes': '可讀程式碼，只能寫便利貼',
+  'mode.fixedNotesTitle': '權限模式：可讀程式碼，只能寫便利貼。便利貼的 Claude 不能做更多事。',
   'mode.dialog': '這個 session 不必先問就能做的事',
   'mode.choice': '權限模式',
   'mode.onlyDrive': '主人和「可使用 agent」的成員可以變更。',

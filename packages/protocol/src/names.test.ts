@@ -38,6 +38,14 @@ describe('sessionTitleRef: the name of a session nobody named, for every client'
     expect(render('en', item)).toBe('2 · Payment form');
     expect(render('en', sessionTitleRef({ kind: 'agent', purpose: 'discussion', openedBy }))).toBe('Discussion');
   });
+
+  // 0.8.0 D3.6: Claude for the sticky notes has its own title, in both languages, not its opener's name.
+  it('Claude for the sticky notes', () => {
+    const notes = sessionTitleRef({ kind: 'agent', purpose: 'notes', openedBy });
+    expect(notes).toEqual({ id: 'session.title.notes' });
+    expect(render('en', notes)).toBe('Sticky notes');
+    expect(render('zh-TW', notes)).toBe('便利貼');
+  });
 });
 
 describe('default titles', () => {

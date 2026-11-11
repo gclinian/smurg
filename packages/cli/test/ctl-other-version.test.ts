@@ -617,12 +617,20 @@ const WELCOME_V6 = (workspaceId: string): Record<string, unknown> => {
   return { ...welcome, settings: { ...(welcome['settings'] as object), merging: 'auto' } };
 };
 
+/**
+ * The welcome of protocol 7 (smurg 0.8.0, DESIGN 0.8.0 D8.2): it names its own protocol, so that a command and a
+ * daemon of different protocols refuse each other's for this and every later raise.
+ */
+const WELCOME_V7 = (workspaceId: string): Record<string, unknown> => ({ ...WELCOME_V6(workspaceId), protocol: 7 });
+
 /** One welcome sample per protocol: what a daemon of that protocol puts in its attach answer. */
-const WELCOMES: Readonly<Record<number, (workspaceId: string) => Record<string, unknown>>> = { 4: WELCOME_V4, 5: WELCOME_V5, 6: WELCOME_V6 };
+const WELCOMES: Readonly<Record<number, (workspaceId: string) => Record<string, unknown>>> = { 4: WELCOME_V4, 5: WELCOME_V5, 6: WELCOME_V6, 7: WELCOME_V7 };
+/** The published versions that speak each older protocol (the titles of the tests below). */
+const SPOKEN_BY: Readonly<Record<number, string>> = { 4: '0.4.0 to 0.5.2', 5: '0.6.0', 6: '0.7.0' };
 /** The welcome of this smurg's own protocol: what a daemon of this version answers. */
 const welcomeHere = (workspaceId: string): Record<string, unknown> => {
   const sample = WELCOMES[PROTOCOL_VERSION];
-  if (sample === undefined) throw new Error(`no welcome sample of protocol ${PROTOCOL_VERSION} here: add one beside WELCOME_V6`);
+  if (sample === undefined) throw new Error(`no welcome sample of protocol ${PROTOCOL_VERSION} here: add one beside WELCOME_V7`);
   return sample(workspaceId);
 };
 /** The protocols of the published versions before this one, each with its welcome. */
@@ -674,7 +682,8 @@ function sessionListOkOf040(id: string): Uint8Array {
 describe('smurg attach on the host and a daemon of another version', () => {
   it('the welcome samples: the one of this smurg\'s protocol is the one today\'s protocol accepts, every older one is not; the 0.4.0 session list is not either', () => {
     expect(welcomeSchema.safeParse(welcomeHere('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
-    expect(OLDER_WELCOMES.map((entry) => entry.protocol)).toEqual([4, 5]);
+    // 0.8.0 on purpose (DESIGN 0.8.0 D8.2): protocol 7; 0.7.0's welcome (protocol 6) is now an older one.
+    expect(OLDER_WELCOMES.map((entry) => entry.protocol)).toEqual([4, 5, 6]);
     for (const { protocol, sample } of OLDER_WELCOMES) expect(welcomeSchema.safeParse(sample('ws_AAAAAAAAAAAAAAAAAAAAAA')).success, `protocol ${protocol}`).toBe(false);
     const decoded = decodeEnvelope(sessionListOkOf040('l123456-1'), { from: 'daemon', channel: 'interactive' });
     expect(decoded.ok).toBe(false);
@@ -693,7 +702,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
     const { PROTOCOL_VERSION: protocolOfTag } = (await import(join(tree.src, 'constants.ts'))) as { PROTOCOL_VERSION: number };
     const ours = WELCOMES[PROTOCOL_VERSION];
     const theirs = WELCOMES[protocolOfTag];
-    if (ours === undefined || theirs === undefined) throw new Error(`no welcome sample of protocol ${ours === undefined ? PROTOCOL_VERSION : protocolOfTag} here: add one beside WELCOME_V6`);
+    if (ours === undefined || theirs === undefined) throw new Error(`no welcome sample of protocol ${ours === undefined ? PROTOCOL_VERSION : protocolOfTag} here: add one beside WELCOME_V7`);
     expect(protocolOfTag, 'a protocol version is only ever raised').toBeLessThanOrEqual(PROTOCOL_VERSION);
     // The tag reads the sample of its own protocol, and refuses the one before it (its settings lack a key).
     expect(welcomeOfTheTag.safeParse(theirs('ws_AAAAAAAAAAAAAAAAAAAAAA')).success).toBe(true);
@@ -708,7 +717,7 @@ describe('smurg attach on the host and a daemon of another version', () => {
     }
   });
 
-  it.for(OLDER_WELCOMES.map((entry) => [entry.protocol, entry.protocol === 4 ? '0.4.0 to 0.5.2' : '0.6.0'] as const))('a daemon of protocol %s (%s): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', { timeout: 60_000 }, async ([protocol]) => {
+  it.for(OLDER_WELCOMES.map((entry) => [entry.protocol, SPOKEN_BY[entry.protocol] ?? 'unknown'] as const))('a daemon of protocol %s (%s): its attach answer carries a welcome this smurg cannot read, and the command ends AT ONCE saying another version is sharing (never a 30 s wait)', { timeout: 60_000 }, async ([protocol]) => {
     const { env } = await setup();
     const id = 'ws_other_attach_000';
     const sample = WELCOMES[protocol] as (workspaceId: string) => Record<string, unknown>;

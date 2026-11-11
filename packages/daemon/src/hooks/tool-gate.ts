@@ -8,9 +8,14 @@
 // | G3 | an edit tool on Claude Code's configuration (`.claude/**`, `.mcp.json`, `.git/**`, any    | deny |
 // |    | depth) or on a file the trust gate recorded                                               |      |
 // | G4 | an edit tool on another host-only path, session with `pathRights: 'member'`               | deny |
-// | G5 | discussion: Read / Glob / Grep outside the session's root, or of a host-private path      | deny |
+// | G5 | discussion and notes: Read / Glob / Grep outside the session's root, or of a host-private  | deny |
+// |    | path; for notes also anything in `.smurg/` (any depth, folded) or a Glob pattern naming it |      |
 // | G6 | discussion: an edit tool whose target is not its topic's SPEC.md or PLAN.md               | deny |
 // | G7 | work item: an edit tool on its topic's SPEC.md or PLAN.md                                 | deny |
+// | G13| notes (Claude for the sticky notes, whoever started it, the host too): an edit tool unless | deny |
+// |    | the resolved target in the MAIN workspace is a note's file (`noteNameOf`), `notes` is a    |      |
+// |    | real folder, nothing but a regular file of one link is at the target, and no other entry   |      |
+// |    | of `notes/` has a name that folds equal to it (NoteEditFacts, read by hook-events.ts)      |      |
 // | G8 | any other edit-tool call                                                                  | lock |
 // | G10| Bash, in a root whose project settings are in use and run scripts: a command that writes  | ask  |
 // |    | where one of those scripts is, or that the gate cannot follow (bash-guard.ts); not while  |      |
@@ -30,7 +35,21 @@
 // which files a shell command names; what a program does that names none, they cannot see (DESIGN 0.6.0 D10). In the
 // ask modes Claude Code itself asks before every shell write, so G11 and G12 do not run there, nor in "Asks for
 // nothing", nor (G11) in a worktree, whose changes the merge review covers.
-import { SMURG_TOOL_PREFIX, foldRelPath, isClaudeConfigPath, isEditTool, isHostOnlyPath, isHostPrivatePath, isRelPathWithin, topicPlanPath, topicSpecPath } from '@smurg/protocol';
+import {
+  SMURG_TOOL_PREFIX,
+  confinedPurpose,
+  foldRelPath,
+  isClaudeConfigPath,
+  isEditTool,
+  isHostOnlyPath,
+  isHostPrivatePath,
+  isRelPathWithin,
+  isSmurgDirName,
+  noteNameOf,
+  relPathSegments,
+  topicPlanPath,
+  topicSpecPath,
+} from '@smurg/protocol';
 import type { GateRow, HookSessionRegistration } from '../core/interfaces.ts';
 
 /**
@@ -57,7 +76,25 @@ export type TableDenyRow = Exclude<GateRow, 'G11' | 'G12'>;
 
 export type GateDecision = { readonly kind: 'pass' } | { readonly kind: 'lock' } | { readonly kind: 'deny'; readonly row: TableDenyRow; readonly path?: string };
 
-export type GateFacts = Pick<HookSessionRegistration, 'purpose' | 'topic' | 'pathRights' | 'tools'>;
+/** `root` is read only for Claude for the sticky notes (G13: the main workspace, or nothing); absent counts as not main. */
+export type GateFacts = Pick<HookSessionRegistration, 'purpose' | 'topic' | 'pathRights' | 'tools'> & Partial<Pick<HookSessionRegistration, 'root'>>;
+
+/**
+ * What the hook server read from the disk for an edit of Claude for the sticky notes (row G13, DESIGN 0.8.0 D3.3):
+ * one lstat of `notes`, one of the target, one readdir of `notes/`. Absent: nothing could be read, and G13 refuses.
+ */
+export interface NoteEditFacts {
+  /** `notes` at the top of the main workspace is a real folder (lstat: a directory, not a symbolic link). */
+  readonly folderIsReal: boolean;
+  /**
+   * What lstat finds at the target: nothing yet (a new note), a regular file with one link, or anything else (a
+   * directory, a symbolic link, a special file, a file with more than one hard link: an edit there would write
+   * another file than a note).
+   */
+  readonly target: 'absent' | 'file' | 'other';
+  /** Another entry of `notes/` has a name that folds equal to the target's (`foldRelPath`): `home.md` beside `Home.md`. */
+  readonly twin: boolean;
+}
 
 const READ_TOOLS = new Set(['Read', 'Glob', 'Grep']);
 
@@ -88,11 +125,23 @@ function isRecorded(recorded: ReadonlySet<string>, path: string): boolean {
   return false;
 }
 
+/** Whether a root-relative path names smurg's own folder `.smurg` at any depth under any spelling (foldPathName). */
+function namesSmurgDir(path: string): boolean {
+  return relPathSegments(path).some(isSmurgDirName);
+}
+
+/** Row G13: whether an edit of Claude for the sticky notes may go on to the lock (`path`: the resolved target). */
+function isNoteEdit(session: GateFacts, path: string | undefined, note: NoteEditFacts | undefined): boolean {
+  if (session.root?.kind !== 'main' || path === undefined || noteNameOf(path) === null || note === undefined) return false;
+  return note.folderIsReal && note.target !== 'other' && !note.twin;
+}
+
 /**
  * The decision for one call. `extraProtected`: root-relative paths the trust gate recorded for the session's root
- * (ProjectTrust.protectedPaths). `pattern`: a Glob's pattern.
+ * (ProjectTrust.protectedPaths). `pattern`: a Glob's pattern. `note`: for an edit of Claude for the sticky notes, what
+ * the disk says about its target (G13; absent, the edit is refused).
  */
-export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<string>, tool: string, target: GateTarget, pattern?: string): GateDecision {
+export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<string>, tool: string, target: GateTarget, pattern?: string, note?: NoteEditFacts): GateDecision {
   if (!toolInList(session.tools, tool)) return deny('G2');
   const path = target.kind === 'in' ? target.path : undefined;
   if (isEditTool(tool)) {
@@ -102,15 +151,22 @@ export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<str
     if (session.purpose === 'discussion') {
       // Its topic's spec and plan and nothing else; a target that is no file of the root is never one of the two.
       if (slug === undefined || path === undefined || (path !== topicSpecPath(slug) && path !== topicPlanPath(slug))) return deny('G6', path);
+    } else if (session.purpose === 'notes') {
+      // Notes and nothing else, whoever started the session (CLAUDE.md is no note's name: host-only for everyone).
+      if (!isNoteEdit(session, path, note)) return deny('G13', path);
     } else if (session.purpose === 'item' && slug !== undefined && path !== undefined && (path === topicSpecPath(slug) || path === topicPlanPath(slug))) {
       return deny('G7', path);
     }
     return { kind: 'lock' };
   }
-  if (session.purpose === 'discussion' && READ_TOOLS.has(tool)) {
+  if (confinedPurpose(session.purpose) && READ_TOOLS.has(tool)) {
+    const notes = session.purpose === 'notes';
     if (target.kind === 'outside') return deny('G5');
-    if (path !== undefined && isHostPrivatePath(path)) return deny('G5', path);
+    if (path !== undefined && (isHostPrivatePath(path) || (notes && namesSmurgDir(path)))) return deny('G5', path);
     if (tool === 'Glob' && patternLeavesRoot(pattern)) return deny('G5');
+    // A pattern that names smurg's own folder is refused too. A wildcard can still match it: what Glob lists are names,
+    // not contents, and a Read of one is refused above.
+    if (notes && tool === 'Glob' && pattern !== undefined && pattern.split('/').some(isSmurgDirName)) return deny('G5');
     // A Read that names no file cannot run; a search without a path searches the working directory.
   }
   return { kind: 'pass' };

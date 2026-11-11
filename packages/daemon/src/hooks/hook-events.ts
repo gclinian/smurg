@@ -8,10 +8,25 @@
 //    a JSON deny whose reason is fixed English (deny-text.ts), and a shell command that may change a script the
 //    root's project settings run a JSON "ask" (bash-guard.ts: a person decides, whatever a mode or a rule allows);
 //  * every failure while deciding a PreToolUse is a deny (fail closed).
-import { lstat, realpath } from 'node:fs/promises';
+import { lstat, readdir, realpath } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, resolve as resolvePath, basename, dirname, join, relative, sep } from 'node:path';
-import { MAIN_ROOT, SmurgError, agentSafeName, fileRefKey, foldRelPath, isHostOnlyPath, isRelPathWithin, rootRefEquals, rootRefKey, type FileRef } from '@smurg/protocol';
+import {
+  MAIN_ROOT,
+  NOTES_DIR,
+  SmurgError,
+  agentSafeName,
+  confinedPurpose,
+  fileRefKey,
+  foldRelPath,
+  isHostOnlyPath,
+  isRelPathWithin,
+  noteNameOf,
+  relPathSegments,
+  rootRefEquals,
+  rootRefKey,
+  type FileRef,
+} from '@smurg/protocol';
 import type { DaemonContext } from '../core/context.ts';
 import { isPathDeniedError } from '../core/errors.ts';
 import type { AgentLockResult, GateRow, HookSessionRegistration, Principal } from '../core/interfaces.ts';
@@ -19,7 +34,7 @@ import { isStubService } from '../core/stubs.ts';
 import { bashPlaces, judgePlaces, type BashVerdict, type ResolvedPlace } from './bash-guard.ts';
 import { BASH_ASK_REASONS, HOOK_DENY_REASONS, bashWhileTypingReason, gateDenyReason, pathCheckFailedReason, pathDeniedReason } from './deny-text.ts';
 import type { HookInput } from './schemas.ts';
-import { GATE_ASKS_WHEN_UNSURE, gateDecision, type GateTarget } from './tool-gate.ts';
+import { GATE_ASKS_WHEN_UNSURE, gateDecision, type GateTarget, type NoteEditFacts, type TableDenyRow } from './tool-gate.ts';
 import { BASH_TOOL_NAME, EDIT_TOOL_NAMES, preToolUseAsk, preToolUseDeny, type JsonObject } from './wire.ts';
 
 /** Per-session state the event handlers keep (owned by the HookServer's session entry). */
@@ -162,17 +177,49 @@ function emitGate(ctx: DaemonContext, state: HookSessionState, input: HookInput,
 }
 
 /** The gate refused: the deny for the model, `agent.tool.gate` for the audit (coalesced by the conversation module). */
-function gateDeny(ctx: DaemonContext, state: HookSessionState, input: HookInput, tool: string, row: 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7', path: string | undefined): PreToolUseOutcome {
+function gateDeny(ctx: DaemonContext, state: HookSessionState, input: HookInput, tool: string, row: TableDenyRow, path: string | undefined): PreToolUseOutcome {
   const session = state.registration;
   if (row === 'G2' && !state.unknownTools.has(tool) && state.unknownTools.size < 64) {
     state.unknownTools.add(tool);
     ctx.log.info('agent.tool.unknown: a tool outside the session\'s list was refused', { session: session.sessionId, tool: tool.slice(0, 64) });
   }
   emitGate(ctx, state, input, tool, row, path);
-  return deny(gateDenyReason(row, { tool, ...(session.topic === undefined ? {} : { slug: session.topic.slug }) }));
+  return deny(gateDenyReason(row, { tool, ...(session.topic === undefined ? {} : { slug: session.topic.slug }), ...(session.purpose === 'notes' ? { notes: true } : {}) }));
 }
 
 const READ_TOOLS: readonly string[] = ['Read', 'Glob', 'Grep'];
+
+/**
+ * Row G13's facts (tool-gate.ts NoteEditFacts) for an edit of Claude for the sticky notes whose resolved target is a
+ * note's file of the main workspace: one lstat of `notes`, one of the target, one readdir of `notes/`, all async and
+ * none of them reading a file's contents. Undefined (G13 refuses) for any other edit and when the disk cannot say.
+ */
+async function noteEditFacts(ctx: DaemonContext, session: HookSessionRegistration, located: LocateResult): Promise<NoteEditFacts | undefined> {
+  if (session.purpose !== 'notes' || !located.ok || session.root.kind !== 'main' || located.ref.root.kind !== 'main') return undefined;
+  const path = located.ref.path;
+  if (noteNameOf(path) === null) return undefined;
+  const main = ctx.roots.main.realPath;
+  const folder = join(main, NOTES_DIR);
+  try {
+    const folderStat = await lstat(folder).catch((err: unknown) => (isMissing(err) ? null : Promise.reject(err)));
+    if (folderStat === null || folderStat.isSymbolicLink() || !folderStat.isDirectory()) return { folderIsReal: false, target: 'other', twin: false };
+    const targetStat = await lstat(join(main, ...relPathSegments(path))).catch((err: unknown) => (isMissing(err) ? null : Promise.reject(err)));
+    const target = targetStat === null ? 'absent' : targetStat.isFile() && targetStat.nlink === 1 ? 'file' : 'other';
+    const name = basename(path);
+    const folded = foldRelPath(path);
+    const entries = await readdir(folder);
+    const twin = entries.some((entry) => entry !== name && foldRelPath(`${NOTES_DIR}/${entry}`) === folded);
+    return { folderIsReal: true, target, twin };
+  } catch (err) {
+    ctx.log.warn('the sticky notes folder could not be read for the gate', { session: session.sessionId, error: err instanceof Error ? err.name : 'unknown' });
+    return undefined;
+  }
+}
+
+function isMissing(err: unknown): boolean {
+  const code = (err as NodeJS.ErrnoException | null)?.code;
+  return code === 'ENOENT' || code === 'ENOTDIR';
+}
 
 /** `path` as the file system has it: the real path of the deepest part that exists, the rest as written. */
 async function onDisk(path: string): Promise<string> {
@@ -364,11 +411,12 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
   const editing = isEditTool(tool);
   const protectedPaths = isStubService(ctx.services.projectTrust) ? new Set<string>() : ctx.services.projectTrust.protectedPaths(session.root);
   const raw = editing ? targetOf(input) : (input.tool_input?.file_path ?? input.tool_input?.path);
-  // Only an edit, and a discussion's reads, are decided by where they point.
-  const needsPath = editing || (session.purpose === 'discussion' && READ_TOOLS.includes(tool));
+  // Only an edit, and a confined session's reads (a discussion's, the sticky notes'), are decided by where they point.
+  const needsPath = editing || (confinedPurpose(session.purpose) && READ_TOOLS.includes(tool));
   const located: LocateResult = needsPath ? await locateInSessionRoot(ctx, session, raw, input.cwd) : { ok: false, why: 'no-target' };
   const target: GateTarget = located.ok ? { kind: 'in', path: located.ref.path } : located.why === 'no-target' || (located.why === 'relative' && raw === undefined) ? { kind: 'none' } : { kind: 'outside' };
-  const decision = gateDecision(session, protectedPaths, tool, target, input.tool_input?.pattern);
+  const note = editing ? await noteEditFacts(ctx, session, located) : undefined;
+  const decision = gateDecision(session, protectedPaths, tool, target, input.tool_input?.pattern, note);
   if (decision.kind === 'deny') {
     if (editing) releaseHeld(ctx, state, null);
     return gateDeny(ctx, state, input, tool, decision.row, decision.path);

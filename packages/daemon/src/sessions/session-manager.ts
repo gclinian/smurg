@@ -24,6 +24,7 @@ import {
   rootRefKey,
   worktreeRoot,
   type Actor,
+  type AgentPurpose,
   type AgentSession,
   type LoginState,
   type PayloadOf,
@@ -791,7 +792,7 @@ export class SessionManagerImpl implements SessionManager {
     const losesSessions = change !== 'role-changed' || to === undefined || !can(to, 'session.create');
     const losesDiscuss = change !== 'role-changed' || to === undefined || !can(to, 'discuss');
     const ended: string[] = [];
-    const handedOver: { sessionId: string; topicId: string; stopped: boolean }[] = [];
+    const handedOver: { sessionId: string; purpose: AgentPurpose; topicId?: string; stopped: boolean }[] = [];
     const agents = this.agents();
     const ctx = this.ctx;
     const name = ctx.members.userRef(userId)?.displayName ?? userId.slice(userId.indexOf(':') + 1);
@@ -808,15 +809,16 @@ export class SessionManagerImpl implements SessionManager {
       if (agents !== null) {
         const host = ctx.members.hostUserId();
         const hostPrincipal = ctx.members.principalOf(host);
-        // Every agent session they own (archived topics included): free ones end, topic sessions pass to the host.
+        // Every agent session they own (archived topics included): free ones end; topic sessions and Claude for the
+        // sticky notes (one per workspace, everyone's: DESIGN 0.8.0 D3.5) pass to the host.
         const owned = this.ownedAgentSessions(agents, userId);
         for (const session of owned) {
           const facts = agents.facts(session.id);
           if (session.status === 'ended' || facts === null) continue;
-          if (session.topicId === undefined) {
+          if (session.purpose === 'free') {
             if (session.openedBy.userId !== userId) continue;
             await agents.end(session.id, { by: SYSTEM_ACTOR, reason: change, keepWorktree: true });
-            ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'session.terminate', outcome: 'ok', target: session.id, detail: { sessionId: session.id, openedBy: userId, kind: 'agent', purpose: 'free', reason: change } });
+            ctx.audit.record({ actor: SYSTEM_ACTOR, action: 'session.terminate', outcome: 'ok', target: session.id, detail: { sessionId: session.id, openedBy: userId, kind: 'agent', purpose: session.purpose, reason: change } });
             ended.push(session.id);
             continue;
           }
@@ -827,7 +829,7 @@ export class SessionManagerImpl implements SessionManager {
             await ctx.services.worktrees.setOwner(facts.worktreeId, hostPrincipal).catch((err: unknown) => this.logError('the worktree of a handed-over session did not change its owner', err));
           }
           agents.append(session.id, lineEvent(change === 'kicked' ? msg('conversation.owner.handover.kicked', { name }) : msg('conversation.owner.handover', { name })));
-          handedOver.push({ sessionId: session.id, topicId: session.topicId, stopped: change === 'kicked' });
+          handedOver.push({ sessionId: session.id, purpose: session.purpose, ...(session.topicId === undefined ? {} : { topicId: session.topicId }), stopped: change === 'kicked' });
         }
       }
       // Not at a leave: the member keeps their role and comes back to what they kept (the Leave dialog names the

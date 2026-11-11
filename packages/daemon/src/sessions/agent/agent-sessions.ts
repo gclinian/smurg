@@ -26,6 +26,7 @@ import {
   agentSessionName,
   agentText,
   checkRememberableRule,
+  confinedPurpose,
   effectivePermissionMode,
   encodedSize,
   frameMessage,
@@ -44,6 +45,7 @@ import {
   type Actor,
   type AgentHostState,
   type AgentModel,
+  type AgentPurpose,
   type AgentSession,
   type ConversationEvent,
   type ConversationEventInput,
@@ -151,6 +153,11 @@ const HOLD_MAX = 5_000;
 /** The key of the notice about a personal subscription login (once per workspace: HostRulesImpl keeps it). */
 const SUBSCRIPTION_NOTICE = 'subscription';
 const SESSION_ID = (): string => `ses_${randomBytes(16).toString('hex')}`;
+
+/** A session without a topic (free, and Claude for the sticky notes): its ended record and log go after the free retention. */
+function retainedAsFree(purpose: AgentPurpose): boolean {
+  return purpose === 'free' || purpose === 'notes';
+}
 
 function userOf(actor: Actor): UserRef | null {
   return actor.kind === 'user' ? { userId: actor.userId, displayName: actor.displayName } : null;
@@ -406,8 +413,8 @@ export class AgentSessionsImpl implements AgentSessions {
       permissionMode: this.effectiveMode(record),
       // What the running process reported (DESIGN 0.6.0 D9); nothing while there is no process.
       ...(runner.hasProcess && runner.modeInUse !== undefined ? { modeInUse: runner.modeInUse, ...(runner.modeFallback === undefined ? {} : { modeFallback: runner.modeFallback }) } : {}),
-      modeChoice: record.purpose === 'discussion' ? null : record.modeChoice,
-      modeFixed: record.purpose === 'discussion',
+      modeChoice: confinedPurpose(record.purpose) ? null : record.modeChoice,
+      modeFixed: confinedPurpose(record.purpose),
       model: record.model,
       ...(runner.modelInUse === undefined ? {} : { modelInUse: runner.modelInUse }),
       ruleCount: record.rules.length + this.topicRules(record.topic?.id).length,
@@ -1122,10 +1129,13 @@ export class AgentSessionsImpl implements AgentSessions {
   // =================================================================================================================
 
   async start(input: AgentStartInput, internal: { readonly id?: string } = {}): Promise<AgentSession> {
-    if (input.purpose !== 'free' && input.topic === undefined) throw new TypeError(`AgentSessions.start: a ${input.purpose} session needs \`topic\``);
+    const ofTopic = input.purpose === 'discussion' || input.purpose === 'item';
+    if (ofTopic && input.topic === undefined) throw new TypeError(`AgentSessions.start: a ${input.purpose} session needs \`topic\``);
     if (input.purpose === 'item' && input.item === undefined) throw new TypeError('AgentSessions.start: an item session needs `item`');
-    if (input.purpose === 'free' && (input.topic !== undefined || input.item !== undefined)) throw new TypeError('AgentSessions.start: a free session has no topic and no item');
+    if (!ofTopic && (input.topic !== undefined || input.item !== undefined)) throw new TypeError(`AgentSessions.start: a ${input.purpose} session has no topic and no item`);
     if (input.purpose === 'discussion' && input.item !== undefined) throw new TypeError('AgentSessions.start: a discussion session has no item');
+    // Claude for the sticky notes writes notes/ of the shared folder (DESIGN 0.8.0 D3.1): never in a worktree.
+    if (input.purpose === 'notes' && input.workspace.mode !== 'main') throw new TypeError('AgentSessions.start: Claude for the sticky notes runs in the main workspace');
     if (this.stopping || !this.started || this.store === null) throw agentError('conflict', this.started ? msg('daemon.stopping') : msg('session.notStarted'), this.started ? 'stopping' : 'not-started');
     // A person's first message is cleaned BEFORE anything exists: the title is made of it (and must be a line the
     // record and the wire accept), and a text that is nothing once cleaned must not leave a session nobody started.
@@ -1178,8 +1188,8 @@ export class AgentSessionsImpl implements AgentSessions {
       root,
       ...(worktreeId === undefined ? {} : { worktreeId }),
       ...(branch === undefined || branch.length === 0 ? {} : { branch }),
-      modeChoice: input.purpose === 'discussion' ? null : input.modeChoice,
-      ...(input.purpose === 'discussion' || input.modeChoice === null || input.modeChangedBy === undefined ? {} : { modeChangedBy: { ...input.modeChangedBy } }),
+      modeChoice: confinedPurpose(input.purpose) ? null : input.modeChoice,
+      ...(confinedPurpose(input.purpose) || input.modeChoice === null || input.modeChangedBy === undefined ? {} : { modeChangedBy: { ...input.modeChangedBy } }),
       model: input.model,
       ...(input.model === null || input.modelChangedBy === undefined ? {} : { modelChangedBy: { ...input.modelChangedBy } }),
       rules: [],
@@ -1314,7 +1324,7 @@ export class AgentSessionsImpl implements AgentSessions {
   async setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void> {
     const entry = this.need(sessionId);
     const record = entry.runner.record;
-    if (record.purpose === 'discussion') throw agentError('conflict', msg('session.mode.fixed'), 'mode-fixed');
+    if (confinedPurpose(record.purpose)) throw agentError('conflict', msg('session.mode.fixed'), 'mode-fixed');
     const person = userOf(by);
     const resetFrom = record.modeChangedBy;
     record.modeChoice = mode;
@@ -1400,7 +1410,7 @@ export class AgentSessionsImpl implements AgentSessions {
   async workspaceModeChanged(previous: PermissionMode): Promise<void> {
     for (const entry of [...this.entries.values()]) {
       const record = entry.runner.record;
-      if (record.state === 'ended' || record.purpose === 'discussion' || record.modeChoice !== null) continue;
+      if (record.state === 'ended' || confinedPurpose(record.purpose) || record.modeChoice !== null) continue;
       if (record.purpose === 'item' && this.topicModeChoice(record.topic?.id) !== null) continue;
       const after = this.effectiveMode(record);
       if (after === previous) continue;
@@ -1597,7 +1607,7 @@ export class AgentSessionsImpl implements AgentSessions {
 
   /** A host setting that shapes the launch changed (`agentMcp`): every session with a process starts again. */
   async restartAll(reason: 'host'): Promise<void> {
-    for (const entry of [...this.entries.values()]) if (entry.runner.hasProcess && entry.runner.record.purpose !== 'discussion') await this.restartProcess(entry.runner.id, reason);
+    for (const entry of [...this.entries.values()]) if (entry.runner.hasProcess && !confinedPurpose(entry.runner.record.purpose)) await this.restartProcess(entry.runner.id, reason);
   }
 
   async forget(sessionIds: readonly string[]): Promise<void> {
@@ -1638,11 +1648,14 @@ export class AgentSessionsImpl implements AgentSessions {
     }
   }
 
-  /** DESIGN §2.4 "Bounds" and "Retention": one session's log, ended free sessions after 30 days, the workspace budget. */
+  /**
+   * DESIGN §2.4 "Bounds" and "Retention": one session's log, ended free sessions after 30 days, the workspace budget.
+   * An ended session of Claude for the sticky notes is kept as a free one is (DESIGN 0.8.0 D3.5): neither has a topic.
+   */
   private async retention(now: number): Promise<void> {
     const expired = [...this.entries.values()].filter((entry) => {
       const record = entry.runner.record;
-      return record.purpose === 'free' && record.state === 'ended' && record.endedAt !== undefined && now - record.endedAt >= this.config.freeSessionRetentionMs;
+      return retainedAsFree(record.purpose) && record.state === 'ended' && record.endedAt !== undefined && now - record.endedAt >= this.config.freeSessionRetentionMs;
     });
     if (expired.length > 0) await this.forget(expired.map((entry) => entry.runner.id));
     let total = 0;
@@ -1658,7 +1671,7 @@ export class AgentSessionsImpl implements AgentSessions {
     }
     if (total > this.config.transcriptMaxBytes) {
       // The oldest ended free sessions go first; then nothing is removed silently: the host is told.
-      const candidates = [...this.entries.values()].filter((entry) => entry.runner.record.purpose === 'free' && entry.runner.record.state === 'ended').sort((a, b) => (a.runner.record.endedAt ?? 0) - (b.runner.record.endedAt ?? 0));
+      const candidates = [...this.entries.values()].filter((entry) => retainedAsFree(entry.runner.record.purpose) && entry.runner.record.state === 'ended').sort((a, b) => (a.runner.record.endedAt ?? 0) - (b.runner.record.endedAt ?? 0));
       for (const entry of candidates) {
         if (total <= this.config.transcriptMaxBytes) break;
         total -= entry.transcript.bytes;

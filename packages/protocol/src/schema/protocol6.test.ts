@@ -67,7 +67,9 @@ const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
  */
 const PROTOCOL_5_TAG = 'v0.6.0';
 
+// Today's Welcome is the baseline (protocol 7, 0.8.0, added `protocol`): each case below takes away what protocol 5 lacked.
 const welcome = {
+  protocol: PROTOCOL_VERSION,
   channelId: 'ch_1',
   resumed: false,
   member: { userId: 'dev:ian', displayName: 'Ian', role: 'host', color: '#ff8800', online: true, joinedAt: 1 },
@@ -82,12 +84,6 @@ function without<T extends object, K extends keyof T>(value: T, key: K): Omit<T,
   delete copy[key];
   return copy;
 }
-
-describe('protocol 6', () => {
-  it('is the version a hello carries', () => {
-    expect(PROTOCOL_VERSION).toBe(6);
-  });
-});
 
 describe('what a peer of protocol 5 meets, shape by shape (D2)', () => {
   it('a protocol-5 Welcome (its settings have no `merging`) is refused: every member learns how work items merge', () => {

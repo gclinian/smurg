@@ -4,7 +4,7 @@ import { agentSafeName } from './agent-text.ts';
 import { renderEnglish, msg, type MessageRef } from './i18n/index.ts';
 import { normalized } from './normalize.ts';
 import { RELAY_DISPLAY_NAME_MAX_CHARS } from './relay/frames.ts';
-import type { AgentStatus, SessionInfo } from './schema/entities.ts';
+import type { AgentPurpose, AgentStatus, SessionInfo } from './schema/entities.ts';
 
 /** The text around the label: `Claude (` + `)`. */
 const AGENT_NAME_WRAPPER_CHARS = 'Claude ()'.length;
@@ -60,12 +60,13 @@ export function defaultSessionTitle(kind: 'agent' | 'terminal', openerName: stri
 /**
  * The name of a session nobody named (`SessionInfo.title` is absent), as a reference each client renders in the
  * viewer's language: `Terminal (Ian)`; a free agent session `Claude (Ian)`; a topic's discussion `Discussion`; a work
- * item's session `2 · Payment form` (from `AgentSession.item`). The web, the CLI and the daemon's own fixed-English
- * texts all name a session through this one function.
+ * item's session `2 · Payment form` (from `AgentSession.item`); Claude for the sticky notes `Sticky notes`. The web,
+ * the CLI and the daemon's own fixed-English texts all name a session through this one function.
  */
-export function sessionTitleRef(session: Pick<SessionInfo, 'kind' | 'openedBy'> & { readonly purpose?: 'discussion' | 'item' | 'free'; readonly item?: { readonly number: number; readonly title: string } }): MessageRef {
+export function sessionTitleRef(session: Pick<SessionInfo, 'kind' | 'openedBy'> & { readonly purpose?: AgentPurpose; readonly item?: { readonly number: number; readonly title: string } }): MessageRef {
   if (session.kind === 'terminal') return msg('session.title.terminal', { owner: session.openedBy.displayName });
   if (session.purpose === 'discussion') return msg('session.title.discussion');
+  if (session.purpose === 'notes') return msg('session.title.notes');
   if (session.purpose === 'item' && session.item !== undefined) return msg('session.title.item', { number: session.item.number, title: session.item.title });
   return msg('session.title.agent', { owner: session.openedBy.displayName });
 }

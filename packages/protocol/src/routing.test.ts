@@ -188,6 +188,16 @@ describe('ending a session', () => {
     expect(mayEndSession(member(LEO), { ...item, openedBy: LEO })).toBe(false);
   });
 
+  // 0.8.0 D3.5: Claude for the sticky notes is ended like any agent session nobody is responsible for.
+  it('Claude for the sticky notes: the host, or the member with agent access who opened it', () => {
+    const notes = { kind: 'agent', purpose: 'notes', openedBy: MEI, responsible: null } as const;
+    expect(mayEndSession(member(IAN), notes)).toBe(true);
+    expect(mayEndSession(member(MEI), notes)).toBe(true);
+    expect(mayEndSession(member(AMY), { ...notes, openedBy: AMY })).toBe(false); // an Editor
+    expect(mayEndSession(member(LEO), notes)).toBe(false);
+    expect(mayEndSession(member(MEI), { ...notes, openedBy: IAN })).toBe(false); // agent access, but another member opened it
+  });
+
   it("a topic's discussion: nobody", () => {
     for (const who of [IAN, MEI, AMY, LEO]) expect(mayEndSession(member(who), { kind: 'agent', purpose: 'discussion', openedBy: who, responsible: who })).toBe(false);
   });

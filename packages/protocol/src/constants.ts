@@ -17,10 +17,12 @@ const GiB = 1024 * MiB;
  * 4 since agent sessions are conversations (smurg 0.5.0): `SessionInfo` is a union of terminal and agent sessions,
  * and topics, plans, result reports, questions, permission requests and the inbox joined the catalog.
  * 5 since 0.6.0: permission modes, models, the host's agent and history state.
- * 6 since 0.7.0: automatic merging, decisions, ready to check, undo. A daemon answers another version with the verdict
+ * 6 since 0.7.0: automatic merging, decisions, ready to check, undo.
+ * 7 since 0.8.0: sticky notes; the control socket's Welcome carries this number (`Welcome.protocol`), so that a
+ * command and a daemon of different protocols refuse each other. A daemon answers another version with the verdict
  * `version`; there is no compatibility code.
  */
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 
 /** Leading bytes of every Noise prologue: `"smurg-noise/1" ‖ 0x00 ‖ u8 len(workspaceId) ‖ workspaceId ‖ …`. */
 export const NOISE_PROLOGUE_TAG = 'smurg-noise/1';

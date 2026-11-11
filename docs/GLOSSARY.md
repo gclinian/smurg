@@ -162,6 +162,20 @@ Outside the passages about "The host merges each item", no text says that the ho
 "main workspace" / 主工作區, and the headings the CLI and the site link to (HOSTING §10.3 "Merging, and what waits for
 it", JOINING §6 "Topics: from discussion to reviewed result", HOW-IT-WORKS "From discussion to merged work").
 
+## Terms of 0.8.0
+
+Sticky notes, and Claude for the sticky notes.
+
+| Concept | English (UI label / prose) | zh-TW | Wire id |
+|---|---|---|---|
+| A small Markdown file of `notes/` that people and Claude write | sticky note (written in full in labels, never "note" alone) | 便利貼 | `notes/<Name>.md` |
+| The agent session that writes the sticky notes (one per workspace) | Claude for the sticky notes (prose); Sticky notes (its title and its kind) | 便利貼的 Claude；便利貼 | `notes`, `session.title.notes`, `sessions.purpose.notes` |
+| The first sticky note | `Home` (a file name: never translated) | `Home` | `notes/Home.md` |
+
+A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
+of a file. What Claude for the sticky notes may do is said in its own words, never in the discussion's: it reads the
+project and writes only sticky notes.
+
 ## Language-neutral names
 
 Names that are stored and shown to everyone have ONE spelling and are never translated.

@@ -18,6 +18,7 @@ import {
   SmurgError,
   agentDisplayName,
   agentSafeName,
+  confinedPurpose,
   effectivePermissionMode,
   encodedSize,
   lineEvent,
@@ -137,10 +138,12 @@ export class FakeAgentSessions implements AgentSessions {
 
   async start(input: AgentStartInput): Promise<AgentSession> {
     this.log.record('start', input);
-    if (input.purpose !== 'free' && input.topic === undefined) throw new TypeError(`AgentSessions.start: a ${input.purpose} session needs \`topic\``);
+    const ofTopic = input.purpose === 'discussion' || input.purpose === 'item';
+    if (ofTopic && input.topic === undefined) throw new TypeError(`AgentSessions.start: a ${input.purpose} session needs \`topic\``);
     if (input.purpose === 'item' && input.item === undefined) throw new TypeError('AgentSessions.start: an item session needs `item`');
-    if (input.purpose === 'free' && (input.topic !== undefined || input.item !== undefined)) throw new TypeError('AgentSessions.start: a free session has no topic and no item');
+    if (!ofTopic && (input.topic !== undefined || input.item !== undefined)) throw new TypeError(`AgentSessions.start: a ${input.purpose} session has no topic and no item`);
     if (input.purpose === 'discussion' && input.item !== undefined) throw new TypeError('AgentSessions.start: a discussion session has no item');
+    if (input.purpose === 'notes' && input.workspace.mode !== 'main') throw new TypeError('AgentSessions.start: Claude for the sticky notes runs in the main workspace');
     if (this.failNextStart !== null) {
       const error = this.failNextStart;
       this.failNextStart = null;
@@ -169,9 +172,9 @@ export class FakeAgentSessions implements AgentSessions {
       root,
       branch,
       status: 'idle',
-      permissionMode: this.effective(input.purpose, input.purpose === 'discussion' ? null : input.modeChoice, input.topic?.id),
-      modeChoice: input.purpose === 'discussion' ? null : input.modeChoice,
-      modeFixed: input.purpose === 'discussion',
+      permissionMode: this.effective(input.purpose, confinedPurpose(input.purpose) ? null : input.modeChoice, input.topic?.id),
+      modeChoice: confinedPurpose(input.purpose) ? null : input.modeChoice,
+      modeFixed: confinedPurpose(input.purpose),
       model: input.model,
       noteworthyAt: now,
       lastActivityAt: now,
@@ -191,7 +194,7 @@ export class FakeAgentSessions implements AgentSessions {
         ownerUserId: openedBy.userId,
         pathRights: input.openedBy.role === 'host' ? 'host' : 'member',
         fallbackDecider: openedBy.userId,
-        ...(input.purpose !== 'discussion' && input.modeChoice !== null && input.modeChangedBy !== undefined ? { modeChangedBy: input.modeChangedBy.userId } : {}),
+        ...(!confinedPurpose(input.purpose) && input.modeChoice !== null && input.modeChangedBy !== undefined ? { modeChangedBy: input.modeChangedBy.userId } : {}),
         ...(input.model !== null && input.modelChangedBy !== undefined ? { modelChangedBy: input.modelChangedBy.userId } : {}),
         hasProcess: true,
       },
@@ -209,7 +212,7 @@ export class FakeAgentSessions implements AgentSessions {
       turnOpen: null,
       turnMessages: [],
       taken: 0,
-      modeChangedByName: input.purpose !== 'discussion' && input.modeChoice !== null ? (input.modeChangedBy?.displayName ?? null) : null,
+      modeChangedByName: !confinedPurpose(input.purpose) && input.modeChoice !== null ? (input.modeChangedBy?.displayName ?? null) : null,
       modelChangedByName: input.model !== null ? (input.modelChangedBy?.displayName ?? null) : null,
     };
     this.records.set(id, record);
@@ -341,7 +344,7 @@ export class FakeAgentSessions implements AgentSessions {
   async setMode(sessionId: string, mode: SessionModeChoice | null, by: Actor): Promise<void> {
     this.log.record('setMode', sessionId, mode, by);
     const record = this.need(sessionId);
-    if (record.session.purpose === 'discussion') throw new SmurgError('conflict', msg('session.mode.fixed'), { reason: 'mode-fixed' });
+    if (confinedPurpose(record.session.purpose)) throw new SmurgError('conflict', msg('session.mode.fixed'), { reason: 'mode-fixed' });
     const person = userOf(by);
     const effective = this.effective(record.session.purpose, mode, record.session.topicId);
     if (person !== null) {

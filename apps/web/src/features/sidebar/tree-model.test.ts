@@ -223,6 +223,19 @@ describe('the session list: more', () => {
   });
 });
 
+describe('the session list: protocol 7 (DESIGN 0.8.0 D3.6)', () => {
+  it('Claude for the sticky notes is listed among the sessions without a topic, by its own title, in the viewer\'s language', () => {
+    const notes = buildAgentSession({ id: 's_notes', purpose: 'notes', modeFixed: true, openedBy: MEI, createdAt: 6, noteworthyAt: 500 });
+    const groups = buildSessionTree(input({ sessions: [discussion, notes, terminal] }));
+    expect(groups.map((group) => group.id)).toEqual(['topic:t1', FREE_GROUP]);
+    expect(titles(groupOf(groups, FREE_GROUP))).toEqual(['Sticky notes', 'Terminal (Ian)']);
+    expect(titles(groupOf(groups, 'topic:t1'))).not.toContain('Sticky notes');
+    applyLocale('zh-TW');
+    expect(titles(groupOf(buildSessionTree(input({ sessions: [notes] })), FREE_GROUP))).toEqual(['便利貼']);
+    applyLocale('en');
+  });
+});
+
 describe('the session list: protocol 6 (DESIGN 0.7.0 D13, D19)', () => {
   it('a plan whose items smurg merges counts merges; a topic ready to check, or complete, has its Result after the Plan', () => {
     const auto = buildPlan({ topicId: 't1', items: [buildWorkItem({ id: 'cart-api', number: 1, title: 'Cart API', state: 'done', merging: 'auto', merged: { at: 1, by: 'smurg' } })] });

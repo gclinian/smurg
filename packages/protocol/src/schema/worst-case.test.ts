@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import { collectPages, decodeEnvelope, encodeEnvelope, encodedSize, takeListPage, takeWithinBytes } from '../codec.ts';
 import { MAX_APP_MESSAGE, MSGPACK_MAX_STR_LENGTH } from '../constants.ts';
+import { agentSessionSchema } from './entities.ts';
 import { inboxItemSchema } from './inbox.ts';
 import { AUTO_MERGE_TEXT_MAX_BYTES, EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES, PLAN_INFO_ITEMS_MAX } from './limits.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES, type MessageType } from './registry.ts';
@@ -17,6 +18,7 @@ import {
   worstEvent,
   worstHostState,
   worstInboxItem,
+  worstNotesSession,
   worstPermission,
   worstPlan,
   worstPreflight,
@@ -207,5 +209,14 @@ describe('takeWithinBytes: the one rule behind every bounded reply', () => {
     const one = encodedSize(items[0]);
     expect(takeWithinBytes(items, one).taken).toEqual([items[0]]);
     expect(takeWithinBytes(items, 2 * one).taken).toEqual(items);
+  });
+});
+
+describe('worst-case sizes of what protocol 7 added (DESIGN 0.8.0 D3)', () => {
+  it('Claude for the sticky notes at its largest is a valid session and fits the list budget like every other session', () => {
+    const parsed = agentSessionSchema.safeParse(worstNotesSession);
+    expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
+    expect(encodedSize(worstNotesSession)).toBeLessThanOrEqual(encodedSize(worstSession));
+    expect(encodedSize(worstNotesSession)).toBeLessThan(LIST_REPLY_MAX_BYTES);
   });
 });

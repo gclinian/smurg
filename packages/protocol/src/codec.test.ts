@@ -430,6 +430,7 @@ describe('ClientHello', () => {
 
 describe('Verdict', () => {
   const welcome = {
+    protocol: PROTOCOL_VERSION,
     channelId: 'ch_1',
     resumed: false,
     member: { ...member, role: 'host' },

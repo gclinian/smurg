@@ -417,7 +417,11 @@ export const terminalSessionSchema = z.strictObject({
 });
 export type TerminalSession = z.infer<typeof terminalSessionSchema>;
 
-export const AGENT_PURPOSES = ['discussion', 'item', 'free'] as const;
+/**
+ * `notes` (since protocol 7, smurg 0.8.0): Claude for the sticky notes, one per workspace, with no topic and no item;
+ * confined like a discussion (`confinedPurpose` of tools.ts), writing only `notes/<Name>.md` (gate row G13).
+ */
+export const AGENT_PURPOSES = ['discussion', 'item', 'free', 'notes'] as const;
 export const agentPurposeSchema = z.enum(AGENT_PURPOSES);
 export type AgentPurpose = z.infer<typeof agentPurposeSchema>;
 
@@ -426,10 +430,11 @@ export const projectSettingsStateSchema = z.enum(PROJECT_SETTINGS_STATES);
 export type ProjectSettingsState = z.infer<typeof projectSettingsStateSchema>;
 
 /**
- * A Claude Code conversation (structured mode). `purpose`: a topic's `discussion`, the session of one work `item`, or a
- * `free` session without a topic. `responsible`: whose inbox its questions and reports go to and who decides them
- * (routing only, no extra rights); null when nobody is assigned. Not here on purpose: the remembered rules
- * (`session.rules.get`), the host's own rules, and who has the session on screen.
+ * A Claude Code conversation (structured mode). `purpose`: a topic's `discussion`, the session of one work `item`, a
+ * `free` session without a topic, or Claude for the sticky notes (`notes`, without a topic). `responsible`: whose
+ * inbox its questions and reports go to and who decides them (routing only, no extra rights); null when nobody is
+ * assigned. Not here on purpose: the remembered rules (`session.rules.get`), the host's own rules, and who has the
+ * session on screen.
  */
 export const agentSessionSchema = z
   .strictObject({
@@ -472,7 +477,7 @@ export const agentSessionSchema = z
     modeInUse: permissionModeSchema.optional(),
     /** With a `modeInUse` other than `permissionMode`: why. */
     modeFallback: modeFallbackSchema.optional(),
-    /** A discussion session: its permissions are fixed. */
+    /** A confined session (a discussion, Claude for the sticky notes): its permissions are fixed. */
     modeFixed: z.boolean(),
     /** The model chosen for the session (a value of `HostState.agent.models`); null: the host's default. */
     model: modelIdSchema.nullable(),
@@ -489,12 +494,13 @@ export const agentSessionSchema = z
     lastSeq: indexSchema,
     lastActivityAt: epochMsSchema,
   })
-  .refine((s) => (s.purpose === 'free') === (s.topicId === undefined), 'a topic session has topicId; a free session has none')
+  .refine((s) => (s.purpose === 'discussion' || s.purpose === 'item') === (s.topicId !== undefined), 'a discussion and an item have topicId; a free and a notes session none')
   .refine((s) => (s.purpose === 'item') === (s.itemId !== undefined), 'exactly an item session has itemId')
   .refine((s) => (s.topicId === undefined) === (s.topicName === undefined), 'topicName goes with topicId')
   .refine((s) => (s.itemId === undefined) === (s.item === undefined), 'item goes with itemId')
   .refine((s) => (s.purpose === 'item') === (s.attempt !== undefined), 'exactly an item session has attempt')
-  .refine((s) => !s.modeFixed || (s.modeChoice === null && s.permissionMode === 'ask-all'), 'a discussion follows nothing and reads ask-all')
+  .refine((s) => s.purpose !== 'notes' || s.root.kind === 'main', 'Claude for the sticky notes runs in the main workspace')
+  .refine((s) => !s.modeFixed || (s.modeChoice === null && s.permissionMode === 'ask-all'), 'a confined session follows nothing and reads ask-all')
   .refine((s) => s.modeFallback === undefined || s.modeInUse !== undefined, 'a fallback goes with the mode in use');
 export type AgentSession = z.infer<typeof agentSessionSchema>;
 

@@ -28,7 +28,7 @@ describe('workspace wiring', () => {
   });
 
   it('loads the source-first entry points', () => {
-    expect(PROTOCOL_VERSION).toBe(6); // 6 since 0.7.0: automatic merging, decisions, ready to check, undo
+    expect(PROTOCOL_VERSION).toBe(7); // 7 since 0.8.0: sticky notes
     expect(DAEMON_VERSION).toBe(VERSION);
     expect(RELAY_MAX_RELAY_FRAME).toBe(MAX_RELAY_FRAME);
     expect(wsClientUrl('http://127.0.0.1:8787', 'AbCdEfGh_-012345')).toBe('ws://127.0.0.1:8787/ws/AbCdEfGh_-012345/client');

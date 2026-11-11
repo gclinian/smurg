@@ -47,6 +47,8 @@ async function withFakes(): Promise<{ daemon: TestDaemon; fakes: Fakes }> {
 const DISCUSSION = { sessionId: 'ses_disc', purpose: 'discussion' as const, topic: { id: 'tp_1', slug: 'checkout' } };
 const ITEM = { sessionId: 'ses_item', purpose: 'item' as const, topic: { id: 'tp_1', slug: 'checkout' }, itemId: 'cart-api', root: { kind: 'worktree', worktreeId: 'wt_1' } as RootRef };
 const FREE = { sessionId: 'ses_free' };
+/** Claude for the sticky notes (0.8.0): the discussion-only and item-only tools stay theirs. */
+const NOTES = { sessionId: 'ses_notes', purpose: 'notes' as const };
 
 describe('who calls is the session of the token', () => {
   it('the context of a tool call comes from the registration: session, purpose, topic, item, root, the agent', async () => {
@@ -90,7 +92,7 @@ describe('check_plan and propose_split (a discussion session)', () => {
 
   it('from the wrong kind of session a tool answers with one sentence saying so, and the service is not asked', async () => {
     const { daemon, fakes } = await withFakes();
-    for (const registration of [ITEM, FREE]) {
+    for (const registration of [ITEM, FREE, NOTES]) {
       expect(await runMcpTool(callOf(daemon, registration), 'check_plan', {})).toEqual({
         ok: false,
         errors: [{ message: 'This tool is for the discussion session of a topic. This session is not one.' }],
@@ -98,7 +100,7 @@ describe('check_plan and propose_split (a discussion session)', () => {
       });
       expect(await toolError(runMcpTool(callOf(daemon, registration), 'propose_split', { items: [{ id: 'a', person: 'Mei' }] }))).toMatchObject({ message: 'This tool is for the discussion session of a topic. This session is not one.' });
     }
-    for (const registration of [DISCUSSION, FREE]) {
+    for (const registration of [DISCUSSION, FREE, NOTES]) {
       expect(await runMcpTool(callOf(daemon, registration), 'check_report', {})).toMatchObject({ ok: false, errors: [{ message: 'This tool is for the session of a work item. This session is not one.' }] });
     }
     expect(fakes.plans.log.calls).toEqual([]);

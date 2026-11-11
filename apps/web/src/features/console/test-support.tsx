@@ -177,6 +177,8 @@ export const ITEM = makeAgentSession({
   createdAt: T0 + 3,
 });
 export const FREE = makeAgentSession({ id: 'sess_free', title: 'try the parser', status: 'running', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, createdAt: T0 + 4 });
+/** Claude for the sticky notes (protocol 7): no topic, its mode fixed, started by Amy. Not in topicFixture(). */
+export const NOTES = makeAgentSession({ id: 'sess_notes', purpose: 'notes', title: undefined, modeFixed: true, status: 'idle', openedBy: { userId: 'dev:amy', displayName: 'Amy' }, createdAt: T0 + 5 });
 
 /** The default fixture with the topic's sessions and one pending suggestion for the discussion. */
 export function topicFixture(): ConsoleFixture {

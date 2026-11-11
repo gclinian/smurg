@@ -161,6 +161,6 @@ describe('identifiers and tags', () => {
     expect(c.WORKSPACE_ID_MIN_LENGTH).toBeGreaterThanOrEqual(16);
     expect(c.WORKSPACE_ID_MAX_LENGTH).toBeLessThanOrEqual(255);
     expect(c.NOISE_PROLOGUE_TAG).toBe('smurg-noise/1');
-    expect(c.PROTOCOL_VERSION).toBe(6); // 6 since 0.7.0 (automatic merging, decisions, ready to check, undo)
+    expect(c.PROTOCOL_VERSION).toBe(7); // 7 since 0.8.0: sticky notes
   });
 });

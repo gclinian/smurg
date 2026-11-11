@@ -1042,7 +1042,16 @@ describe('a damaged file that is not the workspace itself: that ONE file is set 
       // The host does exactly what the text says.
       execFileSync('/bin/sh', ['-c', command]);
       let members: string[] = [];
-      const again = await smurgHost(shared, lang, 'after that one file was set aside', { during: (daemon) => void (members = daemon.ctx.members.list().map((member) => member.userId)) });
+      // The daemon starts on the date of the terminal's clock (NOW, the fixture's time), with time running and real
+      // timers: at every start it prunes invites dead for more than 30 days (admin/invites.ts), and on the real clock
+      // the fixture's dead links passed that age on 2026-11-07, which made this test depend on the day it runs.
+      vi.useFakeTimers({ toFake: ['Date'], now: NOW, shouldAdvanceTime: true });
+      let again: Terminal;
+      try {
+        again = await smurgHost(shared, lang, 'after that one file was set aside', { during: (daemon) => void (members = daemon.ctx.members.list().map((member) => member.userId)) });
+      } finally {
+        vi.useRealTimers();
+      }
       expect(again.started).toBe(true);
       expect(again.code).toBe(0);
       expect(again.out).toBe(`${upgradedLines(lang, '0.5.0')}\n${cleanStart(lang, again.out, PAUSED_050)}`);

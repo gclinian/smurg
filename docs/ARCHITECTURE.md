@@ -672,7 +672,10 @@ three, `SESSION_MODE_CHOICES`, or null to follow), a session's `model` (an opaqu
 `modelIdSchema`; null: the host's default) and `modelInUse`, `HostState.agent` and `HostState.work`, the Start
 dialog's history, and the update's notice. Exact equality stays: a 0.5.x page or command meets 0.5.1's cut-off words
 (`version`), in both directions, and a local `smurg attach` across versions ends at once with the other-version words
-(its attach answer embeds the strict Welcome, whose `publicSettings` gained `permissionMode`).
+(its attach answer embeds the strict Welcome, whose `publicSettings` gained `permissionMode`). `PROTOCOL_VERSION` is 7
+since 0.8.0 (sticky notes), and the Welcome carries it as the required key `protocol` (`z.literal(PROTOCOL_VERSION)`):
+the control socket has no ClientHello, so this key is what makes a local `smurg attach` and a daemon of different
+protocols refuse each other's Welcome, for this raise and every later one (DESIGN 0.8.0 D8.2).
 
 Error codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `locked`, `path_denied`,
 `insufficient_disk`, `too_large`, `host_only`, `rate_limited`, `internal`. Finer distinctions travel in
@@ -747,7 +750,7 @@ type FileRef = { root: RootRef; path: string };   // POSIX, relative, normalised
 | Type | Dir | Payload | Notes |
 |---|---|---|---|
 | `channel.hello` | c→d | `ClientHello` (§4.2) | payload of noise msg3, not an Envelope |
-| `channel.welcome` | d→c | `Welcome = { channelId, resumed, member: Member, workspace: WorkspaceInfo, settings: PublicSettings, serverTime }` | inside the verdict record, not an Envelope |
+| `channel.welcome` | d→c | `Welcome = { protocol, channelId, resumed, member: Member, workspace: WorkspaceInfo, settings: PublicSettings, serverTime }` (`protocol`: the daemon's `PROTOCOL_VERSION`, since protocol 7) | inside the verdict record, not an Envelope |
 | `channel.memberUpdated` | d→c | `{ member: Member }` | own record changed without a channel close (e.g. a new display name) |
 | `channel.settingsUpdated` (addition) | d→c | `{ settings: PublicSettings }` | to everyone after each `admin.settings.set`: the settings otherwise reach clients only in the Welcome |
 | `channel.closed` | d→c | `{ reason: 'kicked'\|'revoked'\|'stopped'\|'role-changed'\|'protocol-error' }` (only the reason: each client words it) | then the socket is dropped; also on the transfer socket |
@@ -999,8 +1002,9 @@ type TerminalSession = SessionBase & {
 
 type AgentSession = SessionBase & {
   kind: 'agent';
-  purpose: 'discussion' | 'item' | 'free';   // a topic's discussion, a work item's execution, or no topic at all
-  topicId?; itemId?; attempt?: number;       // discussion: topicId; item: topicId, itemId, attempt; free: none
+  purpose: 'discussion' | 'item' | 'free' | 'notes';   // a topic's discussion, a work item's execution, no topic
+                                             // at all, or (0.8.0) Claude for the sticky notes (main workspace only)
+  topicId?; itemId?; attempt?: number;       // discussion: topicId; item: topicId, itemId, attempt; free, notes: none
   topicName?: string;                        // with topicId: the topic's name, kept current by the daemon
   item?: { number: number; title: string };  // with itemId: the item as PLAN.md has it now (number 0: it left the plan)
   responsible: { userId; displayName } | null;   // §3 "Who decides"
@@ -2626,11 +2630,12 @@ becomes a card or an answer of the daemon's own (§5.9).
 | Session | `permissionMode` on the wire | Claude Code's mode | `--tools` | Rules besides the common ones | A request that reaches the daemon |
 |---|---|---|---|---|---|
 | Discussion (fixed: `modeFixed`) | reads `ask-all` | `default` | `Read, Glob, Grep, Edit, Write, AskUserQuestion` | allow `Edit` of its topic's `SPEC.md` and `PLAN.md` | `AskUserQuestion` → a question card; anything else → denied by the daemon at once with a fixed English sentence, no card (the gate has refused it before: this is the second layer) |
+| 0.8.0: Claude for the sticky notes (purpose `notes`: no topic, no item, the main workspace only, one per workspace; fixed: `modeFixed`) | reads `ask-all` | `default` | the discussion's six | allow `Edit(//<root>/notes/*.md)` only (never wider than G13, which runs first and binds); no remembered rules, strict MCP, no rules beyond its folder (the gate confines it: G5, G13) | as a discussion's: a question card, anything else denied at once with no card (answer kind `discussion`, its own sentence). When the member who started it leaves or loses agent access it passes to the host like a topic's session (`AgentSessions.setOwner`, the line `conversation.owner.handover`); the host or its opener ends it; an ended one follows a free session's retention |
 | Work item, or free session, in `auto` (the default since 0.6.0) | `auto` | `auto` | `EXECUTION_TOOLS` | a work item: deny `Edit` of its topic's `SPEC.md` and `PLAN.md`; the remembered rules of the session and of its topic; the rules beyond its folder | what Claude Code's check sends to a person (three refusals in a row), a hook's "ask" (G10, G11a, G12): cards |
 | Work item or free session in a worktree, `ask-commands` | `ask-commands` | `acceptEdits` | `EXECUTION_TOOLS` | as the row above | a question card, or a permission card |
-| Any session but a discussion, `ask-all` | `ask-all` | `default` | `EXECUTION_TOOLS` | as its row | cards |
+| Any session but a confined one, `ask-all` | `ask-all` | `default` | `EXECUTION_TOOLS` | as its row | cards |
 | Free session (or a direct work item, §7.8) in the main workspace, `ask-commands` | `ask-commands` | **`default`** | `EXECUTION_TOOLS` | the session's remembered rules; the rules beyond its folder | a request of an edit tool is allowed by the daemon itself, after the host-only check and the lock (§7.5); everything else → cards |
-| Any session but a discussion, `ask-nothing` (the workspace's, the host's choice) | `ask-nothing` | `bypassPermissions` (behind the four checks) | `EXECUTION_TOOLS` | as its row; the rules beyond its folder | AskUserQuestion, a hook's "ask" (none of smurg's ask rows runs in this mode): cards |
+| Any session but a confined one, `ask-nothing` (the workspace's, the host's choice) | `ask-nothing` | `bypassPermissions` (behind the four checks) | `EXECUTION_TOOLS` | as its row; the rules beyond its folder | AskUserQuestion, a hook's "ask" (none of smurg's ask rows runs in this mode): cards |
 
 - `EXECUTION_TOOLS` is one constant for the verified Claude Code version: `Read, Glob, Grep, Edit, Write,
   NotebookEdit, Bash, TaskStop, WebFetch, WebSearch, AskUserQuestion` (2.1.288 has no `MultiEdit`, `BashOutput`,
@@ -3194,7 +3199,7 @@ the import graph).
 
 **What the daemon knows about a session** (`HookSessionRegistration`, given by the agent runtime at every process
 start): the session id, its daemon-internal owner (whose locks the agent's are), the agent's display name, the root,
-and since 0.5.0 the facts the gate decides by: `purpose` (`discussion`, `item`, `free`), `topic { id, slug }`,
+and since 0.5.0 the facts the gate decides by: `purpose` (`discussion`, `item`, `free`, and since 0.8.0 `notes`), `topic { id, slug }`,
 `itemId`, `pathRights` (`member` or `host`, fixed when the session was created) and `tools` (the profile's `--tools`
 list, plus `mcp__*` when the host switched their own MCP servers on). `HookServer.reassignSession(sessionId,
 ownerUserId)` is the handover of §3: it changes whose locks the agent's are and never touches `pathRights`.
@@ -3204,9 +3209,12 @@ ownerUserId)` is the handover of §3: it changes whose locks the agent's are and
 Code runs it before every tool call, the MCP tools and `AskUserQuestion` included, and BEFORE its own permission
 flow, so its deny binds whatever allow rules the host or the project have (verified on a host whose own settings
 allow everything: `claude-structured.md` §5). The decision is a pure function of the registration's facts,
-`gateDecision(session, protectedPaths, tool, target, pattern)` (`hooks/tool-gate.ts`); resolving the path, the lock
-and the audit around it are the hook server's (`hook-events.ts`), and so is row G10, which looks at the file system
-(`bashVerdict`, on the pure reader `hooks/bash-guard.ts`).
+`gateDecision(session, protectedPaths, tool, target, pattern, note)` (`hooks/tool-gate.ts`); resolving the path, the
+lock and the audit around it are the hook server's (`hook-events.ts`), and so are row G10, which looks at the file
+system (`bashVerdict`, on the pure reader `hooks/bash-guard.ts`), and the facts of row G13 (`note`: one `lstat` of
+`notes`, one of the target, one `readdir` of `notes/`). Every test of whether a session is confined asks
+`confinedPurpose(purpose)` of `@smurg/protocol` (a discussion, Claude for the sticky notes), never the literal
+`'discussion'` (`tests/lint/confined-purpose.test.ts` lists the places that mean a topic's discussion).
 
 | # | When | Decision |
 |---|---|---|
@@ -3214,9 +3222,10 @@ and the audit around it are the hook server's (`hook-events.ts`), and so is row 
 | G2 | the tool is not in the session's tool list and is not `mcp__smurg__*` | deny; logged once per session and tool |
 | G3 | an edit tool whose target is Claude Code's configuration (`.claude/**`, `.mcp.json`, `.git/**`, at any depth), or a path the trust gate recorded (`ProjectTrust.protectedPaths`) or anything below one, under any spelling a file system folds onto it | deny, for every session, the host's own included |
 | G4 | an edit tool on another host-only path (§5.2), session with `pathRights: 'member'` | deny |
-| G5 | discussion session: `Read` / `Glob` / `Grep` whose path lies outside the session's root or names a host-private path, or a Glob pattern that can leave the root (absolute, `~`, a `..` segment) | deny |
+| G5 | confined session (a discussion, Claude for the sticky notes): `Read` / `Glob` / `Grep` whose path lies outside the session's root or names a host-private path, or a Glob pattern that can leave the root (absolute, `~`, a `..` segment); 0.8.0: for Claude for the sticky notes also a path, or a Glob pattern, with a segment that folds to `.smurg` (what a member may not read) | deny |
 | G6 | discussion session: an edit tool whose target is not `specs/<slug>/SPEC.md` or `specs/<slug>/PLAN.md` of its topic | deny |
 | G7 | work item's session: an edit tool on its topic's `SPEC.md` or `PLAN.md` | deny |
+| G13 | 0.8.0: Claude for the sticky notes (purpose `notes`), whoever started it, the host included: an edit tool, unless the session is rooted in the MAIN workspace, `noteNameOf` accepts the resolved target (`notes/` + one segment + the literal `.md` + a valid note name, so never `notes/CLAUDE.md`, `notes/x.MD` or `notes/a/b.md`), `notes` is a real folder (not a symbolic link, not missing), nothing but a regular file of one link is at the target (a new note: nothing), and no other entry of `notes/` has a name that folds equal to it (`foldRelPath`). Facts that cannot be read refuse | deny, "Refused by smurg: Claude for the sticky notes writes only Markdown files directly in notes/ (a valid sticky note name, then .md)." |
 | G8 | any other edit-tool call (`Edit`, `Write`, `MultiEdit`, `NotebookEdit`) | the **lock decision**: the path must lie in the session's own root and pass PathGuard as the agent's principal; then the agent lock is granted (no output), or the call is denied with who holds the file (§7.5) |
 | G9 | everything else (`Bash`, `WebFetch`, `AskUserQuestion`, `mcp__smurg__*`, …) | **no decision**: the hook prints nothing, and Claude Code's own rules and permission requests go on (§7.6 "Profiles") |
 | G10 | `Bash`, in a root whose project settings in use name scripts (`protectedPaths` is not empty): a command that writes where one of those scripts is, or that the gate cannot follow (below). Not while the Claude mode in use is `bypassPermissions` (`ask-nothing`: the host chose no question) | **ask**: the hook answers `permissionDecision: 'ask'` with smurg's reason, and Claude Code sends a permission request whatever its mode and its allow rules would have done. A person answers on a card; every other `Bash` call is row G9 |

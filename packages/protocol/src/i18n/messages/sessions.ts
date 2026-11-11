@@ -21,6 +21,11 @@ export const sessions = {
     en: (p) => `${p.number} · ${p.title}`,
     'zh-TW': (p) => `${p.number} · ${p.title}`,
   }),
+  // Claude for the sticky notes (purpose `notes`, 0.8.0).
+  'session.title.notes': message({}, {
+    en: () => 'Sticky notes',
+    'zh-TW': () => '便利貼',
+  }),
 
   // ---- sessions -----------------------------------------------------------------------------------------------
   'session.notFound': message({}, {

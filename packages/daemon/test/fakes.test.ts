@@ -863,7 +863,8 @@ describe('FakeInboxService, FakeWorktreeManager, FakeSessionManager, FakeHookSer
     const item = await fakes.agents.start({ ...freeStart(), purpose: 'item', topic: { id: topic.id, slug: topic.slug, name: topic.name }, item: { id: 't2', number: 2, title: 'Token store', attempt: 1 }, responsible: { userId: 'dev:mei', displayName: 'Mei' }, workspace: { mode: 'worktree', worktreeId: handle.worktree.id }, modeChoice: 'ask-commands', model: null });
     fakes.agents.startTurn(item.id);
     const result = await fakes.sessions.teardownUser('dev:mei', 'kicked');
-    expect(result.handedOver).toEqual([{ sessionId: discussion.id, topicId: topic.id, stopped: true }, { sessionId: item.id, topicId: topic.id, stopped: true }]);
+    // 0.8.0 on purpose (DESIGN 0.8.0 D3.5): a session handed over names its purpose (Claude for the sticky notes has no topic).
+    expect(result.handedOver).toEqual([{ sessionId: discussion.id, purpose: 'discussion', topicId: topic.id, stopped: true }, { sessionId: item.id, purpose: 'item', topicId: topic.id, stopped: true }]);
     expect([...result.cleared].sort()).toEqual([discussion.id, item.id].sort());
     expect(fakes.agents.facts(item.id)).toMatchObject({ ownerUserId: 'dev:host', pathRights: 'member', fallbackDecider: null });
     expect(fakes.worktrees.get(handle.worktree.id)).toMatchObject({ ownerUserId: 'dev:host' });
@@ -876,7 +877,7 @@ describe('FakeInboxService, FakeWorktreeManager, FakeSessionManager, FakeHookSer
     // A demotion to Editor keeps `discuss`: sessions are handed over RUNNING, nothing is cleared.
     const { session: other } = await fakes.topics.create({ name: 'Billing' }, fakePrincipal('dev:rita', 'agent', 'Rita'));
     fakes.agents.setResponsible(other.id, { userId: 'dev:rita', displayName: 'Rita' }, { kind: 'system' });
-    expect(await fakes.sessions.teardownUser('dev:rita', 'role-changed', 'editor')).toEqual({ ended: [], handedOver: [{ sessionId: other.id, topicId: expect.any(String), stopped: false }], cleared: [] });
+    expect(await fakes.sessions.teardownUser('dev:rita', 'role-changed', 'editor')).toEqual({ ended: [], handedOver: [{ sessionId: other.id, purpose: 'discussion', topicId: expect.any(String), stopped: false }], cleared: [] });
     expect(lines(fakes, other.id).at(-1)).toBe('conversation.owner.handover');
     expect(fakes.agents.get(other.id)?.responsible).toEqual({ userId: 'dev:rita', displayName: 'Rita' });
   });

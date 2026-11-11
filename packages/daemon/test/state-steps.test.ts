@@ -494,8 +494,8 @@ describe('the stamp written-by.json', () => {
     expect(JSON.parse(await readFile(join(dir, STAMP_FILE), 'utf8'))).toEqual({ smurg: '0.5.1', shapes: WORKSPACE_SHAPES, at: 1_727_000_000_000 });
     expect((await readdir(dir)).filter((name) => name.endsWith('.tmp'))).toEqual([]);
     expect(await readStamp(dir, silentLogger)).toEqual({ smurg: '0.5.1', shapes: WORKSPACE_SHAPES, at: 1_727_000_000_000 });
-    // 2 since 0.6.0 (DESIGN 0.6.0 D6), 3 since 0.7.0 (DESIGN 0.7.0 D4).
-    expect(WORKSPACE_SHAPES).toBe(3);
+    // 2 since 0.6.0 (DESIGN 0.6.0 D6), 3 since 0.7.0 (DESIGN 0.7.0 D4), 4 since 0.8.0 (DESIGN 0.8.0 D8.3).
+    expect(WORKSPACE_SHAPES).toBe(4);
   });
 
   it('no stamp: the writer is unknown, and nothing is logged', async () => {

@@ -221,3 +221,11 @@ describe('conversation column in zh-TW', () => {
     expect(screen.queryByText('正在載入這張卡片…')).toBeNull();
   });
 });
+
+describe('conversation column in zh-TW: Claude for the sticky notes (protocol 7)', () => {
+  it('says its fixed mode in Traditional Chinese', async () => {
+    await openConversation({ role: 'host', session: { purpose: 'notes', modeFixed: true, title: undefined } });
+    expect(screen.getByText('可讀程式碼，只能寫便利貼')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /便利貼的 Claude 不能做更多事/ })).toBeTruthy();
+  });
+});

@@ -33,13 +33,19 @@ export function bashWhileTypingReason(names: readonly string[], path: string): s
 }
 
 /** The rows of the tool gate that deny with one fixed sentence each (hooks/tool-gate.ts; G11's has the names). */
-export type GateDenyRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7';
+export type GateDenyRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G13';
+
+/** Row G13 (DESIGN 0.8.0 D3.3): what Claude for the sticky notes may write. */
+export const NOTES_WRITE_ONLY_REASON = 'Refused by smurg: Claude for the sticky notes writes only Markdown files directly in notes/ (a valid sticky note name, then .md).';
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const TOOL = /^[A-Za-z0-9_.-]{1,64}$/;
 
-/** One sentence per row of the gate, saying what the session may do instead. `slug` and `tool` are used only when they are plain. */
-export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string; readonly slug?: string } = {}): string {
+/**
+ * One sentence per row of the gate, saying what the session may do instead. `slug` and `tool` are used only when they
+ * are plain; `notes`: the session is Claude for the sticky notes (its G5 says what it reads).
+ */
+export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string; readonly slug?: string; readonly notes?: boolean } = {}): string {
   const folder = facts.slug !== undefined && SLUG.test(facts.slug) ? `specs/${facts.slug}/` : "its topic's folder";
   switch (row) {
     case 'G2':
@@ -49,11 +55,14 @@ export function gateDenyReason(row: GateDenyRow, facts: { readonly tool?: string
     case 'G4':
       return 'Only the host may change this path, and this session does not run with the host\'s rights. Leave the file as it is and say what should change.';
     case 'G5':
+      if (facts.notes === true) return "Claude for the sticky notes reads only files inside the shared project, never the host's private files and never smurg's own folder (.smurg). Read a file of the project instead.";
       return "A discussion session reads only files inside the shared project, and never the host's private files. Read a file of the project instead.";
     case 'G6':
       return `A discussion session writes only SPEC.md and PLAN.md in ${folder}. Put what you want to record into one of them.`;
     case 'G7':
       return "A work item's session does not change its topic's SPEC.md or PLAN.md. Describe what should change in your result report instead.";
+    case 'G13':
+      return NOTES_WRITE_ONLY_REASON;
   }
 }
 

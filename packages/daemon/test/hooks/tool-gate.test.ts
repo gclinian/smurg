@@ -1,6 +1,7 @@
 // THE TOOL GATE on the hook socket (DESIGN §2.10, AD-7): the real hook server asked for EVERY tool, as `smurg hook`
 // (registered with the matcher `*`) asks it. Its table as a pure function: test/sessions/agent-pure.test.ts.
-import { mkdir, writeFile } from 'node:fs/promises';
+import { existsSync } from 'node:fs';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildHookRegistration } from '../../src/core/fakes/build.ts';
@@ -20,8 +21,8 @@ const DISCUSSION_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'AskUserQuest
 const EXECUTION_TOOLS = ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'NotebookEdit', 'Bash', 'TaskStop', 'WebFetch', 'WebSearch', 'Task', 'AskUserQuestion'];
 const call = (tool: string, toolInput: Record<string, unknown> = {}): Record<string, unknown> => ({ hook_event_name: 'PreToolUse', tool_name: tool, tool_input: toolInput, tool_use_id: `toolu_${tool}_${Math.random().toString(36).slice(2)}`, cwd: d?.t.root });
 
-async function setup(): Promise<{ gate: DaemonEvents['agent.tool.gate'][]; token(purpose: 'discussion' | 'item' | 'free', pathRights?: 'member' | 'host'): string; sessionId(purpose: string): string }> {
-  d = await startHookDaemon({ daemon: { project: { files: { 'src/cart.ts': 'x', 'specs/checkout/SPEC.md': '# spec', '.envrc': 'SECRET=1', 'README.md': '#' } } } });
+async function setup(files: Readonly<Record<string, string>> = { 'src/cart.ts': 'x', 'specs/checkout/SPEC.md': '# spec', '.envrc': 'SECRET=1', 'README.md': '#' }): Promise<{ gate: DaemonEvents['agent.tool.gate'][]; token(purpose: 'discussion' | 'item' | 'free' | 'notes', pathRights?: 'member' | 'host'): string; sessionId(purpose: string): string }> {
+  d = await startHookDaemon({ daemon: { project: { files } } });
   await d.t.connectHost();
   const gate: DaemonEvents['agent.tool.gate'][] = [];
   d.t.ctx.bus.on('agent.tool.gate', (event) => gate.push(event));
@@ -30,7 +31,7 @@ async function setup(): Promise<{ gate: DaemonEvents['agent.tool.gate'][]; token
     gate,
     sessionId: (purpose) => ids.get(purpose) ?? '',
     token: (purpose, pathRights = 'host') => {
-      const sessionId = `ses_${purpose}_${ids.size}`;
+      const sessionId = `ses_${purpose}_${pathRights}_${ids.size}`;
       ids.set(purpose, sessionId);
       const hooks = (d as HookDaemon).hooks;
       return hooks.registerSession(
@@ -40,10 +41,10 @@ async function setup(): Promise<{ gate: DaemonEvents['agent.tool.gate'][]; token
           agentName: 'Claude (Checkout)',
           root: { kind: 'main' },
           purpose,
-          ...(purpose === 'free' ? {} : { topic: { id: 'tp_1', slug: 'checkout' } }),
+          ...(purpose === 'free' || purpose === 'notes' ? {} : { topic: { id: 'tp_1', slug: 'checkout' } }),
           ...(purpose === 'item' ? { itemId: 'cart-api' } : {}),
           pathRights,
-          tools: purpose === 'discussion' ? DISCUSSION_TOOLS : EXECUTION_TOOLS,
+          tools: purpose === 'discussion' || purpose === 'notes' ? DISCUSSION_TOOLS : EXECUTION_TOOLS,
         }),
       ).token;
     },
@@ -112,6 +113,64 @@ describe('the tool gate on the hook socket', () => {
     }
     expect(await ask(free, 'BrandNewTool')).toBe(gateDenyReason('G2', { tool: 'BrandNewTool' }));
     expect(s.gate.map((event) => `${event.tool}:${event.row}`)).toEqual(['Edit:G7', 'Write:G7', 'Write:G3', 'Write:G3', 'Edit:G4', 'BrandNewTool:G2']);
+  });
+
+  // 0.8.0 D3.3: G13 on the resolved path, with what the disk says about it; G5 for the sticky notes refuses .smurg too.
+  it('Claude for the sticky notes writes only notes/<a note name>.md of the main workspace (G13), the host\'s own session included, and reads like a discussion but never smurg\'s own folder (G5)', async () => {
+    const s = await setup({ 'src/cart.ts': 'x', '.envrc': 'SECRET=1', 'notes/Home.md': '# Home\n', 'notes/Other.md': '# Other\n' });
+    const hooks = (d as HookDaemon).hooks;
+    const root = (d as HookDaemon).t.root;
+    await mkdir(join(root, 'notes', 'dir.md'));
+    const host = s.token('notes', 'host');
+    const member = s.token('notes', 'member');
+    const ask = async (token: string, tool: string, input: Record<string, unknown> = {}) => denyReasonOf(await hookRequest(hooks.socketPath, token, call(tool, input)));
+    const G13 = gateDenyReason('G13');
+    // A note's file: no decision is printed, the agent lock is taken as for every edit; a new note too.
+    expect(await ask(host, 'Edit', { file_path: join(root, 'notes/Home.md') })).toBeNull();
+    expect(await ask(member, 'Write', { file_path: join(root, 'notes/Payment form.md') })).toBeNull();
+    expect((d as HookDaemon).fakes.locks.list().map((lock) => lock.file.path).sort()).toEqual(['notes/Home.md', 'notes/Payment form.md']);
+    // Refused: CLAUDE.md under any spelling (G13 for the host's session, G4 first for a member's), another suffix, a
+    // folder below notes/, another file of the project, a directory with a note's name, a file outside the project.
+    expect(await ask(host, 'Write', { file_path: join(root, 'notes/CLAUDE.md') })).toBe(G13);
+    expect(await ask(host, 'Write', { file_path: join(root, 'notes/claude.md') })).toBe(G13);
+    expect(await ask(member, 'Write', { file_path: join(root, 'notes/CLAUDE.md') })).toBe(gateDenyReason('G4'));
+    for (const path of ['notes/x.MD', 'notes/a/b.md', 'notes/x.txt', 'src/cart.ts', 'notes/dir.md']) expect(await ask(host, 'Write', { file_path: join(root, path) }), path).toBe(G13);
+    expect(await ask(host, 'Write', { file_path: '/tmp/elsewhere.md' })).toBe(G13);
+    // G5: outside the project, a private file, smurg's own folder, a Glob that leaves the folder; the project and the notes are read.
+    const G5 = gateDenyReason('G5', { notes: true });
+    expect(await ask(host, 'Read', { file_path: join(root, 'src/cart.ts') })).toBeNull();
+    expect(await ask(host, 'Read', { file_path: join(root, 'notes/Other.md') })).toBeNull();
+    expect(await ask(host, 'Read', { file_path: '/etc/passwd' })).toBe(G5);
+    expect(await ask(host, 'Read', { file_path: join(root, '.envrc') })).toBe(G5);
+    expect(await ask(host, 'Read', { file_path: join(root, '.smurg/uploads/x') })).toBe(G5);
+    expect(await ask(host, 'Glob', { pattern: '../other/**' })).toBe(G5);
+    expect(await ask(host, 'Grep', { pattern: 'x' })).toBeNull();
+    // No command; smurg's own tools (wait_for_lock among them) pass.
+    expect(await ask(host, 'Bash', { command: 'ls' })).toBe(gateDenyReason('G2', { tool: 'Bash' }));
+    expect(await ask(host, 'mcp__smurg__wait_for_lock', { file_path: 'notes/Home.md' })).toBeNull();
+    expect(s.gate.map((event) => event.row)).toEqual(['G13', 'G13', 'G4', 'G13', 'G13', 'G13', 'G13', 'G13', 'G13', 'G5', 'G5', 'G5', 'G5', 'G2']);
+    expect(s.gate[0]).toMatchObject({ tool: 'Write', row: 'G13', path: 'notes/CLAUDE.md' });
+    expect(s.gate.find((event) => event.path === 'notes/dir.md')).toMatchObject({ row: 'G13' });
+
+    // Two names that fold equal (a folder that tells case apart): neither is written, the existing one included.
+    if (!existsSync(join(root, 'notes', 'HOME.md'))) {
+      await writeFile(join(root, 'notes', 'home.md'), 'a twin\n');
+      expect(await ask(member, 'Edit', { file_path: join(root, 'notes/home.md') })).toBe(G13);
+      expect(await ask(member, 'Edit', { file_path: join(root, 'notes/Home.md') })).toBe(G13);
+    }
+  });
+
+  it('Claude for the sticky notes writes nothing when notes is a symbolic link (here to src/): the resolved path is no note\'s file', async () => {
+    const s = await setup({ 'src/Home.md': '# not a note\n', 'src/x.md': 'x' });
+    const hooks = (d as HookDaemon).hooks;
+    const root = (d as HookDaemon).t.root;
+    await symlink(join(root, 'src'), join(root, 'notes'));
+    const host = s.token('notes', 'host');
+    const ask = async (tool: string, input: Record<string, unknown>) => denyReasonOf(await hookRequest(hooks.socketPath, host, call(tool, input)));
+    expect(await ask('Edit', { file_path: join(root, 'notes/Home.md') })).toBe(gateDenyReason('G13'));
+    expect(await ask('Write', { file_path: join(root, 'notes/New.md') })).toBe(gateDenyReason('G13'));
+    expect(s.gate.map((event) => [event.row, event.path])).toEqual([['G13', 'src/Home.md'], ['G13', 'src/New.md']]);
+    expect((d as HookDaemon).fakes.locks.list()).toEqual([]);
   });
 
   it('G1: when the daemon does not answer, `smurg hook` refuses EVERY tool by itself, not only edits (an orphaned agent\'s command does not run)', async () => {

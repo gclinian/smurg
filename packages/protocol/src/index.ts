@@ -14,6 +14,7 @@ export * from './rules.ts';
 export * from './routing.ts';
 export * from './votes.ts';
 export * from './tools.ts';
+export * from './notes.ts';
 export * from './wire-text.ts';
 export * from './codec.ts';
 export * from './invite.ts';

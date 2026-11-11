@@ -73,9 +73,11 @@ const sha256 = (bytes: string | Uint8Array): string => createHash('sha256').upda
  * in reports.json, cards.json, transcripts and the audit; DESIGN 0.6.0 D6). 3 since 0.7.0 (answered again: YES:
  * state.json version 3 with the setting `merging` and the notice `auto-merge`, by a step from 0.6.0 that reads
  * src/frozen/v0.6.0.ts; optional keys in topics.json, reports.json and worktrees.json; wider enums in the audit, the
- * transcripts and the inbox's derived kinds; inbox.json unchanged through its own column target; DESIGN 0.7.0 D4).
+ * transcripts and the inbox's derived kinds; inbox.json unchanged through its own column target; DESIGN 0.7.0 D4). 4
+ * since 0.8.0 (answered again: YES: the purpose `notes` widens agent-sessions.json's enum; no document changes
+ * otherwise; no step: 0.6.0 and 0.7.0 widened enums the same way; DESIGN 0.8.0 D8.3).
  */
-const PINNED_AT_SHAPES = 3;
+const PINNED_AT_SHAPES = 4;
 
 /** src/frozen/<file>: what a published smurg accepted. NEVER changes; a new file is added with the step that reads it. */
 const FROZEN: Readonly<Record<string, string>> = {
@@ -101,7 +103,7 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'sessions/agent/project-settings.ts': 'f78365de979f27c4f678a6f4bc0df7544b3225c530a12acbad2b9f713c38b0af',
   'sessions/agent/store.ts': '1f84217f697b7d5c73e60cc7165c987228b39f65277d679e4aa447826ffd7949',
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
-  'sessions/session-manager.ts': '8a2bbeb0680450666c80d80926e2366fbb8c50686835e1adb4334e9170786d6f',
+  'sessions/session-manager.ts': '677adb28f3465fdbdb104bcaa0c431ad876d9a043491c59bf6ac33f12e7d0608',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
   'topics/store.ts': '8839f4f0d7e2e477e2f13b4474a38773f00760a5a1e93e567f79ce4c61ca3f45',
   'worktree/store.ts': '8b34200008b0ae9280e70b950240a4c172dd4c413bb8ccbd4fcdbef82ddbe615',
@@ -126,7 +128,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'bytes.ts': '7fc163368b2d2a82d5ce3d834922c96611f20331e61bff91b5ad22276391fa1c',
   'channel/identity-binding.ts': '57e7cbac993b088e66a8193dfca6054b5d6a8cfb5d95175c9eaf4d42c786e6dd',
   'codec.ts': '377cf872871c2185149f8b9cead0cf36bb19d0e7e3cf966c2b92988e5a25422a',
-  'constants.ts': '25b8b52967ac2697e7736f45240755f370d0d57690f663ac98b27abbf57d8eff',
+  'constants.ts': '34354def40c7fe60ef351dbaa7e4c56f8ea901aada51c48411168a57d95ff926',
   'errors.ts': '0f2a058bb5226b4aad03f32560712ba9ca35838eb999e73ea2bd8e9611fddbf4',
   'i18n/define.ts': 'e6d7dd5a5ea9a26cbdf32dc3e2b118d8d8e13998360301089d4d17e81f4f4188',
   'mask.ts': '3bd5168fc9d394dbb72b0cc76d1e44e8867f16b07ee2fa139eb50abd57fbf48e',
@@ -137,15 +139,15 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'relay/frames.ts': '6cc87c1c2bf9aeec18facc53d8b78ed8c75dd2c2698f0ae73e0bb5babe136901',
   'relay/routes.ts': '223fb92a4cf5f0456e6f4e27f8860db2fddfe23ff06c5b133cc51fa5feb26ec5',
   'roles.ts': 'aefbcc4c97c5d783c99a6a3c5b1e9cb15668796446f5b3927c0655bcd23b6da2',
-  'routing.ts': '8b327b339a75a19f0db5add172286f4cf6debfca080b75fd43fd408d898adafc',
+  'routing.ts': '9752b6e69cd23271eac35937fffbdd7e8bcf64e262ee31e51f51319508f7d15e',
   'schema/awareness.ts': '15f7202e552ced9496fb7ff62ccb1702eb4d1a808be278acf09e78999cdc768a',
   'schema/conversation.ts': '46239fc902c8df5659ab091009d163692a1bb85dece38e928a91df649c2963c4',
-  'schema/entities.ts': '99f96cd2853c9d650afcbdc32f09085c99c70742e91ff71aad52c3e2cdd84231',
+  'schema/entities.ts': 'ad469160710b99ca9d79f8d27398dc25b885a4fb1ee7f3172c45aec61fedfc4f',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
-  'schema/handshake.ts': '31915fe6680b6a0c7c593eb4e338c7e8e571cda0aeef84b45d280f9aa255ab68',
+  'schema/handshake.ts': '828b5f8148c55008f22c057fe7e331826d90d9542bec3f6ebaf1ddfd067872b8',
   'schema/inbox.ts': '86b253ecc452a771573942c4171fbff87e91ab57238577368c6203ddb9634b2b',
   'schema/index.ts': 'df8271d00f6e162c550c0a42e99d02e489f3c526342bff8208b3a99d10419f88',
-  'schema/limits.ts': 'de9db30e6472cb5adad1bebeebc80f07a51f34b63fe93e8b350342231031dcac',
+  'schema/limits.ts': '13a0fe890cb15ee77b9842d1603a8d518da450c18d1e4fc4e8d17b93ee53d7f7',
   'schema/message-ref.ts': 'ee4c2d08adecc61772f0da565141c2af9adf9fc32a7eb157ac8f9bf37d3a3019',
   'schema/messages/admin.ts': '100c58a4a888c409c34cef41786480d2dbf078b27d270422a96cf61ff9899dbb',
   'schema/messages/channel.ts': '5652ac0034cf595cb6148c863713352672eb4e669630a269048eff1e07e1275c',
@@ -159,7 +161,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/messages/topics.ts': 'ac81c622ca6043a04cf80900451e7cf51b71cc786b8d7ea4b0b31bccd6a34557',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
   'schema/messages/worktrees.ts': 'eaa11a57ec6ac2071cde8f50c96be484d6ce7be7f4554789556ba4d1350faac8',
-  'schema/paths.ts': '0ee840e274f57501b9c49baa8e4f16150ce0a3a543ee17bf49e2730777a6f6ca',
+  'schema/paths.ts': 'd3fdca5a1bd0dbe1acc27d7559fa309bcffcc4952af7a4db723c08e87148c6a5',
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
   'schema/registry.ts': '72cccc325cb37399b7b6d7eead673855d8e03498dfce7c5d29210512863d36a9',

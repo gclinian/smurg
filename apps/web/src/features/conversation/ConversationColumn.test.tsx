@@ -724,6 +724,15 @@ describe('conversation column: the strip and the menus', () => {
     expect(amy.column.menuItems()).toEqual([]);
   });
 
+  // 0.8.0 D3.1, D3.5: Claude for the sticky notes is confined like a discussion, and the host or its opener may end it.
+  it('Claude for the sticky notes says its own fixed mode; the host may end it', async () => {
+    const notes = await openConversation({ role: 'host', session: { purpose: 'notes', modeFixed: true, title: undefined } });
+    expect(screen.getByText('Reads code, writes only sticky notes')).toBeTruthy();
+    expect(screen.getByRole('button', { name: /Claude for the sticky notes cannot do more/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /A discussion cannot do more/ })).toBeNull();
+    expect(notes.column.menuItems().map((item) => item.id)).toEqual(['rename', 'end']);
+  });
+
   it('an item\'s later attempt says so in the header', async () => {
     const view = await openConversation({ session: { purpose: 'item', topicId: 't_1', topicName: 'Checkout', itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 2 } });
     expect(within(view.column.header).getByText('Attempt 2')).toBeTruthy();

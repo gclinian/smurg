@@ -194,12 +194,34 @@ describe('what the fakes do with the sessions (the contract of SessionManager.te
         to: daemon.hostUserId,
         reason: 'kicked',
         sessionId: 'ses_item',
+        purpose: 'item',
         topicId: 'tp_login',
         stopped: true,
         modeReset: true,
         removed: { rules: ['Bash(pnpm test *)', 'Edit(src/**)'], armedItems: ['tp_login/t3'], queuedMessages: 1, votes: 2, modesReset: ['ses_item'] },
       },
     });
+  });
+
+  // 0.8.0 D3.5: Claude for the sticky notes is the workspace's, not its starter's: it passes to the host like a topic's
+  // session, and the audit names its purpose (it has no topic).
+  it('a kick hands Claude for the sticky notes to the host STOPPED, never ends it, and the audit names its purpose', async () => {
+    const { daemon, fakes } = await start();
+    const host = await daemon.connectHost();
+    await daemon.connect({ userId: 'dev:rita', role: 'agent' });
+    fakes.agents.adopt(buildAgentSession({ id: 'ses_notes', purpose: 'notes', openedBy: RITA, modeFixed: true, status: 'running' }));
+    fakes.agents.adopt(buildAgentSession({ id: 'ses_free', openedBy: RITA }));
+
+    await host.conn.request('admin.member.kick', { userId: 'dev:rita' });
+
+    expect(fakes.agents.get('ses_free')?.status).toBe('ended');
+    expect(fakes.agents.get('ses_notes')?.status).not.toBe('ended');
+    expect(fakes.agents.facts('ses_notes')?.ownerUserId).toBe(daemon.hostUserId);
+    expect(fakes.agents.log.of('interrupt').map((args) => args[0])).toEqual(['ses_notes']);
+    const entries = await handovers(daemon);
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({ actor: { kind: 'system' }, target: 'ses_notes', detail: { from: 'dev:rita', to: daemon.hostUserId, reason: 'kicked', sessionId: 'ses_notes', purpose: 'notes', stopped: true } });
+    expect(entries[0]?.detail).not.toHaveProperty('topicId');
   });
 
   it('a leave hands topic sessions over RUNNING; a role change that keeps agent access ends nothing', async () => {

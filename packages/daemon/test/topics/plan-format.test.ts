@@ -1,6 +1,6 @@
 // PLAN.md → work items (design Appendix B.1, §4.3). The parser is pure: every case here is a string in, a result out.
 import { describe, expect, it } from 'vitest';
-import { PLAN_ITEMS_MAX, wireTextSchema } from '@smurg/protocol';
+import { NOTE_NAME_MAX_CHARS, PLAN_ITEMS_MAX, isNoteName, wireTextSchema } from '@smurg/protocol';
 import { render } from '@smurg/protocol/i18n';
 import { PLAN_ERROR_SENTENCES, PLAN_MARKER_END, PLAN_MARKER_START, parsePlan, planFingerprint, type PlanErrorKind } from '../../src/topics/plan-format.ts';
 
@@ -61,6 +61,18 @@ describe('T3.1 the plan format', () => {
       { id: 'checkout-page', number: 3, title: 'Checkout page', summary: 'Put both together.', dependsOn: ['cart-api', 'payment-form'], size: 'l', touches: ['src/checkout/**'], line: 23 },
     ]);
     expect(parse.warnings).toEqual([]);
+  });
+
+  // 0.8.0 D1.2: "Build this" (D5.2) writes a plan of one item whose title is the sticky note's name: every valid note
+  // name is a heading title the plan format reads back exactly.
+  it('a plan whose item title is any valid sticky note name parses, the title exactly as the name', () => {
+    const names = ['Home', 'Payment form', '購物車 v2', 'Q3 plan (draft)', 'x.md', '👩‍💻 dev', 'a'.repeat(NOTE_NAME_MAX_CHARS), `${'中'.repeat(NOTE_NAME_MAX_CHARS - 1)}x`];
+    for (const name of names) {
+      expect(isNoteName(name), name).toBe(true);
+      const parse = parsePlan(block(`### 1. ${name}\n- id: build\n\nBuild it.`));
+      expect(parse.ok, name).toBe(true);
+      expect(parse.ok && parse.items.map((item) => [item.id, item.title]), name).toEqual([['build', name]]);
+    }
   });
 
   it('the number is the position in the file, whatever digits the heading has; size defaults to m; "none" is no dependency', () => {

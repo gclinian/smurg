@@ -86,6 +86,15 @@ describe('the name of a column', () => {
     expect(describeColumn({ kind: 'session', sessionId: 's1' }, named)).toMatchObject({ title: 'Kick-off', topicName: 'Checkout redesign', discussion: false });
   });
 
+  // 0.8.0 D3.6: Claude for the sticky notes is named by what it is; it is confined, but it is no topic's discussion.
+  it('Claude for the sticky notes: its own title, no topic, a conversation, never marked as a discussion', () => {
+    const notes = buildAgentSession({ id: 's1', purpose: 'notes', modeFixed: true });
+    const described = describeColumn({ kind: 'session', sessionId: 's1' }, { sessions: sessions(notes), topics: topics([topic]) });
+    expect(described).toMatchObject({ title: 'Sticky notes', kind: 'conversation', discussion: false });
+    expect(described.topicName).toBeUndefined();
+    expect(described.topicId).toBeUndefined();
+  });
+
   it('a session the list does not hold: waiting while the list loads, gone once it is loaded', () => {
     const target: ColumnRef = { kind: 'session', sessionId: 'nope' };
     expect(describeColumn(target, { sessions: { ...INITIAL_SESSIONS_STATE, ...IDLE }, topics: topics([]) })).toMatchObject({ kind: null, gone: false, title: 'Session' });

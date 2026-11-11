@@ -273,6 +273,12 @@ export const AGENT_EDIT_DENY_PATTERNS: readonly string[] = Object.freeze([
 // ---------------------------------------------------------------------------------------------------------------
 
 export const SPECS_DIR = 'specs';
+/**
+ * The sticky notes (DESIGN 0.8.0 D1.1): flat Markdown files `notes/<Name>.md` at the top of the main workspace; the
+ * first note is `Home` in every language (file names are not translated). Names: notes.ts.
+ */
+export const NOTES_DIR = 'notes';
+export const NOTES_HOME = 'Home';
 export const SPEC_FILE_NAME = 'SPEC.md';
 export const PLAN_FILE_NAME = 'PLAN.md';
 export const REPORTS_DIR_NAME = 'reports';

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { PERMISSION_MODES, PERMISSION_WHATS, SESSION_MODE_CHOICES, TOOL_VERBS, type PermissionMode, type SessionModeChoice } from './schema/index.ts';
-import { EDIT_TOOL_NAMES, SMURG_TOOL_PREFIX, effectivePermissionMode, isEditTool, isLooserMode, permissionWhat, toolVerb } from './tools.ts';
+import { AGENT_PURPOSES, PERMISSION_MODES, PERMISSION_WHATS, SESSION_MODE_CHOICES, TOOL_VERBS, type PermissionMode, type SessionModeChoice } from './schema/index.ts';
+import { EDIT_TOOL_NAMES, SMURG_TOOL_PREFIX, confinedPurpose, effectivePermissionMode, isEditTool, isLooserMode, permissionWhat, toolVerb } from './tools.ts';
 
 describe("Claude Code's tools as smurg classifies them: one function for the tool card, the permission card and the gate", () => {
   it('the edit tools', () => {
@@ -34,12 +34,14 @@ describe("Claude Code's tools as smurg classifies them: one function for the too
 
   // Changed on purpose in 0.6.0 (protocol 5): `defaultPermissionMode(purpose, root)` is gone. The workspace's mode
   // applies everywhere, the main workspace included; a session's own choice, else (a work item) its topic's, wins.
-  it('the mode a session runs with: its own choice, else (a work item) its topic\'s, else the workspace\'s; a discussion reads ask-all', () => {
+  it('the mode a session runs with: its own choice, else (a work item) its topic\'s, else the workspace\'s; a discussion and Claude for the sticky notes read ask-all', () => {
     const choices: (SessionModeChoice | null)[] = [null, ...SESSION_MODE_CHOICES];
     for (const workspace of PERMISSION_MODES) {
       for (const session of choices) {
         for (const topic of choices) {
           expect(effectivePermissionMode({ purpose: 'discussion', session, topic, workspace })).toBe('ask-all');
+          // Claude for the sticky notes is confined like a discussion (0.8.0 D3.1): its mode is fixed.
+          expect(effectivePermissionMode({ purpose: 'notes', session, topic, workspace })).toBe('ask-all');
           expect(effectivePermissionMode({ purpose: 'item', session, topic, workspace })).toBe(session ?? topic ?? workspace);
           // A free session has no topic: a topic's choice is never read for it.
           expect(effectivePermissionMode({ purpose: 'free', session, topic, workspace })).toBe(session ?? workspace);
@@ -49,6 +51,13 @@ describe("Claude Code's tools as smurg classifies them: one function for the too
     expect(effectivePermissionMode({ purpose: 'free', session: null, topic: null, workspace: 'auto' })).toBe('auto');
     expect(effectivePermissionMode({ purpose: 'item', session: null, topic: 'ask-all', workspace: 'ask-nothing' })).toBe('ask-all');
     expect(effectivePermissionMode({ purpose: 'item', session: 'auto', topic: 'ask-all', workspace: 'ask-commands' })).toBe('auto');
+  });
+
+  // 0.8.0 D3.2: one predicate says which sessions are confined; a purpose it misses would fail open everywhere it is asked.
+  it('a confined session: a topic\'s discussion and Claude for the sticky notes, never a work item or a free session', () => {
+    expect(AGENT_PURPOSES.filter(confinedPurpose)).toEqual(['discussion', 'notes']);
+    expect(confinedPurpose('item')).toBe(false);
+    expect(confinedPurpose('free')).toBe(false);
   });
 
   it('strict to loose: ask-all < ask-commands < auto < ask-nothing', () => {

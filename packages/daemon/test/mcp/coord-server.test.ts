@@ -249,6 +249,10 @@ describe('R8: the coordination MCP server\'s tools: who is editing a file, query
     daemon.fakes.sessions.push(sessionInfo('ses_term', { userId: 'dev:amy', name: 'Amy' }, { kind: 'terminal' }), sessionInfo('ses_named', HOST, { title: 'release notes' }));
     const titles = ((await mcp.call('list_sessions')).json?.['sessions'] as { title: string }[]).map((session) => session.title);
     expect(titles).toEqual(['Claude (Host)', 'Claude (Amy)', 'Terminal (Amy)', 'release notes']);
+    // 0.8.0 D3.6: Claude for the sticky notes is named by what it is, in English for the agent.
+    daemon.fakes.sessions.push(sessionInfo('ses_notes', { userId: 'dev:amy', name: 'Amy' }, { purpose: 'notes', modeFixed: true, permissionMode: 'ask-all' }));
+    const notes = ((await mcp.call('list_sessions')).json?.['sessions'] as { id: string }[]).find((session) => session.id === 'ses_notes');
+    expect(notes).toMatchObject({ title: 'Sticky notes', purpose: 'notes', owner: 'Amy', root: 'main' });
   });
 
   it("notify_member delivers activity.notify to that member's clients only (from `Claude (owner)`)", async () => {

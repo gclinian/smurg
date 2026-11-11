@@ -1265,7 +1265,7 @@ export interface TurnMessage {
   readonly suggestionId?: string;
 }
 /** The rows of the tool gate that deny (ARCHITECTURE §7.7). */
-export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G11' | 'G12';
+export type GateRow = 'G2' | 'G3' | 'G4' | 'G5' | 'G6' | 'G7' | 'G11' | 'G12' | 'G13';
 export type AttentionSource = 'topics' | 'sessions' | 'trust' | 'host-rules' | 'settings';
 
 /**
@@ -1738,8 +1738,11 @@ export interface HostRules {
 export interface UserTeardown {
   /** Terminals and free sessions that ended. */
   readonly ended: readonly string[];
-  /** Topic sessions that passed to the host; `stopped`: its turn was interrupted and its open cards withdrawn (a kick). */
-  readonly handedOver: readonly { readonly sessionId: string; readonly topicId: string; readonly stopped: boolean }[];
+  /**
+   * Sessions that passed to the host (a topic's, and Claude for the sticky notes, which has no `topicId`); `stopped`:
+   * its turn was interrupted and its open cards withdrawn (a kick).
+   */
+  readonly handedOver: readonly { readonly sessionId: string; readonly purpose: AgentPurpose; readonly topicId?: string; readonly stopped: boolean }[];
   /** Sessions whose responsible person or fallback decider was cleared. */
   readonly cleared: readonly string[];
 }
@@ -1789,7 +1792,7 @@ export interface SessionManager {
   /**
    * A member was kicked, left, or lost a role (ARCHITECTURE §3 "When a member goes"). Decides per session:
    *  - their terminals and free sessions END (when `session.create` is gone: kicked, left, below Agent access);
-   *  - their topic sessions pass to the host (AgentSessions.setOwner, HookServer.reassignSession, and for a work
+   *  - their topic sessions and their Claude for the sticky notes pass to the host (AgentSessions.setOwner, HookServer.reassignSession, and for a work
    *    item's session WorktreeManager.setOwner of its worktree; the line `conversation.owner.handover`), STOPPED
    *    first when they were kicked (AgentSessions.interrupt by the system; the line `…handover.kicked`). `pathRights`
    *    is never raised;

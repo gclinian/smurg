@@ -222,6 +222,17 @@ describe('the glossary’s terms in every catalog', () => {
     expect(hits).toEqual([]);
   });
 
+  // 0.8.0 (docs/GLOSSARY.md "Terms of 0.8.0"): the term comes with the first strings that use it.
+  it('a sticky note has one translation in every catalog, in both directions (the glossary\'s)', async () => {
+    const hits: string[] = [];
+    for (const pair of await pairs()) {
+      if (/\bsticky notes?\b/i.test(pair.en) && pair.zh !== '' && !/便利貼/.test(pair.zh)) hits.push(`${pair.at}: "${pair.en}" / "${pair.zh}"`);
+      if (/便利貼/.test(pair.zh) && !/\bsticky notes?\b/i.test(pair.en)) hits.push(`${pair.at}: "${pair.en}" / "${pair.zh}"`);
+    }
+    expect(hits).toEqual([]);
+    expect((await pairs()).filter((pair) => /\bsticky notes?\b/i.test(pair.en)).length).toBeGreaterThan(0);
+  });
+
   it('the agent’s name is written Claude (X) with ASCII brackets in both languages', async () => {
     const hits = (await pairs()).filter((pair) => /Claude（/.test(pair.zh) && !/開的/.test(pair.zh)).map((pair) => `${pair.at}: ${pair.zh}`);
     expect(hits).toEqual([]);

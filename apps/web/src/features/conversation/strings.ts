@@ -35,6 +35,8 @@ export const t = defineStrings(
     'mode.title': 'Permission mode: {mode}',
     'mode.fixed': 'Reads code, writes only the spec and the plan',
     'mode.fixedTitle': 'Permission mode: reads code, writes only the spec and the plan. A discussion cannot do more.',
+    'mode.fixedNotes': 'Reads code, writes only sticky notes',
+    'mode.fixedNotesTitle': 'Permission mode: reads code, writes only sticky notes. Claude for the sticky notes cannot do more.',
     'mode.dialog': 'What this session may do without asking',
     'mode.choice': 'Permission mode',
     'mode.onlyDrive': 'The host and members with agent access can change this.',

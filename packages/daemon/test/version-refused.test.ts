@@ -67,15 +67,17 @@ describe('a peer of another protocol version', () => {
     expect(tokensLookedAt).toBe(0);
   });
 
-  it('protocol 6 (0.7.0): a page or a command of 0.6.0 speaks protocol 5 and one of 0.5.x protocol 4: each is answered `version`, as an older peer', async () => {
-    expect(PROTOCOL_VERSION).toBe(6);
+  // Changed on purpose in 0.8.0 (DESIGN 0.8.0 D8.2): protocol 7; 0.7.0 is now the older peer of protocol 6.
+  it('protocol 7 (0.8.0): a page or a command of 0.7.0 speaks protocol 6, of 0.6.0 protocol 5 and of 0.5.x protocol 4: each is answered `version`, as an older peer', async () => {
+    expect(PROTOCOL_VERSION).toBe(7);
     (await t.connect({ userId: 'dev:amy', role: 'editor' })).close();
-    for (const peerProtocol of [5, 4]) {
+    for (const peerProtocol of [6, 5, 4]) {
       const older = knock(deviceKeyOf('dev:amy'), peerProtocol);
       expect(older.admitted).toBeNull();
       expect(older.decision).toEqual({ accept: false, payload: VERSION_VERDICT });
     }
     expect(events).toEqual([
+      { direction: 'peer-older', peerProtocol: 6, known: true },
       { direction: 'peer-older', peerProtocol: 5, known: true },
       { direction: 'peer-older', peerProtocol: 4, known: true },
     ]);

@@ -3,8 +3,8 @@
 import { describe, expect, it } from 'vitest';
 import { AGENT_EDIT_DENY_PATTERNS, AGENT_READ_DENY_PATTERNS, MAIN_ROOT, toolViewSchema, toolResultViewSchema, worktreeRoot, type FileRef, type PermissionMode } from '@smurg/protocol';
 import { buildSessionSettings } from '../../src/hooks/settings-writer.ts';
-import { gateDenyReason } from '../../src/hooks/deny-text.ts';
-import { ANY_MCP_TOOL as GATE_ANY_MCP, gateDecision, patternLeavesRoot } from '../../src/hooks/tool-gate.ts';
+import { NOTES_WRITE_ONLY_REASON, gateDenyReason } from '../../src/hooks/deny-text.ts';
+import { ANY_MCP_TOOL as GATE_ANY_MCP, gateDecision, patternLeavesRoot, type NoteEditFacts } from '../../src/hooks/tool-gate.ts';
 import { questionPartsOf, streamableLength } from '../../src/sessions/agent/agent-runner.ts';
 import { hostRulesOf } from '../../src/sessions/agent/host-rules.ts';
 import { Normaliser, outcomeOfResult } from '../../src/sessions/agent/normalise.ts';
@@ -12,6 +12,7 @@ import {
   ANY_MCP_TOOL,
   DISCUSSION_TOOLS,
   EXECUTION_TOOLS,
+  NOTES_EDIT_ALLOW,
   ReachRuleError,
   RulePathError,
   STREAM_ARGS,
@@ -287,6 +288,26 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(profile.strictMcp).toBe(true);
     expect(profile.ask).toEqual([]);
     expect(gateToolsOf(profile)).toEqual(DISCUSSION_TOOLS);
+  });
+
+  // 0.8.0 D3.1, D3.3: Claude for the sticky notes, confined like a discussion, with its own one allow rule.
+  it('Claude for the sticky notes: the default mode, the discussion\'s six tools, one allow rule for notes/*.md of the main root, only smurg\'s MCP server, no remembered rules and no rules beyond its folder, whatever the host set', () => {
+    const profile = buildProfile({ ...base, purpose: 'notes', mode: 'ask-all', agentMcp: true, rules: [{ tool: 'Bash', pattern: 'pnpm test *' }] });
+    expect(profile.mode).toBe('default');
+    expect(profile.tools).toBe(DISCUSSION_TOOLS);
+    expect(NOTES_EDIT_ALLOW).toBe('notes/*.md');
+    expect(profile.allow).toEqual(['Edit(//Users/ian/shop/notes/*.md)']);
+    expect(profile.strictMcp).toBe(true);
+    expect(profile.ask).toEqual([]);
+    expect(gateToolsOf(profile)).toEqual(DISCUSSION_TOOLS);
+    // The common deny rules of the root and smurg's own folder, and nothing beyond it (the gate confines it).
+    expect(profile.deny).toEqual([...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`), ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`), 'Edit(//Users/ian/shop/.smurg/**)']);
+    expect(reachDenyRules({ purpose: 'notes', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach })).toEqual([]);
+    for (const mode of ['ask-all', 'ask-commands', 'auto', 'ask-nothing'] as const) {
+      for (const fallback of ['none', 'ask-commands', 'auto'] as const) expect(claudeModeFor('notes', mode, MAIN_ROOT, fallback), `${mode} ${fallback}`).toBe('default');
+      // The daemon never allows its edit requests by itself: every one is refused without a card (permissions.ts).
+      expect(daemonAllowsEdits('notes', mode, MAIN_ROOT), mode).toBe(false);
+    }
   });
 
   // The title said "ask-all is the default mode" until 0.6.0, which made auto the default (DESIGN 0.6.0 D3): what the
@@ -568,12 +589,78 @@ describe('the tool gate (DESIGN §2.10)', () => {
     for (const session of [item, free, discussion]) for (const tool of ['Task', 'Agent']) expect(gateDecision(session, none, tool, { kind: 'none' }), tool).toEqual({ kind: 'deny', row: 'G2' });
   });
 
+  // 0.8.0 D3.3 (G13) and D3.2 (G5 for every confined session, `.smurg/` too for the sticky notes).
+  describe('G13 and G5 of Claude for the sticky notes', () => {
+    const notes = { purpose: 'notes', pathRights: 'host', tools: DISCUSSION_TOOLS, root: MAIN_ROOT } as const;
+    const memberNotes = { ...notes, pathRights: 'member' } as const;
+    const fresh: NoteEditFacts = { folderIsReal: true, target: 'absent', twin: false };
+    const existing: NoteEditFacts = { folderIsReal: true, target: 'file', twin: false };
+
+    it('a note\'s file of the main workspace goes on to the lock, a new one and an existing one, whoever started the session', () => {
+      for (const session of [notes, memberNotes]) {
+        expect(gateDecision(session, none, 'Write', inside('notes/Home.md'), undefined, fresh)).toEqual({ kind: 'lock' });
+        expect(gateDecision(session, none, 'Edit', inside('notes/Payment form.md'), undefined, existing)).toEqual({ kind: 'lock' });
+      }
+    });
+
+    it('anything else an edit tool names is refused by G13, the host\'s session included (CLAUDE.md by G4 first for a member\'s)', () => {
+      for (const path of ['notes/CLAUDE.md', 'notes/claude.md', 'notes/CLAUDE.local.md']) {
+        expect(gateDecision(notes, none, 'Write', inside(path), undefined, fresh), path).toEqual({ kind: 'deny', row: 'G13', path });
+        expect(gateDecision(memberNotes, none, 'Write', inside(path), undefined, fresh), path).toEqual({ kind: 'deny', row: 'G4', path });
+      }
+      for (const path of ['notes/x.MD', 'notes/a/b.md', 'notes/x.txt', 'notes/.md', 'notes/Ho\u200bme.md', 'Notes/Home.md', 'src/x.ts', 'notes', 'README.md', 'specs/checkout/SPEC.md']) {
+        expect(gateDecision(notes, none, 'Edit', inside(path), undefined, fresh), path).toEqual({ kind: 'deny', row: 'G13', path });
+      }
+      expect(gateDecision(notes, none, 'Write', { kind: 'outside' }, undefined, fresh)).toEqual({ kind: 'deny', row: 'G13' });
+      expect(gateDecision(notes, none, 'Write', { kind: 'none' }, undefined, fresh)).toEqual({ kind: 'deny', row: 'G13' });
+      // Claude Code's configuration stays G3's for every session.
+      expect(gateDecision(notes, none, 'Write', inside('.claude/settings.json'), undefined, fresh)).toEqual({ kind: 'deny', row: 'G3', path: '.claude/settings.json' });
+    });
+
+    it('what the disk says decides too: notes/ must be a real folder, the target nothing or a regular file of one link, no folded twin; facts that could not be read refuse', () => {
+      const at = inside('notes/Home.md');
+      const refused = { kind: 'deny', row: 'G13', path: 'notes/Home.md' };
+      expect(gateDecision(notes, none, 'Write', at, undefined, { ...fresh, folderIsReal: false })).toEqual(refused);
+      expect(gateDecision(notes, none, 'Write', at, undefined, { ...fresh, target: 'other' })).toEqual(refused);
+      expect(gateDecision(notes, none, 'Write', at, undefined, { ...existing, twin: true })).toEqual(refused);
+      expect(gateDecision(notes, none, 'Write', at)).toEqual(refused);
+      // A session that is not rooted in the main workspace writes no note, and neither does one whose root is unknown.
+      expect(gateDecision({ ...notes, root: worktreeRoot('wt_1') }, none, 'Write', at, undefined, fresh)).toEqual(refused);
+      const { root: _root, ...rootless } = notes;
+      expect(gateDecision(rootless, none, 'Write', at, undefined, fresh)).toEqual(refused);
+    });
+
+    it('G5: it reads like a discussion, and never smurg\'s own folder under any spelling; a discussion still reads .smurg as before', () => {
+      expect(gateDecision(notes, none, 'Read', inside('src/cart.ts'))).toEqual({ kind: 'pass' });
+      expect(gateDecision(notes, none, 'Read', inside('notes/Home.md'))).toEqual({ kind: 'pass' });
+      expect(gateDecision(notes, none, 'Read', { kind: 'outside' })).toEqual({ kind: 'deny', row: 'G5' });
+      for (const path of ['.envrc', '.git/config', 'CLAUDE.local.md', '.smurg/uploads/x', '.SMURG/git/HEAD', 'pkg/.smurg/x', '.smurg']) {
+        expect(gateDecision(notes, none, 'Read', inside(path)), path).toEqual({ kind: 'deny', row: 'G5', path });
+      }
+      expect(gateDecision(notes, none, 'Grep', inside('.smurg'))).toEqual({ kind: 'deny', row: 'G5', path: '.smurg' });
+      for (const pattern of ['../other/**', '/etc/**', '.smurg/**', 'a/.Smurg/*', '**/.smurg/uploads/*']) expect(gateDecision(notes, none, 'Glob', { kind: 'none' }, pattern), pattern).toEqual({ kind: 'deny', row: 'G5' });
+      expect(gateDecision(notes, none, 'Glob', { kind: 'none' }, 'notes/*.md')).toEqual({ kind: 'pass' });
+      expect(gateDecision(notes, none, 'Grep', { kind: 'none' })).toEqual({ kind: 'pass' });
+      expect(gateDecision(discussion, none, 'Read', inside('.smurg/uploads/x'))).toEqual({ kind: 'pass' });
+      // No command, no network: G2 as for a discussion.
+      expect(gateDecision(notes, none, 'Bash', { kind: 'none' })).toEqual({ kind: 'deny', row: 'G2' });
+      expect(gateDecision(notes, none, 'mcp__smurg__wait_for_lock', { kind: 'none' })).toEqual({ kind: 'pass' });
+    });
+
+    it('the sentences an agent reads: G13 says what it may write; its G5 says what it may read', () => {
+      expect(gateDenyReason('G13')).toBe('Refused by smurg: Claude for the sticky notes writes only Markdown files directly in notes/ (a valid sticky note name, then .md).');
+      expect(gateDenyReason('G13')).toBe(NOTES_WRITE_ONLY_REASON);
+      expect(gateDenyReason('G5', { notes: true })).toBe("Claude for the sticky notes reads only files inside the shared project, never the host's private files and never smurg's own folder (.smurg). Read a file of the project instead.");
+      expect(gateDenyReason('G5')).toBe("A discussion session reads only files inside the shared project, and never the host's private files. Read a file of the project instead.");
+    });
+  });
+
   it('one fixed English sentence per row, saying what the session may do instead; a slug or tool name that is not plain is never quoted', () => {
     expect(gateDenyReason('G2', { tool: 'Bash' })).toBe('This session does not have the tool Bash. Use the tools you were given.');
     expect(gateDenyReason('G2', { tool: 'Evil"\nTool' })).toBe('This session does not have this tool. Use the tools you were given.');
     expect(gateDenyReason('G6', { slug: 'checkout' })).toBe('A discussion session writes only SPEC.md and PLAN.md in specs/checkout/. Put what you want to record into one of them.');
     expect(gateDenyReason('G6', { slug: '../x' })).toContain("in its topic's folder");
-    for (const row of ['G2', 'G3', 'G4', 'G5', 'G6', 'G7'] as const) expect(gateDenyReason(row)).toMatch(/^[A-Z][^\n]{20,300}\.$/);
+    for (const row of ['G2', 'G3', 'G4', 'G5', 'G6', 'G7', 'G13'] as const) expect(gateDenyReason(row)).toMatch(/^[A-Z][^\n]{20,300}\.$/);
   });
 });
 

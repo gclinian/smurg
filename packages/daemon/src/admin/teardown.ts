@@ -157,7 +157,7 @@ function auditHandover(
       action: 'session.handover',
       outcome: 'ok',
       target: session.sessionId,
-      detail: { ...base, sessionId: session.sessionId, topicId: session.topicId, stopped: session.stopped, modeReset: removed.modesReset.includes(session.sessionId), removed },
+      detail: { ...base, sessionId: session.sessionId, purpose: session.purpose, ...(session.topicId === undefined ? {} : { topicId: session.topicId }), stopped: session.stopped, modeReset: removed.modesReset.includes(session.sessionId), removed },
     });
   }
   // Nothing passed to the host, but what the member put in place went: the log still says so, once.

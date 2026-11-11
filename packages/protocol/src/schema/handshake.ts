@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { PROTOCOL_VERSION } from '../constants.ts';
 import { clientKindSchema, memberSchema, publicSettingsSchema, workspaceInfoSchema } from './entities.ts';
 import { CNF_NONCE_BYTES } from '../channel/identity-binding.ts';
 import { SHORT_TEXT_MAX_CHARS } from './limits.ts';
@@ -36,8 +37,16 @@ export const clientHelloSchema = z
   });
 export type ClientHello = z.infer<typeof clientHelloSchema>;
 
-/** `channel.welcome`: what an admitted client learns first. `resumed = false` ⇒ the client performs a full resync. */
+/**
+ * `channel.welcome`: what an admitted client learns first. `resumed = false` ⇒ the client performs a full resync.
+ * `protocol` (since protocol 7, smurg 0.8.0) is the daemon's PROTOCOL_VERSION: the control socket has no ClientHello,
+ * so this key is what makes a command and a daemon of different protocols refuse each other (a peer of protocol 6
+ * refuses the unknown key, this one refuses a Welcome without it or with another number). The number is compared at
+ * every parse, not fixed when this module loads: apps/web/e2e/smoke/version.smoke.test.ts runs a daemon of another
+ * number in its own process and lets it fit the page again.
+ */
 export const welcomeSchema = z.strictObject({
+  protocol: z.int().refine((protocol) => protocol === PROTOCOL_VERSION, 'another protocol version'),
   channelId: opaqueIdSchema,
   resumed: z.boolean(),
   member: memberSchema,

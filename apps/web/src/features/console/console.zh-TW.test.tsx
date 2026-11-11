@@ -10,7 +10,8 @@ import { useTestLocale } from '../../testing/locale.ts';
 import { auditActionLabel } from './audit-labels.ts';
 import ConsoleOverlays from './ConsoleOverlays.tsx';
 import { consoleDialogs } from './dialogs.ts';
-import { AGENTS_AUTO, defaultFixture, makeConfigFile, renderConsole, renderWithConsoleData, topicFixture } from './test-support.tsx';
+import { purposeLabel } from './SessionsSection.tsx';
+import { AGENTS_AUTO, NOTES, defaultFixture, makeConfigFile, renderConsole, renderWithConsoleData, topicFixture } from './test-support.tsx';
 
 useTestLocale('zh-TW');
 
@@ -223,5 +224,11 @@ describe('host console in zh-TW: merging work items (protocol 6)', () => {
     expect(Array.from(select.options).map((option) => option.textContent)).toEqual(['報告寫著完成且驗證過的，由 smurg 合併', '每個項目都由我自己合併']);
     expect(await within(settings).findByText(/^從 smurg 0\.7\.0 起，工作項目會自動合併/)).toBeTruthy();
     expect(within(settings).getByRole('button', { name: '知道了' })).toBeTruthy();
+  });
+});
+
+describe('host console in zh-TW: Claude for the sticky notes (protocol 7)', () => {
+  it('its kind is named in Traditional Chinese', () => {
+    expect(purposeLabel(NOTES)).toBe('便利貼');
   });
 });

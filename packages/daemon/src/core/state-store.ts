@@ -386,10 +386,11 @@ export const STAMP_FILE = 'written-by.json';
  * upload manifests with their parts, transcript segments, the lines of audit.jsonl and activity.jsonl). 0.5.1 writes
  * 1; 0.6.0 writes 2 (state.json version 2, agent sessions with a mode choice and a model, and optional keys in other
  * documents); 0.7.0 writes 3 (state.json version 3 with the setting `merging`, and optional keys and wider enums in
- * other documents). RAISE IT whenever any persisted shape changes; a smurg that meets a higher number refuses the
- * whole folder as `newer` before it reads a document.
+ * other documents); 0.8.0 writes 4 (the agent session purpose `notes` in agent-sessions.json, a wider enum: no step,
+ * as 0.6.0 and 0.7.0 widened enums). RAISE IT whenever any persisted shape changes; a smurg that meets a higher
+ * number refuses the whole folder as `newer` before it reads a document.
  */
-export const WORKSPACE_SHAPES = 3;
+export const WORKSPACE_SHAPES = 4;
 /** More than this is not a stamp. */
 const STAMP_MAX_BYTES = 4096;
 const COPY_MARK = '.json.before-upgrade-from-';

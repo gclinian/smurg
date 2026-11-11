@@ -210,6 +210,12 @@ export const RULE_PATTERN_MAX_CHARS = 200;
 export const HOST_RULES_MAX = 500;
 export const HOST_RULE_MAX_CHARS = 500;
 
+/**
+ * A sticky note's name (notes.ts, DESIGN 0.8.0 D1.2), UTF-16 units of its NFC form: with `notes/` and `.md` at most
+ * 243 bytes of UTF-8, and always a valid topic name and work item title (a build uses it as both).
+ */
+export const NOTE_NAME_MAX_CHARS = 80;
+
 export const TOPICS_MAX = 200;
 export const TOPIC_NAME_MAX_CHARS = 120;
 export const TOPIC_SLUG_MAX_CHARS = 48;

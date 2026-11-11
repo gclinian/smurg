@@ -3,6 +3,7 @@
 // update's notice. Every new message has samples in message-samples.fixture.ts (run by registry.test.ts); this file
 // holds the rules that a sample alone does not say.
 import { describe, expect, it } from 'vitest';
+import { PROTOCOL_VERSION } from '../constants.ts';
 import {
   HOST_NOTICES,
   MODE_FALLBACKS,
@@ -60,7 +61,9 @@ describe('the permission mode of a session (D3)', () => {
   });
 
   it('every member learns the workspace\'s mode in the Welcome: a protocol 4 Welcome (settings without it) is refused', () => {
+    // Today's Welcome is the baseline (protocol 7, 0.8.0, added `protocol`): this case takes away what protocol 4 lacked.
     const welcome = {
+      protocol: PROTOCOL_VERSION,
       channelId: 'ch_1',
       resumed: false,
       member: { userId: 'dev:ian', displayName: 'Ian', role: 'host', color: '#ff8800', online: true, joinedAt: 1 },

@@ -1,6 +1,7 @@
 // Valid protocol objects for tests (they pass the registry schemas the FakeConnection validates against).
 import {
   MAIN_ROOT,
+  PROTOCOL_VERSION,
   agentDisplayName,
   buildInviteFragment,
   generateInviteSecret,
@@ -48,6 +49,7 @@ export function makeMember(overrides: Partial<Member> = {}): Member {
 export function makeWelcome(options: { role?: Role; userId?: string; displayName?: string; channelId?: string; name?: string; resumed?: boolean; serverTime?: number } = {}): Welcome {
   const role = options.role ?? 'editor';
   return {
+    protocol: PROTOCOL_VERSION,
     channelId: options.channelId ?? 'ch_1',
     resumed: options.resumed ?? false,
     member: makeMember({

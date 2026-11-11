@@ -186,6 +186,7 @@ export function admitConnection(ctx: AdmitContext, purpose: ChannelPurpose, peer
   const decision = encodeVerdict({
     ok: true,
     welcome: {
+      protocol: PROTOCOL_VERSION,
       channelId: hub.channelId,
       resumed: hub.resumed,
       member: { ...deps.members.toMember(member), online: true },

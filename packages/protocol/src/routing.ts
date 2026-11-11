@@ -7,6 +7,7 @@
 // `members`; a responsible person or fallback decider who is no longer there, or who no longer holds `discuss`, does
 // not count.
 import { can, type Role } from './roles.ts';
+import type { AgentPurpose } from './schema/entities.ts';
 
 export interface RoutingMember {
   readonly userId: string;
@@ -172,12 +173,13 @@ export function mayAllowForTopic(role: Role | null): boolean {
 
 /**
  * May `member` end this session (`session.end`)? A terminal: the member who opened it. An agent session: the host, or
- * a member with agent access who opened it or is responsible for it. A topic's discussion: nobody (archive the topic
- * or restart the discussion).
+ * a member with agent access who opened it or is responsible for it (Claude for the sticky notes too: nobody is
+ * responsible for it, so the host or its opener). A topic's discussion: nobody (archive the topic or restart the
+ * discussion).
  */
 export function mayEndSession(
   member: RoutingMember,
-  session: { readonly kind: 'terminal' | 'agent'; readonly purpose?: 'discussion' | 'item' | 'free'; readonly openedBy: string; readonly responsible?: string | null },
+  session: { readonly kind: 'terminal' | 'agent'; readonly purpose?: AgentPurpose; readonly openedBy: string; readonly responsible?: string | null },
 ): boolean {
   if (session.kind === 'terminal') return member.userId === session.openedBy;
   if (session.purpose === 'discussion') return false;

@@ -113,6 +113,14 @@ export const itemSession = {
   ruleCount: 2,
   projectSettings: 'used',
 };
+/** Claude for the sticky notes (protocol 7, 0.8.0): no topic, no item, the main workspace, its mode fixed. */
+export const notesSession = {
+  ...agentSession,
+  id: 'sess_n',
+  purpose: 'notes',
+  topicId: undefined,
+  topicName: undefined,
+};
 export const suggestion = {
   id: 'sg_1',
   sessionId: 'sess_a',
@@ -1172,9 +1180,14 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       ],
     },
     result: {
-      valid: [{ session }, { session: { ...session, title: undefined } }, { session: agentSession }, { session: itemSession }],
+      valid: [{ session }, { session: { ...session, title: undefined } }, { session: agentSession }, { session: itemSession }, { session: notesSession }],
       invalid: [
         { session: { ...session, status: 'paused' } },
+        // protocol 7: Claude for the sticky notes has no topic and no item, runs in the main workspace, follows nothing
+        { session: { ...notesSession, topicId: 'tp_1', topicName: 'Checkout' } },
+        { session: { ...notesSession, itemId: 'cart-api', item: { number: 1, title: 'Cart API' }, attempt: 1 } },
+        { session: { ...notesSession, root: WT } },
+        { session: { ...notesSession, modeChoice: 'auto' } },
         { session: { ...session, sandboxed: false } },
         { session: { ...session, title: 7 } },
         { session: { ...session, ownerUserId: HOST } },
@@ -1204,7 +1217,7 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
     payload: { valid: [{}, { topicId: 'tp_1' }, { after: 'sess_2' }, { topicId: 'tp_1', after: 'sess_a' }], invalid: [{ extra: 1 }, { topicId: '' }, null, []] },
     result: {
       valid: [
-        { sessions: [session, { ...session, id: 'sess_2', status: 'exited', exitCode: 3, endedAt: T + 1, endReason: 'exit' }, agentSession, itemSession], hasMore: false },
+        { sessions: [session, { ...session, id: 'sess_2', status: 'exited', exitCode: 3, endedAt: T + 1, endReason: 'exit' }, agentSession, itemSession, notesSession], hasMore: false },
         { sessions: [{ ...agentSession, purpose: 'free', topicId: undefined, topicName: undefined, title: 'Try the cache', modeFixed: false }], hasMore: true },
       ],
       invalid: [{ sessions: {}, hasMore: false }, { sessions: [session] }],

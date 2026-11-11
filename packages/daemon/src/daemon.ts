@@ -12,7 +12,7 @@
 //                                         // → handlers disposed → keep-awake released → logs flushed
 import { homedir, totalmem } from 'node:os';
 import { join } from 'node:path';
-import { SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type HostSettings, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
+import { PROTOCOL_VERSION, SmurgError, daemonKeyFingerprint, formatFingerprintForDisplay, shortTextSchema, type ChannelPurpose, type HostSettings, type NoiseSuite, type Welcome, type WorkspaceInfo } from '@smurg/protocol';
 import { ensurePrivateDirectory, loadOrCreateDaemonIdentity, nodeCryptoSuite, type LoadedStaticKey } from '@smurg/protocol/node';
 import { relayHttpUrl, wsHostUrl, xferHostUrl } from '@smurg/protocol/relay';
 import { registerAdminHandlers } from './admin/handlers.ts';
@@ -663,6 +663,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
         detail: { via: LOCAL_CHANNEL_VIA, mode: 'local', purpose: 'interactive', resumed: admission.resumed, clientKind: 'cli' },
       });
       const welcome: Welcome = {
+        protocol: PROTOCOL_VERSION,
         channelId: admission.channelId,
         resumed: admission.resumed,
         member: { ...members.toMember(member), online: true },

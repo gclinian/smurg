@@ -10,7 +10,9 @@
 import {
   AGENT_EDIT_DENY_PATTERNS,
   AGENT_READ_DENY_PATTERNS,
+  NOTES_DIR,
   checkRememberableRule,
+  confinedPurpose,
   modelIdSchema,
   ruleString,
   topicPlanPath,
@@ -24,8 +26,18 @@ import type { ClaudeMode, LaunchProfile } from '../../core/interfaces.ts';
 
 export type { ClaudeMode };
 
-/** The tools of a discussion session (fixed, OB-9): it reads the project and writes its topic's spec and plan. */
+/**
+ * The tools of a confined session (fixed, OB-9): a discussion reads the project and writes its topic's spec and plan,
+ * Claude for the sticky notes (DESIGN 0.8.0 D3.1) reads the project and writes notes. The gate binds the writes (G6, G13).
+ */
 export const DISCUSSION_TOOLS: readonly string[] = Object.freeze(['Read', 'Glob', 'Grep', 'Edit', 'Write', 'AskUserQuestion']);
+
+/**
+ * The one allow rule of Claude for the sticky notes, relative to the main root (DESIGN 0.8.0 D3.3): Claude Code does not
+ * ask for the edits the gate lets through. Never wider than G13: one segment below `notes/`, ending in `.md`; the gate
+ * runs first and binds (a name that is no note's, a twin, a link are refused there).
+ */
+export const NOTES_EDIT_ALLOW = `${NOTES_DIR}/*.md`;
 
 /**
  * The tools of an execution or free session, for the verified Claude Code version (2.1.288). The design's list also
@@ -180,12 +192,13 @@ function within(path: string, folder: string): boolean {
 }
 
 /**
- * The deny rules of DESIGN 0.6.0 D8a for one session (REACH_DENY), none for a discussion. Throws ReachRuleError when a
+ * The deny rules of DESIGN 0.6.0 D8a for one session (REACH_DENY), none for a confined session (a discussion, the
+ * sticky notes: no shell, and the gate's G5, G6 and G13 confine its reads and writes). Throws ReachRuleError when a
  * place cannot be written as a rule, or when the session's own folder lies in a place a rule refuses (the rule would
  * refuse the session its own folder).
  */
 export function reachDenyRules(input: { readonly purpose: AgentPurpose; readonly root: RootRef; readonly rootRealPath: string; readonly reach: ReachPlaces }): string[] {
-  if (input.purpose === 'discussion') return [];
+  if (confinedPurpose(input.purpose)) return [];
   const { reach, rootRealPath } = input;
   const rules: string[] = [];
   const add = (place: string, tool: 'Read' | 'Edit', abs: string, rel?: string): void => {
@@ -241,13 +254,13 @@ export function modeWithFallback(mode: PermissionMode, fallback: ProcessFallback
 }
 
 /**
- * smurg's mode → Claude Code's (DESIGN 0.6.0 D8). A discussion always runs in `default` (its tools are fixed). In the
+ * smurg's mode → Claude Code's (DESIGN 0.6.0 D8). A confined session always runs in `default` (its tools are fixed). In the
  * main workspace `ask-commands` runs in `default`, where the DAEMON allows the edit tools (daemonAllowsEdits): Claude
  * Code's acceptEdits would also let simple file commands through. `auto` → `auto`; `ask-nothing` → `bypassPermissions`,
  * which is launched only behind the four checks of the sessions module (and refused by checkLaunchArgs otherwise).
  */
 export function claudeModeFor(purpose: AgentPurpose, mode: PermissionMode, root: RootRef, fallback: ProcessFallback): ClaudeMode {
-  if (purpose === 'discussion') return 'default';
+  if (confinedPurpose(purpose)) return 'default';
   switch (modeWithFallback(mode, fallback)) {
     case 'ask-all':
       return 'default';
@@ -294,7 +307,7 @@ export function smurgModeOf(mode: ClaudeMode): PermissionMode {
  * session asked for. Claude Code's mode stays `default` there, so every shell write still asks.
  */
 export function daemonAllowsEdits(purpose: AgentPurpose, modeInUse: PermissionMode, root: RootRef): boolean {
-  return purpose !== 'discussion' && modeInUse === 'ask-commands' && root.kind === 'main';
+  return !confinedPurpose(purpose) && modeInUse === 'ask-commands' && root.kind === 'main';
 }
 
 export interface ProfileInput {
@@ -326,7 +339,7 @@ export interface ProfileInput {
  */
 export function buildProfile(input: ProfileInput): LaunchProfile {
   const { purpose, rootRealPath } = input;
-  const discussion = purpose === 'discussion';
+  const confined = confinedPurpose(purpose);
   const allow: string[] = [];
   const deny: string[] = [
     ...AGENT_READ_DENY_PATTERNS.map((pattern) => fileRule('Read', rootRealPath, pattern)),
@@ -338,14 +351,16 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
   deny.push(...reachDenyRules({ purpose, root: input.root, rootRealPath, reach: input.reach }));
   if (input.topicSlug !== undefined) {
     const files = [topicSpecPath(input.topicSlug), topicPlanPath(input.topicSlug)].map((path) => fileRule('Edit', rootRealPath, path));
-    if (discussion) allow.push(...files);
+    if (purpose === 'discussion') allow.push(...files);
     else if (purpose === 'item') deny.push(...files);
   }
+  // Claude for the sticky notes: its notes, in the main workspace (DESIGN 0.8.0 D3.3).
+  if (purpose === 'notes' && input.root.kind === 'main') allow.push(fileRule('Edit', rootRealPath, NOTES_EDIT_ALLOW));
   // The scripts a trusted project hook runs carry no rule here: a deny rule refuses only a command that SPELLS the
   // file (`cp x/lint.sh scripts/` and a renamed folder pass it) and refuses reading it into a copy as well. The tool
   // gate guards them instead, for every spelling: an edit tool is refused (G3), a shell command that may change one
   // asks a person (G10, hooks/bash-guard.ts), whatever this profile's mode and rules allow.
-  if (!discussion) {
+  if (!confined) {
     const seen = new Set<string>();
     for (const rule of input.rules) {
       const check = checkRememberableRule(rule.tool, rule.pattern);
@@ -359,12 +374,12 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
   }
   return {
     mode: claudeModeFor(purpose, input.mode, input.root, input.fallback),
-    tools: discussion ? DISCUSSION_TOOLS : EXECUTION_TOOLS,
+    tools: confined ? DISCUSSION_TOOLS : EXECUTION_TOOLS,
     allow,
     ask: [],
     deny,
-    // A discussion always has only smurg's own server; the others unless the host allowed theirs.
-    strictMcp: discussion || !input.agentMcp,
+    // A confined session always has only smurg's own server; the others unless the host allowed theirs.
+    strictMcp: confined || !input.agentMcp,
     settingSources: input.trust === 'ignored' ? 'user' : 'all',
     rolePrompt: input.rolePrompt,
     model: input.model,

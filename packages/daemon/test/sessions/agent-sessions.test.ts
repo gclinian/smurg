@@ -851,3 +851,85 @@ describe('models (DESIGN 0.6.0 D7): the list, --model on every start, the live c
     expect(await argvsOf(r, session.id)).toHaveLength(1);
   });
 });
+
+// DESIGN 0.8.0 D3.1, D3.2, D3.5: Claude for the sticky notes, started through the sessions module's own start (nothing
+// starts it over the wire before the sticky module of S2), with a test role prompt.
+describe('Claude for the sticky notes (purpose `notes`, DESIGN 0.8.0 D3)', { timeout: 60_000 }, () => {
+  const lineIds = async (r: Rig, sessionId: string): Promise<string[]> => (await r.events(sessionId)).flatMap((event) => (event.kind === 'line' ? [event.text.id] : []));
+  const startNotes = (r: Rig, extra: Partial<Parameters<AgentSessionsImpl['start']>[0]> = {}): Promise<AgentSession> =>
+    r.agents.start({ purpose: 'notes', openedBy: r.hostPrincipal(), responsible: null, workspace: { mode: 'main' }, modeChoice: 'auto', model: null, rolePrompt: ({ smurgTag }) => `NOTES ROLE with tag ${smurgTag}`, ...extra });
+
+  it('no topic, no item, the main workspace only; the discussion\'s six tools, strict MCP, Claude Code\'s default mode, one allow rule for notes/*.md, no rules beyond the folder and no remembered rules; its mode is fixed', async () => {
+    const r = await rig();
+    await expect(startNotes(r, { topic: { id: 'tp_x', slug: 'x', name: 'X' } })).rejects.toThrow(/has no topic and no item/);
+    await expect(startNotes(r, { workspace: { mode: 'worktree', worktreeId: 'wt_x' } })).rejects.toThrow(/runs in the main workspace/);
+    const notes = await startNotes(r);
+    expect(notes).toMatchObject({ kind: 'agent', purpose: 'notes', root: MAIN_ROOT, responsible: null, modeFixed: true, modeChoice: null, permissionMode: 'ask-all' });
+    for (const key of ['topicId', 'topicName', 'itemId', 'item', 'attempt', 'title'] as const) expect(notes[key], key).toBeUndefined();
+    await r.until(notes.id, idle, 'the start');
+    expect(r.s.fakes.hooks.registered.get(notes.id)).toMatchObject({ purpose: 'notes', root: MAIN_ROOT, pathRights: 'host', ownerUserId: TEST_HOST_USER, tools: ['Read', 'Glob', 'Grep', 'Edit', 'Write', 'AskUserQuestion'] });
+    expect(r.s.fakes.hooks.registered.get(notes.id)?.topic).toBeUndefined();
+    const root = r.s.t.ctx.roots.main.realPath;
+    const profile = r.s.fakes.hooks.profiles.find((entry) => entry.sessionId === notes.id)?.profile;
+    expect(profile).toMatchObject({ mode: 'default', strictMcp: true, allow: [`Edit(/${root}/notes/*.md)`], ask: [] });
+    expect(profile?.rolePrompt).toMatch(/^NOTES ROLE with tag [a-z0-9]{4}$/);
+    // No rule beyond the folder (the gate confines it): nothing of the host's home or of smurg's state folder.
+    expect(profile?.deny.filter((rule) => rule.includes(r.s.hostHome) || rule.includes(r.s.t.ctx.config.stateDir))).toEqual([]);
+    const echoed = await r.s.fakeClaude.echoed();
+    const argv = echoed.find((entry) => entry.kind === 'argv' && entry.session === notes.id)?.value as string[];
+    expect(argv[argv.indexOf('--tools') + 1]).toBe('Read,Glob,Grep,Edit,Write,AskUserQuestion');
+    expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('default');
+    expect(argv).toContain('--strict-mcp-config');
+    const settings = echoed.find((entry) => entry.kind === 'settings' && entry.session === notes.id)?.value as { permissions: { allow: string[]; defaultMode: string } };
+    expect(settings.permissions.allow).toContain(`Edit(/${root}/notes/*.md)`);
+    expect(settings.permissions.defaultMode).toBe('default');
+    // The mode is fixed: refused on the wire with the discussion's sentence; the wire says ask-all.
+    await expect(r.host.conn.request('session.mode.set', { sessionId: notes.id, mode: 'ask-commands' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.mode.fixed' } });
+    expect((await r.host.conn.request('session.list', {})).sessions.find((session) => session.id === notes.id)).toMatchObject({ purpose: 'notes', modeFixed: true, permissionMode: 'ask-all' });
+  });
+
+  it('a change of the workspace\'s mode and a host setting that restarts every session leave it as it is; a free session follows', async () => {
+    const r = await rig();
+    const notes = await startNotes(r);
+    const free = (await r.host.conn.request('session.create', AGENT)).session;
+    for (const id of [notes.id, free.id]) await r.until(id, idle, 'the start');
+    await r.s.t.ctx.settings.update({ permissionMode: 'ask-commands' }, r.hostPrincipal());
+    await waitFor(async () => (await lineIds(r, free.id)).includes('conversation.mode.workspace'), { what: 'the free session to follow the workspace' });
+    expect(await lineIds(r, notes.id)).not.toContain('conversation.mode.workspace');
+    expect(r.agents.get(notes.id)).toMatchObject({ permissionMode: 'ask-all', modeChoice: null });
+    expect(r.agents.get(free.id)).toMatchObject({ permissionMode: 'ask-commands' });
+    await r.agents.restartAll('host');
+    expect(await lineIds(r, free.id)).toContain('conversation.agent.restarting');
+    expect(await lineIds(r, notes.id)).not.toContain('conversation.agent.restarting');
+  });
+
+  it('when the member who started it loses agent access it passes to the host and keeps running (the line says so); it is never ended for them', async () => {
+    const r = await rig();
+    await r.s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
+    const mei = r.s.t.ctx.members.principalOf('dev:mei') as Principal;
+    const notes = await startNotes(r, { openedBy: mei });
+    const free = await r.agents.start({ purpose: 'free', openedBy: mei, responsible: null, workspace: { mode: 'main' }, modeChoice: null, model: null, rolePrompt: () => '' });
+    for (const id of [notes.id, free.id]) await r.until(id, idle, 'the start');
+    expect(r.agents.facts(notes.id)).toMatchObject({ ownerUserId: 'dev:mei', pathRights: 'member' });
+    const outcome = await r.s.sessions.teardownUser('dev:mei', 'role-changed', 'editor');
+    expect(outcome.ended).toEqual([free.id]);
+    expect(outcome.handedOver).toEqual([{ sessionId: notes.id, purpose: 'notes', stopped: false }]);
+    expect(r.agents.get(notes.id)?.status).toBe('idle');
+    // The host's now; who started it stays, and so do its path rights (never raised by a handover).
+    expect(r.agents.facts(notes.id)).toMatchObject({ ownerUserId: TEST_HOST_USER, openedBy: { userId: 'dev:mei' }, pathRights: 'member' });
+    expect(await lineIds(r, notes.id)).toContain('conversation.owner.handover');
+    expect(await r.s.sessions.teardownUser('dev:mei', 'role-changed', 'viewer')).toMatchObject({ ended: [], handedOver: [] });
+  });
+
+  it('the host ends it; an ended one is forgotten after the free sessions\' retention, a live one never by age', async () => {
+    const r = await rig([], { daemon: { agents: { freeSessionRetentionMs: 30 * 60_000, escalationSweepMs: 20, parkAfterMs: 24 * 60 * 60_000 } } });
+    const ended = await startNotes(r);
+    const live = await startNotes(r);
+    for (const id of [ended.id, live.id]) await r.until(id, idle, 'the start');
+    await r.host.conn.request('session.end', { sessionId: ended.id });
+    expect(r.agents.get(ended.id)?.status).toBe('ended');
+    r.s.t.advanceClock(61 * 60_000);
+    await waitFor(() => r.agents.get(ended.id) === null, { timeoutMs: 10_000, what: 'the ended notes session to be forgotten' });
+    expect(r.agents.get(live.id)?.status).toBe('idle');
+  });
+});

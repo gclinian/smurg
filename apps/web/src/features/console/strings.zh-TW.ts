@@ -107,6 +107,7 @@ export const zhTW = {
   'sessions.purpose.item': '工作項目',
   'sessions.purpose.itemAttempt': '工作項目（第 {attempt} 次）',
   'sessions.purpose.free': 'agent session',
+  'sessions.purpose.notes': '便利貼',
   'sessions.purpose.terminal': '終端機',
   'sessions.responsible.nobody': '無',
   'sessions.status.starting': '啟動中',

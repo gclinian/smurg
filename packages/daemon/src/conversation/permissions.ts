@@ -27,6 +27,7 @@ import {
   agentSafeName,
   can,
   checkRememberableRule,
+  confinedPurpose,
   foldRelPath,
   isEditTool,
   isHostPrivatePath,
@@ -57,7 +58,7 @@ import { newId } from '../core/lifecycle.ts';
 import { SYSTEM_ACTOR, SYSTEM_PRINCIPAL } from '../core/permissions.ts';
 import { isStubService } from '../core/stubs.ts';
 import { BASH_ASK_REASONS } from '../hooks/deny-text.ts';
-import { DISCUSSION_NO_TOOLS, DUPLICATE_REQUEST, HOST_EDITS_CONFIG, NOT_SHOWABLE, SESSION_GONE, TOO_LARGE_TO_SHOW, deniedByPerson } from './agent-sentences.ts';
+import { DISCUSSION_NO_TOOLS, DUPLICATE_REQUEST, HOST_EDITS_CONFIG, NOTES_NO_TOOLS, NOT_SHOWABLE, SESSION_GONE, TOO_LARGE_TO_SHOW, deniedByPerson } from './agent-sentences.ts';
 import type { CardsStore } from './cards-store.ts';
 import { DIFF_MAX_CHARS, changeDiff } from './change-diff.ts';
 import {
@@ -147,9 +148,10 @@ export class Permissions {
       this.refuse(sessionId, request.id, SESSION_GONE);
       return;
     }
-    // A discussion session reads the project, writes its two files and asks: nothing else, whatever asked.
-    if (session.purpose === 'discussion') {
-      this.auto(session, request, { kind: 'auto', answer: 'discussion', decision: { allow: false, message: DISCUSSION_NO_TOOLS } });
+    // A confined session (a discussion: its two files; the sticky notes: its notes) reads the project, writes what the
+    // gate lets it and asks: nothing else, whatever asked, and no card (the answer kind keeps its name, `discussion`).
+    if (confinedPurpose(session.purpose)) {
+      this.auto(session, request, { kind: 'auto', answer: 'discussion', decision: { allow: false, message: session.purpose === 'notes' ? NOTES_NO_TOOLS : DISCUSSION_NO_TOOLS } });
       return;
     }
     const entry = { withdrawn: false };

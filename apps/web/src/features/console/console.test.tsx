@@ -9,7 +9,7 @@ import { createTestServices } from '../../testing/services.tsx';
 import { SECTION_ORDER } from './index.tsx';
 import { losesAgentAccess, losesDiscuss, memberStake } from './MembersSection.tsx';
 import { purposeLabel, statusView } from './SessionsSection.tsx';
-import { AMY, BOB, DISCUSSION, FREE, HOST, ITEM, asMember, defaultFixture, renderConsole, topicFixture } from './test-support.tsx';
+import { AMY, BOB, DISCUSSION, FREE, HOST, ITEM, NOTES, asMember, defaultFixture, renderConsole, topicFixture } from './test-support.tsx';
 
 /** The risk text the host confirms before handing out agent access (owner decision 2026-10-01), word for word. */
 const RISK =
@@ -398,6 +398,22 @@ describe('host console: sessions and suggestions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Terminate "try the parser", opened by Amy' }));
     expect(view.conn.lastRequest('admin.session.terminate')?.payload).toEqual({ sessionId: 'sess_free' });
     expect(screen.queryByRole('alertdialog')).toBeNull();
+  });
+
+  // 0.8.0 D3.5, D3.6: Claude for the sticky notes has no topic, passes to the host when its starter goes, and is named by what it is.
+  it('Claude for the sticky notes: its own kind, terminated with one click like a session without a topic, and it passes to the host when the member who started it goes', async () => {
+    expect(purposeLabel(NOTES)).toBe('Sticky notes');
+    expect(memberStake('dev:amy', [NOTES])).toEqual({ ending: 0, passing: 1, responsibleFor: 0 });
+    const fixture = topicFixture();
+    fixture.sessions = [...fixture.sessions, NOTES];
+    const view = renderConsole({ fixture });
+    fireEvent.click(await screen.findByRole('button', { name: 'Terminate "Sticky notes", opened by Amy' }));
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    expect(view.conn.lastRequest('admin.session.terminate')?.payload).toEqual({ sessionId: 'sess_notes' });
+    const row = screen.getAllByText('Sticky notes').map((node) => node.closest('tr') as HTMLElement).find((tr) => tr.querySelector('.console-session__title')?.textContent === 'Sticky notes') as HTMLElement;
+    const cells = [...row.querySelectorAll('td')].slice(1, 6).map((cell) => cell.textContent);
+    // Topic (none), kind, status, responsible (nobody), opened by.
+    expect([cells[1], cells[2], cells[4]]).toEqual(['Sticky notes', 'Idle', 'Amy']);
   });
 
   it("the state of the host's Claude account stands above the sessions: fine, logged out, or a usage limit with the sessions that wait (session.host)", async () => {

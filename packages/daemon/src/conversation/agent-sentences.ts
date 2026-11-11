@@ -8,6 +8,10 @@ import { AGENT_ROLE_NAMES, agentSafeName, type Role } from '@smurg/protocol';
 export const DISCUSSION_NO_TOOLS =
   "This session only reads the project, writes the topic's SPEC.md and PLAN.md, and asks the team. This tool does not run here. Ask the team with AskUserQuestion, or say in the conversation what you need.";
 
+/** Claude for the sticky notes asked for anything but a question (DESIGN 0.8.0 D3.2; the gate has normally refused it). */
+export const NOTES_NO_TOOLS =
+  'This session only reads the project, writes sticky notes (Markdown files directly in notes/), and asks the team. This tool does not run here. Ask the team with AskUserQuestion, or say in the conversation what you need.';
+
 /** A write to Claude Code's own configuration, or to a file the host confirmed for it. */
 export const HOST_EDITS_CONFIG =
   'The host edits these files themselves. No agent writes .claude/**, .mcp.json, .git/** or a file the host confirmed for Claude Code. Leave the file as it is and say in the conversation what should change.';

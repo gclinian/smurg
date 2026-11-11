@@ -238,6 +238,7 @@ function sessionLabel(session: SessionInfo): string {
   if (session.title !== undefined) return agentText(session.title).text;
   const owner = agentSafeName(session.openedBy.displayName, session.openedBy.userId);
   if (session.kind === 'agent' && session.purpose === 'discussion') return 'Discussion';
+  if (session.kind === 'agent' && session.purpose === 'notes') return 'Sticky notes';
   if (session.kind === 'agent' && session.purpose === 'item' && session.item !== undefined && session.itemId !== undefined) return `Work item ${session.item.number}: ${agentSafeName(session.item.title, session.itemId)}`;
   return defaultSessionTitle(session.kind, owner);
 }

@@ -1,6 +1,6 @@
 // Every session of the workspace (SPEC R11 "every session", "terminate any session with one click"; DESIGN §5.7):
-// its name, the topic it belongs to, what it is for (a topic's discussion, a work item, a session without a topic, a
-// plain terminal), its status in the words the session list uses, who is responsible, who opened it and where it
+// its name, the topic it belongs to, what it is for (a topic's discussion, a work item, a session without a topic,
+// Claude for the sticky notes, a plain terminal), its status in the words the session list uses, who is responsible, who opened it and where it
 // runs. "Terminate" sends admin.session.terminate: at once for a terminal and for a session without a topic (one
 // click, as SPEC R11 asks); for a topic's session after a confirmation that says what stops with it (a discussion
 // that is terminated is lost until someone restarts it, §3.9).
@@ -57,20 +57,25 @@ export function purposeLabel(session: SessionInfo): string {
   if (session.kind === 'terminal') return t('sessions.purpose.terminal');
   if (session.purpose === 'discussion') return t('sessions.purpose.discussion');
   if (session.purpose === 'free') return t('sessions.purpose.free');
+  if (session.purpose === 'notes') return t('sessions.purpose.notes');
   return (session.attempt ?? 1) > 1 ? t('sessions.purpose.itemAttempt', { attempt: session.attempt ?? 1 }) : t('sessions.purpose.item');
 }
 
-/** A topic's session: terminating it stops more than the session, so the host confirms. */
-function isTopicSession(session: SessionInfo): session is AgentSession {
-  return session.kind === 'agent' && session.purpose !== 'free';
+/**
+ * A topic's session (a discussion, a work item): terminating it stops more than the session, so the host confirms.
+ * Claude for the sticky notes has no topic: it is terminated at once, like a session without a topic.
+ */
+function isTopicSession(session: SessionInfo): session is AgentSession & { readonly topicId: string } {
+  return session.kind === 'agent' && session.topicId !== undefined;
 }
 
 /**
  * A session's name in a sentence that also names who opened it ('Terminate "login page", opened by Amy'): a topic's
- * session by what it is ("Discussion", "2 · Payment form"), any other by its typed title or its bare kind.
+ * session and Claude for the sticky notes by what it is ("Discussion", "2 · Payment form", "Sticky notes"), any other
+ * by its typed title or its bare kind.
  */
 function nameBesideOpener(session: SessionInfo): string {
-  return isTopicSession(session) ? sessionTitle(session) : plainSessionTitle(session);
+  return isTopicSession(session) || (session.kind === 'agent' && session.purpose === 'notes') ? sessionTitle(session) : plainSessionTitle(session);
 }
 
 /** The wire id of the daemon's one notice about a personal subscription login used by a group (OWNER-DECISIONS Q6). */

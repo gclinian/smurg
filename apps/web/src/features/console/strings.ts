@@ -141,6 +141,7 @@ export const t = defineStrings(
     'sessions.purpose.item': 'Work item',
     'sessions.purpose.itemAttempt': 'Work item (attempt {attempt})',
     'sessions.purpose.free': 'Agent session',
+    'sessions.purpose.notes': 'Sticky notes',
     'sessions.purpose.terminal': 'Terminal',
     'sessions.responsible.nobody': 'Nobody',
     'sessions.status.starting': 'Starting',

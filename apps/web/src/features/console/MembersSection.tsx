@@ -32,7 +32,7 @@ interface MemberRow {
 export interface MemberStake {
   /** Live terminals and sessions without a topic they opened: these end. */
   readonly ending: number;
-  /** Live sessions of a topic (discussions, work items) they started: these pass to the host. */
+  /** Live sessions they started that pass to the host: a topic's (discussions, work items), and Claude for the sticky notes. */
   readonly passing: number;
   /** Live agent sessions they are responsible for. */
   readonly responsibleFor: number;
@@ -41,10 +41,11 @@ export interface MemberStake {
 export function memberStake(userId: string, sessions: readonly SessionInfo[]): MemberStake {
   const live = sessions.filter((session) => !isSessionOver(session));
   const opened = live.filter((session) => session.openedBy.userId === userId);
-  const ofTopic = (session: SessionInfo): boolean => session.kind === 'agent' && session.purpose !== 'free';
+  // Every agent session but a free one passes to the host (DESIGN 0.8.0 D3.5: Claude for the sticky notes too).
+  const passes = (session: SessionInfo): boolean => session.kind === 'agent' && session.purpose !== 'free';
   return {
-    ending: opened.filter((session) => !ofTopic(session)).length,
-    passing: opened.filter(ofTopic).length,
+    ending: opened.filter((session) => !passes(session)).length,
+    passing: opened.filter(passes).length,
     responsibleFor: live.filter((session) => session.kind === 'agent' && session.responsible?.userId === userId).length,
   };
 }

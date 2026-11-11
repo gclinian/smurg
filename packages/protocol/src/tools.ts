@@ -56,9 +56,20 @@ export function permissionWhat(view: Pick<ToolView, 'verb' | 'outside'>): Permis
 }
 
 /**
+ * Whether a session of this purpose is confined (DESIGN 0.8.0 D3.2): a topic's discussion and Claude for the sticky
+ * notes run no command, write only what the tool gate lets them (G6, G13), read only what a member may read (G5),
+ * have their permission mode fixed and get every permission request refused with no card. Every test that means
+ * "this session is confined" asks this, never the literal `'discussion'` (tests/lint/confined-purpose.test.ts): a new
+ * confined purpose that one place missed would fail open there.
+ */
+export function confinedPurpose(purpose: AgentPurpose): boolean {
+  return purpose === 'discussion' || purpose === 'notes';
+}
+
+/**
  * The permission mode one session runs with (protocol 5, ARCHITECTURE §7.6 "Profiles"): its own choice, else (a work
  * item) its topic's, else the workspace's (`HostSettings.permissionMode`). The workspace's mode applies everywhere, the
- * main workspace included. A discussion session's permissions are fixed (`modeFixed`): it reads `ask-all`, whatever is
+ * main workspace included. A confined session's permissions are fixed (`modeFixed`): it reads `ask-all`, whatever is
  * chosen. A topic's choice is read only for a work item.
  */
 export function effectivePermissionMode(input: {
@@ -67,7 +78,7 @@ export function effectivePermissionMode(input: {
   readonly topic: SessionModeChoice | null;
   readonly workspace: PermissionMode;
 }): PermissionMode {
-  if (input.purpose === 'discussion') return 'ask-all';
+  if (confinedPurpose(input.purpose)) return 'ask-all';
   return input.session ?? (input.purpose === 'item' ? input.topic : null) ?? input.workspace;
 }
 

@@ -2,7 +2,7 @@
 sessions: array [max_length maximum=10000]
 sessions[]: #2 object strict
 sessions[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
-sessions[].purpose: enum "discussion"|"item"|"free"
+sessions[].purpose: enum "discussion"|"item"|"free"|"notes"
 sessions[].topic: optional
 sessions[].topic: #3 object strict
 sessions[].topic.id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]

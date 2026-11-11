@@ -36,6 +36,8 @@ import {
   mask,
   multilineTextSchema,
   normalized,
+  noteNameOf,
+  noteNameSchema,
   offerAlwaysRule,
   parseInviteUrl,
   parseRuleString,
@@ -95,6 +97,8 @@ const LOOKS: Readonly<Record<string, Look>> = {
   'isHostOnlyPath, isHostPrivatePath and isClaudeConfigPath': { run: (text) => void [isHostOnlyPath(text), isHostPrivatePath(text), isClaudeConfigPath(text)], fronts: ['.git/'] },
   'topicFileKind, isInTopicDir and folderHoldsPath': { run: (text) => void [topicFileKind(text, 'cart'), isInTopicDir(text, 'cart'), folderHoldsPath(text, `${text}/a`)], fronts: ['specs/cart/'] },
   isHiddenTempName: { run: (text) => void isHiddenTempName(text), fronts: ['.', '.a.tmp.1'] },
+  // 0.8.0 D1.2: a name a member types, a path an agent writes (the tool gate, G13). Both refuse a long text first.
+  'noteNameSchema and noteNameOf (a sticky note\u2019s name, a path an agent edits)': { run: (text) => void [noteNameSchema.safeParse(text), noteNameOf(text), noteNameOf(`notes/${text}.md`)], fronts: ['notes/', 'a '] },
   fileRefKey: { run: (text) => void fileRefKey({ root: { kind: 'main' }, path: text }) },
   'checkRememberableRule, ruleCoversRequest and offerAlwaysRule (a rule a member asks to remember)': {
     run: (text) =>
@@ -258,6 +262,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'noise/patterns.ts': 2,
   'noise/testing/vectors.ts': 2,
   'normalize.ts': 1,
+  // 0.8.0 D1.2: two classes of single characters, each tried once per character of a name of at most 80 units.
+  'notes.ts': 2,
   'relay/device-login.ts': 5,
   'relay/frames.ts': 4,
   'relay/routes.ts': 2,

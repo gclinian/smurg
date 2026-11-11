@@ -10,6 +10,7 @@ import { verifyIdentityCnf } from '../../channel/identity-binding.ts';
 import type { SecureChannel } from '../../channel/secure-channel.ts';
 import { createMemoryTransportPair, type Transport } from '../../channel/transport.ts';
 import { decodeClientHello, decodeEnvelope, encodeEnvelope, encodeVerdict } from '../../codec.ts';
+import { PROTOCOL_VERSION } from '../../constants.ts';
 import { SmurgError } from '../../errors.ts';
 import { buildInviteUrl, deriveInviteKeys, generateInviteSecret, parseInviteUrl } from '../../invite.ts';
 import { x25519KeyPair, type RawNoiseKeyPair } from '../../noise/suite.ts';
@@ -284,6 +285,7 @@ export class FakeDaemon implements FakeHost {
     }
     const channelId = logical?.id ?? `xfer_${++this.channelCounter}`;
     const welcome: Welcome = {
+      protocol: PROTOCOL_VERSION,
       channelId,
       resumed,
       member: this.memberOf(userId),

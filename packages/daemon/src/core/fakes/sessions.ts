@@ -7,6 +7,7 @@ import {
   mayEndSession,
   worktreeRoot,
   type Actor,
+  type AgentPurpose,
   type LoginState,
   type PayloadOf,
   type Role,
@@ -157,7 +158,7 @@ export class FakeSessionManager implements SessionManager {
     const losesSessions = change !== 'role-changed' || (to !== 'host' && to !== 'agent');
     const losesDiscuss = change !== 'role-changed' || to === 'viewer';
     const ended: string[] = [];
-    const handedOver: { sessionId: string; topicId: string; stopped: boolean }[] = [];
+    const handedOver: { sessionId: string; purpose: AgentPurpose; topicId?: string; stopped: boolean }[] = [];
     const host = this.env.members?.hostUserId() ?? 'dev:host';
     const hostPrincipal: Principal = { kind: 'user', actor: { kind: 'user', userId: host, displayName: this.env.members?.userRef(host)?.displayName ?? 'Host' }, userId: host, role: 'host' };
     const name = this.env.members?.userRef(userId)?.displayName ?? userId.slice(userId.indexOf(':') + 1);
@@ -165,14 +166,15 @@ export class FakeSessionManager implements SessionManager {
       for (const session of this.list()) {
         if (session.openedBy.userId !== userId) continue;
         if (session.kind === 'terminal' ? session.status === 'exited' : session.status === 'ended') continue;
-        if (session.kind === 'agent' && session.topicId !== undefined) {
+        // Topic sessions and Claude for the sticky notes pass to the host; terminals and free sessions end.
+        if (session.kind === 'agent' && session.purpose !== 'free') {
           if (this.agents.facts(session.id)?.ownerUserId !== userId) continue; // handed over before
           if (change === 'kicked') await this.agents.interrupt(session.id, SYSTEM);
           this.agents.setOwner(session.id, host, SYSTEM);
           const worktreeId = this.agents.facts(session.id)?.worktreeId;
           if (session.purpose === 'item' && worktreeId !== undefined) await this.worktrees?.setOwner(worktreeId, hostPrincipal);
           this.agents.append(session.id, lineEvent(change === 'kicked' ? msg('conversation.owner.handover.kicked', { name }) : msg('conversation.owner.handover', { name })));
-          handedOver.push({ sessionId: session.id, topicId: session.topicId, stopped: change === 'kicked' });
+          handedOver.push({ sessionId: session.id, purpose: session.purpose, ...(session.topicId === undefined ? {} : { topicId: session.topicId }), stopped: change === 'kicked' });
         } else {
           await this.finish(session, change, SYSTEM, true);
           ended.push(session.id);

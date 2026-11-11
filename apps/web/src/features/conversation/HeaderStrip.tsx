@@ -29,6 +29,11 @@ import { t } from './strings.ts';
 
 type Rules = ResultOf<'session.rules.get'>;
 
+/** What a confined session may do, in words: a discussion writes its spec and plan, Claude for the sticky notes its notes. */
+function fixedModeTitleKey(session: AgentSession): 'mode.fixedTitle' | 'mode.fixedNotesTitle' {
+  return session.purpose === 'notes' ? 'mode.fixedNotesTitle' : 'mode.fixedTitle';
+}
+
 function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): void }) {
   const stores = useStores();
   const hostDialogs = useHostDialogs();
@@ -85,7 +90,7 @@ function ModeDialog({ session, onClose }: { session: AgentSession; onClose(): vo
     >
       <div className="conv-mode">
         {session.modeFixed ? (
-          <p>{t('mode.fixedTitle')}</p>
+          <p>{t(fixedModeTitleKey(session))}</p>
         ) : (
           <div className="conv-mode__choose">
             <ModePicker
@@ -253,9 +258,9 @@ export function HeaderStrip({ session, modelOpen, setModelOpen }: HeaderStripPro
 
   // What runs: the mode Claude Code reported for the running process, else the one smurg asked for.
   const runs = session.modeInUse ?? session.permissionMode;
-  const mode = session.modeFixed ? t('mode.fixed') : modeLabel(runs);
+  const mode = session.modeFixed ? t(session.purpose === 'notes' ? 'mode.fixedNotes' : 'mode.fixed') : modeLabel(runs);
   const modeChip = (
-    <Chip lead={session.modeFixed ? <IconLock size={14} /> : <IconShield size={14} />} collapsible title={session.modeFixed ? t('mode.fixedTitle') : t('mode.title', { mode })} onClick={() => setModeOpen(true)}>
+    <Chip lead={session.modeFixed ? <IconLock size={14} /> : <IconShield size={14} />} collapsible title={session.modeFixed ? t(fixedModeTitleKey(session)) : t('mode.title', { mode })} onClick={() => setModeOpen(true)}>
       {mode}
     </Chip>
   );
