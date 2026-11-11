@@ -4,7 +4,7 @@
 // topics module, its discussion started by the fake agent runtime), records the build, writes SPEC.md and a PLAN.md of
 // one work item through the real file service as the caller, and starts nothing.
 import { createHash } from 'node:crypto';
-import { link, mkdir, readFile, readdir, stat, symlink, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
@@ -253,6 +253,25 @@ describe('sticky.build: a topic made from a sticky note, nothing started (D5.2�
     expect((await readdir(join(s.root, 'specs'))).sort()).toEqual(['checkout', 'checkout-2', 'checkout-3', 'checkout-4', 'checkout-5', 'checkout-6', 'checkout-7', 'checkout-8', 'checkout-9']);
   });
 
+  it('never the slug of a stored topic whose folder is gone, nor one a folder in specs/ has under another case: both count as taken, and the build goes on to -2', async () => {
+    // A stored topic keeps its slug after its folder was removed (topic.create would refuse it as slug-taken).
+    const s = await notes();
+    const first = await build(s);
+    await rm(join(s.root, 'specs', 'checkout'), { recursive: true });
+    const second = await build(s);
+    expect(s.t.ctx.services.topics.get(second)).toMatchObject({ name: 'Checkout', slug: 'checkout-2' });
+    expect(await readFile(join(s.root, 'specs', 'checkout-2', 'SPEC.md'), 'utf8')).toBe(CHECKOUT_SPEC);
+    expect(s.t.ctx.services.topics.get(first)?.slug).toBe('checkout');
+    expect((await audit(s, 'sticky.build')).map((entry) => [entry.outcome, entry.detail?.['slug']])).toEqual([
+      ['ok', 'checkout'],
+      ['ok', 'checkout-2'],
+    ]);
+    // A folder `specs/Checkout` is `specs/checkout` on a disk that ignores case: the names are folded before they count.
+    const t = await notes({ files: { ...NOTES, 'specs/Checkout/SPEC.md': 'Another topic.\n' } });
+    expect(t.t.ctx.services.topics.get(await build(t))?.slug).toBe('checkout-2');
+    expect((await readdir(join(t.root, 'specs'))).sort()).toEqual(['Checkout', 'checkout-2']);
+  });
+
   it('a free slug: the name gives it, a suffix shortens a long one to stay a slug, folded names count as taken', () => {
     expect(freeSlug('Payment form', new Set())).toBe('payment-form');
     expect(freeSlug('Payment form', new Set(['payment-form', 'payment-form-2']))).toBe('payment-form-3');
@@ -312,7 +331,9 @@ describe('sticky.build: a topic made from a sticky note, nothing started (D5.2�
     const { hash } = await s.mei.conn.request('sticky.spec', { note: 'Checkout' });
     const failed = await refused(s.mei.conn.request('sticky.build', { note: 'Checkout', hash }));
     expect(failed).toMatchObject({ code: 'insufficient_disk', detail: { reason: 'failed-at', step: 'spec' }, text: { id: 'sticky.build.failedAt', params: { step: 'spec' } } });
-    expect(render('en', failed.text)).toBe('The topic was made and is in the sessions view, but its SPEC.md was not written.');
+    // The steps run one after the other and stop at the first that fails: the words say that PLAN.md is missing too.
+    expect(render('en', failed.text)).toBe('The topic was made and is in the sessions view, but neither its SPEC.md nor its PLAN.md was written.');
+    expect(render('zh-TW', failed.text)).toBe('主題已經建立，可以在 session 畫面找到，但它的 SPEC.md 和 PLAN.md 都沒有寫入');
     const topicId = String(failed.detail?.['topicId']);
     expect(s.t.ctx.services.topics.get(topicId)).toMatchObject({ name: 'Checkout', slug: 'checkout' });
     expect((await stored(s)).map((record) => record.topicId)).toEqual([topicId]);
@@ -327,30 +348,82 @@ describe('sticky.build: a topic made from a sticky note, nothing started (D5.2�
     });
     const second = await refused(s.mei.conn.request('sticky.build', { note: 'Checkout', hash }));
     expect(second).toMatchObject({ code: 'internal', detail: { reason: 'failed-at', step: 'plan' }, text: { id: 'sticky.build.failedAt', params: { step: 'plan' } } });
+    expect(render('en', second.text)).toBe('The topic was made and is in the sessions view, with its SPEC.md, but its PLAN.md was not written.');
+    expect(render('zh-TW', second.text)).toBe('主題已經建立，可以在 session 畫面找到，SPEC.md 也寫好了，但它的 PLAN.md 沒有寫入');
     expect(await readdir(join(s.root, 'specs', 'checkout-2'))).toEqual(['SPEC.md']);
     expect(s.t.ctx.services.topics.get(String(second.detail?.['topicId']))?.slug).toBe('checkout-2');
     spy.mockRestore();
   });
 
-  it(`keeps at most ${NOTE_BUILDS_MAX} records, the oldest goes first; a note names its newest ${NOTE_INFO_BUILDS_MAX}`, async () => {
+  it('the record is the first step after the topic exists: when it fails, neither SPEC.md nor PLAN.md is written, and the words say so (D5.4)', async () => {
     const s = await notes();
     const document = await s.t.ctx.state.document(STICKY_DOCUMENT, stickyDocumentSchema, initialStickyDocument);
+    const spy = vi.spyOn(document, 'update').mockImplementationOnce(() => {
+      throw new SmurgError('internal');
+    });
+    const { hash } = await s.mei.conn.request('sticky.spec', { note: 'Checkout' });
+    const failed = await refused(s.mei.conn.request('sticky.build', { note: 'Checkout', hash }));
+    spy.mockRestore();
+    expect(failed).toMatchObject({ code: 'internal', detail: { reason: 'failed-at', step: 'record' }, text: { id: 'sticky.build.failedAt', params: { step: 'record' } } });
+    expect(render('en', failed.text)).toBe(
+      'The topic was made and is in the sessions view, but smurg could not record on the sticky note that it was built from it, and neither its SPEC.md nor its PLAN.md was written.',
+    );
+    expect(render('zh-TW', failed.text)).toBe('主題已經建立，可以在 session 畫面找到，但 smurg 沒有在便利貼上記下這個主題是從它建立的，它的 SPEC.md 和 PLAN.md 也都沒有寫入');
+    const topicId = String(failed.detail?.['topicId']);
+    expect(s.t.ctx.services.topics.get(topicId)).toMatchObject({ name: 'Checkout', slug: 'checkout' });
+    expect(await stored(s)).toEqual([]);
+    expect(await readdir(join(s.root, 'specs', 'checkout'))).toEqual([]);
+    expect((await audit(s, 'sticky.build')).map((entry) => [entry.outcome, entry.detail?.['step']])).toEqual([['error', 'record']]);
+  });
+
+  it(`keeps at most ${NOTE_BUILDS_MAX} records, the oldest goes first; a note names its newest ${NOTE_INFO_BUILDS_MAX} topics that are there, past the records of topics that are gone`, async () => {
+    const s = await notes();
+    const host = principal(s, TEST_HOST_USER);
+    // Nine topics that are there. The other records name topics that are not (deleted): no note names those (D5.4,
+    // "the note shows the topic"), so they never hide an older topic that is there.
+    const there: string[] = [];
+    for (let n = 0; n < 9; n += 1) there.push((await s.t.ctx.services.topics.create({ name: `Old ${n}`, slug: `old-${n}` }, host)).topic.id);
+    const document = await s.t.ctx.state.document(STICKY_DOCUMENT, stickyDocumentSchema, initialStickyDocument);
     const by = { userId: LEO, displayName: 'Leo' };
+    // Checkout's records 2, 4 … 18 name the nine topics; every other record names a topic that is gone.
+    const topicOf = (n: number): string => (n % 2 === 0 && n >= 2 && n <= 18 ? (there[n / 2 - 1] as string) : `tp_gone${n}`);
     document.update((draft) => {
-      draft.builds = Array.from({ length: NOTE_BUILDS_MAX }, (_, n) => ({ note: n % 2 === 0 ? 'Checkout' : 'Home', topicId: `tp_old${n}`, by, at: n, hash: 'a'.repeat(64) }));
+      draft.builds = Array.from({ length: NOTE_BUILDS_MAX }, (_, n) => ({ note: n % 2 === 0 ? 'Checkout' : 'Home', topicId: topicOf(n), by, at: n, hash: 'a'.repeat(64) }));
     });
     const topicId = await build(s);
     const records = await stored(s);
     expect(records).toHaveLength(NOTE_BUILDS_MAX);
-    expect(records[0]?.topicId).toBe('tp_old1');
+    expect(records[0]?.topicId).toBe('tp_gone1');
     expect(records.at(-1)?.topicId).toBe(topicId);
     const listed = (await s.leo.conn.request('sticky.list', {})).notes;
-    expect(listed.find((note) => note.name === 'Checkout')?.builds).toEqual([topicId, 'tp_old198', 'tp_old196', 'tp_old194', 'tp_old192', 'tp_old190', 'tp_old188', 'tp_old186']);
-    expect(listed.find((note) => note.name === 'Home')?.builds).toHaveLength(NOTE_INFO_BUILDS_MAX);
+    // The newest eight that are there: the new topic, then the newest seven of the nine, past 90 records of topics gone.
+    expect(listed.find((note) => note.name === 'Checkout')?.builds).toEqual([topicId, ...there.slice(2).reverse()]);
+    // Every record of Home names a topic that is gone: Home names none.
+    expect(listed.find((note) => note.name === 'Home')).toEqual({ name: 'Home', links: ['Checkout'] });
     // A note of the same name in another case is the same note's builds (D1.3); a note nobody built has none.
     expect(s.service.builder.buildsOf('checkout')[0]).toBe(topicId);
     expect(listed.find((note) => note.name === 'Hidden')).toEqual({ name: 'Hidden', links: [] });
   });
+
+  it('a topic that is deleted is no topic of its note any more: every member is told the note again without it, and an older one comes back into the newest 8; an archived one stays', async () => {
+    const s = await notes();
+    const ids: string[] = [];
+    // Nine builds (checkout … checkout-9): one more than a note names.
+    for (let n = 0; n <= NOTE_INFO_BUILDS_MAX; n += 1) ids.push(await build(s));
+    const builds = async (): Promise<readonly string[] | undefined> => (await s.leo.conn.request('sticky.list', {})).notes.find((note) => note.name === 'Checkout')?.builds;
+    expect(await builds()).toEqual(ids.slice(1).reverse());
+    const newest = ids.at(-1) as string;
+    // Archived, it is still a topic made from the note.
+    await s.host.conn.request('topic.archive', { topicId: newest, archived: true });
+    expect(await builds()).toEqual(ids.slice(1).reverse());
+    const before = s.changes.length;
+    await s.host.conn.request('topic.delete', { topicId: newest });
+    // Leo's round trip: what was told to Leo before it has arrived.
+    expect(await builds()).toEqual(ids.slice(0, -1).reverse());
+    expect(s.changes.slice(before)).toEqual([{ upserted: [{ name: 'Checkout', links: ['Payment form', 'Refunds', 'checkout'], builds: ids.slice(0, -1).reverse() }], removed: [], truncated: false }]);
+    // The record stays (at most 200, the oldest dropped, D5.2); the topic is only no longer named.
+    expect((await stored(s)).map((record) => record.topicId)).toEqual(ids);
+  }, 120_000);
 
   it('the builds survive a change of the note: the index announces the note with its topics', async () => {
     const s = await notes();

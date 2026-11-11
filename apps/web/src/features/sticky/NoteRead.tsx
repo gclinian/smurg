@@ -14,6 +14,7 @@
 import { NOTES_HOME, fileRefKey, type NoteInfo } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useAppServices } from '../../app/services.tsx';
+import { describeError } from '../../lib/errors.ts';
 import { routePath } from '../../lib/router.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectNote, type StickyState } from '../../lib/stores/sticky.ts';
@@ -140,33 +141,64 @@ function useBuildHeld(held: HeldDocument | null, lockKey: string): boolean {
   return locked || unsaved;
 }
 
-/** The topics made from this note that the page knows of (D2.4), newest first, each a way to its plan. */
+/**
+ * The topics made from this note (D2.4), newest first, each a way to its plan. The host names only topics that are
+ * there, open or archived (D5.4); the page holds the archived ones only once they are shown ("Show archived topics",
+ * the sessions list's own), so while it holds every open topic, one it does not hold is archived: counted here, with
+ * the way to show them, never left out without a word. Before the topics are loaded nothing is known, and nothing said.
+ */
 function NoteBuilds({ builds }: { builds: readonly string[] }) {
   const stores = useStores();
   const openColumn = useCommand('openColumn');
   const titleId = useId();
   const topics = useStore(stores.topics, (state) => state);
+  const [archive, setArchive] = useState<{ readonly loading: boolean; readonly error: string | null }>({ loading: false, error: null });
   const known = builds.flatMap((topicId) => {
     const topic = selectTopic(topics, topicId);
     return topic === undefined ? [] : [topic];
   });
-  if (known.length === 0) return null;
+  const notShown = topics.status === 'ready' && topics.archived === null ? builds.length - known.length : 0;
+  if (known.length === 0 && notShown === 0) return null;
+  const showArchived = (): void => {
+    setArchive({ loading: true, error: null });
+    stores.topics.loadArchived().then(
+      () => setArchive({ loading: false, error: null }),
+      (error: unknown) => setArchive({ loading: false, error: describeError(error) }),
+    );
+  };
   return (
     <section className="sticky-card__builds" aria-labelledby={titleId}>
       <h3 id={titleId} className="sticky-card__builds-title">
         {t('builds.title')}
       </h3>
-      <ul className="sticky-card__builds-list">
-        {known.map((topic) => (
-          <li key={topic.id}>
-            <IconPlan size={14} />
-            <button type="button" className="sticky-card__topic" title={t('builds.open', { name: topic.name })} onClick={() => void openColumn({ target: { kind: 'plan', topicId: topic.id } })}>
-              {topic.name}
-            </button>
-            <span className="sticky-card__builds-folder">{`specs/${topic.slug}`}</span>
-          </li>
-        ))}
-      </ul>
+      {known.length > 0 ? (
+        <ul className="sticky-card__builds-list">
+          {known.map((topic) => (
+            <li key={topic.id}>
+              <IconPlan size={14} />
+              <button type="button" className="sticky-card__topic" title={t('builds.open', { name: topic.name })} onClick={() => void openColumn({ target: { kind: 'plan', topicId: topic.id } })}>
+                {topic.name}
+              </button>
+              <span className="sticky-card__builds-folder">{`specs/${topic.slug}`}</span>
+              {topic.archived ? <span className="sticky-card__builds-archived">{t('builds.archivedMark')}</span> : null}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      {notShown > 0 ? (
+        <div className="sticky-card__builds-more">
+          <span className="sticky-card__quiet">{t('builds.archived', { count: notShown })}</span>
+          <button type="button" className="sticky-card__topic" disabled={archive.loading} onClick={showArchived}>
+            {t('builds.showArchived')}
+          </button>
+          {archive.loading ? <Spinner size={14} decorative /> : null}
+        </div>
+      ) : null}
+      {notShown > 0 && archive.error !== null ? (
+        <p className="sticky-card__problem" role="alert">
+          {t('builds.archivedFailed', { reason: archive.error })}
+        </p>
+      ) : null}
     </section>
   );
 }

@@ -186,7 +186,7 @@ Sticky notes, and Claude for the sticky notes.
 | A new, empty sticky note, linked at the end of the open one | Add a sticky note | 新增便利貼 | `sticky.add.title` |
 | Put the open sticky note's link into the box of Claude's conversation | Ask Claude about this sticky note | 就這張便利貼問 Claude | `sticky.note.ask` |
 | Start the one Claude for the sticky notes of the workspace | Start Claude / Start Claude again (after it ended) | 啟動 Claude / 重新啟動 Claude | `sticky.assistant.start`, `workbench.notes.chat.start` |
-| Make a topic from the open sticky note, its spec the text of the note and the notes it links to, its plan one work item; nothing starts until Start in the topic's plan | Build this; the dialog's button: Make the topic | 把它做出來；對話框的按鈕：建立主題 | `sticky.build`, `sticky.build.button`, `sticky.build.confirm` |
+| Make a topic from the open sticky note, its spec the text of the note and the notes it links to, its plan one work item; its discussion session starts as every new topic's does, and the work starts only with Start in the topic's plan | Build this; the dialog's button: Make the topic | 把它做出來；對話框的按鈕：建立主題 | `sticky.build`, `sticky.build.button`, `sticky.build.confirm` |
 | The topics made from a sticky note, listed in its card | Topics built from this sticky note | 從這張便利貼建立的主題 | `NoteInfo.builds`, `sticky.builds.title` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name

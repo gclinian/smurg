@@ -3,8 +3,14 @@
 // never rendered, with the warning the Start dialog gives when it holds characters nobody sees. Confirming asks the
 // daemon to make the topic from THAT text (`sticky.build` with its hash: a note that changed meanwhile is refused, and
 // the new text is shown to be read again); then the topic's plan opens in the sessions view, where the member presses
-// Start in the topic's own Start dialog. Nothing starts here.
+// Start in the topic's own Start dialog. No work starts here (the topic's discussion starts, as every new topic's does,
+// D5.5).
+//
+// One dialog makes at most one topic: once the host made the topic and a later step failed (D5.4), or once nobody can
+// know whether it did (a reply that never came), the dialog offers no confirm again (the same text again would make a
+// second topic, `<slug>-2`), only Close; "Build this" opened anew reads the text again and is a new build.
 import { errorReasonOf, hasInvisibleCharacters, isSmurgError, type ResultOf } from '@smurg/protocol';
+import { isClientRequestError } from '@smurg/protocol/client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { describeError } from '../../lib/errors.ts';
 import { formatAnd } from '../../lib/format.ts';
@@ -19,6 +25,35 @@ type Spec = ResultOf<'sticky.spec'>;
 
 type Shown = { readonly kind: 'loading' } | { readonly kind: 'failed'; readonly reason: string } | { readonly kind: 'ready'; readonly spec: Spec };
 
+/**
+ * What became of the last confirm: the words; a second line (where to look when nobody knows the outcome); the topic
+ * the host made all the same (D5.4); `final`: a topic was made or may have been, so this dialog confirms nothing more.
+ */
+interface Problem {
+  readonly text: string;
+  readonly more: string | null;
+  readonly topicId: string | null;
+  readonly final: boolean;
+}
+
+/**
+ * The page cannot know that the host made nothing: the request failed here after it may have reached the host (it was
+ * sent and timed out, the connection dropped or closed under it). Only a request that never left the page (not
+ * connected, too much queued, or `sent: false`) is known to have made nothing; a host's refusal says so itself.
+ */
+function outcomeUnknown(error: unknown): boolean {
+  if (!isClientRequestError(error)) return false;
+  if (error.failure === 'not-connected' || error.failure === 'overflow') return false;
+  return error.detail?.['sent'] !== false;
+}
+
+function problemOf(error: unknown): Problem {
+  const topicId = isSmurgError(error) && typeof error.detail?.['topicId'] === 'string' ? error.detail['topicId'] : null;
+  if (topicId !== null) return { text: describeError(error), more: null, topicId, final: true };
+  if (outcomeUnknown(error)) return { text: describeError(error), more: t('build.unknown'), topicId: null, final: true };
+  return { text: t('build.failed', { reason: describeError(error) }), more: null, topicId: null, final: false };
+}
+
 export interface BuildDialogProps {
   /** The note's name on disk. */
   readonly note: string;
@@ -31,12 +66,18 @@ export function BuildDialog({ note, open, onClose }: BuildDialogProps) {
   const openColumn = useCommand('openColumn');
   const [shown, setShown] = useState<Shown>({ kind: 'loading' });
   const [busy, setBusy] = useState(false);
-  /** What became of the last confirm: the host's words, and the topic when one was made all the same (D5.4). */
-  const [problem, setProblem] = useState<{ readonly text: string; readonly topicId: string | null } | null>(null);
-  // One press makes one topic: a second press while the first is on its way does nothing.
+  const [problem, setProblem] = useState<Problem | null>(null);
+  // One press makes one topic: a second press while the first is on its way does nothing (and after it, `final`).
   const running = useRef(false);
   // The answer of a read that was asked for after this one wins (a reopen, a read after `note-changed`).
   const generation = useRef(0);
+  const closeButton = useRef<HTMLButtonElement>(null);
+  const final = problem?.final === true;
+
+  // The confirm that held the focus is gone: the focus goes to Close, in the dialog, never to the page behind it.
+  useEffect(() => {
+    if (final) closeButton.current?.focus();
+  }, [final]);
 
   const read = useCallback(async (): Promise<void> => {
     const mine = ++generation.current;
@@ -64,7 +105,7 @@ export function BuildDialog({ note, open, onClose }: BuildDialogProps) {
   };
 
   const confirm = async (): Promise<void> => {
-    if (running.current || shown.kind !== 'ready') return;
+    if (running.current || shown.kind !== 'ready' || final) return;
     running.current = true;
     setBusy(true);
     setProblem(null);
@@ -74,8 +115,7 @@ export function BuildDialog({ note, open, onClose }: BuildDialogProps) {
       onClose();
       await openColumn({ target: { kind: 'plan', topicId } });
     } catch (error) {
-      const topicId = isSmurgError(error) && typeof error.detail?.['topicId'] === 'string' ? error.detail['topicId'] : null;
-      setProblem({ text: topicId === null ? t('build.failed', { reason: describeError(error) }) : describeError(error), topicId });
+      setProblem(problemOf(error));
       // The note or a note it links to changed: the new text is read, to be read again before a new confirm.
       if (isSmurgError(error) && error.code === 'conflict' && errorReasonOf(error) === 'note-changed') void read();
     } finally {
@@ -93,14 +133,20 @@ export function BuildDialog({ note, open, onClose }: BuildDialogProps) {
       title={t('build.title')}
       description={t('build.body')}
       footer={
-        <>
-          <Button variant="ghost" onClick={close} disabled={busy}>
-            {tApp('common.cancel')}
+        final ? (
+          <Button ref={closeButton} variant="ghost" onClick={close}>
+            {tApp('common.close')}
           </Button>
-          <Button variant="primary" onClick={() => void confirm()} loading={busy} disabled={ready === null}>
-            {t('build.confirm')}
-          </Button>
-        </>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={close} disabled={busy}>
+              {tApp('common.cancel')}
+            </Button>
+            <Button variant="primary" onClick={() => void confirm()} loading={busy} disabled={ready === null}>
+              {t('build.confirm')}
+            </Button>
+          </>
+        )
       }
     >
       <div className="sticky-build">
@@ -123,7 +169,14 @@ export function BuildDialog({ note, open, onClose }: BuildDialogProps) {
               )
             }
           >
-            {problem.text}
+            {problem.more === null ? (
+              problem.text
+            ) : (
+              <>
+                <p>{problem.text}</p>
+                <p>{problem.more}</p>
+              </>
+            )}
           </Banner>
         ) : null}
         {shown.kind === 'loading' ? (

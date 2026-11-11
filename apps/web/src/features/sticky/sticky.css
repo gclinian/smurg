@@ -289,6 +289,10 @@
 .sticky-card__topic:hover {
   text-decoration-thickness: 2px;
 }
+.sticky-card__topic:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
 .sticky-card__topic:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
@@ -303,11 +307,32 @@
   font-size: var(--text-xs);
   overflow-wrap: anywhere;
 }
+/* An archived topic made from the note; and the line of those the page holds only once the archived topics are shown. */
+.sticky-card__builds-archived {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.sticky-card__builds-more {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+}
+.sticky-card__builds-list + .sticky-card__builds-more {
+  margin-top: var(--space-2);
+}
 .sticky-build {
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
   min-width: 0;
+}
+.sticky-build .ui-banner__text p + p {
+  margin-top: var(--space-2);
 }
 .sticky-build__notes {
   margin: 0;

@@ -5,6 +5,7 @@
 // gone, and the feedback in the store; and "Build this" (D5.3): the dialog's exact text, the confirm, the plan opened,
 // when it waits, and the topics made from the note.
 import { NOTES_MAX, SmurgError, composeFeedback, noteTree, type Feedback, type FeedbackAuthorForAgent, type NoteInfo, type UserRef } from '@smurg/protocol';
+import { ClientRequestError } from '@smurg/protocol/client';
 import { msg, renderEnglish } from '@smurg/protocol/i18n';
 import { buildAgentSession, buildTopic } from '@smurg/protocol/testing';
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
@@ -1269,7 +1270,12 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
     await view.settle();
     expect(view.conn.requestsOf('sticky.spec').map((request) => request.payload)).toEqual([{ note: 'Home' }]);
     expect(dialog().getAttribute('aria-describedby')).not.toBeNull();
-    expect(within(dialog()).getByText("smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work.")).toBeTruthy();
+    // What starts and what does not: the topic's discussion starts as every new topic's does (D5.5); the work waits for Start.
+    expect(
+      within(dialog()).getByText(
+        "smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. As for every new topic, its discussion session with Claude starts now. The work does not start yet: the topic's plan opens in the sessions view, and Start there starts it.",
+      ),
+    ).toBeTruthy();
     expect(within(dialog()).getByText('The text of 2 sticky notes: Home and Checkout.')).toBeTruthy();
     const text = within(dialog()).getByRole('region', { name: 'The text of the spec' });
     // Character for character, with nothing rendered: no heading, no emphasis, no link, no code, no element at all.
@@ -1279,6 +1285,22 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
     // No character nobody sees: no warning.
     expect(within(dialog()).queryByText(/characters you cannot see/)).toBeNull();
     expect(within(dialog()).getByRole('button', { name: 'Make the topic' })).toBeTruthy();
+  });
+
+  it('while the text is being read, the dialog says so and nothing can be confirmed', async () => {
+    const view = await shown({ role: 'host' });
+    await userEvent.click(buildButton());
+    await view.settle();
+    expect(within(dialog()).getByText('Reading the sticky notes…')).toBeTruthy();
+    expect((within(dialog()).getByRole('button', { name: 'Make the topic' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(within(dialog()).queryByRole('region', { name: 'The text of the spec' })).toBeNull();
+    await act(async () => {
+      view.conn.respond('sticky.spec', { text: SPEC, hash: HASH, notes: ['Home', 'Checkout'] });
+    });
+    await view.settle();
+    expect(within(dialog()).queryByText('Reading the sticky notes…')).toBeNull();
+    expect(within(dialog()).getByRole('region', { name: 'The text of the spec' }).textContent).toBe(SPEC);
+    expect((within(dialog()).getByRole('button', { name: 'Make the topic' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('confirm: one sticky.build with the hash of the text shown, however often it is pressed; then the topic\'s plan opens in the sessions view, and nothing is started', async () => {
@@ -1327,7 +1349,7 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
     expect(opened).toEqual([]);
   });
 
-  it('a step that failed after the topic was made: the host\'s words, and a way to the topic\'s plan (D5.4)', async () => {
+  it('a step that failed after the topic was made: the host\'s words, a way to the topic\'s plan, and no second confirm, which would make a second topic (D5.4)', async () => {
     const { view, opened } = await withSpec('host');
     await userEvent.click(buildButton());
     await view.settle();
@@ -1336,10 +1358,59 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
       view.conn.fail('sticky.build', new SmurgError('insufficient_disk', msg('sticky.build.failedAt', { step: 'spec' }), { reason: 'failed-at', step: 'spec', topicId: 'tp_7' }));
     });
     await view.settle();
-    expect(within(dialog()).getByRole('alert').textContent).toContain('The topic was made and is in the sessions view, but its SPEC.md was not written.');
+    expect(within(dialog()).getByRole('alert').textContent).toContain('The topic was made and is in the sessions view, but neither its SPEC.md nor its PLAN.md was written.');
+    expect(within(dialog()).getByRole('alert').textContent).not.toContain('The topic was not made');
+    // The topic is made: this dialog makes no other (the same hash would make `<slug>-2`); it closes, or opens the plan.
+    expect(within(dialog()).queryByRole('button', { name: 'Make the topic' })).toBeNull();
+    expect(within(dialog()).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    // The confirm that was pressed is gone: the focus is on Close, in the dialog.
+    expect(document.activeElement).toBe(within(dialog()).getByRole('button', { name: 'Close' }));
     await userEvent.click(within(dialog()).getByRole('button', { name: "Open the topic's plan" }));
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(opened).toEqual([{ target: { kind: 'plan', topicId: 'tp_7' } }]);
+    expect(view.conn.requestsOf('sticky.build')).toHaveLength(1);
+    // Opened again, it reads the text again and is a new build, asked for anew.
+    await userEvent.click(buildButton());
+    await view.settle();
+    expect(within(dialog()).queryByRole('alert')).toBeNull();
+    expect((within(dialog()).getByRole('button', { name: 'Make the topic' }) as HTMLButtonElement).disabled).toBe(false);
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(view.conn.requestsOf('sticky.build')).toHaveLength(1);
+  });
+
+  it('a reply that never came (the request timed out after it was sent, or the connection dropped): nobody knows whether the topic was made, so the dialog does not say it was not, and offers no second confirm', async () => {
+    const { view, opened } = await withSpec('host');
+    const unknown = [new ClientRequestError('timeout', undefined, { sent: true }), new ClientRequestError('connection-lost')];
+    for (const failure of unknown) {
+      await userEvent.click(buildButton());
+      await view.settle();
+      await userEvent.click(within(dialog()).getByRole('button', { name: 'Make the topic' }));
+      await act(async () => {
+        view.conn.fail('sticky.build', failure);
+      });
+      await view.settle();
+      const alert = within(dialog()).getByRole('alert');
+      expect(alert.textContent).toBe(`${describeError(failure)}If the topic was made, it is in the sessions view. If it was not, close this and press Build this again.`);
+      expect(alert.textContent).not.toContain('The topic was not made');
+      expect(within(dialog()).queryByRole('button', { name: 'Make the topic' })).toBeNull();
+      expect(within(dialog()).queryByRole('button', { name: "Open the topic's plan" })).toBeNull();
+      expect(document.activeElement).toBe(within(dialog()).getByRole('button', { name: 'Close' }));
+      await userEvent.click(within(dialog()).getByRole('button', { name: 'Close' }));
+      expect(screen.queryByRole('dialog')).toBeNull();
+    }
+    expect(view.conn.requestsOf('sticky.build')).toHaveLength(2);
+    expect(opened).toEqual([]);
+    // A request that never left this page made nothing: that the page knows, and the confirm stays.
+    await userEvent.click(buildButton());
+    await view.settle();
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Make the topic' }));
+    const unsent = new ClientRequestError('timeout', undefined, { sent: false });
+    await act(async () => {
+      view.conn.fail('sticky.build', unsent);
+    });
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toBe(`The topic was not made: ${describeError(unsent)}`);
+    expect((within(dialog()).getByRole('button', { name: 'Make the topic' }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('a text that cannot be read is said with the host\'s words; "Try again" reads it again; nothing can be confirmed meanwhile', async () => {
@@ -1409,5 +1480,48 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
     // A note nobody built shows no such part.
     await shown({ role: 'host' });
     expect(within(note()).queryByRole('region', { name: 'Topics built from this sticky note' })).toBeNull();
+  });
+
+  it('an archived topic made from the note is one the page holds only after "Show archived topics": the card says how many it does not show, and shows them on request, marked archived', async () => {
+    // The host names only topics that are there (a deleted one is left out): one the page does not hold while it holds
+    // every open topic is archived.
+    const built: NoteInfo[] = NOTES.map((info) => (info.name === 'Home' ? { ...info, builds: ['tp_3', 'tp_2', 'tp_1'] } : info));
+    const view = await shown({ role: 'viewer', notes: built });
+    const opened: unknown[] = [];
+    view.session.commands.handle('openColumn', (payload) => {
+      opened.push(payload);
+    });
+    act(() => view.conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_1', name: 'Home', slug: 'home' }) }));
+    const section = (): HTMLElement => within(note()).getByRole('region', { name: 'Topics built from this sticky note' });
+    const items = (): (string | null)[] => within(section()).getAllByRole('listitem').map((item) => item.textContent);
+    expect(items()).toEqual(['Homespecs/home']);
+    expect(within(section()).getByText('2 archived topics are not shown.')).toBeTruthy();
+    // The list could not be loaded: said, and asked again.
+    await userEvent.click(within(section()).getByRole('button', { name: 'Show archived topics' }));
+    expect(view.conn.requestsOf('topic.list').at(-1)?.payload).toEqual({ archived: true });
+    const failure = new SmurgError('internal');
+    await act(async () => {
+      view.conn.fail('topic.list', failure);
+    });
+    await view.settle();
+    expect(within(section()).getByRole('alert').textContent).toBe(`The archived topics could not be loaded: ${describeError(failure)}`);
+    await userEvent.click(within(section()).getByRole('button', { name: 'Show archived topics' }));
+    await act(async () => {
+      view.conn.respond('topic.list', {
+        topics: [buildTopic({ id: 'tp_3', name: 'Home', slug: 'home-3', archived: true }), buildTopic({ id: 'tp_2', name: 'Home', slug: 'home-2', archived: true })],
+        hasMore: false,
+      });
+    });
+    await view.settle();
+    expect(items()).toEqual(['Homespecs/home-3Archived', 'Homespecs/home-2Archived', 'Homespecs/home']);
+    expect(within(section()).queryByText(/not shown/)).toBeNull();
+    expect(within(section()).queryByRole('alert')).toBeNull();
+    await userEvent.click(within(section()).getAllByRole('button', { name: 'Home' })[0] as HTMLElement);
+    expect(opened).toEqual([{ target: { kind: 'plan', topicId: 'tp_3' } }]);
+    cleanup();
+    // Only archived ones: the part is there all the same, with the line.
+    await shown({ role: 'host', notes: NOTES.map((info) => (info.name === 'Home' ? { ...info, builds: ['tp_8'] } : info)) });
+    expect(within(section()).queryAllByRole('listitem')).toEqual([]);
+    expect(within(section()).getByText('1 archived topic is not shown.')).toBeTruthy();
   });
 });

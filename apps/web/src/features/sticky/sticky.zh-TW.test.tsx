@@ -4,6 +4,7 @@
 // that are gone), and "Build this" (D5.3). A note's name is a file's name and is never translated: `Home` is Home in
 // both languages (D1.1).
 import { SmurgError, type Feedback } from '@smurg/protocol';
+import { ClientRequestError } from '@smurg/protocol/client';
 import { msg } from '@smurg/protocol/i18n';
 import { buildTopic } from '@smurg/protocol/testing';
 import { act, cleanup, screen, within } from '@testing-library/react';
@@ -210,7 +211,9 @@ describe('"Build this" in zh-TW (D5.3)', () => {
     await userEvent.click(within(tools).getByRole('button', { name: '把它做出來' }));
     await view.settle();
     const dialog = screen.getByRole('dialog', { name: '把這張便利貼做出來' });
-    expect(within(dialog).getByText('smurg 會用下面這段文字建立一個主題：這段文字就是主題的 spec，計畫只有一個工作項目。現在還不會開始：主題的計畫會在 session 畫面打開，在那裡按「開始」才會開始工作。')).toBeTruthy();
+    expect(
+      within(dialog).getByText('smurg 會用下面這段文字建立一個主題：這段文字就是主題的 spec，計畫只有一個工作項目。和每個新主題一樣，它和 Claude 的討論 session 會馬上開始。工作還不會開始：主題的計畫會在 session 畫面打開，在那裡按「開始」才會開始工作。'),
+    ).toBeTruthy();
     expect(within(dialog).getByText('2 張便利貼的文字：Home 和 Checkout。')).toBeTruthy();
     expect(within(dialog).getByText('這段文字裡有你看不到的字元，它們會原樣放進 spec。')).toBeTruthy();
     expect(within(dialog).getByRole('region', { name: 'spec 的文字' })).toBeTruthy();
@@ -244,5 +247,58 @@ describe('"Build this" in zh-TW (D5.3)', () => {
     await view.settle();
     expect(within(dialog).getByRole('alert').textContent).toContain('主題已經建立，可以在 session 畫面找到，SPEC.md 也寫好了，但它的 PLAN.md 沒有寫入');
     expect(within(dialog).getByRole('button', { name: '打開主題的計畫' })).toBeTruthy();
+    // The topic is made: no second confirm, only Close.
+    expect(within(dialog).queryByRole('button', { name: '建立主題' })).toBeNull();
+    await userEvent.click(within(dialog).getByRole('button', { name: '關閉' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('while the text is read, a text that cannot be read, and a reply that never came, in zh-TW', async () => {
+    const view = await shown({ role: 'host' });
+    const buildButton = (): HTMLElement => within(note()).getByRole('button', { name: '把它做出來' });
+    await userEvent.click(buildButton());
+    await view.settle();
+    const dialog = (): HTMLElement => screen.getByRole('dialog', { name: '把這張便利貼做出來' });
+    expect(within(dialog()).getByText('正在讀取便利貼…')).toBeTruthy();
+    const oversized = new SmurgError('too_large', msg('sticky.spec.oversized', { name: 'Checkout', maxKiB: 64 }), { reason: 'note-oversized' });
+    await act(async () => {
+      view.conn.fail('sticky.spec', oversized);
+    });
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toBe(`無法讀取這段文字：${describeError(oversized)}`);
+    expect(describeError(oversized)).toBe('便利貼「Checkout」超過 64 KiB，所以不能放進 spec');
+    view.conn.handle('sticky.spec', () => ({ text: 'x\n', hash: 'c'.repeat(64), notes: ['Home'] }));
+    await userEvent.click(within(dialog()).getByRole('button', { name: '重試' }));
+    await view.settle();
+    await userEvent.click(within(dialog()).getByRole('button', { name: '建立主題' }));
+    const lost = new ClientRequestError('connection-lost');
+    await act(async () => {
+      view.conn.fail('sticky.build', lost);
+    });
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toBe(`${describeError(lost)}如果主題已經建立，可以在 session 畫面找到；如果沒有，請關掉這個對話框，再按一次「把它做出來」。`);
+    expect(describeError(lost)).toBe('連線中斷，這個動作可能沒有完成，請重新整理後確認');
+    expect(within(dialog()).queryByRole('button', { name: '建立主題' })).toBeNull();
+    expect(within(dialog()).getByRole('button', { name: '關閉' })).toBeTruthy();
+  });
+
+  it('archived topics made from the note, in zh-TW: how many are not shown, the button that shows them, the mark, and a list that could not be loaded', async () => {
+    const view = await shown({ role: 'viewer', notes: [{ name: 'Home', links: [], builds: ['tp_2', 'tp_1'] }] });
+    act(() => view.conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_1', name: 'Home', slug: 'home' }) }));
+    const section = (): HTMLElement => within(note()).getByRole('region', { name: '從這張便利貼建立的主題' });
+    expect(within(section()).getByText('有 1 個已封存的主題沒有顯示。')).toBeTruthy();
+    await userEvent.click(within(section()).getByRole('button', { name: '顯示已封存的主題' }));
+    const failure = new SmurgError('internal');
+    await act(async () => {
+      view.conn.fail('topic.list', failure);
+    });
+    await view.settle();
+    expect(within(section()).getByRole('alert').textContent).toBe(`無法載入已封存的主題：${describeError(failure)}`);
+    await userEvent.click(within(section()).getByRole('button', { name: '顯示已封存的主題' }));
+    await act(async () => {
+      view.conn.respond('topic.list', { topics: [buildTopic({ id: 'tp_2', name: 'Home', slug: 'home-2', archived: true })], hasMore: false });
+    });
+    await view.settle();
+    expect(within(section()).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Homespecs/home-2已封存', 'Homespecs/home']);
   });
 });

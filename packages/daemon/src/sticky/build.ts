@@ -148,16 +148,29 @@ export class NoteBuilder {
     this.deps = deps;
   }
 
-  /** The topics made from the note `name` folds to, the newest first, at most NOTE_INFO_BUILDS_MAX (D2.4). */
-  buildsOf(name: string): string[] {
+  /**
+   * The topics made from the note `name` folds to that are there (open or archived), the newest first, at most
+   * NOTE_INFO_BUILDS_MAX (D2.4). The record of a deleted topic stays but names nothing: the newest eight are eight
+   * topics a member can open (D5.4, "the note shows the topic"), never records that hide older topics that are there.
+   * `gone`: a topic being deleted right now (the bus tells of it before the topics module lets it go).
+   */
+  buildsOf(name: string, gone?: string): string[] {
     const key = foldNoteName(name);
+    const topics = this.ctx.services.topics;
+    const known = isStubService(topics) ? null : topics;
     const builds = this.deps.document().get().builds;
     const out: string[] = [];
     for (let at = builds.length - 1; at >= 0 && out.length < NOTE_INFO_BUILDS_MAX; at -= 1) {
       const build = builds[at] as NoteBuild;
-      if (foldNoteName(build.note) === key) out.push(build.topicId);
+      if (foldNoteName(build.note) !== key || build.topicId === gone) continue;
+      if (known === null || known.get(build.topicId) !== null) out.push(build.topicId);
     }
     return out;
+  }
+
+  /** The note a topic was made from, as recorded (a name as it was built; the index finds it by its folded name). */
+  noteOf(topicId: string): string | null {
+    return this.deps.document().get().builds.find((build) => build.topicId === topicId)?.note ?? null;
   }
 
   /** `sticky.spec` (D5.1). */

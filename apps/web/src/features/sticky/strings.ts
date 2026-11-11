@@ -86,13 +86,14 @@ export const t = defineStrings(
     // Accept refused because Claude for the sticky notes is not running (no-assistant): start it, then accept again.
     'feedback.start': 'Start Claude',
     'feedback.startFailed': 'Claude was not started: {reason}',
-    // "Build this" (D5.3), for a member who may start sessions: a topic made from the note, nothing started. The dialog
-    // shows the exact text of the spec as plain text; Start comes next, in the topic's plan.
+    // "Build this" (D5.3), for a member who may start sessions: a topic made from the note; its discussion starts as
+    // every new topic's does (D5.5), its work does not. The dialog shows the exact text of the spec as plain text; Start
+    // comes next, in the topic's plan.
     'build.button': 'Build this',
     'build.held': 'Build this waits until every change to this sticky note is saved and Claude is not writing it.',
     'build.title': 'Build this sticky note',
     'build.body':
-      "smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work.",
+      "smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. As for every new topic, its discussion session with Claude starts now. The work does not start yet: the topic's plan opens in the sessions view, and Start there starts it.",
     'build.notes': { one: 'The text of {count} sticky note: {names}.', other: 'The text of {count} sticky notes: {names}.' },
     'build.text': 'The text of the spec',
     'build.invisible': 'This text contains characters you cannot see. They go into the spec as they are.',
@@ -100,10 +101,17 @@ export const t = defineStrings(
     'build.loadFailed': 'The text could not be read: {reason}',
     'build.confirm': 'Make the topic',
     'build.failed': 'The topic was not made: {reason}',
+    // A reply that never came (sent, then timed out or the connection dropped): nobody knows whether it was made.
+    'build.unknown': 'If the topic was made, it is in the sessions view. If it was not, close this and press Build this again.',
     'build.openPlan': "Open the topic's plan",
-    // The topics made from the open note (D2.4 `builds`), each a way to its plan.
+    // The topics made from the open note (D2.4 `builds`), each a way to its plan. The host names only topics that are
+    // there; an archived one is known to the page only once the archived topics are shown.
     'builds.title': 'Topics built from this sticky note',
     'builds.open': 'Open the plan of the topic {name}',
+    'builds.archived': { one: '{count} archived topic is not shown.', other: '{count} archived topics are not shown.' },
+    'builds.showArchived': 'Show archived topics',
+    'builds.archivedFailed': 'The archived topics could not be loaded: {reason}',
+    'builds.archivedMark': 'Archived',
   },
   zhTW,
 );

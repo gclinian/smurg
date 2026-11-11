@@ -261,7 +261,9 @@ describe.skipIf(chrome === null)('the sticky notes in a real browser (built app,
     const spec = await env.stack.hostClient.conn.request('sticky.spec', { note: 'Ideas' });
     expect(spec.text).toBe(`Built from the sticky note "notes/Ideas.md".\n\n- Gift cards, with gift wrapping\n- A reading list per member\n\nOther sticky notes are not part of this spec.\n`);
     expect(await text.textContent()).toBe(spec.text);
-    await dialog.getByText(/Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work\./).waitFor({ timeout: STEP_MS });
+    await dialog
+      .getByText(/its discussion session with Claude starts now\. The work does not start yet: the topic's plan opens in the sessions view, and Start there starts it\./)
+      .waitFor({ timeout: STEP_MS });
     await dialog.getByRole('button', { name: 'Make the topic' }).click();
     await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
     // The sessions view, with the topic's plan: one work item, named after the note, and Start.

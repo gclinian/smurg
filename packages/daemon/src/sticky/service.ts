@@ -11,9 +11,9 @@
 //   sticky.feedback.*       feedback.ts (create, withdraw, reject, list) and accept.ts (accept)
 //   sticky.spec, .build     build.ts: the text a topic's spec would be made of, and the topic made from it
 //
-// Every NoteInfo members are told holds the note's `builds` (the topics made from it, the newest 8, D2.4): the index
-// knows nothing of them; this service adds them to what the index lists and announces, and announces a note again
-// when it was built.
+// Every NoteInfo members are told holds the note's `builds` (the topics made from it that are there, the newest 8,
+// D2.4): the index knows nothing of them; this service adds them to what the index lists and announces, and announces
+// a note again when it was built and when a topic made from it is deleted.
 //
 // Writes of one workspace run one at a time (`serial`): two creates of `Home` and `home`, two presses of "Start
 // Claude", or two builds of one note, never interleave their checks and their writes. What waited its turn checks again what may have changed
@@ -114,10 +114,14 @@ export class StickyServiceImpl {
     });
   }
 
-  /** The bus listeners: changes on disk of the main workspace, saves of the editor, a watcher that may have missed some. */
+  /**
+   * The bus listeners: changes on disk of the main workspace, saves of the editor, a watcher that may have missed some;
+   * a topic deleted (the note it was made from is told again without it).
+   */
   attach(): Disposable {
     const stack = new DisposableStack();
     const main = rootRefKey(MAIN_ROOT);
+    stack.add(this.ctx.bus.on('topic.removed', (event) => this.announceTopicGone(event.topicId)));
     stack.add(
       this.ctx.bus.on('file.changed', (event) => {
         if (rootRefKey(event.root) === main) this.index.onChanged(event.changes.map((change) => change.path));
@@ -268,10 +272,13 @@ export class StickyServiceImpl {
     this.ctx.hub.broadcast('sticky.changed', { upserted: change.upserted.map((note) => this.withBuilds(note)), removed: [...change.removed], truncated: change.truncated });
   }
 
-  /** A note as members see it: what the index holds, with the topics made from it (a shadowed one has none). */
-  private withBuilds(note: NoteInfo): NoteInfo {
+  /**
+   * A note as members see it: what the index holds, with the topics made from it that are there (a shadowed one has
+   * none). `gone`: a topic being deleted right now, no longer one of them.
+   */
+  private withBuilds(note: NoteInfo, gone?: string): NoteInfo {
     if (note.shadowed === true || this.doc === null) return note;
-    const builds = this.builder.buildsOf(note.name);
+    const builds = this.builder.buildsOf(note.name, gone);
     return builds.length === 0 ? note : { ...note, builds };
   }
 
@@ -280,6 +287,19 @@ export class StickyServiceImpl {
     const note = this.index.find(name);
     if (note === null) return;
     this.ctx.hub.broadcast('sticky.changed', { upserted: [this.withBuilds(note)], removed: [], truncated: this.index.truncated() });
+  }
+
+  /**
+   * A topic is being deleted (the bus tells of it before the topics module lets it go): when it was made from a note,
+   * every member is told that note's NoteInfo without it, so an older topic that is there takes its place in the
+   * newest eight at once, not at the note's next change. The record stays (D5.2).
+   */
+  private announceTopicGone(topicId: string): void {
+    if (this.doc === null) return;
+    const name = this.builder.noteOf(topicId);
+    const note = name === null ? null : this.index.find(name);
+    if (note === null || note.shadowed === true) return;
+    this.ctx.hub.broadcast('sticky.changed', { upserted: [this.withBuilds(note, topicId)], removed: [], truncated: this.index.truncated() });
   }
 
 }

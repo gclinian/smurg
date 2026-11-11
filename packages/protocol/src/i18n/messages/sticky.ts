@@ -33,19 +33,20 @@ const RULES: Readonly<Record<NoteNameRule, { readonly en: string; readonly 'zh-T
 
 /**
  * The steps of "Build this" that come after the topic exists (`sticky.build.failedAt`'s `step`, D5.4): the record of
- * the build on the sticky note, the topic's SPEC.md, its PLAN.md. A step that fails leaves the topic as it is.
+ * the build on the sticky note, the topic's SPEC.md, its PLAN.md, in this order. A step that fails leaves the topic as
+ * it is, and the steps after it do not run: each text says what is missing, the later steps' files too.
  */
 export const BUILD_STEPS = ['record', 'spec', 'plan'] as const;
 export type BuildStep = (typeof BUILD_STEPS)[number];
 
 const BUILD_STEP_TEXTS: Readonly<Record<BuildStep, { readonly en: string; readonly 'zh-TW': string }>> = {
   record: {
-    en: 'The topic was made and is in the sessions view, but smurg could not record on the sticky note that it was built from it.',
-    'zh-TW': '主題已經建立，可以在 session 畫面找到，但 smurg 沒有在便利貼上記下這個主題是從它建立的',
+    en: 'The topic was made and is in the sessions view, but smurg could not record on the sticky note that it was built from it, and neither its SPEC.md nor its PLAN.md was written.',
+    'zh-TW': '主題已經建立，可以在 session 畫面找到，但 smurg 沒有在便利貼上記下這個主題是從它建立的，它的 SPEC.md 和 PLAN.md 也都沒有寫入',
   },
   spec: {
-    en: 'The topic was made and is in the sessions view, but its SPEC.md was not written.',
-    'zh-TW': '主題已經建立，可以在 session 畫面找到，但它的 SPEC.md 沒有寫入',
+    en: 'The topic was made and is in the sessions view, but neither its SPEC.md nor its PLAN.md was written.',
+    'zh-TW': '主題已經建立，可以在 session 畫面找到，但它的 SPEC.md 和 PLAN.md 都沒有寫入',
   },
   plan: {
     en: 'The topic was made and is in the sessions view, with its SPEC.md, but its PLAN.md was not written.',
