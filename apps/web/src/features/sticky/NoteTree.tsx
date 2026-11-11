@@ -7,7 +7,8 @@
 // For a member who can decide feedback (`session.drive`, D7.8): each row says how much feedback waits on its note (a
 // small count, and in the row's name), and a last group, "Feedback on sticky notes that are gone", lists the names
 // with waiting feedback that the index does not hold (a note renamed, or its file gone); a row there opens that name's
-// page, where the feedback can still be decided. Nobody else sees a count.
+// page, where the feedback can still be decided. Nobody else sees a count. While the index is cut at its limit there is
+// no such group (selectGoneNotes): a name it does not hold may be a sticky note past the limit, not one that is gone.
 import { NOTES_HOME, NOTES_MAX } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../lib/store.ts';

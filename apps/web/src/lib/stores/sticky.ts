@@ -15,7 +15,10 @@
 //             sticky.feedback.list, then sticky.feedback.updated (one entry as it is now, or the id of one that went).
 //             For a member who holds `session.drive` it loads WITH THE CHANNEL (D7.3), so that the waiting count on
 //             the mode link is right in every view; for everyone else it loads with the index, when the notes view is
-//             first shown. Read again like the index (a resumed channel: it stays ready). A reply never takes an entry
+//             first shown. Read again like the index (a resumed channel: it stays ready). It holds entries only once a
+//             list came (`feedbackStatus` ready): before the first answer, or after it failed, what is told and the
+//             replies are no list (the counts would say 1 where 11 wait, review S6-R1); the load on its way applies
+//             what is told meanwhile to its answer, and the next one holds the rest. A reply never takes an entry
 //             back to an earlier state (feedback only goes from waiting to accepted or rejected, or away), and never
 //             brings back an entry that went;
 //   lastOpen  the note the notes view showed last in this page, for the mode link (kept in memory only: a note's
@@ -55,7 +58,10 @@ export interface StickyState extends Loadable {
   readonly sources: readonly SourceState[];
   /** The note last open in the notes view of this page; undefined: Home, or the view was not shown yet. */
   readonly lastOpen: string | undefined;
-  /** The feedback on the sticky notes (D4.3), by id, oldest first. A withdrawn entry is never here: it went. */
+  /**
+   * The feedback on the sticky notes (D4.3), by id, oldest first. A withdrawn entry is never here: it went. Empty
+   * unless `feedbackStatus` is ready: what is here is the whole list.
+   */
   readonly feedback: ReadonlyMap<string, Feedback>;
   /** The feedback's own load: `idle` until it was asked for on this channel (see the header). */
   readonly feedbackStatus: LoadStatus;
@@ -74,7 +80,7 @@ export interface StickyStore extends ReadableStore<StickyState> {
   setLastOpen(name: string | undefined): void;
   /** Asks for the feedback again (its "Try again"). While it is ready it stays ready, and a failure leaves it as it was. */
   reloadFeedback(): Promise<void>;
-  /** sticky.feedback.create: feedback on the sticky note `note` (any member, a Viewer too). In the store before this resolves. */
+  /** sticky.feedback.create: feedback on the sticky note `note` (any member, a Viewer too). In the store's list (while it holds one) before this resolves. */
   giveFeedback(note: string, text: string): Promise<Feedback>;
   /** sticky.feedback.withdraw: the author, while it waits. Gone from the store before this resolves. */
   withdrawFeedback(feedbackId: string): Promise<void>;
@@ -206,10 +212,12 @@ const NO_GONE: readonly GoneNote[] = Object.freeze([]);
 
 /**
  * The names with waiting feedback that the index does not hold, by name (compareText): the group "Feedback on sticky
- * notes that are gone" (D7.4). None while the index is not loaded: every name would look gone.
+ * notes that are gone" (D7.4). None while the index is not loaded: every name would look gone. None either while the
+ * index is cut at NOTES_MAX (`truncated`): a name it does not hold may be a sticky note past the limit, and the group
+ * would say that no sticky note has it (review S6-SEC-1).
  */
 export function selectGoneNotes(state: StickyState): readonly GoneNote[] {
-  if (state.status !== 'ready') return NO_GONE;
+  if (state.status !== 'ready' || state.truncated) return NO_GONE;
   const known = goneNotes.get(state.feedback);
   if (known !== undefined && known.notes === state.notes) return known.gone;
   // A name is spelled as its oldest feedback spells it, whatever became of that one: the row keeps its name while
@@ -286,6 +294,10 @@ function later(before: Feedback | undefined, entry: Feedback): Feedback {
 
 type FeedbackUpdate = PayloadOf<'sticky.feedback.updated'>;
 
+/** The id of the entry an update says went (withdrawn, or dropped at a bound), if it says so. */
+const wentOf = (update: FeedbackUpdate): string | undefined =>
+  'removed' in update ? update.removed : update.feedback.status === 'withdrawn' ? update.feedback.id : undefined;
+
 /** How many ids of entries that went are remembered on a channel (a reply that comes after its entry went cannot bring it back). */
 const GONE_REMEMBERED = FEEDBACK_MAX * 2;
 
@@ -317,21 +329,33 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
   };
   /** One update into a copy of the feedback map. */
   const applyUpdate = (map: Map<string, Feedback>, update: FeedbackUpdate): void => {
-    if ('removed' in update) {
-      forget(update.removed);
-      map.delete(update.removed);
-    } else if (update.feedback.status === 'withdrawn') {
-      forget(update.feedback.id);
-      map.delete(update.feedback.id);
-    } else if (!gone.has(update.feedback.id)) map.set(update.feedback.id, later(map.get(update.feedback.id), update.feedback));
+    const went = wentOf(update);
+    if (went !== undefined) {
+      forget(went);
+      map.delete(went);
+    } else if ('feedback' in update && !gone.has(update.feedback.id)) map.set(update.feedback.id, later(map.get(update.feedback.id), update.feedback));
   };
-  /** An entry a reply carries, as the store then holds it. */
-  const upsertFeedback = (entry: Feedback): Feedback => {
+  /**
+   * What is told, or what a reply carries, into the store's feedback: only while it holds the list (ready). Before the
+   * first list came, or after it failed, a few entries are no list (review S6-R1): the load on its way applies what is
+   * told meanwhile to its answer (pendingEvents), a later one is asked for after it and holds it. Only an entry that
+   * went is remembered then, so that a reply that comes after the next list cannot bring it back.
+   */
+  const take = (update: FeedbackUpdate): void => {
+    if (state.getState().feedbackStatus !== 'ready') {
+      const went = wentOf(update);
+      if (went !== undefined) forget(went);
+      return;
+    }
     state.setState((previous) => {
       const map = new Map(previous.feedback);
-      applyUpdate(map, { feedback: entry });
+      applyUpdate(map, update);
       return { ...previous, feedback: map };
     });
+  };
+  /** An entry a reply carries, as the store then holds it (the entry itself while the store holds no list). */
+  const upsertFeedback = (entry: Feedback): Feedback => {
+    take({ feedback: entry });
     return state.getState().feedback.get(entry.id) ?? entry;
   };
   /** This channel asks for the feedback: a member who holds session.drive at once, everyone else with the index. */
@@ -458,11 +482,7 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
     },
     async withdrawFeedback(feedbackId) {
       const { feedback } = await context().conn.request('sticky.feedback.withdraw', { feedbackId });
-      state.setState((previous) => {
-        const map = new Map(previous.feedback);
-        applyUpdate(map, { removed: feedback.id });
-        return { ...previous, feedback: map };
-      });
+      take({ removed: feedback.id });
     },
     async acceptFeedback(feedbackId) {
       return upsertFeedback((await context().conn.request('sticky.feedback.accept', { feedbackId })).feedback);
@@ -494,14 +514,11 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
         });
       });
       const offFeedback = c.conn.on('sticky.feedback.updated', (update) => {
-        // Nothing is kept before the feedback was asked for on this channel: one entry alone is no list.
+        // Nothing is kept before the feedback was asked for on this channel: one entry alone is no list. A load on its
+        // way applies it to its answer; the store's list takes it only once there is one (take).
         if (state.getState().feedbackStatus === 'idle') return;
         for (const events of pendingEvents) events.push(update);
-        state.setState((previous) => {
-          const map = new Map(previous.feedback);
-          applyUpdate(map, update);
-          return { ...previous, feedback: map };
-        });
+        take(update);
       });
       return () => {
         offIndex();

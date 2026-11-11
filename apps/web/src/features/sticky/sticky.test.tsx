@@ -818,6 +818,31 @@ describe('the feedback under a sticky note (D7.8)', () => {
     expect((box() as HTMLTextAreaElement).value).toBe('A third.');
   });
 
+  it('what is typed while a feedback is on its way stays in the box: only what was sent goes, from the box and from the unsent text (review S6-R2)', async () => {
+    const view = await shown({ role: 'viewer' });
+    const mine = (id: string, text: string): Feedback => waiting(id, { text, author: { kind: 'member', user: AMY } });
+    const give = within(feedbackPart()).getByRole('button', { name: 'Give feedback' });
+    await userEvent.type(box(), 'Bigger pictures.{Enter}{Enter}');
+    await userEvent.click(give);
+    // The reply has not come: the person goes on typing a second remark.
+    await userEvent.type(box(), 'And a price.');
+    expect(view.conn.pendingOf('sticky.feedback.create').map((request) => request.payload)).toEqual([{ note: 'Home', text: 'Bigger pictures.' }]);
+    act(() => void view.conn.respond('sticky.feedback.create', { feedback: mine('fb_one', 'Bigger pictures.') }));
+    await view.settle();
+    expect(waitingEntries().map(textOf)).toEqual(['Bigger pictures.']);
+    expect((box() as HTMLTextAreaElement).value).toBe('And a price.');
+    expect(view.stores.sticky.feedbackDraft('Home')).toBe('And a price.');
+    // What was on its way was changed in the box meanwhile: the box keeps all of it.
+    await userEvent.click(give);
+    await userEvent.clear(box());
+    await userEvent.type(box(), 'Something else.');
+    act(() => void view.conn.respond('sticky.feedback.create', { feedback: mine('fb_two', 'And a price.') }));
+    await view.settle();
+    expect(waitingEntries().map(textOf)).toEqual(['Bigger pictures.', 'And a price.']);
+    expect((box() as HTMLTextAreaElement).value).toBe('Something else.');
+    expect(view.stores.sticky.feedbackDraft('home')).toBe('Something else.');
+  });
+
   it('what is typed and not sent stays with its note for the life of the page, never in the browser\'s storage', async () => {
     const view = await shown({ role: 'editor' });
     await userEvent.type(box(), 'Half a thought');
@@ -989,6 +1014,38 @@ describe('the feedback under a sticky note (D7.8)', () => {
     expect(within(feedbackPart()).queryByRole('alert')).toBeNull();
     expect(waitingEntries().map(textOf)).toEqual(['Feedback fb_a.']);
   });
+
+  it('while the feedback list could not be loaded, what every member is told is no list: no count on a row, no group of notes that are gone, nothing listed under the note; "Try again" brings the whole of it (review S6-R1)', async () => {
+    const failure = new SmurgError('internal', 'the feedback failed');
+    const view = await shown({ role: 'host', feedbackError: failure });
+    // Ten wait on the host; one more is given, and one on a note that is gone.
+    const ten = Array.from({ length: 10 }, (_, i) => waiting(`fb_${i}`, { createdAt: T0 + i * MINUTE }));
+    const more = [waiting('fb_new', { createdAt: T0 + 20 * MINUTE }), waiting('fb_old', { note: 'Old ideas', createdAt: T0 + 21 * MINUTE })];
+    for (const entry of more) act(() => view.conn.emit('sticky.feedback.updated', { feedback: entry }));
+    expect(row('Home')).toBeTruthy();
+    expect(within(list()).queryByRole('heading', { name: 'Feedback on sticky notes that are gone' })).toBeNull();
+    expect(waitingEntries()).toHaveLength(0);
+    expect(within(feedbackPart()).getByRole('alert').textContent).toBe(`The feedback could not be loaded: ${describeError(failure)}`);
+    view.conn.handle('sticky.feedback.list', () => ({ feedback: [...ten, ...more], hasMore: false }));
+    await userEvent.click(within(feedbackPart()).getByRole('button', { name: 'Try again' }));
+    await view.settle();
+    expect(row('Home, 11 pieces of feedback waiting')).toBeTruthy();
+    expect(waitingEntries()).toHaveLength(11);
+    expect(rows('Feedback on sticky notes that are gone')).toEqual([['Old ideas, 1 piece of feedback waiting', '1', null]]);
+  });
+
+  it('while the index is cut at its limit, a name it does not hold may be a sticky note past the limit: no group says those notes are gone; once the index holds every note, the group is there (review S6-SEC-1)', async () => {
+    const index = (truncated: boolean) => ({ notes: [...NOTES], hasMore: false, truncated, sources: [] });
+    const view = await shown({ role: 'host', list: () => index(true), feedback: [waiting('fb_z', { note: 'Zz past the limit' })] });
+    expect(within(list()).getByText(`Only the first ${NOTES_MAX} sticky notes are listed.`)).toBeTruthy();
+    expect(within(list()).queryByRole('heading', { name: 'Feedback on sticky notes that are gone' })).toBeNull();
+    expect(selectGoneNotes(view.stores.sticky.getState())).toEqual([]);
+    // The feedback still waits and is counted where every waiting feedback is (the mode link).
+    expect(selectWaitingCount(view.stores.sticky.getState())).toBe(1);
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: [], truncated: false }));
+    expect(within(list()).getByRole('heading', { level: 2, name: 'Feedback on sticky notes that are gone' }).getAttribute('title')).toBe('No sticky note has these names now, and feedback on them still waits.');
+    expect(rows('Feedback on sticky notes that are gone')).toEqual([['Zz past the limit, 1 piece of feedback waiting', '1', null]]);
+  });
 });
 
 describe('the feedback in the store (D7.3, D7.8)', () => {
@@ -1018,6 +1075,41 @@ describe('the feedback in the store (D7.3, D7.8)', () => {
     expect(selectWaitingCount(state)).toBe(2);
     expect(selectWaitingCount(state, 'home')).toBe(2);
     expect(selectWaitingCount(state, 'Checkout')).toBe(0);
+  });
+
+  it('a list that has not come yet, or could not be loaded, is no list: what is told meanwhile and the replies wait for the next answer, which is whole (review S6-R1)', async () => {
+    const { conn, stores, admit, flush, dispose } = setupStores({ role: 'host' });
+    disposers.push(dispose);
+    admit();
+    const nothing = (): void => {
+      expect(stores.sticky.getState().feedback.size).toBe(0);
+      expect(selectWaitingCount(stores.sticky.getState())).toBe(0);
+      expect(selectFeedbackOf(stores.sticky.getState(), 'Home')).toEqual({ waiting: [], settled: [] });
+    };
+    // On its way: what is told is kept for its answer, not shown as the list.
+    conn.emit('sticky.feedback.updated', { feedback: waiting('fb_early') });
+    nothing();
+    conn.fail('sticky.feedback.list', new SmurgError('internal', 'the feedback failed'));
+    await flush();
+    expect(stores.sticky.getState().feedbackStatus).toBe('error');
+    // It failed: neither what is told nor a reply makes a list of one entry.
+    conn.emit('sticky.feedback.updated', { feedback: waiting('fb_new') });
+    conn.handle('sticky.feedback.create', ({ note: on, text }) => ({ feedback: waiting('fb_mine', { note: on, text, author: { kind: 'member', user: IAN } }) }));
+    expect((await stores.sticky.giveFeedback('Home', 'Mine.')).id).toBe('fb_mine');
+    // A reject on its way when its entry goes: its reply, which comes after the list is back, does not bring it back.
+    const rejecting = stores.sticky.rejectFeedback('fb_out');
+    conn.emit('sticky.feedback.updated', { removed: 'fb_out' });
+    nothing();
+    // "Try again": the whole list.
+    const ten = Array.from({ length: 10 }, (_, i) => waiting(`fb_${i}`));
+    conn.handle('sticky.feedback.list', () => page([waiting('fb_early'), ...ten, waiting('fb_new'), waiting('fb_mine', { author: { kind: 'member', user: IAN }, text: 'Mine.' })]));
+    await stores.sticky.reloadFeedback();
+    conn.respond('sticky.feedback.reject', { feedback: rejected('fb_out') });
+    await rejecting;
+    const state = stores.sticky.getState();
+    expect(state.feedbackStatus).toBe('ready');
+    expect(selectWaitingCount(state)).toBe(13);
+    expect(state.feedback.has('fb_out')).toBe(false);
   });
 
   it('a reply never takes an entry back to waiting, and never brings back one that went', async () => {

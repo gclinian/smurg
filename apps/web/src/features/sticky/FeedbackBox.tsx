@@ -3,6 +3,7 @@
 // member with agent access accepts it. What is typed and not sent yet stays with the note for the life of the page
 // (the sticky store's map, never the browser's storage), so it is still there when the person comes back. One press
 // gives one feedback: a second press while the first is on its way does nothing. Ctrl+Enter (Cmd+Enter) gives it too.
+// The box stays open to typing while it is on its way: once it is given, only what was sent leaves the box.
 import { FEEDBACK_TEXT_MAX_CHARS } from '@smurg/protocol';
 import { useId, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import { describeError } from '../../lib/errors.ts';
@@ -22,10 +23,13 @@ export function FeedbackBox({ note }: FeedbackBoxProps) {
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const running = useRef(false);
+  /** What the box holds now (a give that comes back reads it, not the text of the moment it was pressed). */
+  const typed = useRef(text);
   const boxId = useId();
   const hintId = useId();
 
   const change = (value: string): void => {
+    typed.current = value;
     setText(value);
     stores.sticky.setFeedbackDraft(note, value);
   };
@@ -40,7 +44,10 @@ export function FeedbackBox({ note }: FeedbackBoxProps) {
     setProblem(null);
     try {
       await stores.sticky.giveFeedback(note, value);
-      change('');
+      // Only what was sent goes: the person may have gone on typing meanwhile (review S6-R2). A box that no longer
+      // starts with it was changed meanwhile, and keeps all of it.
+      const now = typed.current;
+      if (now.startsWith(value)) change(now.slice(value.length).trimStart());
     } catch (error) {
       setProblem(t('feedback.failed', { reason: describeError(error) }));
     } finally {

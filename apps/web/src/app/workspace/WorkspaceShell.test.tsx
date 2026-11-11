@@ -56,6 +56,8 @@ interface OpenOptions {
   notes?: readonly NoteInfo[];
   /** The feedback on the sticky notes the host answers with (with the channel for session.drive, else with the notes). */
   feedback?: readonly Feedback[];
+  /** The host refuses sticky.feedback.list with this (until the test hands it another answer). */
+  feedbackError?: unknown;
 }
 
 async function open(options: OpenOptions = {}) {
@@ -72,13 +74,18 @@ async function open(options: OpenOptions = {}) {
   conn.handle('sticky.list', () => ({ notes: [...(options.notes ?? [])], hasMore: false, truncated: false, sources: [] }));
   act(() => conn.admit(makeWelcome({ role: options.role ?? 'host' })));
   await act(async () => {
+    const { feedbackError } = options;
+    if (feedbackError !== undefined) while (conn.pendingOf('sticky.feedback.list').length > 0) conn.fail('sticky.feedback.list', feedbackError);
     answerLoads(conn, {
       'session.list': { sessions: options.sessions ?? [DISCUSSION, CART, FREE, TERMINAL], hasMore: false },
       'topic.list': { topics: options.topics ?? [TOPIC], hasMore: false },
       'inbox.list': { items: options.inbox ?? [], hasMore: false },
       'sticky.feedback.list': { feedback: [...(options.feedback ?? [])], hasMore: false },
     });
-    conn.handle('sticky.feedback.list', () => ({ feedback: [...(options.feedback ?? [])], hasMore: false }));
+    conn.handle('sticky.feedback.list', () => {
+      if (feedbackError !== undefined) throw feedbackError;
+      return { feedback: [...(options.feedback ?? [])], hasMore: false };
+    });
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
   const session = services.manager.peek(WORKSPACE_ID)!;
@@ -315,6 +322,22 @@ describe('the workspace shell: the sticky notes, a third view', () => {
       cleanup();
     }
   }, 60_000);
+
+  it('a feedback list that could not be loaded when the channel opened counts nothing on the "Sticky notes" link, whatever is told meanwhile; once it loads, the count is the whole list\'s (review S6-R1)', async () => {
+    const vic = { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } } as const;
+    const fb = (id: string): Feedback => ({ id, note: 'Home', text: `About ${id}.`, author: vic, status: 'waiting', createdAt: 1 }) as Feedback;
+    const ten = Array.from({ length: 10 }, (_, i) => fb(`fb_${i}`));
+    const { conn, stores } = await open({ role: 'host', feedbackError: new SmurgError('internal', 'the feedback failed') });
+    expect(stores.sticky.getState().feedbackStatus).toBe('error');
+    // Ten wait on the host; one more is given: one entry alone is no count.
+    act(() => conn.emit('sticky.feedback.updated', { feedback: fb('fb_new') }));
+    expect(modeLink('Sticky notes').querySelector('.ui-count')).toBeNull();
+    conn.handle('sticky.feedback.list', () => ({ feedback: [...ten, fb('fb_new')], hasMore: false }));
+    await act(async () => {
+      await stores.sticky.reloadFeedback();
+    });
+    expect(modeLink('Sticky notes: 11 pieces of feedback waiting').querySelector('.ui-count')?.textContent).toBe('11');
+  });
 
   it('hidden, the sticky notes never take the address: a note that comes to be written in another spelling is only remembered', async () => {
     const { conn, dispatch, path } = await open({ path: `${NOTES_PATH}/Reviews`, notes: [{ name: 'Home', links: [] }] });
