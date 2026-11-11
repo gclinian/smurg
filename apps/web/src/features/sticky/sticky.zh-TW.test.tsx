@@ -59,9 +59,12 @@ describe('the sticky notes in zh-TW', () => {
   });
 
   it('an empty note, a note that cannot be read, a fold twin', async () => {
-    await shown({ notes: [{ name: 'Home', links: ['Broken'] }, { name: 'Broken', links: [], unreadable: true }, { name: 'home', links: [], shadowed: true }], texts: { Home: '' } });
+    const view = await shown({ notes: [{ name: 'Home', links: ['Broken'] }, { name: 'Broken', links: [], unreadable: true }, { name: 'home', links: [], shadowed: true }], texts: { Home: '' } });
     expect(note().textContent).toContain('這張便利貼是空的。');
     expect(within(list()).getByRole('treeitem', { name: 'Broken，無法讀取' })).toBeTruthy();
     expect(within(list()).getByRole('treeitem', { name: 'home，沒有讀取：和「Home」同名' })).toBeTruthy();
+    view.navigate(notePath('Broken'));
+    await view.settle();
+    expect(within(note()).getByText('smurg 無法讀取這張便利貼的檔案。')).toBeTruthy();
   });
 });

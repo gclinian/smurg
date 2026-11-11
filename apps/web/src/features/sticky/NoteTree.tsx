@@ -3,7 +3,7 @@
 // name. A row with notes below opens its note like any row; its twisty only folds it. Which rows are unfolded lives
 // in memory only (the view stays mounted); the open note's row is marked and the rows above it unfold.
 import { NOTES_HOME, NOTES_MAX } from '@smurg/protocol';
-import { useEffect, useId, useMemo, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../lib/store.ts';
 import { selectNoteTree } from '../../lib/stores/sticky.ts';
 import { useStores } from '../../lib/workspace/context.tsx';
@@ -57,11 +57,18 @@ export function NoteTree({ open }: NoteTreeProps) {
   const openKey = noteKey(open ?? NOTES_HOME);
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set([HOME_KEY]));
 
-  // The rows above the open note unfold (a link followed from the note, an address typed in).
+  // The rows above the open note unfold once for each note opened (a link followed from the note, an address typed
+  // in), as soon as its row is in the tree. Afterwards the rows are the person's: a row folded above the open note
+  // stays folded whatever else changes in the index (review S3-R3).
+  const unfoldedFor = useRef<string | null>(null);
   useEffect(() => {
+    if (unfoldedFor.current === openKey) return;
     const above = ancestorsOf(tree.home, open ?? NOTES_HOME);
+    const inTree = openKey === HOME_KEY ? tree.home !== null : above.length > 0;
+    if (!inTree) return;
+    unfoldedFor.current = openKey;
     setExpanded((previous) => (above.every((key) => previous.has(key)) ? previous : new Set([...previous, ...above])));
-  }, [tree.home, open]);
+  }, [tree.home, open, openKey]);
 
   const rows = useMemo(() => ({ home: homeRows(tree.home, index.notes), notLinked: notLinkedRows(tree.notLinked, index.notes) }), [tree, index.notes]);
   const names = useMemo(() => {

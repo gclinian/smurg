@@ -60,7 +60,7 @@ export default function WorkspaceRoute({ workspaceId, view, section, note, slots
   return (
     <WorkspaceProvider session={handle.session}>
       <SlotRegistryProvider registry={slots}>
-        <ConnectionGate workspaceId={workspaceId} view={view} {...(section === undefined ? {} : { section })} {...(note === undefined ? {} : { note })} onReconnect={() => setAttempt((n) => n + 1)}>
+        <ConnectionGate workspaceId={workspaceId} view={view} {...(section === undefined ? {} : { section })} onReconnect={() => setAttempt((n) => n + 1)}>
           {view === 'console' ? <ConsoleShell {...(section === undefined ? {} : { section })} /> : <WorkspaceShell mode={view} {...(note === undefined ? {} : { note })} />}
         </ConnectionGate>
       </SlotRegistryProvider>
@@ -68,13 +68,17 @@ export default function WorkspaceRoute({ workspaceId, view, section, note, slots
   );
 }
 
-/** The path of a view (where a login returns to): the note of the sticky notes too. */
-function viewPath(workspaceId: string, view: WorkspaceView, section?: ConsoleSection, note?: string): string {
+/**
+ * The path of a view (where a login returns to). The relay's login keeps it in its transaction cookie, and the relay
+ * may see no project text (SECURITY.md, "What the relay operator sees"): the sticky notes come back without the open
+ * note's name, at Home (review S3-SEC-1).
+ */
+function viewPath(workspaceId: string, view: WorkspaceView, section?: ConsoleSection): string {
   switch (view) {
     case 'console':
       return routePath({ name: 'console', workspaceId, ...(section === undefined ? {} : { section }) });
     case 'notes':
-      return routePath({ name: 'notes', workspaceId, ...(note === undefined ? {} : { note }) });
+      return routePath({ name: 'notes', workspaceId });
     case 'code':
       return routePath({ name: 'code', workspaceId });
     case 'sessions':
@@ -86,14 +90,12 @@ export function ConnectionGate({
   workspaceId,
   view,
   section,
-  note,
   onReconnect,
   children,
 }: {
   workspaceId: string;
   view: WorkspaceView;
   section?: ConsoleSection;
-  note?: string;
   onReconnect(): void;
   children: ReactNode;
 }) {
@@ -110,7 +112,7 @@ export function ConnectionGate({
 
   if (state.kind === 'key-mismatch') return <KeyMismatchScreen state={state} />;
   if (status.kind === 'login-required') {
-    return <LoginRequiredScreen view={status} returnPath={viewPath(workspaceId, view, section, note)} />;
+    return <LoginRequiredScreen view={status} returnPath={viewPath(workspaceId, view, section)} />;
   }
   if (status.blocking) {
     const reconnectable = state.kind === 'closed' && state.reason === 'local';

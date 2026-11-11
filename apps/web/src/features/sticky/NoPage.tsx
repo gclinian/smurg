@@ -5,6 +5,7 @@
 import { errorReasonOf, isSmurgError } from '@smurg/protocol';
 import { useId, useState } from 'react';
 import { describeError } from '../../lib/errors.ts';
+import { selectNote } from '../../lib/stores/sticky.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Button } from '../../ui/index.ts';
 import { IconPlus } from '../../ui/icons.tsx';
@@ -30,10 +31,11 @@ export function NoPage({ kind, name }: NoPageProps) {
     stores.sticky
       .create(name)
       .catch(async (error: unknown) => {
-        // Somebody wrote it a moment ago: the index lists it, and the page becomes the note.
+        // Somebody wrote it a moment ago: the index lists it, and the page becomes the note. When it still does not
+        // (its file is past the sticky notes the index lists), the host's words say why (review S3-R4).
         if (isSmurgError(error) && error.code === 'conflict' && errorReasonOf(error) === 'exists') {
           await stores.sticky.reload().catch(() => {});
-          return;
+          if (selectNote(stores.sticky.getState(), name) !== undefined) return;
         }
         setProblem(t('create.failed', { reason: describeError(error) }));
       })

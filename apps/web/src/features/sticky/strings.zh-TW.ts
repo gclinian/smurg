@@ -14,7 +14,7 @@ export const zhTW = {
   'note.loading': '正在開啟便利貼…',
   'note.empty': '這張便利貼是空的。',
   'note.agentWriting': 'Claude 正在寫這張便利貼。',
-  'note.unreadable': '無法讀取這張便利貼：它的檔案不是 notes 資料夾裡的一般文字檔。',
+  'note.unreadable': 'smurg 無法讀取這張便利貼的檔案。',
   'note.openFailed': '無法開啟這張便利貼。',
   'note.oversized': '這張便利貼超過 64 KiB：左邊的清單不會跟著它的連結。',
   'first.title': '從一張便利貼開始',

@@ -33,7 +33,7 @@ function regionStops(root: HTMLElement): HTMLElement[] {
   return [list, ...root.querySelectorAll<HTMLElement>('[data-region-focus]')].filter((element): element is HTMLElement => element !== null && element.closest('[hidden]') === null);
 }
 
-export default function NotesView({ note }: NotesViewProps) {
+export default function NotesView({ shown, note }: NotesViewProps) {
   const root = useRef<HTMLDivElement>(null);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -83,7 +83,7 @@ export default function NotesView({ note }: NotesViewProps) {
               label={tWorkbench('region.notesChat')}
               start={
                 <main id="notes-main" className="app-notes__main" aria-label={tWorkbench('region.note')} tabIndex={-1}>
-                  <OpenNote note={note} />
+                  <OpenNote note={note} shown={shown} />
                 </main>
               }
               end={<div className="app-notes__chat" />}

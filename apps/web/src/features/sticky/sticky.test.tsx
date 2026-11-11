@@ -6,7 +6,7 @@ import { act, cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
 import { selectNoteTree } from '../../lib/stores/sticky.ts';
-import { makeAgentLock } from '../../testing/fixtures.ts';
+import { makeAgentLock, makeHumanLock, makeWelcome } from '../../testing/fixtures.ts';
 import { setupStores } from '../../testing/stores.ts';
 import { HOME_KEY, ancestorsOf, homeRows, noteKey, notLinkedRows } from './model.ts';
 import { NOTES, notePath, openNotes } from './test-support.tsx';
@@ -78,6 +78,22 @@ describe('the list of sticky notes (D7.4)', () => {
     expect(view.path()).toBe(notePath('Zebra'));
   });
 
+  it('a row the person folded stays folded whatever else changes in the index; a way to the note unfolds the rows above it again', async () => {
+    const view = await shown({ path: notePath('Payment form') });
+    expect(row('Checkout').getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(row('Checkout').querySelector('[data-tree-twisty]') as HTMLElement);
+    expect(row('Checkout').getAttribute('aria-expanded')).toBe('false');
+    // Somebody changes the links of another note: the row the person folded stays folded (review S3-R3).
+    act(() => view.conn.emit('sticky.changed', { upserted: [{ name: 'Zebra', links: ['Apple'] }], removed: [], truncated: false }));
+    await view.settle();
+    expect(row('Checkout').getAttribute('aria-expanded')).toBe('false');
+    // Going to the note again (a link, an address) unfolds the rows above it.
+    view.navigate(notePath('Home'));
+    view.navigate(notePath('Payment form'));
+    await view.settle();
+    expect(row('Checkout').getAttribute('aria-expanded')).toBe('true');
+  });
+
   it('a note that cannot be read, a fold twin, and the index cut at its limit are said in words', async () => {
     const notes: NoteInfo[] = [{ name: 'Home', links: ['Broken'] }, { name: 'Broken', links: [], unreadable: true }, { name: 'home', links: [], shadowed: true }];
     await shown({ notes, texts: { Home: '[[Broken]]' } });
@@ -146,7 +162,29 @@ describe('the open sticky note (D7.5)', () => {
   it('a note the index could not read is not asked for: the page says why', async () => {
     const view = await shown({ notes: [{ name: 'Home', links: [] }, { name: 'Broken', links: [], unreadable: true }], path: notePath('Broken') });
     expect(view.opened()).toEqual([]);
-    expect(note().textContent).toContain('This sticky note cannot be read: its file is not a plain text file in the folder notes.');
+    // Only what is true of every note the index could not read: the file may be a plain text file the host keeps from
+    // members, one nobody may read, or one whose first read failed for a moment (review S3-HON-1).
+    expect(within(note()).getByText('smurg could not read the file of this sticky note.')).toBeTruthy();
+  });
+
+  it('a resumed channel asks for the index again and keeps what is on screen: the open note stays held, the list keeps its rows and its focus', async () => {
+    const view = await shown({ path: notePath('Checkout') });
+    const name = within(note()).getByRole('heading', { level: 2, name: 'Checkout' });
+    const home = row('Home');
+    act(() => home.focus());
+    const asked = view.conn.requestsOf('sticky.list').length;
+    act(() => view.conn.admit(makeWelcome({ role: 'editor' }), { resumed: true }));
+    // While the answer is on its way, nothing goes away (review S3-R1).
+    expect(within(note()).getByRole('heading', { level: 2, name: 'Checkout' })).toBe(name);
+    expect(row('Home')).toBe(home);
+    await view.settle();
+    expect(view.conn.requestsOf('sticky.list')).toHaveLength(asked + 1);
+    expect(within(note()).getByRole('heading', { level: 2, name: 'Checkout' })).toBe(name);
+    expect(row('Home')).toBe(home);
+    expect(document.activeElement).toBe(home);
+    expect(view.opened()).toEqual(['notes/Checkout.md']);
+    expect(view.conn.notificationsOf('doc.close')).toHaveLength(0);
+    expect(view.held()).toEqual(['notes/Checkout.md']);
   });
 
   it('a spinner until the note\'s text is there, then the text; an empty note says it is empty; a large one says its links are not followed', async () => {
@@ -176,6 +214,9 @@ describe('the open sticky note (D7.5)', () => {
     expect(within(note()).queryByRole('status')).toBeNull();
     act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
     expect(within(note()).getByRole('status').textContent).toBe('Claude is writing this sticky note.');
+    // A member editing the note holds a person's lock: that is not Claude writing (review S3-T1).
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeHumanLock('notes/Home.md') }));
+    expect(within(note()).queryByRole('status')).toBeNull();
     // Another note's lock says nothing here.
     act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: null }));
     act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Ideas.md' }, lock: makeAgentLock('notes/Ideas.md') }));
@@ -216,6 +257,20 @@ describe('the pages without a sticky note (D7.6)', () => {
     expect(view.conn.requestsOf('sticky.create').map((request) => request.payload)).toEqual([{ name: 'Home' }]);
     expect(within(note()).getByRole('article', { name: 'Home' })).toBeTruthy();
     expect(within(note()).queryByRole('alert')).toBeNull();
+  });
+
+  it('"exists" for a note the index still does not list (its file is past the sticky notes the index lists) is said with the host\'s words', async () => {
+    const view = await shown({ path: notePath('Refunds') });
+    view.conn.handle('sticky.create', () => {
+      throw new SmurgError('conflict', msg('sticky.create.exists', { name: 'Refunds' }), { reason: 'exists' });
+    });
+    const asked = view.conn.requestsOf('sticky.list').length;
+    await userEvent.click(within(note()).getByRole('button', { name: 'Write this sticky note' }));
+    await view.settle();
+    // The index was asked again, and still does not list it: the page says what the host said (review S3-R4).
+    expect(view.conn.requestsOf('sticky.list')).toHaveLength(asked + 1);
+    expect(within(note()).getByRole('heading', { level: 2, name: 'Refunds' })).toBeTruthy();
+    expect(within(note()).getByRole('alert').textContent).toBe('The sticky note was not written: There is already a sticky note named Refunds.');
   });
 
   it('a refusal is said with the host\'s words', async () => {
@@ -289,6 +344,38 @@ describe('the index in the store (D7.3)', () => {
     admit({ resumed: true });
     await flush();
     expect(conn.requestsOf('sticky.list')).toHaveLength(6);
+  });
+
+  it('asked again on a resumed channel, the index stays ready while the answer comes; a refresh that fails keeps it and is reported', async () => {
+    const { conn, stores, admit, flush, dispose } = setupStores({ role: 'editor' });
+    disposers.push(dispose);
+    admit();
+    await flush();
+    conn.handle('sticky.list', () => index(NOTES));
+    await act(async () => {
+      await stores.sticky.want();
+    });
+    const notes = stores.sticky.getState().notes;
+    const seen: string[] = [];
+    const off = stores.sticky.subscribe(() => seen.push(stores.sticky.getState().status));
+    disposers.push(off);
+    admit({ resumed: true });
+    await flush();
+    expect(conn.requestsOf('sticky.list')).toHaveLength(2);
+    for (const [key, one] of notes) expect(stores.sticky.getState().notes.get(key)).toBe(one);
+    const refreshed = stores.sticky.getState().notes;
+    conn.handle('sticky.list', () => {
+      throw new SmurgError('internal', 'the index failed');
+    });
+    admit({ resumed: true });
+    await flush();
+    expect(conn.requestsOf('sticky.list')).toHaveLength(3);
+    expect(stores.sticky.getState()).toMatchObject({ status: 'ready', error: null });
+    expect(stores.sticky.getState().notes).toBe(refreshed);
+    expect(stores.errors.getState().map((event) => event.area)).toEqual(['sticky']);
+    // Neither refresh showed the index as loading or failed (review S3-R1).
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((status) => status === 'ready')).toBe(true);
   });
 
   it('sticky.changed changes only what it names; a note that did not change keeps its object, and the tree follows', async () => {

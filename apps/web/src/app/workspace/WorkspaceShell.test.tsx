@@ -14,8 +14,10 @@ import { WORKSPACE_ID, makeConflict, makeWelcome } from '../../testing/fixtures.
 import { createTestServices } from '../../testing/services.tsx';
 import { answerLoads } from '../../testing/stores.ts';
 import { ToastProvider } from '../../ui/index.ts';
+import { KEY_STEP } from '../../ui/split-resize.ts';
 import { useRoute } from '../navigation.tsx';
 import { AppServicesProvider } from '../services.tsx';
+import { NOTES_CHAT_DEFAULT_PX, NOTES_TREE_DEFAULT_PX } from './layout-limits.ts';
 import { topicNoticeTarget } from './useWorkspaceNotices.ts';
 import WorkspaceRoute from './WorkspaceRoute.tsx';
 
@@ -218,11 +220,19 @@ describe('the workspace shell: the sticky notes, a third view', () => {
     expect(document.querySelector('.app-shell')?.getAttribute('data-mode')).toBe('notes');
     expect(screen.getByRole('complementary', { name: 'All sticky notes' })).toBeTruthy();
     expect(within(topbar()).queryByRole('group', { name: 'Layout' })).toBeNull();
-    // The panes' widths are remembered under their own keys (smurg.pane.*), never in smurg.layout.
-    expect(screen.getAllByRole('separator').map((separator) => separator.getAttribute('aria-label'))).toEqual([
+    // The panes' widths are remembered under their own keys (smurg.pane.*), never in smurg.layout (review S3-T2).
+    const separators = screen.getAllByRole('separator');
+    expect(separators.map((separator) => separator.getAttribute('aria-label'))).toEqual([
       'Drag or use the arrow keys to resize All sticky notes',
       'Drag or use the arrow keys to resize Claude for the sticky notes',
     ]);
+    act(() => separators[0]!.focus());
+    await userEvent.keyboard('{ArrowRight}');
+    act(() => separators[1]!.focus());
+    await userEvent.keyboard('{ArrowRight}');
+    expect(window.localStorage.getItem('smurg.pane.notes-tree')).toBe(String(NOTES_TREE_DEFAULT_PX + KEY_STEP));
+    expect(window.localStorage.getItem('smurg.pane.notes-chat')).toBe(String(NOTES_CHAT_DEFAULT_PX - KEY_STEP));
+    expect(window.localStorage.getItem('smurg.layout')).toBeNull();
     await waitFor(() => expect(conn.requestsOf('sticky.list')).toHaveLength(1));
     const mounted = document.querySelector('.app-notes');
 
@@ -253,6 +263,26 @@ describe('the workspace shell: the sticky notes, a third view', () => {
     expect(modeLink('Sticky notes').getAttribute('aria-current')).toBe('page');
   }, 30_000);
 
+  it('hidden, the sticky notes never take the address: a note that comes to be written in another spelling is only remembered', async () => {
+    const { conn, dispatch, path } = await open({ path: `${NOTES_PATH}/Reviews`, notes: [{ name: 'Home', links: [] }] });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Reviews' }, { timeout: 15_000 })).toBeTruthy();
+    await dispatch('setMode', { mode: 'sessions' });
+    expect(path()).toBe(SESSIONS_PATH);
+    // Somebody writes notes/reviews.md meanwhile: the index lists it, under the name on disk (review S3-R2).
+    act(() => conn.emit('sticky.changed', { upserted: [{ name: 'reviews', links: [] }], removed: [], truncated: false }));
+    await act(async () => {
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    expect(path()).toBe(SESSIONS_PATH);
+    expect(isShown(view('sessions'))).toBe(true);
+    expect(view('notes').hidden).toBe(true);
+    // The way back leads to the note as it is on disk.
+    expect(modeLink('Sticky notes').getAttribute('href')).toBe(`${NOTES_PATH}/reviews`);
+    await userEvent.click(modeLink('Sticky notes'));
+    expect(path()).toBe(`${NOTES_PATH}/reviews`);
+    expect(within(view('notes')).getByRole('heading', { level: 2, name: 'reviews' })).toBeTruthy();
+  }, 30_000);
+
   it('a reload keeps the note: /w/:id/notes/:name opens the sticky notes at that note, the sessions view mounted behind', async () => {
     await open({ path: `${NOTES_PATH}/${encodeURIComponent('Payment form')}` });
     expect(await screen.findByRole('heading', { level: 2, name: 'Payment form' }, { timeout: 15_000 })).toBeTruthy();
@@ -261,11 +291,15 @@ describe('the workspace shell: the sticky notes, a third view', () => {
     expect(view('code').childElementCount).toBe(0);
   }, 30_000);
 
-  it('a login from a sticky note returns to that note', async () => {
+  it('a login from a sticky note returns to the sticky notes without the note\'s name: the relay\'s login is never told a name', async () => {
+    // A note's name is project text, and the relay's login keeps where it returns to (SECURITY.md, "What the relay
+    // operator sees"; review S3-SEC-1): the way back is the notes view, which opens at Home.
     const { services, conn } = await open({ path: `${NOTES_PATH}/${encodeURIComponent('Payment form')}` });
     act(() => conn.setState({ kind: 'closed', reason: 'login-required' }));
     await userEvent.click(await screen.findByRole('button', { name: 'Log in with Google' }));
-    expect(services.router.assigned[0]).toContain(encodeURIComponent(`${NOTES_PATH}/${encodeURIComponent('Payment form')}`));
+    const login = new URL(services.router.assigned[0]!);
+    expect(new URL(login.searchParams.get('return_to')!).pathname).toBe(NOTES_PATH);
+    expect(services.router.assigned[0]).not.toMatch(/Payment/i);
   }, 30_000);
 
   it('F6 and Shift+F6 move between the list of sticky notes and the open note; the skip link leads to the note', async () => {

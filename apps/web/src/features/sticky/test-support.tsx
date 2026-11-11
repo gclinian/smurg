@@ -32,7 +32,7 @@ export const TEXTS: Readonly<Record<string, string>> = {
   Zebra: '',
 };
 
-/** The notes view's two parts, at the note of the address. */
+/** The notes view's two parts, at the note of the address, on screen. */
 function Notes() {
   const route = useRoute();
   const note = route.name === 'notes' ? route.note : undefined;
@@ -42,7 +42,7 @@ function Notes() {
         <NoteTree open={note} />
       </aside>
       <main aria-label="Open sticky note">
-        <OpenNote note={note} />
+        <OpenNote note={note} shown />
       </main>
     </>
   );

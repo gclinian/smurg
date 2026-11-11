@@ -1,7 +1,8 @@
 // The platform's zh-TW suite: a browser that starts in Traditional Chinese gets the landing page, the join page, the
-// workspace shell (the top bar with the mode switch, the sessions view around its columns) and the connection screens
-// in zh-TW, with <html lang="zh-Hant-TW">.
+// workspace shell (the top bar with the mode switch, the sessions view around its columns, the sticky notes) and the
+// connection screens in zh-TW, with <html lang="zh-Hant-TW">.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 import { PENDING_INVITE_KEY_PREFIX } from '../boot/capture-invite.ts';
 import { ChunkLoadError } from '../lib/chunks.ts';
@@ -76,6 +77,34 @@ describe('the app in zh-TW', () => {
     act(() => conn.setState({ kind: 'relay-unreachable', attempt: 2, retryAt: Date.now() + 5_000, cause: 'closed' }));
     expect((await screen.findByTestId('relay-unreachable-banner')).textContent).toMatch(/不是主人離線。\d 秒後重試$/);
   });
+
+  it('the sticky notes at the address of a note: that note, the regions and the skip link in zh-TW; switching views keeps the one connection', async () => {
+    const at = `/w/${WORKSPACE_ID}/notes/${encodeURIComponent('Payment form')}`;
+    const services = createTestServices({ path: at });
+    render(<App services={services} />);
+    await waitFor(() => expect(services.connections).toHaveLength(1), { timeout: 15_000 });
+    const { conn } = services.connections[0]!;
+    conn.handle('sticky.list', () => ({ notes: [{ name: 'Home', links: ['Payment form'] }, { name: 'Payment form', links: [] }], hasMore: false, truncated: false, sources: [] }));
+    act(() => conn.admit(makeWelcome({ role: 'agent' })));
+    // The note of the address, through App's routes (review S3-T3).
+    expect(await screen.findByRole('heading', { level: 2, name: 'Payment form' }, { timeout: 15_000 })).toBeTruthy();
+    // The notes view's own words (review S3-T4).
+    expect(screen.getByRole('complementary', { name: '所有便利貼' })).toBeTruthy();
+    expect(screen.getByRole('main', { name: '開啟的便利貼' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: '跳到便利貼' }).getAttribute('href')).toBe('#notes-main');
+    expect(screen.getAllByRole('separator').map((separator) => separator.getAttribute('aria-label'))).toEqual([
+      '拖曳或用方向鍵調整「所有便利貼」的大小',
+      '拖曳或用方向鍵調整「便利貼的 Claude」的大小',
+    ]);
+    const mode = within(screen.getByRole('banner', { name: '工作區' })).getByRole('group', { name: '模式' });
+    expect(within(mode).getByRole('link', { name: '便利貼' }).getAttribute('aria-current')).toBe('page');
+    await userEvent.click(within(mode).getByRole('link', { name: 'session' }));
+    expect(services.router.getState().pathname).toBe(`/w/${WORKSPACE_ID}`);
+    await userEvent.click(within(mode).getByRole('link', { name: '便利貼' }));
+    expect(services.router.getState().pathname).toBe(at);
+    expect(screen.getByRole('heading', { level: 2, name: 'Payment form' })).toBeTruthy();
+    expect(services.connections).toHaveLength(1);
+  }, 30_000);
 
   it('a refused connection and the key-mismatch warning', async () => {
     const services = createTestServices({ path: `/w/${WORKSPACE_ID}` });

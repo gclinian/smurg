@@ -8,7 +8,9 @@
 //             holds;
 //   wanted    the index is loaded when the notes view is first shown (`want()`), NOT when a channel opens: a member
 //             who never opens the notes view never asks for it (D7.3). Once asked for, it is loaded again after every
-//             full resync and on a resumed channel;
+//             full resync and on a resumed channel. Asked again while it is ready (a resumed channel, a note somebody
+//             wrote a moment ago), it stays ready until the answer replaces it, and a failure keeps it as it was and
+//             goes to the caller (a resumed channel reports it): the open note stays held, the list keeps its focus;
 //   lastOpen  the note the notes view showed last in this page, for the mode link (kept in memory only: a note's
 //             name is project text).
 import { NOTES_HOME, collectPages, foldNoteName, noteTree, type NoteInfo, type NoteTree, type NoteTreeNode, type SourceState } from '@smurg/protocol';
@@ -34,6 +36,7 @@ export interface StickyState extends Loadable {
 export interface StickyStore extends ReadableStore<StickyState> {
   /** The notes view is shown: the index is loaded now (once; afterwards sticky.changed keeps it current). */
   want(): Promise<void>;
+  /** Asks for the index again. While it is ready it stays ready, and a failure leaves it as it was (and rejects). */
   reload(): Promise<void>;
   /** sticky.create: a new, empty sticky note. Its NoteInfo (the index's) is in the store before this resolves. */
   create(name: string): Promise<NoteInfo>;
@@ -151,9 +154,14 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
   const load = (): Promise<void> => {
     if (!state.getState().wanted) return Promise.resolve();
     const c = context();
+    // A refresh of an index on screen never shows it loading or failed: the views would put a spinner in the place of
+    // the open note and the list, and so release the note's shared document (review S3-R1).
+    const refresh = state.getState().status === 'ready';
     const run = loadSnapshot(
       c,
-      (loadable) => state.setState((previous) => ({ ...previous, ...loadable })),
+      (loadable) => {
+        if (!refresh) state.setState((previous) => ({ ...previous, ...loadable }));
+      },
       () => fetchIndex(c),
       ({ notes, truncated, sources }) =>
         state.setState((previous) => {

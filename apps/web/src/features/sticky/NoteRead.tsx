@@ -56,12 +56,14 @@ function useWikiLinks(): MarkdownWikiLinks {
 }
 
 export interface OpenNoteProps {
-  /** The note in the address; undefined: Home. */
+  /** The note in the address (hidden: the note it showed last); undefined: Home. */
   readonly note: string | undefined;
+  /** The notes view is on screen: the address is its own. */
+  readonly shown: boolean;
 }
 
 /** The middle of the notes view: the note in the address, or the page that stands in for it. */
-export function OpenNote({ note }: OpenNoteProps) {
+export function OpenNote({ note, shown }: OpenNoteProps) {
   const stores = useStores();
   const index = useStickyIndex();
   const navigation = useNoteNavigation();
@@ -69,10 +71,13 @@ export function OpenNote({ note }: OpenNoteProps) {
   const info = selectNote(index, name);
   const onDisk = info?.name;
 
-  // The address takes the name as it is on disk: `/notes/home` shows Home, and says Home.
+  // The address takes the name as it is on disk: `/notes/home` shows Home, and says Home. While another view is on
+  // screen the address is that view's: only the note to come back to takes the name on disk (review S3-R2).
   useEffect(() => {
-    if (note !== undefined && onDisk !== undefined && onDisk !== note) navigation.open(onDisk, { replace: true });
-  }, [note, onDisk, navigation]);
+    if (note === undefined || onDisk === undefined || onDisk === note) return;
+    if (shown) navigation.open(onDisk, { replace: true });
+    else stores.sticky.setLastOpen(onDisk);
+  }, [note, onDisk, shown, navigation, stores]);
 
   if (index.status === 'error') {
     return (

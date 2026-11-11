@@ -22,7 +22,9 @@ export const t = defineStrings(
     'note.loading': 'Opening the sticky note…',
     'note.empty': 'This sticky note is empty.',
     'note.agentWriting': 'Claude is writing this sticky note.',
-    'note.unreadable': 'This sticky note cannot be read: its file is not a plain text file in the folder notes.',
+    // Only what is true of every note the index could not read (a file kept from members, one nobody may read, one
+    // whose first read failed for a moment, a link, bytes that are not text): no cause is named.
+    'note.unreadable': 'smurg could not read the file of this sticky note.',
     'note.openFailed': 'This sticky note could not be opened.',
     'note.oversized': 'This sticky note is larger than 64 KiB: the list on the left does not follow its links.',
     // The pages without a note (D7.6).
