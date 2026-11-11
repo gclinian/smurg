@@ -1780,9 +1780,46 @@ type SourceState = { source: 'slack' | 'discord'; state: 'reading' | 'waiting-fo
 | `sticky.create` | c→d | `{ name }` → `{ note: NoteInfo }` [file.write] | as the caller, one at a time per workspace: makes `notes/` when it is missing (a `notes` that is a file or a symlink: `conflict`, `file.notADirectory`); refuses a name that folds equal to a note's in a fresh listing (`conflict`, reason `exists`, `sticky.create.exists`), and any new note when that listing holds 500 notes already (`conflict`, reason `full`, `sticky.create.full`); a listing or a look at `notes` that fails refuses the create (`internal`); creates the empty file through the file service (its `file.create` audit entries and activity name the person); the index has the note at once, and the reply is the index's NoteInfo (never one the index does not list). A name that is no note's: `bad_request`, reason `invalid-name` with `detail.problem`, `sticky.name.invalid` with the `rule` it breaks (`length`, `markup`, `space`, `unseen`, `edge`, `reserved`) |
 | `sticky.assistant.start` | c→d | `{}` → `{ session: AgentSession }` [session.create] | Claude for the sticky notes, one per workspace: the agent session of purpose `notes` that has not ended, or one started now (opened by the caller, nobody responsible, the main workspace, the host's default model, its first line `conversation.started.notes`), audited `session.create` with `purpose: 'notes'`; at the agent runtime's limit `session.limit.agents`. A press that waited its turn checks the caller's membership and role again before it starts anything (`forbidden`). No id is stored |
 
-`sticky.json` (§7.1) holds the feedback on sticky notes (`feedbackSchema` of `schema/sticky.ts`: by a member or by a
-person outside the workspace; `waiting`, `accepted`, `rejected` or `withdrawn`), one cursor per outside source and
-the builds. None of it is on the wire yet.
+`sticky.json` (§7.1) holds the feedback on sticky notes (`feedbackSchema` of `schema/sticky.ts`), one cursor per
+outside source and the builds.
+
+**Feedback** (`feedback.give`, every role, a Viewer too) is what anyone writes about a sticky note for Claude for the
+sticky notes to work in. It reaches NO agent until a member with `session.drive` accepts it, exactly as shown: then
+the daemon sends ONE message to Claude for the sticky notes, as that member, origin `composer`, whose text is the pure
+`composeFeedback({ note, author, text })` of `packages/protocol/src/agent-text.ts` (a fixed English sentence that names
+the note's path as a JSON string and its author: a member by `agentSafeName` and role, a person outside the
+workspace by `outsideSafeName`; then the feedback in `quoteForAgent('feedback', …)`). The notes view shows the same
+function's text before the click. That send, in `src/sticky/accept.ts`, is the only path of feedback to an agent
+(`test/sticky/accept.test.ts` reads the code to hold it); rejecting and withdrawing send nothing.
+
+```ts
+type Feedback = {
+  id; note: string;                    // the note's name on disk
+  text: string;                        // as stored, shown and quoted: `agentText(text).text`, at most 4000
+  cleaned?: true; cut?: true;          // something unseen was removed; an outside message was cut
+  author: { kind: 'member'; user: { userId; displayName } }
+        | { kind: 'outside'; source: 'slack' | 'discord'; name: string; externalId: string };
+  status: 'waiting' | 'accepted' | 'rejected' | 'withdrawn';
+  createdAt; decidedBy?: { userId; displayName }; decidedAt?;   // with accepted or rejected
+  rejectReason?;                       // a person's words, with rejected only
+};
+```
+
+Bounds (`sticky.json`): at most 1000 entries and 2 Mi characters of texts and reasons together; a withdrawn entry is
+removed at once (the audit log keeps it); at a bound the oldest rejected entries go first, then the oldest accepted
+(each told as `{ removed }`); waiting ones never: a create that cannot fit is refused (`conflict`, reason
+`feedback-full`, `sticky.feedback.full`). At most 20 waiting per member (`sticky.feedback.tooManyWaiting`) and 300
+from members together. When a member is kicked or leaves, their waiting feedback is withdrawn by the system (audited
+with the reason). Every create is audited with its full text; so are accepts, rejections and withdrawals.
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `sticky.feedback.create` [feedback.give] | c→d | `{ note, text }` → `{ feedback: Feedback }` | a note the index holds (else `not_found`, `sticky.note.missing`), stored by its name on disk; the text through `agentText` once (`sticky.feedback.invalidText` when blank or too long then); within the bounds above. Rate bucket: `suggestion` |
+| `sticky.feedback.withdraw` (author, waiting) | c→d | `{ feedbackId }` → `{ feedback: Feedback }` | the member who wrote it, while it waits (`sticky.feedback.authorOnly`); removed at once, the reply says `withdrawn`; refused while an accept of it is on its way (`conflict`, reason `accepting`) |
+| `sticky.feedback.accept` [session.drive] | c→d | `{ feedbackId }` → `{ feedback: Feedback }` | while it waits (else `conflict`, reason `not-waiting`), once at a time (`accepting`); Claude for the sticky notes must run (else `conflict`, reason `no-assistant`, `sticky.feedback.noAssistant`); ONE `ConversationService.send` of `composeFeedback` as the caller; `accepted` only after it went through; a member author is named with their role now. Nothing of it is edited |
+| `sticky.feedback.reject` [session.drive] | c→d | `{ feedbackId, reason? }` → `{ feedback: Feedback }` | while it waits; `rejected`, `decidedBy`, `decidedAt`, `rejectReason`; nothing is sent |
+| `sticky.feedback.list` [file.read] | c→d | `{ after? }` → `{ feedback: Feedback[], hasMore }` | every entry kept, oldest first; `after` is the last entry's id. Size rule: list |
+| `sticky.feedback.updated` | d→c | `{ feedback: Feedback }` or `{ removed: string }` | to every member: one entry as it is now, or the id of one that went (withdrawn, or dropped at a bound) |
 
 ---
 

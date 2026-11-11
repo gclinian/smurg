@@ -6,7 +6,10 @@
 //                                   comments, a denial's line): invisible characters removed, header-like lines quoted
 //  - shownAgentText(raw)            the other direction: text an AGENT wrote, before it is stored and shown to people
 //  - agentSafeName(name, userId)    a display name as a model reads it (headers, notes, sentences, commit trailers)
+//  - outsideSafeName(source, …)     the same for a person outside the workspace (Slack, Discord): never "member"
 //  - frameMessage(header, body)     the header line in front of a body
+//  - composeRevise / composeFeedback  the fixed English line and the fenced quotation of a person's message that
+//                                   quotes something (a section of SPEC.md; feedback on a sticky note)
 //
 // Pure, no imports beyond the limits and the bounded normalisation: browser, Worker and Node safe.
 import { normalized, withFewMarks } from './normalize.ts';
@@ -217,6 +220,20 @@ export function agentSafeName(displayName: string, userId: string): string {
   return idPart === '' ? 'member' : `member ${idPart}`;
 }
 
+/**
+ * A person OUTSIDE the workspace (an author of feedback from a connected Slack or Discord channel, DESIGN 0.8.0 D4.6)
+ * as a model reads them: their name kept as `agentSafeName` keeps a display name, then the source (`Mei Chen on
+ * Slack`). A name with nothing left is `a Slack user` / `a Discord user`: never `member`, which would make them one.
+ * The outside id is taken as `agentSafeName` takes a user id, so that one call names the person, but it is never
+ * written: a Slack or Discord id says nothing to a model.
+ */
+export function outsideSafeName(source: 'slack' | 'discord', name: string, externalId: string): string {
+  void externalId;
+  const where = source === 'slack' ? 'Slack' : 'Discord';
+  const safe = keepSafe(normalized(name, 'NFC'), AGENT_SAFE_NAME_MAX);
+  return safe === '' ? `a ${where} user` : `${safe} on ${where}`;
+}
+
 function keepSafe(text: string, max: number): string {
   let out = '';
   let count = 0;
@@ -333,4 +350,36 @@ export function composeRevise(
   const text = agentText(`${head}\n${quoted}${own.text}`).text;
   if (text.length > maxChars) return { ok: false, reason: 'too-long' };
   return { ok: true, text, cleaned };
+}
+
+/** Who wrote feedback on a sticky note, as `composeFeedback` names them: a member with their role now, or an outsider. */
+export type FeedbackAuthorForAgent =
+  | { readonly kind: 'member'; readonly userId: string; readonly displayName: string; readonly role: Role }
+  | { readonly kind: 'outside'; readonly source: 'slack' | 'discord'; readonly name: string; readonly externalId: string };
+
+/**
+ * The text of an ACCEPTED feedback on a sticky note (DESIGN 0.8.0 D4.6), as it is sent once to Claude for the sticky
+ * notes as the accepting member's own message (the runner puts that member's header in front) and as the notes view
+ * shows it before the click ("What Claude gets"): the same pure function on both sides, with the same inputs.
+ *
+ *   Feedback on the sticky note "notes/Home.md", written by Amy (Viewer) and accepted by me. Work it into the sticky
+ *   notes: change that note, or write a new sticky note and link it from that note.
+ *   ```feedback                                 the feedback as a fenced quotation (`quoteForAgent`, a fixed label)
+ *   …
+ *   ```
+ *
+ * The note's path is a JSON string (`notes/<name>.md`, the form of `notePath`); a member is named by `agentSafeName`
+ * and their role in fixed English (`AGENT_ROLE_NAMES`); a person outside the workspace by those very words and
+ * `outsideSafeName`. Nothing but the quotation is the author's: the sentence is fixed English with checked values.
+ * The whole goes through `agentText` once more (it changes nothing that was cleaned).
+ */
+export function composeFeedback(input: { readonly note: string; readonly author: FeedbackAuthorForAgent; readonly text: string }): string {
+  const path = JSON.stringify(`notes/${input.note}.md`);
+  const author = input.author;
+  const who =
+    author.kind === 'member'
+      ? `${agentSafeName(author.displayName, author.userId)} (${AGENT_ROLE_NAMES[author.role]})`
+      : `a person outside the workspace (${outsideSafeName(author.source, author.name, author.externalId)})`;
+  const head = `Feedback on the sticky note ${path}, written by ${who} and accepted by me. Work it into the sticky notes: change that note, or write a new sticky note and link it from that note.`;
+  return agentText(`${head}\n${quoteForAgent('feedback', input.text)}`).text;
 }

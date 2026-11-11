@@ -926,6 +926,12 @@ export const AUDIT_ACTIONS = [
   'plan.item.removePaths',
   'plan.item.autoContinue',
   'plan.merging.host',
+  // protocol 7 (smurg 0.8.0, DESIGN 0.8.0 D4.8): feedback on sticky notes, written, accepted (the one send to Claude
+  // for the sticky notes), rejected, withdrawn (by its author, or by the system when its author was removed)
+  'sticky.feedback.create',
+  'sticky.feedback.accept',
+  'sticky.feedback.reject',
+  'sticky.feedback.withdraw',
   'member.role',
   'member.kick',
   'member.leave',

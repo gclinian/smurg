@@ -171,7 +171,9 @@ Sticky notes, and Claude for the sticky notes.
 | A small Markdown file of `notes/` that people and Claude write | sticky note (written in full in labels, never "note" alone) | 便利貼 | `notes/<Name>.md` |
 | The agent session that writes the sticky notes (one per workspace) | Claude for the sticky notes (prose); Sticky notes (its title and its kind) | 便利貼的 Claude；便利貼 | `notes`, `session.title.notes`, `sessions.purpose.notes` |
 | The first sticky note | `Home` (a file name: never translated) | `Home` | `notes/Home.md` |
-| What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word) | feedback | 意見 | `sticky.json` `feedback` |
+| What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word); everyone gives it, a Viewer too | feedback; "give feedback on a sticky note" | 意見；「對便利貼提出意見」 | `sticky.json` `feedback`, `feedback.give`, `sticky.feedback.*` |
+| What a member with agent access does with waiting feedback: send it, exactly as written, to Claude for the sticky notes as their own message, or not (the suggestion's words, never another pair) | Accept / Reject; accepted / rejected | 採用 / 不採用；已採用 / 不採用 | `sticky.feedback.accept`, `sticky.feedback.reject` |
+| What the author does with their own feedback while it waits (the suggestion's word) | Withdraw / withdrawn | 撤回 / 已撤回 | `sticky.feedback.withdraw` |
 | The third view of a workspace, beside the sessions view and code mode: the sticky notes grown from Home, and the open one | Sticky notes (the mode link; the view) | 便利貼 | `/w/<id>/notes`, `workbench.mode.notes` |
 | A link from one sticky note to another, written `[[Name]]`; the reader sees the note's name | wiki link (prose; never a label) | wiki 連結 | `[[Name]]` |
 | The sticky notes that Home does not reach by its links | Not linked | 未連結 | `sticky.tree.notLinked` |

@@ -111,10 +111,10 @@ export const t = defineStrings(
     'demote.removed':
       'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, and their messages that still wait for an agent.',
     'demote.viewer': {
-      one: 'A viewer only watches: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} session right now).',
-      other: 'A viewer only watches: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} sessions right now).',
+      one: 'A viewer watches and gives feedback on sticky notes: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} session right now).',
+      other: 'A viewer watches and gives feedback on sticky notes: the votes of {name} leave open questions, and {name} is no longer responsible for anything ({count} sessions right now).',
     },
-    'demote.viewerNone': 'A viewer only watches: the votes of {name} leave open questions, and {name} can no longer be responsible for a session.',
+    'demote.viewerNone': 'A viewer watches and gives feedback on sticky notes: the votes of {name} leave open questions, and {name} can no longer be responsible for a session.',
     'demote.confirm': 'Change role',
 
     // ---- agent access: the risk, confirmed before an invite or a role change applies
@@ -358,6 +358,12 @@ export const t = defineStrings(
     'audit.detail.decision': 'Decision',
     'audit.detail.mode': 'Mode',
     'audit.detail.purpose': 'Purpose',
+    // feedback on sticky notes (0.8.0): its detail keys are its own, so a suggestion's labels never name it
+    'audit.detail.note': 'Sticky note',
+    'audit.detail.writtenBy': 'Written by',
+    'audit.detail.feedback': 'Feedback',
+    'audit.detail.outsideSource': 'Written in',
+    'audit.detail.outsideId': 'Outside id',
     'audit.outcome.ok': 'OK',
     'audit.outcome.denied': 'Denied',
     'audit.outcome.error': 'Error',
@@ -454,6 +460,10 @@ export const t = defineStrings(
     'audit.action.plan.item.removePaths': 'Asked the agent to take out host-only changes',
     'audit.action.plan.item.autoContinue': 'smurg continued a work item',
     'audit.action.plan.merging.host': 'smurg gave every started work item to the host',
+    'audit.action.sticky.feedback.create': 'Gave feedback on a sticky note',
+    'audit.action.sticky.feedback.accept': 'Accepted feedback on a sticky note',
+    'audit.action.sticky.feedback.reject': 'Rejected feedback on a sticky note',
+    'audit.action.sticky.feedback.withdraw': 'Withdrew feedback on a sticky note',
     'audit.action.member.role': 'Changed a role',
     'audit.action.member.kick': 'Removed a member',
     'audit.action.member.leave': 'Member left',

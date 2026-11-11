@@ -35,6 +35,8 @@ const ARCH3: Readonly<Record<Capability, readonly Role[]>> = {
   'suggest.create': ['host', 'agent', 'editor'],
   // Protocol 4: everyone but viewers votes, comments, may be responsible and reviews a result report.
   discuss: ['host', 'agent', 'editor'],
+  // 0.8.0 (DESIGN 0.8.0 D4.1): everyone, a Viewer too, gives feedback on a sticky note.
+  'feedback.give': ['host', 'agent', 'editor', 'viewer'],
   // ARCHITECTURE §11 D-15: Agent access opens sessions (like the host's own) and types into any session.
   'session.create': ['host', 'agent'],
   'session.drive': ['host', 'agent'],
@@ -177,6 +179,7 @@ const NO_UPLOAD = 'not_found upload.notFound';
 const NO_WORKTREE = 'not_found worktree.notFound';
 const NO_MERGE = 'not_found merge.notFound';
 const NO_PARENT = 'not_found file.parentMissing';
+const NO_FEEDBACK = 'not_found sticky.feedback.notFound';
 
 /**
  * What the REAL handler of each request type answers to its sample (fixtures/request-samples.ts: every sample points
@@ -305,6 +308,13 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'sticky.list': 'ok',
   'sticky.create': { host: 'ok', agent: 'conflict sticky.create.exists', editor: 'conflict sticky.create.exists' },
   'sticky.assistant.start': 'ok',
+  // protocol 7, feedback (D4.4): on a note the index does not hold, refused for everyone (a Viewer too may give it);
+  // nothing to withdraw, accept or reject; the list answers.
+  'sticky.feedback.create': 'not_found sticky.note.missing',
+  'sticky.feedback.withdraw': NO_FEEDBACK,
+  'sticky.feedback.accept': NO_FEEDBACK,
+  'sticky.feedback.reject': NO_FEEDBACK,
+  'sticky.feedback.list': 'ok',
 };
 
 describe('the release composition: every request type × every role in front of the real handlers', () => {

@@ -61,6 +61,8 @@ export const HANDLER_CHECKS = [
   'suggestion-author-pending', // caller authored the suggestion and it is still pending
   'suggestion-pending', // the suggestion is still pending (accept / reject: any session the caller may drive)
   'suggestion-limit', // at most SUGGESTIONS_PENDING_PER_AUTHOR_MAX pending per author and session
+  'feedback-author-waiting', // caller wrote the feedback on a sticky note and it is still waiting (sticky.feedback.withdraw)
+  'feedback-waiting', // the feedback is still waiting (accept / reject: a session.drive holder)
   'question-open', // the question is still open (settledError otherwise)
   'question-may-submit', // routing.ts maySubmit; submitting `other` or `note` needs session.drive (voting `other` does not)
   'question-decider-or-host', // question.remind / question.seen: the decider (remind: or the host)
@@ -200,6 +202,8 @@ const TRANSFER = 'transfer';
 const QUESTION_TEXT_KEYS = ['text', 'other', 'note', 'description', 'label', 'header'] as const;
 const PERMISSION_TEXT_KEYS = ['command', 'text', 'input', 'path', 'url', 'reason', 'message'] as const;
 const SUGGESTION_TEXT_KEYS = ['text', 'finalText', 'rejectReason'] as const;
+/** Keys under which feedback on sticky notes carries what people wrote, and an outside author's name: never in a log. */
+const FEEDBACK_TEXT_KEYS = ['text', 'reason', 'rejectReason', 'name'] as const;
 const CONVERSATION_TEXT_KEYS = [...new Set(['target', 'fallback', ...QUESTION_TEXT_KEYS, ...PERMISSION_TEXT_KEYS, ...SUGGESTION_TEXT_KEYS])] as const;
 
 export const MESSAGE_REGISTRY = Object.freeze({
@@ -672,7 +676,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
     checks: ['agent-session'],
   }),
 
-  // ---- sticky.* (§5.12, protocol 7: DESIGN 0.8.0 D2, D3.5) ---------------------------------------------------------
+  // ---- sticky.* (§5.12, protocol 7: DESIGN 0.8.0 D2, D3.5, D4) -----------------------------------------------------
   'sticky.list': request(sticky.stickyListPayloadSchema, sticky.stickyListResultSchema, 'file.read', { sizeRule: 'list' }),
   'sticky.changed': event(sticky.stickyChangedPayloadSchema, 'file.read', { checks: ['recipients:all'] }),
   // As the caller, through the file service (a sticky note's name is never a host-only one).
@@ -680,6 +684,32 @@ export const MESSAGE_REGISTRY = Object.freeze({
     checks: ['path-guard', 'host-only-paths'],
   }),
   'sticky.assistant.start': request(sticky.stickyAssistantStartPayloadSchema, sticky.stickyAssistantStartResultSchema, 'session.create'),
+  // Feedback (DESIGN 0.8.0 D4.4): written by anyone, a Viewer too, on a note the index holds; the same bucket as a
+  // suggestion. It reaches no agent: only `sticky.feedback.accept` sends it, once, as the accepting member's message.
+  'sticky.feedback.create': request(sticky.stickyFeedbackCreatePayloadSchema, sticky.stickyFeedbackResultSchema, 'feedback.give', {
+    redact: FEEDBACK_TEXT_KEYS,
+    rate: 'suggestion',
+  }),
+  'sticky.feedback.withdraw': request(sticky.stickyFeedbackWithdrawPayloadSchema, sticky.stickyFeedbackResultSchema, OWNER, {
+    checks: ['feedback-author-waiting'],
+    redact: FEEDBACK_TEXT_KEYS,
+  }),
+  'sticky.feedback.accept': request(sticky.stickyFeedbackAcceptPayloadSchema, sticky.stickyFeedbackResultSchema, 'session.drive', {
+    checks: ['feedback-waiting'],
+    redact: FEEDBACK_TEXT_KEYS,
+  }),
+  'sticky.feedback.reject': request(sticky.stickyFeedbackRejectPayloadSchema, sticky.stickyFeedbackResultSchema, 'session.drive', {
+    checks: ['feedback-waiting'],
+    redact: FEEDBACK_TEXT_KEYS,
+  }),
+  'sticky.feedback.list': request(sticky.stickyFeedbackListPayloadSchema, sticky.stickyFeedbackListResultSchema, 'file.read', {
+    redact: FEEDBACK_TEXT_KEYS,
+    sizeRule: 'list',
+  }),
+  'sticky.feedback.updated': event(sticky.stickyFeedbackUpdatedPayloadSchema, 'file.read', {
+    checks: ['recipients:all'],
+    redact: FEEDBACK_TEXT_KEYS,
+  }),
 });
 
 // ---------------------------------------------------------------------------------------------------------------

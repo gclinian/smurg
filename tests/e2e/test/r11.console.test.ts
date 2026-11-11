@@ -244,9 +244,12 @@ describe('R11 host console', () => {
       // topic and what a person decides about a work item since S4 (D9 to D13: test/topics/decisions.test.ts); the
       // host's undo since S5 (D14: test/worktree/undo.test.ts, test/topics/undo.test.ts); smurg's own continues since S6
       // (D15: test/topics/keep-running.test.ts). "Pause" (S6) is in this story, before the restart.
+      // The feedback on sticky notes of 0.8.0 (DESIGN 0.8.0 D4.8) is no step of this story either: its own story is
+      // tests/e2e/test/n.sticky-notes.test.ts, and test/sticky/feedback.test.ts and accept.test.ts of the daemon.
       const notInThisStory = new Set<AuditAction>([
         'worktree.merge.auto', 'worktree.merge.held', 'plan.merging.host', 'worktree.merge.undo',
         'topic.check', 'plan.item.leaveOut', 'plan.item.accept', 'plan.item.release', 'plan.item.removePaths', 'plan.item.autoContinue',
+        'sticky.feedback.create', 'sticky.feedback.accept', 'sticky.feedback.reject', 'sticky.feedback.withdraw',
       ]);
       expect([...expected].sort()).toEqual(AUDIT_ACTIONS.filter((action) => !notR4toR9.has(action) && !notInThisStory.has(action)).sort());
       const logged = async (): Promise<Set<string>> => {

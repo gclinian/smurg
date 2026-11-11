@@ -7,7 +7,7 @@ import { msg } from '@smurg/protocol/i18n';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { useTestLocale } from '../../testing/locale.ts';
-import { auditActionLabel } from './audit-labels.ts';
+import { auditActionLabel, auditDetailRows } from './audit-labels.ts';
 import ConsoleOverlays from './ConsoleOverlays.tsx';
 import { consoleDialogs } from './dialogs.ts';
 import { purposeLabel } from './SessionsSection.tsx';
@@ -86,7 +86,8 @@ describe('host console in zh-TW', () => {
     fireEvent.change(screen.getByLabelText('Amy 的角色'), { target: { value: 'viewer' } });
     const demote = screen.getByRole('alertdialog', { name: '把 Amy 的角色改成「旁觀」？' });
     expect(within(demote).getByText('Amy 開始的主題 session（討論和工作項目）和便利貼的 Claude 改由你接手，並繼續執行（目前 1 個）。')).toBeTruthy();
-    expect(within(demote).getByText(/^「旁觀」只能觀看：Amy 在未回答選擇題上的投票會移除/)).toBeTruthy();
+    // 0.8.0 (DESIGN 0.8.0 D4.1, D4.2): a Viewer no longer only watches; they also give feedback on sticky notes.
+    expect(within(demote).getByText(/^「旁觀」可以觀看，也可以對便利貼提出意見：Amy 在未回答選擇題上的投票會移除/)).toBeTruthy();
   });
 
   it('the Claude Code project settings and the host\'s own rules', async () => {
@@ -230,5 +231,24 @@ describe('host console in zh-TW: merging work items (protocol 6)', () => {
 describe('host console in zh-TW: Claude for the sticky notes (protocol 7)', () => {
   it('its kind is named in Traditional Chinese', () => {
     expect(purposeLabel(NOTES)).toBe('便利貼');
+  });
+
+  it('feedback on sticky notes in the audit log: the four actions with the suggestion\'s words (Accept, Reject), and its details', () => {
+    expect(['sticky.feedback.create', 'sticky.feedback.accept', 'sticky.feedback.reject', 'sticky.feedback.withdraw'].map((action) => auditActionLabel(action as never))).toEqual([
+      '對便利貼提出意見',
+      '採用便利貼上的意見',
+      '不採用便利貼上的意見',
+      '撤回便利貼上的意見',
+    ]);
+    const rows = auditDetailRows({
+      id: 'au_f',
+      at: 1_731_300_000_000,
+      outcome: 'ok',
+      target: 'fb_1',
+      actor: { kind: 'user', userId: 'dev:host', displayName: 'Ian' },
+      action: 'sticky.feedback.reject',
+      detail: { feedbackId: 'fb_1', note: 'Home', outsideSource: 'discord', outsideId: '123456789012345678', writtenBy: 'Mei', outcome: 'rejected', feedback: '加上深色模式', rejectReason: '今年不做' },
+    });
+    expect(rows.map((row) => row.label)).toEqual(['便利貼', '寫在', '外部 id', '寫的人', '處理方式', '意見', '拒絕原因']);
   });
 });

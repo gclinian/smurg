@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { App } from '../../app/App.tsx';
 import { HOST_USER, WORKSPACE_ID, makeWelcome, presenceOf } from '../../testing/fixtures.ts';
 import { createTestServices } from '../../testing/services.tsx';
+import { auditActionLabel, auditDetailRows } from './audit-labels.ts';
 import { SECTION_ORDER } from './index.tsx';
 import { losesAgentAccess, losesDiscuss, memberStake } from './MembersSection.tsx';
 import { purposeLabel, statusView } from './SessionsSection.tsx';
@@ -142,7 +143,8 @@ describe('host console: members', () => {
     fireEvent.change(select, { target: { value: 'viewer' } });
     const demote = screen.getByRole('alertdialog', { name: 'Change the role of Bob to Viewer?' });
     // Bob is responsible for nothing: the sentence names no number.
-    expect(within(demote).getByText('A viewer only watches: the votes of Bob leave open questions, and Bob can no longer be responsible for a session.')).toBeTruthy();
+    // 0.8.0 (DESIGN 0.8.0 D4.1, D4.2): a Viewer no longer only watches; they also give feedback on sticky notes.
+    expect(within(demote).getByText('A viewer watches and gives feedback on sticky notes: the votes of Bob leave open questions, and Bob can no longer be responsible for a session.')).toBeTruthy();
     fireEvent.click(within(demote).getByRole('button', { name: 'Change role' }));
     await act(async () => {
       view.conn.fail('admin.member.setRole', new SmurgError('not_found', msg('member.notFound'), { reason: 'unknown-member' }));
@@ -185,7 +187,8 @@ describe('host console: members', () => {
     expect(within(dialog).getByText('The topic sessions (discussions and work items) and Claude for the sticky notes that Amy started pass to you and keep running (1 session right now).')).toBeTruthy();
     expect(within(dialog).getByText(/^What Amy put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun/)).toBeTruthy();
     // An editor still votes and may stay responsible: nothing about that is said.
-    expect(within(dialog).queryByText(/A viewer only watches/)).toBeNull();
+    // 0.8.0 (DESIGN 0.8.0 D4.1, D4.2): a Viewer no longer only watches; they also give feedback on sticky notes.
+    expect(within(dialog).queryByText(/A viewer watches and gives feedback on sticky notes/)).toBeNull();
     expect(view.conn.requestsOf('admin.member.setRole')).toHaveLength(0);
     fireEvent.click(within(dialog).getByRole('button', { name: 'Change role' }));
     expect(view.conn.lastRequest('admin.member.setRole')?.payload).toEqual({ userId: 'dev:amy', role: 'editor' });
@@ -199,7 +202,8 @@ describe('host console: members', () => {
     const view = renderConsole({ fixture });
     fireEvent.change(await screen.findByLabelText('Role of Eve'), { target: { value: 'viewer' } });
     const dialog = screen.getByRole('alertdialog', { name: 'Change the role of Eve to Viewer?' });
-    expect(within(dialog).getByText('A viewer only watches: the votes of Eve leave open questions, and Eve is no longer responsible for anything (1 session right now).')).toBeTruthy();
+    // 0.8.0 (DESIGN 0.8.0 D4.1, D4.2): a Viewer no longer only watches; they also give feedback on sticky notes.
+    expect(within(dialog).getByText('A viewer watches and gives feedback on sticky notes: the votes of Eve leave open questions, and Eve is no longer responsible for anything (1 session right now).')).toBeTruthy();
     // An editor had no agent access to lose.
     expect(within(dialog).queryByText(/pass to you/)).toBeNull();
     fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
@@ -209,7 +213,8 @@ describe('host console: members', () => {
     fireEvent.change(screen.getByLabelText('Role of Amy'), { target: { value: 'viewer' } });
     const both = screen.getByRole('alertdialog', { name: 'Change the role of Amy to Viewer?' });
     expect(within(both).getByText(/^The terminals and the sessions without a topic that Amy opened, except Claude for the sticky notes, end/)).toBeTruthy();
-    expect(within(both).getByText(/^A viewer only watches: the votes of Amy leave open questions/)).toBeTruthy();
+    // 0.8.0 (DESIGN 0.8.0 D4.1, D4.2): a Viewer no longer only watches; they also give feedback on sticky notes.
+    expect(within(both).getByText(/^A viewer watches and gives feedback on sticky notes: the votes of Amy leave open questions/)).toBeTruthy();
     fireEvent.click(within(both).getByRole('button', { name: 'Cancel' }));
     fireEvent.change(screen.getByLabelText('Role of Bob'), { target: { value: 'editor' } });
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -507,5 +512,46 @@ describe('host console: sessions and suggestions', () => {
     const section = (await screen.findByRole('heading', { level: 2, name: 'Merge requests' })).closest('section') as HTMLElement;
     expect(await within(section).findByText('Merge request from Amy')).toBeTruthy();
     expect(within(section).getByRole('button', { name: 'Review' })).toBeTruthy();
+  });
+});
+
+describe('host console: feedback on sticky notes in the audit log (protocol 7, DESIGN 0.8.0 D4.8)', () => {
+  it('the four actions have their names, and an entry shows the sticky note, who wrote it, the decision and the feedback in its own words', () => {
+    expect(['sticky.feedback.create', 'sticky.feedback.accept', 'sticky.feedback.reject', 'sticky.feedback.withdraw'].map((action) => auditActionLabel(action as never))).toEqual([
+      'Gave feedback on a sticky note',
+      'Accepted feedback on a sticky note',
+      'Rejected feedback on a sticky note',
+      'Withdrew feedback on a sticky note',
+    ]);
+    const base = { id: 'au_f', at: 1_731_300_000_000, outcome: 'ok', target: 'fb_1' } as const;
+    const accepted = auditDetailRows({
+      ...base,
+      actor: { kind: 'user', userId: 'dev:host', displayName: 'Ian' },
+      action: 'sticky.feedback.accept',
+      detail: { feedbackId: 'fb_1', note: 'Home', authorUserId: 'dev:leo', writtenBy: 'Leo', outcome: 'accepted', feedback: 'Add a dark mode please.', createdAt: 1, decidedAt: 2, sessionId: 'sess_n' },
+    });
+    expect(accepted.map((row) => [row.label, row.value])).toEqual([
+      ['Sticky note', 'Home'],
+      ['Written by', 'Leo'],
+      ['Decision', 'Accepted'],
+      ['Feedback', 'Add a dark mode please.'],
+      ['sessionId', 'sess_n'],
+    ]);
+    // A person outside the workspace: where they wrote it and their id there; the system's withdrawal names its reason.
+    const outside = auditDetailRows({
+      ...base,
+      actor: { kind: 'system' },
+      action: 'sticky.feedback.withdraw',
+      detail: { feedbackId: 'fb_2', note: 'Checkout', outsideSource: 'slack', outsideId: 'U012ABCDEF', writtenBy: 'Mei Chen', outcome: 'withdrawn', feedback: 'Coupons', createdAt: 1, reason: 'author-removed' },
+    });
+    expect(outside.map((row) => [row.label, row.value])).toEqual([
+      ['Sticky note', 'Checkout'],
+      ['Written in', 'slack'],
+      ['Outside id', 'U012ABCDEF'],
+      ['Written by', 'Mei Chen'],
+      ['Decision', 'Withdrawn'],
+      ['Feedback', 'Coupons'],
+      ['Reason', 'author-removed'],
+    ]);
   });
 });

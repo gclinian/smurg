@@ -94,6 +94,8 @@ describe('the registry', () => {
       'suggest.edit': 'suggestion',
       'topic.revise': 'suggestion',
       'report.followUp': 'suggestion',
+      // protocol 7 (DESIGN 0.8.0 D4.4): feedback on a sticky note, a Viewer's too, takes a token of the same bucket
+      'sticky.feedback.create': 'suggestion',
     });
     // `mention` is the handlers' bucket: no type names it.
     expect(RATE_BUCKETS).toEqual(['vote', 'comment', 'suggestion', 'mention']);

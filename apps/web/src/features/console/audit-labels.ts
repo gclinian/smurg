@@ -95,6 +95,10 @@ const ACTION_KEY = {
   'plan.item.removePaths': 'audit.action.plan.item.removePaths',
   'plan.item.autoContinue': 'audit.action.plan.item.autoContinue',
   'plan.merging.host': 'audit.action.plan.merging.host',
+  'sticky.feedback.create': 'audit.action.sticky.feedback.create',
+  'sticky.feedback.accept': 'audit.action.sticky.feedback.accept',
+  'sticky.feedback.reject': 'audit.action.sticky.feedback.reject',
+  'sticky.feedback.withdraw': 'audit.action.sticky.feedback.withdraw',
   'member.role': 'audit.action.member.role',
   'member.kick': 'audit.action.member.kick',
   'member.leave': 'audit.action.member.leave',
@@ -154,6 +158,12 @@ const DETAIL_LABEL_KEYS: Readonly<Record<string, string>> = {
   decision: 'audit.detail.decision',
   mode: 'audit.detail.mode',
   purpose: 'audit.detail.purpose',
+  // feedback on sticky notes (0.8.0, DESIGN 0.8.0 D4.8)
+  note: 'audit.detail.note',
+  writtenBy: 'audit.detail.writtenBy',
+  feedback: 'audit.detail.feedback',
+  outsideSource: 'audit.detail.outsideSource',
+  outsideId: 'audit.detail.outsideId',
 };
 
 const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {
@@ -164,7 +174,7 @@ const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {
 };
 
 /** Keys that are ids or times already shown elsewhere in the row (or of no use to a person reading the log). */
-const HIDDEN_DETAIL_KEYS: ReadonlySet<string> = new Set(['suggestionId', 'authorUserId', 'sessionOwnerUserId', 'createdAt', 'resolvedAt', 'editedAt']);
+const HIDDEN_DETAIL_KEYS: ReadonlySet<string> = new Set(['suggestionId', 'feedbackId', 'authorUserId', 'sessionOwnerUserId', 'createdAt', 'resolvedAt', 'editedAt', 'decidedAt']);
 
 export interface AuditDetailRow {
   readonly key: string;

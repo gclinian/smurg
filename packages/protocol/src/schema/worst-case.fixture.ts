@@ -98,6 +98,22 @@ export const worstNote = (index: number): unknown => ({
   links: many(L.NOTE_LINKS_MAX, (link) => noteName(link, 0x6000)),
   builds: many(L.NOTE_INFO_BUILDS_MAX, (build) => id('tp', build)),
 });
+/**
+ * The largest feedback (D4.3): the longest text in three-byte characters, cleaned, by a member with the longest id and
+ * name, rejected by another with the longest reason. A member's entry is larger than an outsider's (whose name is
+ * OUTSIDE_NAME_MAX_CHARS and whose id is a snowflake).
+ */
+export const worstFeedback = (index: number, status: 'waiting' | 'accepted' | 'rejected' | 'withdrawn' = 'rejected'): unknown => ({
+  id: id('fb', index),
+  note: noteName(index),
+  text: wide(L.FEEDBACK_TEXT_MAX_CHARS),
+  cleaned: true,
+  author: { kind: 'member', user },
+  status,
+  createdAt: T,
+  ...(status === 'accepted' || status === 'rejected' ? { decidedBy: user, decidedAt: T } : {}),
+  ...(status === 'rejected' ? { rejectReason: wide(L.REASON_MAX_CHARS) } : {}),
+});
 const worstSources = [
   { source: 'slack', state: 'failing', problem: wireText },
   { source: 'discord', state: 'failing', problem: wireText },
@@ -580,4 +596,11 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'sticky.changed': { payload: { upserted: many(L.NOTES_MAX, worstNote), removed: many(L.NOTES_MAX, (index) => noteName(index, 0x7000)), truncated: true, sources: worstSources } },
   'sticky.create': { payload: { name: wide(L.SHORT_TEXT_MAX_CHARS) }, result: { note: worstNote(0) } },
   'sticky.assistant.start': { payload: {}, result: { session: worstNotesSession } },
+  // protocol 7 (DESIGN 0.8.0 D4.4): FEEDBACK_MAX entries at their largest through the list rule; one entry travels whole
+  'sticky.feedback.create': { payload: { note: noteName(0), text: wide(L.FEEDBACK_TEXT_MAX_CHARS) }, result: { feedback: worstFeedback(0) } },
+  'sticky.feedback.withdraw': { payload: { feedbackId: id('fb') }, result: { feedback: worstFeedback(0, 'withdrawn') } },
+  'sticky.feedback.accept': { payload: { feedbackId: id('fb') }, result: { feedback: worstFeedback(0, 'accepted') } },
+  'sticky.feedback.reject': { payload: { feedbackId: id('fb'), reason: wide(L.REASON_MAX_CHARS) }, result: { feedback: worstFeedback(0) } },
+  'sticky.feedback.list': { payload: { after: id('fb') }, result: { feedback: list(L.FEEDBACK_MAX, (index) => worstFeedback(index)), hasMore: true } },
+  'sticky.feedback.updated': { payload: { feedback: worstFeedback(0) } },
 };

@@ -56,6 +56,9 @@ const ARCH_3: Record<Capability, readonly [boolean, boolean, boolean, boolean]> 
   'file.write': [true, true, true, false],
   'suggest.create': [true, true, true, false],
   discuss: [true, true, true, false],
+  // 0.8.0 (DESIGN 0.8.0 D4.1): every role gives feedback on a sticky note. ARCHITECTURE §3 gains this row (and §11
+  // its departure D-31) with the documents of 0.8.0.
+  'feedback.give': [true, true, true, true],
   'session.create': [true, true, false, false],
   'session.drive': [true, true, false, false],
   'worktree.merge.request': [true, true, false, false],
@@ -110,6 +113,12 @@ describe('capability matrix vs SPEC §8 (cell by cell)', () => {
     expect(can(role, 'discuss')).toBe(expected);
   });
 
+  // Owner's brief for 0.8.0 ("everyone"; DESIGN 0.8.0 D4.1): every role, a Viewer too, gives feedback on a sticky note,
+  // which reaches no agent until a member with session.drive accepts it. It has no row in SPEC §8, which is not edited.
+  it.each(ROLES.map((role) => [role, true] as const))('give feedback | %s = %s', (role, expected) => {
+    expect(can(role, 'feedback.give')).toBe(expected);
+  });
+
   it('R10 run-on-behalf is not a prototype capability', () => {
     expect(CAPABILITIES.some((capability) => capability.startsWith('exec.request'))).toBe(false);
   });
@@ -149,8 +158,9 @@ describe('can()', () => {
   });
 
   it('capabilitiesOf lists the row', () => {
-    expect(capabilitiesOf('viewer')).toEqual(['file.read', 'file.download', 'session.view']);
-    expect(capabilitiesOf('editor')).toEqual(['file.read', 'file.download', 'file.write', 'session.view', 'suggest.create', 'discuss']);
+    // 0.8.0 (DESIGN 0.8.0 D4.1): every role gains `feedback.give`, after `discuss`.
+    expect(capabilitiesOf('viewer')).toEqual(['file.read', 'file.download', 'session.view', 'feedback.give']);
+    expect(capabilitiesOf('editor')).toEqual(['file.read', 'file.download', 'file.write', 'session.view', 'suggest.create', 'discuss', 'feedback.give']);
     expect(capabilitiesOf('agent')).toEqual([
       'file.read',
       'file.download',
@@ -160,6 +170,7 @@ describe('can()', () => {
       'session.drive',
       'suggest.create',
       'discuss',
+      'feedback.give',
       'worktree.merge.request',
     ]);
   });

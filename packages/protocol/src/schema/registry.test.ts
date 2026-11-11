@@ -201,11 +201,18 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['admin.hostRules.seen', 'c→d', '[admin]'],
   ['admin.notice.seen', 'c→d', '[admin]'],
   ['admin.transcript.redact', 'c→d', '[admin]'],
-  // §5.12 (protocol 7, DESIGN 0.8.0 D2, D3.5)
+  // §5.12 (protocol 7, DESIGN 0.8.0 D2, D3.5, D4)
   ['sticky.list', 'c→d', '[file.read]'],
   ['sticky.changed', 'd→c', ''],
   ['sticky.create', 'c→d', '[file.write]'],
   ['sticky.assistant.start', 'c→d', '[session.create]'],
+  // §5.12, feedback (DESIGN 0.8.0 D4.4)
+  ['sticky.feedback.create', 'c→d', '[feedback.give]'],
+  ['sticky.feedback.withdraw', 'c→d', '(author, waiting)'],
+  ['sticky.feedback.accept', 'c→d', '[session.drive]'],
+  ['sticky.feedback.reject', 'c→d', '[session.drive]'],
+  ['sticky.feedback.list', 'c→d', '[file.read]'],
+  ['sticky.feedback.updated', 'd→c', ''],
 ];
 
 function expectedAccess(dir: ArchDir, notation: string): MessageAccess {
@@ -269,7 +276,8 @@ describe('required capability matches ARCHITECTURE', () => {
   });
 
   it('every owner-checked type names the rule its handler must apply', () => {
-    const ownershipChecks = new Set(['session-owner', 'session-end-rule', 'suggestion-author-pending', 'worktree-owner-or-host']);
+    // protocol 7: only the author withdraws their feedback on a sticky note, while it waits (DESIGN 0.8.0 D4.4)
+    const ownershipChecks = new Set(['session-owner', 'session-end-rule', 'suggestion-author-pending', 'feedback-author-waiting', 'worktree-owner-or-host']);
     for (const type of MESSAGE_TYPES) {
       const spec = MESSAGE_REGISTRY[type];
       if (spec.capability === 'owner-checked-in-handler') {
@@ -315,6 +323,12 @@ describe('required capability matches ARCHITECTURE', () => {
     // Nothing of the inbox names another member.
     for (const type of ['inbox.list', 'inbox.seen', 'inbox.dismiss'] as const) expect(MESSAGE_REGISTRY[type].checks, type).toEqual(['own-inbox']);
     expect(MESSAGE_REGISTRY['inbox.changed'].checks).toEqual(['recipients:self']);
+    // Protocol 7 (DESIGN 0.8.0 D4.4): feedback is withdrawn by its author while it waits, and decided while it waits;
+    // every member reads it.
+    expect(MESSAGE_REGISTRY['sticky.feedback.withdraw'].checks).toEqual(['feedback-author-waiting']);
+    for (const type of ['sticky.feedback.accept', 'sticky.feedback.reject'] as const) expect(MESSAGE_REGISTRY[type].checks, type).toEqual(['feedback-waiting']);
+    expect(MESSAGE_REGISTRY['sticky.feedback.create'].checks).toEqual([]);
+    expect(MESSAGE_REGISTRY['sticky.feedback.updated'].checks).toEqual(['recipients:all']);
   });
 
   it('events name their recipients; c2d types do not', () => {
@@ -357,6 +371,8 @@ describe('volatile messages, rates and size rules (ARCHITECTURE §4.3, §5.9)', 
       'suggest.edit': 'suggestion',
       'topic.revise': 'suggestion',
       'report.followUp': 'suggestion',
+      // protocol 7 (DESIGN 0.8.0 D4.4): feedback on a sticky note takes a token of the suggestions' bucket
+      'sticky.feedback.create': 'suggestion',
     });
     for (const type of Object.keys(rated)) expect(MESSAGE_REGISTRY[type as MessageType].dir, type).toBe('c2d');
     expect([...RATE_BUCKETS].sort()).toEqual(Object.keys(RATE_LIMITS_PER_MINUTE).sort());
@@ -378,6 +394,8 @@ describe('volatile messages, rates and size rules (ARCHITECTURE §4.3, §5.9)', 
       'admin.claudeConfig.get': 'list',
       // protocol 7: the index of the sticky notes, 500 notes at their largest do not fit one list reply
       'sticky.list': 'list',
+      // protocol 7: FEEDBACK_MAX entries of feedback at their largest are about 13 MB (DESIGN 0.8.0 D4.4)
+      'sticky.feedback.list': 'list',
     });
     expect(EVENTS_PAGE_MAX_BYTES).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(EVENTS_BATCH_MAX_BYTES).toBeLessThan(EVENTS_PAGE_MAX_BYTES);
@@ -468,6 +486,8 @@ describe('sensitivity', () => {
     const SECRETS = [
       'sk-ant-api03-abc', '#k=abc&s=def', 'diff --git', 'amy()', 'agent()', 'base()',
       // conversations: a person's message, a command, an edit's diff, a note, a suggestion, a report section, a raw settings file
+      // (protocol 7: feedback on a sticky note, a reason not to take it, an outside author's name)
+      'Add a dark mode please', 'coupon field is hard', 'Mei Chen', 'Not now',
       'Where should the cart live?', 'pnpm test cart', '+++ b/docs/x.md', 'Amy asked for the server', 'Both, behind a flag', 'Run the unit tests only',
       'please run the tests', 'Make the scope smaller', 'does not check stock yet', '"hooks"', '/Users/ian/notes.txt',
       // the diff of the spec since the last Start
@@ -579,6 +599,13 @@ describe('wire types and router checks', () => {
     expect(mayInvoke('viewer', 'sticky.create')).toBe(false);
     for (const role of ['host', 'agent'] as const) expect(mayInvoke(role, 'sticky.assistant.start'), role).toBe(true);
     for (const role of ['editor', 'viewer'] as const) expect(mayInvoke(role, 'sticky.assistant.start'), role).toBe(false);
+    // Everyone, a Viewer too, gives feedback, reads it and withdraws their own (the handler checks the author); only a
+    // member with agent access accepts or rejects it (DESIGN 0.8.0 D4.1, D4.4).
+    for (const role of ROLES) for (const type of ['sticky.feedback.create', 'sticky.feedback.withdraw', 'sticky.feedback.list']) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
+    for (const type of ['sticky.feedback.accept', 'sticky.feedback.reject']) {
+      for (const role of ['host', 'agent'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
+      for (const role of ['editor', 'viewer'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(false);
+    }
     expect(mayInvoke('viewer', 'exec.resize')).toBe(true); // the owner check happens in the handler
     expect(mayInvoke('viewer', 'session.end')).toBe(true); // the handler decides who may end which session
     for (const role of ROLES) {
@@ -592,7 +619,7 @@ describe('wire types and router checks', () => {
     expect(mayReceive('viewer', 'admin.audit.entry')).toBe(false);
     expect(mayReceive('host', 'admin.audit.entry')).toBe(true);
     expect(mayReceive('viewer', 'exec.output')).toBe(true);
-    for (const type of ['session.host', 'session.events', 'session.delta', 'question.updated', 'permission.updated', 'topic.updated', 'plan.updated', 'report.updated', 'inbox.changed', 'sticky.changed']) {
+    for (const type of ['session.host', 'session.events', 'session.delta', 'question.updated', 'permission.updated', 'topic.updated', 'plan.updated', 'report.updated', 'inbox.changed', 'sticky.changed', 'sticky.feedback.updated']) {
       expect(mayReceive('viewer', type), type).toBe(true);
     }
     expect(mayReceive('viewer', 'file.read.ok')).toBe(true);

@@ -134,6 +134,12 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'sticky.list': {},
   'sticky.create': { name: 'Home' },
   'sticky.assistant.start': {},
+  // Feedback on a note that is not there, and on feedback that does not exist.
+  'sticky.feedback.create': { note: 'Nowhere', text: 'Add a dark mode please.' },
+  'sticky.feedback.withdraw': { feedbackId: 'fb_nope' },
+  'sticky.feedback.accept': { feedbackId: 'fb_nope' },
+  'sticky.feedback.reject': { feedbackId: 'fb_nope' },
+  'sticky.feedback.list': {},
 };
 
 export const NOTIFY_SAMPLES: { readonly [T in InboundNotifyType]: PayloadInputOf<T> } = {

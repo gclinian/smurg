@@ -1,4 +1,5 @@
-// The sticky notes (DESIGN 0.8.0 D1, D2): refusals of `sticky.*`. A note's name is a file's name: never translated.
+// The sticky notes (DESIGN 0.8.0 D1, D2, D4): refusals of `sticky.*`. A note's name is a file's name: never translated.
+// Feedback has the GLOSSARY's word; its decisions are the suggestion's words (Accept, Reject) in both languages.
 // (The i18n entry imports nothing outside i18n/: the 80 of NOTE_NAME_MAX_CHARS is written here, and the daemon's
 // create.test.ts holds it to the limit.)
 import { message } from '../define.ts';
@@ -48,5 +49,43 @@ export const sticky = {
   'sticky.create.full': message({ max: 'number' }, {
     en: (p) => `There are already ${p.max} sticky notes, the most smurg can list. Delete one in the file tree of Code mode first.`,
     'zh-TW': (p) => `已經有 ${p.max} 張便利貼，這是 smurg 能列出的上限。請先在手寫 code 模式的檔案樹刪掉一張`,
+  }),
+
+  // ---- feedback on sticky notes (D4) ----------------------------------------------------------------------------
+  'sticky.note.missing': message({ name: 'string' }, {
+    en: (p) => `There is no sticky note named ${p.name}.`,
+    'zh-TW': (p) => `沒有叫做「${p.name}」的便利貼`,
+  }),
+  'sticky.feedback.notFound': message({}, {
+    en: () => 'That feedback was not found.',
+    'zh-TW': () => '找不到這則意見',
+  }),
+  'sticky.feedback.notWaiting': message({}, {
+    en: () => 'This feedback was already accepted, rejected or withdrawn.',
+    'zh-TW': () => '這則意見已經被採用、不採用或撤回了',
+  }),
+  'sticky.feedback.accepting': message({}, {
+    en: () => 'This feedback is being accepted right now.',
+    'zh-TW': () => '這則意見正在採用中',
+  }),
+  'sticky.feedback.authorOnly': message({}, {
+    en: () => 'Only the person who wrote this feedback can withdraw it.',
+    'zh-TW': () => '只有寫這則意見的人可以撤回它',
+  }),
+  'sticky.feedback.invalidText': message({}, {
+    en: () => 'The feedback is blank, or too long once hidden characters are removed.',
+    'zh-TW': () => '意見內容是空白的，或是移除隱藏字元後仍然太長',
+  }),
+  'sticky.feedback.tooManyWaiting': message({ max: 'number' }, {
+    en: (p) => `You have ${p.max} pieces of feedback waiting for a decision, the most one person may have. Wait for a decision, or withdraw one.`,
+    'zh-TW': (p) => `你已經有 ${p.max} 則意見在等待處理，這是一個人的上限。請等候決定，或撤回其中一則`,
+  }),
+  'sticky.feedback.full': message({}, {
+    en: () => 'Too much feedback is waiting for a decision. Wait until some of it is accepted or rejected.',
+    'zh-TW': () => '等待處理的意見太多了，請等一些意見被採用或不採用之後再寫',
+  }),
+  'sticky.feedback.noAssistant': message({}, {
+    en: () => 'Claude for the sticky notes is not running. Start it first: accepted feedback goes to it.',
+    'zh-TW': () => '便利貼的 Claude 沒有在執行。請先啟動它：採用的意見會交給它',
   }),
 } as const;

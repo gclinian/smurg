@@ -5,8 +5,10 @@ import { describe, expect, it } from 'vitest';
 import { collectPages, decodeEnvelope, encodeEnvelope, encodedSize, takeListPage, takeWithinBytes } from '../codec.ts';
 import { MAX_APP_MESSAGE, MSGPACK_MAX_STR_LENGTH } from '../constants.ts';
 import { agentSessionSchema } from './entities.ts';
+import { stickyFeedbackListResultSchema } from './messages/sticky.ts';
+import { feedbackSchema } from './sticky.ts';
 import { inboxItemSchema } from './inbox.ts';
-import { AUTO_MERGE_TEXT_MAX_BYTES, EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES, PLAN_INFO_ITEMS_MAX } from './limits.ts';
+import { AUTO_MERGE_TEXT_MAX_BYTES, EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, FEEDBACK_MAX, LIST_REPLY_MAX_BYTES, PLAN_INFO_ITEMS_MAX } from './limits.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES, type MessageType } from './registry.ts';
 import { autoMergeInfoSchema, autoMergeTextBytes, planInfoSchema, startPreflightSchema } from './topics.ts';
 import {
@@ -16,6 +18,7 @@ import {
   worstDecisionItem,
   worstDirectPreflight,
   worstEvent,
+  worstFeedback,
   worstHostState,
   worstInboxItem,
   worstNote,
@@ -96,8 +99,9 @@ describe('worst-case sizes of the protocol 4 and 5 messages', () => {
     expect(sizes.inboxItem).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(sizes.suggestion).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(encodedSize(worstSession)).toBeLessThan(LIST_REPLY_MAX_BYTES);
-    // protocol 7: one sticky note of the index (D2.4)
+    // protocol 7: one sticky note of the index (D2.4); one feedback (D4.4)
     expect(encodedSize(worstNote(0))).toBeLessThan(LIST_REPLY_MAX_BYTES);
+    expect(encodedSize(worstFeedback(0))).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(sizes.configRoot).toBeLessThan(MAX_APP_MESSAGE - 64 * 1024);
     // Single entities that travel whole.
     expect(encodedSize(worstPlan)).toBeLessThan(MAX_APP_MESSAGE);
@@ -215,11 +219,31 @@ describe('takeWithinBytes: the one rule behind every bounded reply', () => {
   });
 });
 
-describe('worst-case sizes of what protocol 7 added (DESIGN 0.8.0 D3)', () => {
+describe('worst-case sizes of what protocol 7 added (DESIGN 0.8.0 D3, D4)', () => {
   it('Claude for the sticky notes at its largest is a valid session and fits the list budget like every other session', () => {
     const parsed = agentSessionSchema.safeParse(worstNotesSession);
     expect(parsed.success, parsed.success ? '' : JSON.stringify(parsed.error.issues.slice(0, 3))).toBe(true);
     expect(encodedSize(worstNotesSession)).toBeLessThanOrEqual(encodedSize(worstSession));
     expect(encodedSize(worstNotesSession)).toBeLessThan(LIST_REPLY_MAX_BYTES);
+  });
+
+  it('FEEDBACK_MAX entries of feedback at their largest (D4.4, D4.5) do not fit one reply: the list rule pages them, and a client reads them all', async () => {
+    const all = Array.from({ length: FEEDBACK_MAX }, (_, index) => worstFeedback(index) as { id: string });
+    for (const entry of all.slice(0, 3)) expect(feedbackSchema.safeParse(entry).success).toBe(true);
+    // Every one of them together is far beyond one Envelope (about 13 MB).
+    expect(encodedSize(all)).toBeGreaterThan(MAX_APP_MESSAGE);
+    const first = takeListPage(all, undefined, (entry) => entry.id);
+    expect(first.hasMore).toBe(true);
+    expect(first.items.length).toBeLessThan(FEEDBACK_MAX);
+    expect(encodedSize(first.items)).toBeLessThanOrEqual(LIST_REPLY_MAX_BYTES);
+    let pages = 0;
+    const read = await collectPages(async (after) => {
+      pages += 1;
+      const page = takeListPage(all, after, (entry) => entry.id);
+      expect(stickyFeedbackListResultSchema.safeParse({ feedback: page.items, hasMore: page.hasMore }).success).toBe(true);
+      return page;
+    }, (entry) => entry.id);
+    expect(read.map((entry) => entry.id)).toEqual(all.map((entry) => entry.id));
+    expect(pages).toBeGreaterThan(1);
   });
 });

@@ -1,12 +1,13 @@
-// The sticky module's service (DESIGN 0.8.0 D2, D3.5): the index of the notes and what members do with it, and the one
-// Claude for the sticky notes of the workspace. No other module calls it (no service slot): its handlers and its bus
-// listeners are its only callers.
+// The sticky module's service (DESIGN 0.8.0 D2, D3.5, D4): the index of the notes and what members do with it, the one
+// Claude for the sticky notes of the workspace, and the feedback on the notes (feedback.ts; its one send to an agent
+// is accept.ts). No other module calls it (no service slot): its handlers and its bus listeners are its only callers.
 //
 //   sticky.list             one list-rule page of the index (`sources` stays empty until the outside sources come)
 //   sticky.changed          what changed in the index, to every member who may read files
 //   sticky.create           a new, empty note, written as the caller through the file service (its audit entry and
 //                           activity name the person); `notes/` is made when it is missing
 //   sticky.assistant.start  the running notes session, or one started now for the caller
+//   sticky.feedback.*       feedback.ts (create, withdraw, reject, list) and accept.ts (accept)
 //
 // Writes of one workspace run one at a time (`serial`): two creates of `Home` and `home`, or two presses of "Start
 // Claude", never interleave their checks and their writes. What waited its turn checks again what may have changed
@@ -37,6 +38,8 @@ import { AuthorizationError } from '../core/errors.ts';
 import type { PersistentDocument, Principal } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { isStubService } from '../core/stubs.ts';
+import { FeedbackAccept } from './accept.ts';
+import { FeedbackService, type FeedbackLimits } from './feedback.ts';
 import { NoteIndex, lookAtNotesFolder, type IndexChange } from './index.ts';
 import { notesRolePrompt } from './prompts.ts';
 import { STICKY_DOCUMENT, initialStickyDocument, stickyDocumentSchema, type StickyDocument } from './store.ts';
@@ -44,6 +47,8 @@ import { STICKY_DOCUMENT, initialStickyDocument, stickyDocumentSchema, type Stic
 export interface StickyModuleOptions {
   /** The quiet period after a change in `notes/` before the index reads again (default 500 ms, as the topics' files). */
   readonly fileDebounceMs?: number;
+  /** The bounds of the feedback (D4.5; default the protocol's: 20 waiting per member, 300 from members, 1000, 2 Mi). */
+  readonly feedbackLimits?: Partial<FeedbackLimits>;
 }
 
 export const DEFAULT_STICKY_DEBOUNCE_MS = 500;
@@ -80,12 +85,18 @@ class Serial {
 export class StickyServiceImpl {
   private readonly ctx: DaemonContext;
   readonly index: NoteIndex;
+  /** The feedback on the notes (D4): kept, shown, rejected, withdrawn; it reaches no agent there. */
+  readonly feedback: FeedbackService;
+  /** Accepting feedback: the one send of feedback to an agent (D4.6). */
+  readonly acceptor: FeedbackAccept;
   private readonly serial = new Serial();
   private doc: PersistentDocument<StickyDocument> | null = null;
 
   constructor(ctx: DaemonContext, options: StickyModuleOptions = {}) {
     this.ctx = ctx;
     this.index = new NoteIndex(ctx, { debounceMs: options.fileDebounceMs ?? DEFAULT_STICKY_DEBOUNCE_MS }, (change) => this.announce(change));
+    this.feedback = new FeedbackService(ctx, { index: this.index, document: () => this.requireDoc(), ...(options.feedbackLimits === undefined ? {} : { limits: options.feedbackLimits }) });
+    this.acceptor = new FeedbackAccept(ctx, { feedback: this.feedback, assistant: () => this.assistant() });
   }
 
   /** The bus listeners: changes on disk of the main workspace, saves of the editor, a watcher that may have missed some. */
@@ -107,6 +118,7 @@ export class StickyServiceImpl {
         if (rootRefKey(event.root) === main) this.index.onWatcherError();
       }),
     );
+    stack.add(this.feedback.attach());
     return stack;
   }
 
@@ -229,6 +241,12 @@ export class StickyServiceImpl {
   /** Claude for the sticky notes: the agent session of purpose `notes` that has not ended, or null. */
   assistant(): AgentSession | null {
     return this.ctx.services.agents.list().find((session) => session.purpose === 'notes' && !isSessionOver(session)) ?? null;
+  }
+
+  /** sticky.json, once the module started (a request before that is refused, never answered from nothing). */
+  private requireDoc(): PersistentDocument<StickyDocument> {
+    if (this.doc === null) throw new SmurgError('internal', undefined, { reason: 'not-started' });
+    return this.doc;
   }
 
   private announce(change: IndexChange): void {

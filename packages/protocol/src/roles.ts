@@ -36,6 +36,9 @@ export const CAPABILITIES = [
   'session.drive',
   'suggest.create',
   'discuss', // vote, comment, mention, be responsible, review a result report
+  // Write feedback on a sticky note, and withdraw one's own while it waits (DESIGN 0.8.0 D4.1: everyone, a Viewer
+  // too). It reaches no agent by itself: accepting it is `session.drive`.
+  'feedback.give',
   'worktree.merge.request',
   'worktree.merge.decide',
   'lock.force-release',
@@ -56,6 +59,7 @@ const MATRIX: Matrix = {
   'file.write': { host: true, agent: true, editor: true, viewer: false },
   'suggest.create': { host: true, agent: true, editor: true, viewer: false },
   discuss: { host: true, agent: true, editor: true, viewer: false },
+  'feedback.give': { host: true, agent: true, editor: true, viewer: true },
   'session.create': { host: true, agent: true, editor: false, viewer: false },
   'session.drive': { host: true, agent: true, editor: false, viewer: false },
   'worktree.merge.request': { host: true, agent: true, editor: false, viewer: false },

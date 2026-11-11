@@ -124,6 +124,9 @@ export const notesSession = {
 /** Sticky notes (protocol 7): Home links to two notes, one of which is not written yet. */
 export const homeNote = { name: 'Home', links: ['Checkout', 'Payment form'] };
 export const checkoutNote = { name: 'Checkout', links: ['Home', '結帳流程'] };
+/** Feedback on a sticky note (protocol 7, DESIGN 0.8.0 D4.3): a Viewer's that waits, and an outsider's that was cut. */
+export const waitingFeedback = { id: 'fb_1', note: 'Home', text: 'Add a dark mode please.', author: { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } }, status: 'waiting', createdAt: T };
+export const outsideFeedback = { id: 'fb_2', note: 'Checkout', text: 'The coupon field is hard to find.', cut: true, author: { kind: 'outside', source: 'slack', name: 'Mei Chen', externalId: 'U012ABCDEF' }, status: 'waiting', createdAt: T };
 export const suggestion = {
   id: 'sg_1',
   sessionId: 'sess_a',
@@ -2117,5 +2120,47 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'sticky.assistant.start': {
     payload: emptyOnly,
     result: { valid: [{ session: notesSession }], invalid: [{}, { session: session }, { session: { ...notesSession, topicId: 'tp_1' } }] },
+  },
+  // ---- sticky.feedback.* (protocol 7, DESIGN 0.8.0 D4.4) ------------------------------------------------------------
+  'sticky.feedback.create': {
+    payload: {
+      valid: [{ note: 'Home', text: 'Add a dark mode please.' }, { note: '結帳流程', text: '優惠券欄位很難找' }, { note: 'Home', text: 'x'.repeat(4000) }],
+      invalid: [{ note: 'Home' }, { note: 'Home', text: '' }, { note: 'Home', text: '   ' }, { note: 'Home', text: 'a\u0000b' }, { note: 'Home', text: 'x'.repeat(4001) }, { note: 'a/b', text: 'x' }, { note: 'CLAUDE', text: 'x' }, { note: 'Home', text: 'x', author: AMY_REF }],
+    },
+    result: {
+      valid: [{ feedback: waitingFeedback }, { feedback: outsideFeedback }],
+      invalid: [{}, { feedback: { ...waitingFeedback, status: 'accepted' } }, { feedback: { ...waitingFeedback, note: 'a/b' } }],
+    },
+  },
+  'sticky.feedback.withdraw': {
+    payload: { valid: [{ feedbackId: 'fb_1' }], invalid: [{}, { feedbackId: '' }, { feedbackId: 'fb_1', also: 1 }] },
+    result: { valid: [{ feedback: { ...waitingFeedback, status: 'withdrawn' } }], invalid: [{ feedback: { ...waitingFeedback, status: 'gone' } }] },
+  },
+  'sticky.feedback.accept': {
+    payload: { valid: [{ feedbackId: 'fb_1' }], invalid: [{}, { feedbackId: 'fb_1', text: 'edited by the reviewer' }] },
+    result: {
+      valid: [{ feedback: { ...waitingFeedback, status: 'accepted', decidedBy: { userId: 'dev:ian', displayName: 'Ian' }, decidedAt: T + 1 } }],
+      invalid: [{ feedback: { ...waitingFeedback, status: 'accepted' } }, { feedback: { ...waitingFeedback, decidedBy: { userId: 'dev:ian', displayName: 'Ian' }, decidedAt: T + 1 } }],
+    },
+  },
+  'sticky.feedback.reject': {
+    payload: { valid: [{ feedbackId: 'fb_1' }, { feedbackId: 'fb_1', reason: 'Not now' }], invalid: [{}, { feedbackId: 'fb_1', reason: 'a\nb' }, { feedbackId: 'fb_1', reason: 'x'.repeat(1001) }] },
+    result: {
+      valid: [{ feedback: { ...waitingFeedback, status: 'rejected', decidedBy: { userId: 'dev:ian', displayName: 'Ian' }, decidedAt: T + 1, rejectReason: 'Not now' } }],
+      invalid: [{ feedback: { ...waitingFeedback, status: 'waiting', rejectReason: 'Not now' } }],
+    },
+  },
+  'sticky.feedback.list': {
+    payload: { valid: [{}, { after: 'fb_1' }], invalid: [{ after: '' }, { after: 'fb_1', note: 'Home' }] },
+    result: {
+      valid: [{ feedback: [waitingFeedback, outsideFeedback], hasMore: false }, { feedback: [], hasMore: true }],
+      invalid: [{ feedback: [waitingFeedback] }, { feedback: [{ ...outsideFeedback, author: { ...outsideFeedback.author, externalId: 'member' } }], hasMore: false }],
+    },
+  },
+  'sticky.feedback.updated': {
+    payload: {
+      valid: [{ feedback: waitingFeedback }, { feedback: outsideFeedback }, { removed: 'fb_1' }],
+      invalid: [{}, { feedback: waitingFeedback, removed: 'fb_1' }, { removed: '' }, { feedback: { ...waitingFeedback, cut: true } }],
+    },
   },
 };

@@ -129,10 +129,15 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * and schema/registry.ts and schema/index.ts (the sticky.* messages); schema/limits.ts gained the sticky notes' bounds.
  * No document a published smurg wrote accepts anything else: no step. Taken again for 0.8.0 S3 (DESIGN 0.8.0 D1.4, D7.5):
  * notes.ts gained wikiLinkSpans, the web renderer's finder of wiki links, which shares the one link rule of wikiLinks;
- * no stored rule changed (noteNameSchema and every schema are as they were): no step.
+ * no stored rule changed (noteNameSchema and every schema are as they were): no step. Taken again for 0.8.0 S5 (DESIGN
+ * 0.8.0 D4.1, D4.4, D4.6, D4.8): the audit's action enum widens by the four actions of feedback (schema/entities.ts;
+ * shapes/audit.line.txt): no step, as 0.6.0 and 0.7.0 widened it; roles.ts gained the capability feedback.give (no
+ * stored file holds a capability); agent-text.ts gained composeFeedback and outsideSafeName (no schema); the
+ * registry and schema/messages/sticky.ts gained the six sticky.feedback.* messages (the wire only). The shape of
+ * sticky.json (sticky/store.ts, schema/sticky.ts) is as S2 declared it.
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
-  'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
+  'agent-text.ts': '46b91b84394ab8f98101518742ba31ba3989c7db5676565d7e81756f5026a296',
   'bytes.ts': '7fc163368b2d2a82d5ce3d834922c96611f20331e61bff91b5ad22276391fa1c',
   'channel/identity-binding.ts': '57e7cbac993b088e66a8193dfca6054b5d6a8cfb5d95175c9eaf4d42c786e6dd',
   'codec.ts': '377cf872871c2185149f8b9cead0cf36bb19d0e7e3cf966c2b92988e5a25422a',
@@ -147,11 +152,11 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'relay/close-codes.ts': '9902b5aa33153f93751c4f8ebe9100b25bb5aec0f247812328a4e0f49a903ac1',
   'relay/frames.ts': '6cc87c1c2bf9aeec18facc53d8b78ed8c75dd2c2698f0ae73e0bb5babe136901',
   'relay/routes.ts': '223fb92a4cf5f0456e6f4e27f8860db2fddfe23ff06c5b133cc51fa5feb26ec5',
-  'roles.ts': 'aefbcc4c97c5d783c99a6a3c5b1e9cb15668796446f5b3927c0655bcd23b6da2',
+  'roles.ts': 'a882ab12fc2b5243a578fdd58303ee271dc1c8e340a6c8e4d25611c504b00277',
   'routing.ts': '9752b6e69cd23271eac35937fffbdd7e8bcf64e262ee31e51f51319508f7d15e',
   'schema/awareness.ts': '15f7202e552ced9496fb7ff62ccb1702eb4d1a808be278acf09e78999cdc768a',
   'schema/conversation.ts': '46239fc902c8df5659ab091009d163692a1bb85dece38e928a91df649c2963c4',
-  'schema/entities.ts': 'ad469160710b99ca9d79f8d27398dc25b885a4fb1ee7f3172c45aec61fedfc4f',
+  'schema/entities.ts': 'fa2806c95083705e652c2f13e080b466c7ab76e01376f588e7c495a2a7b540db',
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '828b5f8148c55008f22c057fe7e331826d90d9542bec3f6ebaf1ddfd067872b8',
   'schema/inbox.ts': '86b253ecc452a771573942c4171fbff87e91ab57238577368c6203ddb9634b2b',
@@ -166,7 +171,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/messages/inbox.ts': 'ca34d41770beb621beb629b4290cb7a6d934fde52229b368f4059c0c6c1b174f',
   'schema/messages/presence.ts': 'b072fa7f56d76819acf58811ff698efb3cf8c2dd87c80fee42a5f8938ec11c10',
   'schema/messages/sessions.ts': '2b5ff7a0bd5e1665a44d62389510e10f00e9750736d30f786db0f2399b88ae58',
-  'schema/messages/sticky.ts': 'd598f92ec031874754cbd3c35601ff172fba350f6fc9d3214b55623a791f2315',
+  'schema/messages/sticky.ts': '68c3ea5f05d8fdd6edd710542a02bdb038ed936242a9a837b6676e61014f4a40',
   'schema/messages/suggestions.ts': 'db0a00d60c70ae8b4c92a228a7f1ef48e3b484bdb20b692e6056d9428a2cfd3c',
   'schema/messages/topics.ts': 'ac81c622ca6043a04cf80900451e7cf51b71cc786b8d7ea4b0b31bccd6a34557',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
@@ -174,7 +179,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/paths.ts': 'd3fdca5a1bd0dbe1acc27d7559fa309bcffcc4952af7a4db723c08e87148c6a5',
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
-  'schema/registry.ts': '7518e50815ba2ac723cacfecbb47d752cc05a8353e2bd9e3ad37bbf9b41f7e35',
+  'schema/registry.ts': 'f8c4b9d2dbedd4ea3ca3b3a9b4f99ca91ce42d0a1f435a707718540f83b1c664',
   'schema/sticky.ts': 'd38f25525a1422b32cf71446a5dbb8a146e6b1cf9cf1c35ebe41d05088826ae1',
   'schema/topics.ts': '3a13817b41681e941d2f112ed27a9e88cfaa2d15ed11b0d4525cd115e822d571',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',

@@ -1,14 +1,21 @@
 // TEST ONLY: a test daemon with the REAL files and locks modules (the watcher on a real folder, the file service) and
 // the REAL sticky module, fakes for everything else, and four members over real connections. What the Viewer's
-// connection was sent of `sticky.changed` is collected: every member who may read files gets it.
+// connection was sent of `sticky.changed` is collected: every member who may read files gets it. With
+// `conversation: true` (the feedback, DESIGN 0.8.0 D4) the conversation and suggest modules are the real ones too, in
+// front of the FAKE agent runtime, which records every message it is sent (`fakes.agents.log.of('send')`).
+import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import type { PayloadOf } from '@smurg/protocol';
-import { fakesModule } from '../../src/core/fakes/index.ts';
+import type { FeatureModule } from '../../src/core/context.ts';
+import { fakesModule, fakesOf, type Fakes } from '../../src/core/fakes/index.ts';
+import { toDisposable } from '../../src/core/lifecycle.ts';
+import { createConversationModule } from '../../src/conversation/module.ts';
 import { createMemoryLogger } from '../../src/core/logger.ts';
 import { createFilesModule } from '../../src/files/module.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createStickyModule } from '../../src/sticky/module.ts';
-import type { StickyServiceImpl } from '../../src/sticky/service.ts';
+import type { StickyModuleOptions, StickyServiceImpl } from '../../src/sticky/service.ts';
+import { createSuggestModule } from '../../src/suggest/module.ts';
 import { createTempDir, createTempProject, createTestDaemon, removeTempDir, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
 
 export const MEI = 'dev:mei';
@@ -20,6 +27,8 @@ export interface NotesStack {
   /** The shared folder. */
   readonly root: string;
   readonly service: StickyServiceImpl;
+  /** The fakes of every slot this daemon did not get a real module for (the agent runtime among them). */
+  readonly fakes: Fakes;
   /** The host, Mei (Agent access), Amy (an Editor), Leo (a Viewer). */
   readonly host: TestClient;
   readonly mei: TestClient;
@@ -40,6 +49,10 @@ export interface NotesOptions {
   readonly prepare?: (root: string) => Promise<void>;
   /** false: no file watcher (only what the daemon is told reaches the index). */
   readonly watch?: boolean;
+  /** The real conversation and suggest modules in front of the fake agent runtime (an accept's message is real). */
+  readonly conversation?: boolean;
+  /** The sticky module's own options (the bounds of the feedback). */
+  readonly sticky?: Omit<StickyModuleOptions, 'fileDebounceMs'>;
 }
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -53,9 +66,11 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
   cleanups.push(() => removeTempDir(scratch));
   const root = await createTempProject(scratch, 'project', { files: options.files ?? {} });
   await options.prepare?.(root);
-  const sticky = createStickyModule({ fileDebounceMs: 30 });
+  const sticky = createStickyModule({ ...options.sticky, fileDebounceMs: 30 });
   const log = createMemoryLogger();
-  const t = await createTestDaemon({ root, log, modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakesModule({ handlers: true }), sticky] });
+  const real: FeatureModule[] = options.conversation === true ? [conversationSeed, createConversationModule(), createSuggestModule()] : [];
+  const fakes = fakesModule({ handlers: true, ...(options.conversation === true ? { except: ['conversation', 'suggestions'] as const } : {}) });
+  const t = await createTestDaemon({ root, log, modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakes, ...real, sticky] });
   cleanups.push(() => t.cleanup());
   const service = sticky.serviceOf(t.ctx) as StickyServiceImpl;
   const host = await t.connectHost();
@@ -68,6 +83,7 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
     t,
     root,
     service,
+    fakes: fakesOf(t.ctx),
     host,
     mei,
     amy,
@@ -81,3 +97,12 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
     },
   };
 }
+
+/** Where the fake agent runtime keeps a session's private directory: the real conversation module keeps cards there. */
+const conversationSeed: FeatureModule = {
+  name: 'test-seed',
+  register: () => toDisposable(() => {}),
+  start: async (ctx) => {
+    fakesOf(ctx).agents.storageRoot = join(ctx.state.dir, 'transcripts');
+  },
+};

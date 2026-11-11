@@ -4,7 +4,8 @@
 // states, shape by shape, what a peer of protocol 6 meets: the Welcome gained a required key, so this side refuses
 // protocol 6's; a session only gained an enum value, so for it the meaningful direction is the other one: protocol
 // 6's own strict schema (the code of tag v0.7.0, the last published smurg of protocol 6) refuses a session of purpose
-// `notes`; and protocol 6 has no message `sticky.*` (its registry knows none of the four types).
+// `notes`; protocol 6 has no message `sticky.*` (its registry knows none of the ten types), no capability
+// `feedback.give` and none of the four audit actions of feedback (DESIGN 0.8.0 D4.1, D4.8).
 import { execFile } from 'node:child_process';
 import { cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -13,15 +14,29 @@ import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
 import { afterAll, describe, expect, it } from 'vitest';
 import { PROTOCOL_VERSION } from '../constants.ts';
+import { CAPABILITIES, can, capabilitySchema, ROLES } from '../roles.ts';
 import { confinedPurpose } from '../tools.ts';
-import { AGENT_PURPOSES, agentSessionSchema } from './entities.ts';
+import { AGENT_PURPOSES, AUDIT_ACTIONS, agentSessionSchema, auditActionSchema } from './entities.ts';
 import { verdictSchema, welcomeSchema } from './handshake.ts';
 import { agentSession, homeNote, notesSession, publicSettings } from './message-samples.fixture.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES } from './registry.ts';
 import { feedbackSchema, noteBuildSchema, noteInfoSchema, stickyCursorsSchema } from './sticky.ts';
 
-/** The message types protocol 7 added. */
-const STICKY_TYPES = ['sticky.list', 'sticky.changed', 'sticky.create', 'sticky.assistant.start'] as const;
+/** The message types protocol 7 added: the index, a new note, Claude for the sticky notes (S2), feedback (S5, D4.4). */
+const STICKY_TYPES = [
+  'sticky.list',
+  'sticky.changed',
+  'sticky.create',
+  'sticky.assistant.start',
+  'sticky.feedback.create',
+  'sticky.feedback.withdraw',
+  'sticky.feedback.accept',
+  'sticky.feedback.reject',
+  'sticky.feedback.list',
+  'sticky.feedback.updated',
+] as const;
+/** The audit actions protocol 7 added (D4.8). */
+const FEEDBACK_ACTIONS = ['sticky.feedback.create', 'sticky.feedback.accept', 'sticky.feedback.reject', 'sticky.feedback.withdraw'] as const;
 
 const run = promisify(execFile);
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -90,11 +105,20 @@ describe('what a peer of protocol 6 meets, shape by shape (D8.2)', () => {
     // The messages of the sticky notes are no type of protocol 6: a peer of the tag refuses each one as unknown.
     const tagRegistry = (await import(join(tree.src, 'schema', 'registry.ts'))) as { isMessageType: (type: string) => boolean };
     for (const type of STICKY_TYPES) expect(tagRegistry.isMessageType(type), type).toBe(false);
+    // Feedback (D4.1, D4.8): the tag knows no capability `feedback.give` (its roles refuse it and grant it to no role)
+    // and none of the four audit actions, so an audit line of this smurg's feedback is no line of the tag's.
+    const tagRoles = (await import(join(tree.src, 'roles.ts'))) as { capabilitySchema: typeof capabilitySchema; CAPABILITIES: readonly string[]; can: (role: string, capability: string) => boolean };
+    expect(tagRoles.CAPABILITIES).not.toContain('feedback.give');
+    expect(tagRoles.capabilitySchema.safeParse('feedback.give').success).toBe(false);
+    for (const role of ROLES) expect(tagRoles.can(role, 'feedback.give'), role).toBe(false);
+    const tagAudit = (await import(join(tree.src, 'schema', 'entities.ts'))) as { auditActionSchema: typeof auditActionSchema };
+    for (const action of FEEDBACK_ACTIONS) expect(tagAudit.auditActionSchema.safeParse(action).success, action).toBe(false);
+    expect(tagAudit.auditActionSchema.safeParse('suggest.accept').success).toBe(true);
   });
 });
 
-describe('the messages of the sticky notes (D2.4, D2.5, D3.5)', () => {
-  it('are exactly four, under the one prefix `sticky`', () => {
+describe('the messages of the sticky notes (D2.4, D2.5, D3.5, D4.4)', () => {
+  it('are exactly ten, under the one prefix `sticky`', () => {
     expect(MESSAGE_TYPES.filter((type) => type.startsWith('sticky.'))).toEqual([...STICKY_TYPES]);
   });
 
@@ -104,8 +128,28 @@ describe('the messages of the sticky notes (D2.4, D2.5, D3.5)', () => {
     expect(MESSAGE_REGISTRY['sticky.changed'].checks).toEqual(['recipients:all']);
     expect(MESSAGE_REGISTRY['sticky.create'].capability).toBe('file.write');
     expect(MESSAGE_REGISTRY['sticky.assistant.start'].capability).toBe('session.create');
-    // Nothing of a note's content is on the wire: no type of the four is sensitive.
+    // Nothing of a note's content is on the wire: no type of the ten is sensitive (feedback is like a suggestion: its
+    // text is redacted from the logs, not withheld from members).
     for (const type of STICKY_TYPES) expect(MESSAGE_REGISTRY[type].sensitive || MESSAGE_REGISTRY[type].resultSensitive, type).toBe(false);
+  });
+
+  it('every member gives feedback, a Viewer too; it is decided with session.drive; its author withdraws it; everyone reads it (D4.1, D4.4)', () => {
+    expect(CAPABILITIES).toContain('feedback.give');
+    for (const role of ROLES) expect(can(role, 'feedback.give'), role).toBe(true);
+    expect(MESSAGE_REGISTRY['sticky.feedback.create'].capability).toBe('feedback.give');
+    expect(MESSAGE_REGISTRY['sticky.feedback.create'].rate).toBe('suggestion');
+    expect(MESSAGE_REGISTRY['sticky.feedback.withdraw'].capability).toBe('owner-checked-in-handler');
+    expect(MESSAGE_REGISTRY['sticky.feedback.accept'].capability).toBe('session.drive');
+    expect(MESSAGE_REGISTRY['sticky.feedback.reject'].capability).toBe('session.drive');
+    expect(MESSAGE_REGISTRY['sticky.feedback.list'].capability).toBe('file.read');
+    expect(MESSAGE_REGISTRY['sticky.feedback.list'].sizeRule).toBe('list');
+    expect(MESSAGE_REGISTRY['sticky.feedback.updated'].capability).toBe('file.read');
+    for (const action of FEEDBACK_ACTIONS) expect(AUDIT_ACTIONS, action).toContain(action);
+  });
+
+  it('an accept says nothing but which feedback: a reviewer does not edit feedback (D4.7)', () => {
+    expect(MESSAGE_REGISTRY['sticky.feedback.accept'].payload.safeParse({ feedbackId: 'fb_1' }).success).toBe(true);
+    expect(MESSAGE_REGISTRY['sticky.feedback.accept'].payload.safeParse({ feedbackId: 'fb_1', text: 'my own words' }).success).toBe(false);
   });
 
   it('a NoteInfo says nothing of the content but the links: no excerpt, no size, no time', () => {
