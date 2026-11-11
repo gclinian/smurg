@@ -60,13 +60,13 @@ export const zhTW = {
   'members.empty': '還沒有其他成員。建立邀請連結，把組員拉進來。',
   'members.roleChanged': '已把 {name} 的角色改為「{role}」，對方會自動重新連線並套用新權限。',
   'members.roleFailed': '無法變更 {name} 的角色：{message}',
-  'members.hint': '變更角色後，對方會自動重新連線並套用新的權限。取消「可使用 agent」也會帶走對方開始的東西：他開的終端機和未分主題的 session 會結束，主題的 session 改由你接手。',
+  'members.hint': '變更角色後，對方會自動重新連線並套用新的權限。取消「可使用 agent」也會帶走對方開始的東西：他開的終端機和未分主題的 session 會結束，主題的 session 和便利貼的 Claude 改由你接手。',
 
   // ---- kick confirmation
   'kick.title': '踢出 {name}？',
   'kick.lead': '按下「踢出」之後會立刻發生：',
-  'kick.sessions': '{name} 開的所有終端機和未分主題的 session 立即終止（目前 {count} 個）。',
-  'kick.topicSessions': '{name} 開始的主題 session（討論和工作項目）會停止並改由你接手：agent 的這一輪被中斷，還沒回答的選擇題和權限請求會撤回（目前 {count} 個）。',
+  'kick.sessions': '{name} 開的所有終端機和未分主題的 session（便利貼的 Claude 除外）立即終止（目前 {count} 個）。',
+  'kick.topicSessions': '{name} 開始的主題 session（討論和工作項目）和便利貼的 Claude 會停止並改由你接手：agent 的這一輪被中斷，還沒回答的選擇題和權限請求會撤回（目前 {count} 個）。',
   'kick.removed': '{name} 設定的東西會移除：他設為一律允許的指令類型、他開始但還沒啟動的工作項目、他放寬的權限模式、他還在等 agent 讀取的訊息，以及他在未回答選擇題上的投票。',
   'kick.responsible': '{name} 不再是任何 session 的負責人（目前 {count} 個）：它們的選擇題改由開始 session 的人決定，或由你決定。',
   'kick.keys': '{name} 所有裝置的金鑰被撤銷，舊的裝置和舊的邀請連結都無法再連進來。',
@@ -77,8 +77,8 @@ export const zhTW = {
 
   // ---- a role change that takes something away (DESIGN §3.9)
   'demote.title': '把 {name} 的角色改成「{role}」？',
-  'demote.sessions': '{name} 開的終端機和未分主題的 session 會結束（目前 {count} 個）。',
-  'demote.topicSessions': '{name} 開始的主題 session（討論和工作項目）改由你接手，並繼續執行（目前 {count} 個）。',
+  'demote.sessions': '{name} 開的終端機和未分主題的 session（便利貼的 Claude 除外）會結束（目前 {count} 個）。',
+  'demote.topicSessions': '{name} 開始的主題 session（討論和工作項目）和便利貼的 Claude 改由你接手，並繼續執行（目前 {count} 個）。',
   'demote.removed': '{name} 設定的東西會移除：他設為一律允許的指令類型、他開始但還沒啟動的工作項目、他放寬的權限模式，以及他還在等 agent 讀取的訊息。',
   'demote.viewer': '「旁觀」只能觀看：{name} 在未回答選擇題上的投票會移除，{name} 也不再是任何 session 的負責人（目前 {count} 個）。',
   'demote.viewerNone': '「旁觀」只能觀看：{name} 在未回答選擇題上的投票會移除，{name} 也不能再擔任 session 的負責人。',

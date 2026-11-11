@@ -5,7 +5,8 @@
 // `REAL_ANSWERS`), an allowed request ends in not_found instead of changing the workspace. The few that cannot point
 // at nothing do what they say: `session.create` opens a free agent session, `topic.create` a topic with its
 // discussion (so a test that sends them to real modules gives the daemon the stand-in `claude`),
-// `admin.invite.create` an invite, `file.upload.plan` / `.begin` an upload that is never committed.
+// `admin.invite.create` an invite, `file.upload.plan` / `.begin` an upload that is never committed,
+// `sticky.create` the sticky note Home (and the folder notes/), `sticky.assistant.start` Claude for the sticky notes.
 import type { InboundNotifyType } from '../../src/core/interfaces.ts';
 import type { PayloadInputOf, RequestType } from '@smurg/protocol';
 
@@ -130,6 +131,9 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'admin.hostRules.seen': {},
   'admin.notice.seen': { notice: 'agents-auto' },
   'admin.transcript.redact': { sessionId: 'sess_nope', seq: 1 },
+  'sticky.list': {},
+  'sticky.create': { name: 'Home' },
+  'sticky.assistant.start': {},
 };
 
 export const NOTIFY_SAMPLES: { readonly [T in InboundNotifyType]: PayloadInputOf<T> } = {

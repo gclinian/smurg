@@ -171,6 +171,7 @@ Sticky notes, and Claude for the sticky notes.
 | A small Markdown file of `notes/` that people and Claude write | sticky note (written in full in labels, never "note" alone) | 便利貼 | `notes/<Name>.md` |
 | The agent session that writes the sticky notes (one per workspace) | Claude for the sticky notes (prose); Sticky notes (its title and its kind) | 便利貼的 Claude；便利貼 | `notes`, `session.title.notes`, `sessions.purpose.notes` |
 | The first sticky note | `Home` (a file name: never translated) | `Home` | `notes/Home.md` |
+| What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word) | feedback | 意見 | `sticky.json` `feedback` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
 of a file. What Claude for the sticky notes may do is said in its own words, never in the discussion's: it reads the

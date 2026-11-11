@@ -152,13 +152,16 @@ describe('DEFAULT_FEATURE_MODULES', () => {
   it('lists every feature module exactly once, in dependency order', () => {
     const names = DEFAULT_FEATURE_MODULES.map((module) => module.name);
     // Transcribed (not computed from the fixture): the release composition.
-    expect(names).toEqual(['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'inbox', 'local']);
+    // 0.8.0 (DESIGN 0.8.0 D2.1): the sticky notes, after topics and before inbox.
+    expect(names).toEqual(['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'sticky', 'inbox', 'local']);
     // What each module needs to be up before it starts (and still up while it stops): src/daemon.ts.
     const before = (first: string, then: string): void => expect(names.indexOf(first), `${first} before ${then}`).toBeLessThan(names.indexOf(then));
     for (const user of ['conversation', 'suggest', 'topics', 'inbox']) before('sessions', user);
     before('conversation', 'suggest');
     for (const provider of ['worktree', 'conversation', 'suggest']) before(provider, 'topics');
     for (const source of ['conversation', 'suggest', 'topics', 'worktree']) before(source, 'inbox');
+    // The sticky module writes through the file service and starts sessions of the agent runtime: both are up before it.
+    for (const provider of ['files', 'sessions', 'conversation', 'topics']) before(provider, 'sticky');
     expect(names.at(-1)).toBe('local');
     for (const area of AREAS) expect(names.filter((name) => name === area), area).toHaveLength(1);
     expect(names).toEqual(AREAS);

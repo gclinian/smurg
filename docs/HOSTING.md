@@ -1122,10 +1122,11 @@ For a file that is damaged or in an unknown form, the terminal lists, after "Not
 | `cards.json` | which conversations have questions and permission requests | the ones asked so far are no longer shown |
 
 Where a conversation showed a question, a permission request or a suggestion that is gone this way, the page says
-"The host's computer no longer keeps this card." Five files cannot be set aside, and the last resort stays the only
-way: `state.json` and `identity.key` are the workspace itself, and the rest of the state points into
+"The host's computer no longer keeps this card." Six files cannot be set aside, and the last resort stays the only
+way: `state.json` and `identity.key` are the workspace itself, the rest of the state points into
 `agent-sessions.json`, `topics.json` and `reports.json` (without one of them, topics would name sessions and reports
-that are not there). A log the system cannot read (`audit.jsonl`, `audit-text.jsonl`, `activity.jsonl`) can be moved
+that are not there), and `sticky.json` holds the feedback people wrote on sticky notes, with where each connected
+Slack or Discord channel goes on reading and which topics were made from which sticky note. A log the system cannot read (`audit.jsonl`, `audit-text.jsonl`, `activity.jsonl`) can be moved
 away too: what that file recorded is lost, and a new one starts.
 
 An entry of `shared` in `~/.smurg/workspaces.json` (`workspaceId` is the name of the workspace's folder in

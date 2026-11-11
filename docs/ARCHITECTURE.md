@@ -741,7 +741,7 @@ of this section and `registry.test.ts` transcribes these tables to keep both in 
 unknown key is a protocol error); byte fields are `Uint8Array`; times are epoch-ms integers. Besides the capability,
 a registry entry names the checks its handler owes (`checks`), what never reaches a log (`sensitive`, `redact`), and,
 since protocol 4, `volatile`, `rate` and `sizeRule` (§4.3). §5.1 to §5.8 are the areas of protocol 3 as protocol 4
-has them; §5.9 to §5.11 are new. All file references use:
+has them; §5.9 to §5.11 are new; §5.12 is protocol 7's (0.8.0, the sticky notes). All file references use:
 
 ```ts
 type RootRef = { kind: 'main' } | { kind: 'worktree'; worktreeId: string };
@@ -1740,6 +1740,46 @@ it is settled, never by dismissal; a topic ready to check leaves when it is chec
 `permission` may carry `unblocks` too (protocol 6). `inbox.changed` goes to the member's own interactive channels only; the control socket
 gets none of it (§8).
 
+### 5.12 `sticky.*` (protocol 7: the sticky notes)
+
+A sticky note is the Markdown file `notes/<Name>.md` at the top of the main workspace; its name is the file's name
+without `.md` (`noteNameSchema`, `noteNameOf` and `notePath` of `packages/protocol/src/notes.ts`: at most 80 UTF-16
+units; none of `/ \ [ ] | # ^` and of the Markdown characters `` ` * _ ~ < > & @ ``; no white space but U+0020;
+nothing `agentText` would remove; not `.` or `..`; no space or dot at either end; never a host-only name; always a
+valid topic name). Two names that fold equal (`foldNoteName`) are one note. `[[Name]]` links to another note
+(`wikiLinks`: outside fenced code and code spans, in order, each once, at most 32); the tree is derived from Home
+along the links (`noteTree`) and is never stored.
+
+The daemon's index (`src/sticky/index.ts`) holds, for each file of `notes/` that is a note, its name on disk, its
+links and its flags, and nothing else of its content. It reads every note as a member without rights would
+(PathGuard with a Viewer's principal, no symlink, a regular file of one link, directly in a real `notes/`), lists
+`notes/` at the start and again after every change the watcher reports (`file.changed`, `doc.saved`), reads every
+note again when `notes` itself appears or goes and after `file.watch-error`, and holds at most 500 notes
+(`NOTES_MAX`).
+
+```ts
+type NoteInfo = {
+  name: string;          // the name on disk
+  links: string[];       // valid note names, in order, each once (folded), at most NOTE_LINKS_MAX (32)
+  oversized?: true;      // over NOTE_MAX_BYTES (64 KiB): not read, no links
+  unreadable?: true;     // not a regular file of one link that a member without rights may read, or not UTF-8
+  shadowed?: true;       // its name folds equal to another's, which sorts first by code unit and is the note
+  builds?: string[];     // the topics made from it, the newest 8
+};
+type SourceState = { source: 'slack' | 'discord'; state: 'reading' | 'waiting-for-room' | 'failing'; problem?: WireText };
+```
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `sticky.list` | c→d | `{ after?: string }` → `{ notes: NoteInfo[], hasMore, truncated, sources: SourceState[] }` [file.read] | the index by name, code unit by code unit; `after` is the last note's name. `truncated`: `notes/` holds more than 500 notes. `sources` is empty until the outside sources come. Size rule: list |
+| `sticky.changed` | d→c | `{ upserted: NoteInfo[], removed: string[], truncated, sources? }` | to every member who holds `file.read`, only when a note appeared, went, or changed its links or flags (typing that changes no link sends nothing), or `truncated` changed |
+| `sticky.create` | c→d | `{ name }` → `{ note: NoteInfo }` [file.write] | as the caller, one at a time per workspace: makes `notes/` when it is missing (a `notes` that is a file or a symlink: `conflict`, `file.notADirectory`); refuses a name that folds equal to a note's in a fresh listing (`conflict`, reason `exists`, `sticky.create.exists`); creates the empty file through the file service (its `file.create` audit entries and activity name the person); the index has the note at once. A name that is no note's: `bad_request`, reason `invalid-name`, `sticky.name.invalid` |
+| `sticky.assistant.start` | c→d | `{}` → `{ session: AgentSession }` [session.create] | Claude for the sticky notes, one per workspace: the agent session of purpose `notes` that has not ended, or one started now (opened by the caller, nobody responsible, the main workspace, the host's default model, its first line `conversation.started.notes`), audited `session.create` with `purpose: 'notes'`; at the agent runtime's limit `session.limit.agents`. No id is stored |
+
+`sticky.json` (§7.1) holds the feedback on sticky notes (`feedbackSchema` of `schema/sticky.ts`: by a member or by a
+person outside the workspace; `waiting`, `accepted`, `rejected` or `withdrawn`), one cursor per outside source and
+the builds. None of it is on the wire yet.
+
 ---
 
 ## 6. Relay
@@ -1944,6 +1984,8 @@ As built (relay report; details in `apps/relay/README.md`):
     ├── inbox.json                   per member: stored notes (mentions, what became of their own suggestions; at most
     │                                200, all unopened) and the "seen" marks of derived items. Everything else in an
     │                                inbox is derived and never stored (§7.9)
+    ├── sticky.json                  (0.8.0) the sticky notes' feedback, where each outside source goes on reading,
+    │                                and the topics made from notes; the index of notes/ is never stored (§5.12)
     ├── claude-trust.json            the host's decisions about project-level Claude Code settings, per file content
     │                                (path + SHA-256, with the scripts its commands name), and per file below
     │                                `.claude/` for everything else Claude Code loads from there (§7.6 "Trust gate")
@@ -1984,7 +2026,8 @@ a schema, no strip, no passthrough.
   `ctx.state.document(name, schema, init)` refuses a name nobody declared and another schema than the declared one,
   and hands out what the start already read. The twelve of 0.5.1, in module order: `state`, `conflicts`,
   `worktrees`, `sessions`, `host-rules`, `claude-trust`, `agent-sessions`, `cards`, `suggestions`, `topics`,
-  `reports`, `inbox` (`declaredDocuments()` in `src/daemon.ts`).
+  `reports`, `inbox` (`declaredDocuments()` in `src/daemon.ts`). 0.8.0 adds `sticky` (the sticky module, between
+  `reports` and `inbox`): no published smurg wrote it, so it has no step, and it cannot be set aside.
 - **Steps and frozen shapes.** A step is `{ from: '0.4.0', shape, upgrade(old), sinceShapes }` (`defineStep`).
   `shape` is the strict schema of what that published version accepted: a LITERAL copy with its own scalar rules in
   `src/frozen/v0.4.0.ts`, which imports zod and nothing else (not today's schema with keys taken away: today's rules
@@ -2231,6 +2274,7 @@ packages/daemon/src/
 ├── conversation/  messages to agents, questions, votes, comments, permission decisions, cards
 ├── suggest/       suggestion-service.ts handlers.ts
 ├── topics/        topics, the plan (format, preflight, pins, the scheduler), reports, prompts
+├── sticky/        (0.8.0) the index of the sticky notes in notes/, new notes, Claude for the sticky notes, sticky.json
 ├── inbox/         the derived inbox, mentions, results
 ├── worktree/      worktree-manager.ts merge.ts handlers.ts
 ├── local/         protocol.ts (ctl frames + schemas, shared with the CLI) local-channel.ts (the hub's channel for a
@@ -2298,6 +2342,7 @@ Payloads: `core/interfaces.ts` (`DaemonEvents`).
 | `channel.discarded` | core | a logical channel is gone for good: drop all per-channel state keyed by its `channelId` |
 | `settings.changed` | core | the host's settings (`maxLiveAgents`, `escalateAfterMs`, `agentMcp` among them) |
 | `file.changed` | files (watcher) | "re-check this path", with best-effort attribution |
+| `file.watch-error` (0.8.0) | files (watcher) | `{ root }`: the native watcher reported an error, so changes may have been missed; the sticky notes' index reads `notes/` again |
 | `doc.human-edit`, `doc.saved` | docs | a person's edit was applied; a document was written |
 | `agent.tool.pre`, `agent.tool.post`, `agent.file-changed` | hooks | Claude Code's hook events for a modifying tool |
 | `agent.tool.gate` | hooks | the tool gate refused a tool call (which row, which path) |

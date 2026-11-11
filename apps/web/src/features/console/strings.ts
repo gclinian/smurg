@@ -73,18 +73,18 @@ export const t = defineStrings(
     'members.roleChanged': 'The role of {name} is now {role}. They reconnect automatically with the new permissions.',
     'members.roleFailed': 'Could not change the role of {name}: {message}',
     'members.hint':
-      'After a role change the member reconnects automatically with the new permissions. Taking agent access away also takes what the member started: their terminals and sessions without a topic end, and their topic sessions pass to you.',
+      'After a role change the member reconnects automatically with the new permissions. Taking agent access away also takes what the member started: their terminals and sessions without a topic end, and their topic sessions and Claude for the sticky notes pass to you.',
 
     // ---- kick confirmation
     'kick.title': 'Remove {name}?',
     'kick.lead': 'As soon as you confirm:',
     'kick.sessions': {
-      one: 'Every terminal and every session without a topic that {name} opened ends at once ({count} session right now).',
-      other: 'Every terminal and every session without a topic that {name} opened ends at once ({count} sessions right now).',
+      one: 'Every terminal and every session without a topic that {name} opened, except Claude for the sticky notes, ends at once ({count} session right now).',
+      other: 'Every terminal and every session without a topic that {name} opened, except Claude for the sticky notes, ends at once ({count} sessions right now).',
     },
     'kick.topicSessions': {
-      one: "The topic sessions {name} started (discussions and work items) are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} session right now).",
-      other: "The topic sessions {name} started (discussions and work items) are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} sessions right now).",
+      one: "The topic sessions (discussions and work items) and Claude for the sticky notes that {name} started are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} session right now).",
+      other: "The topic sessions (discussions and work items) and Claude for the sticky notes that {name} started are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} sessions right now).",
     },
     'kick.removed':
       'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, and their votes on open questions.',
@@ -101,12 +101,12 @@ export const t = defineStrings(
     // ---- a role change that takes something away (DESIGN §3.9)
     'demote.title': 'Change the role of {name} to {role}?',
     'demote.sessions': {
-      one: 'The terminals and the sessions without a topic that {name} opened end ({count} session right now).',
-      other: 'The terminals and the sessions without a topic that {name} opened end ({count} sessions right now).',
+      one: 'The terminals and the sessions without a topic that {name} opened, except Claude for the sticky notes, end ({count} session right now).',
+      other: 'The terminals and the sessions without a topic that {name} opened, except Claude for the sticky notes, end ({count} sessions right now).',
     },
     'demote.topicSessions': {
-      one: 'The topic sessions {name} started (discussions and work items) pass to you and keep running ({count} session right now).',
-      other: 'The topic sessions {name} started (discussions and work items) pass to you and keep running ({count} sessions right now).',
+      one: 'The topic sessions (discussions and work items) and Claude for the sticky notes that {name} started pass to you and keep running ({count} session right now).',
+      other: 'The topic sessions (discussions and work items) and Claude for the sticky notes that {name} started pass to you and keep running ({count} sessions right now).',
     },
     'demote.removed':
       'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, and their messages that still wait for an agent.',

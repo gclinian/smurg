@@ -78,14 +78,14 @@ describe('host console in zh-TW', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '踢出 Amy' }));
     const kick = screen.getByRole('alertdialog', { name: '踢出 Amy？' });
-    expect(within(kick).getByText('Amy 開的所有終端機和未分主題的 session 立即終止（目前 2 個）。')).toBeTruthy();
-    expect(within(kick).getByText(/^Amy 開始的主題 session（討論和工作項目）會停止並改由你接手/)).toBeTruthy();
+    expect(within(kick).getByText('Amy 開的所有終端機和未分主題的 session（便利貼的 Claude 除外）立即終止（目前 2 個）。')).toBeTruthy();
+    expect(within(kick).getByText(/^Amy 開始的主題 session（討論和工作項目）和便利貼的 Claude 會停止並改由你接手/)).toBeTruthy();
     expect(within(kick).getByText(/^Amy 設定的東西會移除：他設為一律允許的指令類型/)).toBeTruthy();
     fireEvent.click(within(kick).getByRole('button', { name: '取消' }));
 
     fireEvent.change(screen.getByLabelText('Amy 的角色'), { target: { value: 'viewer' } });
     const demote = screen.getByRole('alertdialog', { name: '把 Amy 的角色改成「旁觀」？' });
-    expect(within(demote).getByText('Amy 開始的主題 session（討論和工作項目）改由你接手，並繼續執行（目前 1 個）。')).toBeTruthy();
+    expect(within(demote).getByText('Amy 開始的主題 session（討論和工作項目）和便利貼的 Claude 改由你接手，並繼續執行（目前 1 個）。')).toBeTruthy();
     expect(within(demote).getByText(/^「旁觀」只能觀看：Amy 在未回答選擇題上的投票會移除/)).toBeTruthy();
   });
 

@@ -75,7 +75,8 @@ const sha256 = (bytes: string | Uint8Array): string => createHash('sha256').upda
  * src/frozen/v0.6.0.ts; optional keys in topics.json, reports.json and worktrees.json; wider enums in the audit, the
  * transcripts and the inbox's derived kinds; inbox.json unchanged through its own column target; DESIGN 0.7.0 D4). 4
  * since 0.8.0 (answered again: YES: the purpose `notes` widens agent-sessions.json's enum; no document changes
- * otherwise; no step: 0.6.0 and 0.7.0 widened enums the same way; DESIGN 0.8.0 D8.3).
+ * otherwise; no step: 0.6.0 and 0.7.0 widened enums the same way; DESIGN 0.8.0 D8.3). Still 4 with sticky.json (0.8.0 S2,
+ * D4.5): a new document no published smurg wrote, so no step and no frozen shape; NOT_PUBLISHED in persisted.ts.
  */
 const PINNED_AT_SHAPES = 4;
 
@@ -104,6 +105,7 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'sessions/agent/store.ts': '1f84217f697b7d5c73e60cc7165c987228b39f65277d679e4aa447826ffd7949',
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
   'sessions/session-manager.ts': '677adb28f3465fdbdb104bcaa0c431ad876d9a043491c59bf6ac33f12e7d0608',
+  'sticky/store.ts': '1feb716985c35ea116f58d67cb6ed74c701ab910fc8d115c7c7e5316fa685676',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
   'topics/store.ts': '8839f4f0d7e2e477e2f13b4474a38773f00760a5a1e93e567f79ce4c61ca3f45',
   'worktree/store.ts': '8b34200008b0ae9280e70b950240a4c172dd4c413bb8ccbd4fcdbef82ddbe615',
@@ -121,7 +123,11 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * the notice `auto-merge` in state.json, by the step from 0.6.0; optional keys of topics.json, reports.json and
  * worktrees.json, with refines over those keys only; wider enums of the audit and of smurg's purposes; inbox.json kept
  * 0.6.0's shape through its own column target), with the points of NOT_PUBLISHED_YET. constants.ts and routing.ts
- * changed with no stored rule in them (PROTOCOL_VERSION; decisionRecipients).
+ * changed with no stored rule in them (PROTOCOL_VERSION; decisionRecipients). Taken again for 0.8.0 S2 (protocol 7, DESIGN
+ * 0.8.0 D4.5): sticky/store.ts, a new document that no published smurg wrote, leads to notes.ts and schema/sticky.ts
+ * (new: the note names and the entities sticky.json stores), and through the barrel to schema/messages/sticky.ts (new)
+ * and schema/registry.ts and schema/index.ts (the sticky.* messages); schema/limits.ts gained the sticky notes' bounds.
+ * No document a published smurg wrote accepts anything else: no step.
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
@@ -134,6 +140,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'mask.ts': '3bd5168fc9d394dbb72b0cc76d1e44e8867f16b07ee2fa139eb50abd57fbf48e',
   'node/key-file.ts': '8ef9a66fb06797fba933c28723068eac3d3329d71ad478f4967e859ed6d1a5eb',
   'normalize.ts': '5149ee3a744186ab39f5e27c77b26c14a54710d082d63d12811c79a5cc5b2378',
+  'notes.ts': 'cde727402401525a759f0066b5c9565b53a9b2e914141cb04074ebe4e5aaa781',
   'relay/binary.ts': 'ef4fc2b7c0166e9e5be18b3d5bc100ed1175cc1cd831a51b730d08a6cb401d4b',
   'relay/close-codes.ts': '9902b5aa33153f93751c4f8ebe9100b25bb5aec0f247812328a4e0f49a903ac1',
   'relay/frames.ts': '6cc87c1c2bf9aeec18facc53d8b78ed8c75dd2c2698f0ae73e0bb5babe136901',
@@ -146,8 +153,8 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/error-details.ts': 'ecaa2ffc236f4a9a5ff9842ae681ba57c28487a4b7c1b43763be212586fdea97',
   'schema/handshake.ts': '828b5f8148c55008f22c057fe7e331826d90d9542bec3f6ebaf1ddfd067872b8',
   'schema/inbox.ts': '86b253ecc452a771573942c4171fbff87e91ab57238577368c6203ddb9634b2b',
-  'schema/index.ts': 'df8271d00f6e162c550c0a42e99d02e489f3c526342bff8208b3a99d10419f88',
-  'schema/limits.ts': '13a0fe890cb15ee77b9842d1603a8d518da450c18d1e4fc4e8d17b93ee53d7f7',
+  'schema/index.ts': '6776d8ae9dc0ce2c1585a828db7a9440e7b7c6ca94b11edff7b03446963f9759',
+  'schema/limits.ts': 'eb5fa058963dad24dfdda4f4eccea1ed2cbcfed9d559e94c5bd2e44349240963',
   'schema/message-ref.ts': 'ee4c2d08adecc61772f0da565141c2af9adf9fc32a7eb157ac8f9bf37d3a3019',
   'schema/messages/admin.ts': '100c58a4a888c409c34cef41786480d2dbf078b27d270422a96cf61ff9899dbb',
   'schema/messages/channel.ts': '5652ac0034cf595cb6148c863713352672eb4e669630a269048eff1e07e1275c',
@@ -157,6 +164,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/messages/inbox.ts': 'ca34d41770beb621beb629b4290cb7a6d934fde52229b368f4059c0c6c1b174f',
   'schema/messages/presence.ts': 'b072fa7f56d76819acf58811ff698efb3cf8c2dd87c80fee42a5f8938ec11c10',
   'schema/messages/sessions.ts': '2b5ff7a0bd5e1665a44d62389510e10f00e9750736d30f786db0f2399b88ae58',
+  'schema/messages/sticky.ts': 'd598f92ec031874754cbd3c35601ff172fba350f6fc9d3214b55623a791f2315',
   'schema/messages/suggestions.ts': 'db0a00d60c70ae8b4c92a228a7f1ef48e3b484bdb20b692e6056d9428a2cfd3c',
   'schema/messages/topics.ts': 'ac81c622ca6043a04cf80900451e7cf51b71cc786b8d7ea4b0b31bccd6a34557',
   'schema/messages/transfer.ts': '8e0ccfcd4ddc2c2858895fa9ea35e1f3931b0280dbaab046a2da54c1cb6147f7',
@@ -164,7 +172,8 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/paths.ts': 'd3fdca5a1bd0dbe1acc27d7559fa309bcffcc4952af7a4db723c08e87148c6a5',
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
-  'schema/registry.ts': '72cccc325cb37399b7b6d7eead673855d8e03498dfce7c5d29210512863d36a9',
+  'schema/registry.ts': '7518e50815ba2ac723cacfecbb47d752cc05a8353e2bd9e3ad37bbf9b41f7e35',
+  'schema/sticky.ts': 'd38f25525a1422b32cf71446a5dbb8a146e6b1cf9cf1c35ebe41d05088826ae1',
   'schema/topics.ts': '3a13817b41681e941d2f112ed27a9e88cfaa2d15ed11b0d4525cd115e822d571',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };
@@ -391,6 +400,7 @@ describe('the pin of everything smurg persists', () => {
         'sessions/agent/store.ts',
         'sessions/agent/transcript.ts',
         'sessions/session-manager.ts',
+        'sticky/store.ts',
         'suggest/store.ts',
         'topics/store.ts',
         'worktree/store.ts',
@@ -445,6 +455,7 @@ describe('the pin of everything smurg persists', () => {
         'reports.json',
         'sessions.json',
         'state.json',
+        'sticky.json',
         'suggestions.json',
         'topics.json',
         'transcripts.cards.json',

@@ -51,6 +51,9 @@ const CAN_BE_SET_ASIDE: Readonly<Record<string, boolean>> = {
   topics: false,
   reports: false,
   inbox: true,
+  // 0.8.0 (DESIGN 0.8.0 D4.5): NO. Its records are feedback that people wrote (and the sources' cursors and the
+  // builds): a damaged file stops the start instead of being put away with them.
+  sticky: false,
 };
 
 /**
@@ -60,6 +63,13 @@ const CAN_BE_SET_ASIDE: Readonly<Record<string, boolean>> = {
  * never refuse a start, whatever is in their place (found by trying each as garbage, 0644, a link, a folder, gone).
  */
 const OTHER_FILES = ['audit.jsonl', 'audit-text.jsonl', 'activity.jsonl', 'a transcript segment'] as const;
+
+/**
+ * Declared documents that no published smurg wrote (persisted.ts DOCUMENT_SINCE: NOT_PUBLISHED): the fixture holds none
+ * of them, so there is nothing to move away. Every start on the fixture starts without them, and makes each from its
+ * `init` (proven below). Their "cut off" case runs like every other document's.
+ */
+const NOT_IN_THE_FIXTURE: ReadonlySet<string> = new Set(['sticky']);
 
 /** Said when the evidence against one of the three is gone. */
 const HANDLED_NOW = 'THE REST OF THE STATE NOW HANDLES THIS DOCUMENT BEING MISSING? Then it can be set aside: prove it here like the others (what is lost, nothing points nowhere), say `canSetAside: true` in its declaration and CAN_BE_SET_ASIDE, and add its row to docs/HOSTING.md §9.3';
@@ -261,7 +271,20 @@ describe('one file of the workspace folder set aside: what smurg 0.5.0 wrote, st
     expect((whole.who['invites'] as string[]).length).toBeGreaterThan(5);
   });
 
-  describe.each(declared().map((document) => document.name))('%s.json', (name) => {
+  it('a document no published smurg wrote (sticky.json, 0.8.0) is not in the fixture: the start makes it from its init, and every request answers', async () => {
+    for (const name of NOT_IN_THE_FIXTURE) {
+      const { copy, view } = await startWith(async (made) => {
+        await expect(readFile(join(made.workspaceDir, `${name}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
+      });
+      const document = declared().find((candidate) => candidate.name === name) as DocumentDeclaration;
+      expect(await readJson(join(copy.workspaceDir, `${name}.json`))).toEqual(document.init());
+      expect(view.errors).toEqual([]);
+      await running?.cleanup();
+      running = null;
+    }
+  });
+
+  describe.each(declared().filter((document) => !NOT_IN_THE_FIXTURE.has(document.name)).map((document) => document.name))('%s.json', (name) => {
     const sound = CAN_BE_SET_ASIDE[name] === true;
 
     it(`moved away: the daemon starts; the members, devices, invite links, settings and key are as they were; a new ${name}.json is made; every request answers${sound ? '; nothing a member sees points at something that is gone' : ''}`, async () => {

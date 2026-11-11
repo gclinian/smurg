@@ -27,6 +27,7 @@ import { inboxModule } from './inbox/module.ts';
 import { localControlModule } from './local/module.ts';
 import { locksModule } from './locks/module.ts';
 import { sessionsModule } from './sessions/module.ts';
+import { stickyModule } from './sticky/module.ts';
 import { suggestModule } from './suggest/module.ts';
 import { topicsModule } from './topics/module.ts';
 import { worktreeModule } from './worktree/module.ts';
@@ -108,6 +109,9 @@ export const START_FAILURE_LOGS: readonly string[] = Object.freeze([STATE_REFUSE
  *    runtime does;
  *  - topics (topics, plans, reports, the scheduler): its start() asks worktree, sessions, conversation and suggest
  *    what a restart left; it stops before sessions, so nothing is started while the sessions go down;
+ *  - sticky (the index of the sticky notes, new notes, Claude for the sticky notes, sticky.json): its start() lists
+ *    notes/ through PathGuard; its requests write through the file service and start a session of the agent runtime,
+ *    so it stops before files, sessions and conversation do (nothing is written or started while they go down);
  *  - inbox: derived from all of the above; its start() takes the first full view once they have loaded their state
  *    (from then on it drops the "seen" marks of items that are not there);
  *  - local: the control socket opens last (a local `smurg attach` never sees a half-started daemon). Its module stops
@@ -124,6 +128,7 @@ export const DEFAULT_FEATURE_MODULES: readonly FeatureModule[] = Object.freeze([
   conversationModule,
   suggestModule,
   topicsModule,
+  stickyModule,
   inboxModule,
   localControlModule,
 ]);

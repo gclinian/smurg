@@ -294,8 +294,9 @@ describe.skipIf(chrome === null)('the host console in a real browser (built app,
     const dialog = host.getByRole('alertdialog', { name: /Remove mei\?/i });
     await dialog.waitFor({ timeout: STEP_MS });
     const text = (await dialog.textContent()) ?? '';
-    expect(text).toMatch(/Every terminal and every session without a topic that mei opened ends at once \(0 sessions right now\)\./i);
-    expect(text).toMatch(/The topic sessions mei started \(discussions and work items\) are stopped and pass to you/i);
+    // (0.8.0 D3.5: Claude for the sticky notes has no topic and passes to the host like a topic's sessions.)
+    expect(text).toMatch(/Every terminal and every session without a topic that mei opened, except Claude for the sticky notes, ends at once \(0 sessions right now\)\./i);
+    expect(text).toMatch(/The topic sessions \(discussions and work items\) and Claude for the sticky notes that mei started are stopped and pass to you/i);
     expect(text).toMatch(/What mei put in place is removed: the kinds of commands they always allowed/i);
     expect(text).toMatch(/The keys of all devices of mei are revoked\./i);
     await shot(host, 'kick-dialog');

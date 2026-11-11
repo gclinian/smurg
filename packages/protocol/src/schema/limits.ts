@@ -177,7 +177,7 @@ export const STREAMING_BLOCKS_MAX = 8;
 export const CARDS_GET_MAX = 20;
 /** Card references (`moreCards`) in one reply. */
 export const CARD_REFS_MAX = 1_000;
-/** THE list rule: `session.list`, `suggest.list`, `topic.list`, `inbox.list` and `admin.claudeConfig.get` close a reply at this size (`hasMore`). */
+/** THE list rule: `session.list`, `suggest.list`, `topic.list`, `inbox.list`, `admin.claudeConfig.get` and `sticky.list` close a reply at this size (`hasMore`). */
 export const LIST_REPLY_MAX_BYTES = 4 * MiB;
 
 export const QUESTION_PARTS_MAX = 4;
@@ -215,6 +215,28 @@ export const HOST_RULE_MAX_CHARS = 500;
  * 243 bytes of UTF-8, and always a valid topic name and work item title (a build uses it as both).
  */
 export const NOTE_NAME_MAX_CHARS = 80;
+/** The names one sticky note links to that the index keeps (DESIGN 0.8.0 D2.2): in order, each once; the rest are not kept. */
+export const NOTE_LINKS_MAX = 32;
+/** A file of `notes/` larger than this, in bytes, is listed `oversized` with no links (D1.5). */
+export const NOTE_MAX_BYTES = 64 * KiB;
+/** Sticky notes the index holds (D2.2); more are counted and said (`truncated`). Also a `sticky.changed`'s bound. */
+export const NOTES_MAX = 500;
+/** Topics made from one sticky note that its NoteInfo names (`builds`, D2.4): the newest. */
+export const NOTE_INFO_BUILDS_MAX = 8;
+/** Builds `sticky.json` keeps (D5.2); the oldest goes first. */
+export const NOTE_BUILDS_MAX = 200;
+/** One feedback on a sticky note, in UTF-16 units, as stored (after `agentText`, D4.3). */
+export const FEEDBACK_TEXT_MAX_CHARS = 4_000;
+/** Feedback entries `sticky.json` keeps, and the characters of their texts and reasons together (D4.5). */
+export const FEEDBACK_MAX = 1_000;
+export const FEEDBACK_STORED_MAX_CHARS = 2 * 1024 * 1024;
+/** Feedback waiting at once (D4.5): per member, from members together, from outside sources together, per outside person. */
+export const FEEDBACK_WAITING_PER_MEMBER_MAX = 20;
+export const FEEDBACK_WAITING_FROM_MEMBERS_MAX = 300;
+export const FEEDBACK_WAITING_FROM_OUTSIDE_MAX = 200;
+export const FEEDBACK_WAITING_PER_OUTSIDER_MAX = 20;
+/** The name of a person outside the workspace (Slack, Discord) as stored and shown, after it was cleaned (D6.3). */
+export const OUTSIDE_NAME_MAX_CHARS = 256;
 
 export const TOPICS_MAX = 200;
 export const TOPIC_NAME_MAX_CHARS = 120;

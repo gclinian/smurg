@@ -9,7 +9,7 @@ import type { FeatureServiceName } from '../../src/core/interfaces.ts';
 export const RELEASE_GATE = process.env['SMURG_RELEASE_GATE'] === '1';
 
 /** The module list of the release, in composition order (DESIGN §9.3 P12; stopping runs it backwards). */
-export const RELEASE_MODULES = ['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'inbox', 'local'] as const;
+export const RELEASE_MODULES = ['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'sticky', 'inbox', 'local'] as const;
 
 /** Modules of the release that are not composed yet, with their package. Empty: the release composition is on. */
 export const PENDING_MODULES: Readonly<Partial<Record<(typeof RELEASE_MODULES)[number], string>>> = Object.freeze({});

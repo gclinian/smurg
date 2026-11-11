@@ -121,6 +121,9 @@ export const notesSession = {
   topicId: undefined,
   topicName: undefined,
 };
+/** Sticky notes (protocol 7): Home links to two notes, one of which is not written yet. */
+export const homeNote = { name: 'Home', links: ['Checkout', 'Payment form'] };
+export const checkoutNote = { name: 'Checkout', links: ['Home', '結帳流程'] };
 export const suggestion = {
   id: 'sg_1',
   sessionId: 'sess_a',
@@ -2070,4 +2073,49 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
   'admin.hostRules.seen': { payload: emptyOnly, result: emptyOnly },
   'admin.notice.seen': { payload: { valid: [{ notice: 'agents-auto' }, { notice: 'auto-merge' }], invalid: [{}, { notice: 'host-rules' }, { notice: 'agents-auto', also: 1 }] }, result: emptyOnly },
   'admin.transcript.redact': { payload: { valid: [{ sessionId: 'sess_a', seq: 7 }], invalid: [{ sessionId: 'sess_a', seq: 0 }, { sessionId: 'sess_a' }] }, result: emptyOnly },
+
+  // ---- sticky.* (protocol 7, DESIGN 0.8.0 D2, D3.5) ----------------------------------------------------------------
+  'sticky.list': {
+    payload: { valid: [{}, { after: 'Home' }, { after: '結帳流程' }], invalid: [{ after: '' }, { after: 'a/b' }, { after: 'CLAUDE' }, { after: 'Home', also: 1 }] },
+    result: {
+      valid: [
+        { notes: [homeNote, checkoutNote, { name: 'Big', links: [], oversized: true }, { name: 'Broken', links: [], unreadable: true }, { name: 'home', links: [], shadowed: true }], hasMore: false, truncated: false, sources: [] },
+        { notes: [], hasMore: true, truncated: true, sources: [{ source: 'slack', state: 'reading' }, { source: 'discord', state: 'failing', problem: wireText }] },
+        { notes: [{ ...homeNote, builds: ['tp_1', 'tp_2'] }], hasMore: false, truncated: false, sources: [{ source: 'discord', state: 'waiting-for-room' }] },
+      ],
+      invalid: [
+        { notes: [homeNote], hasMore: false, truncated: false },
+        { notes: [{ ...homeNote, links: ['a/b'] }], hasMore: false, truncated: false, sources: [] },
+        // a note that was not read has no links, and at most one reason why it was not
+        { notes: [{ ...homeNote, oversized: true }], hasMore: false, truncated: false, sources: [] },
+        { notes: [{ name: 'Big', links: [], oversized: true, unreadable: true }], hasMore: false, truncated: false, sources: [] },
+        { notes: [{ ...homeNote, links: ['Checkout', 'checkout'] }], hasMore: false, truncated: false, sources: [] },
+        { notes: [{ ...homeNote, links: Array.from({ length: 33 }, (_, i) => `Note ${i}`) }], hasMore: false, truncated: false, sources: [] },
+        { notes: [{ ...homeNote, excerpt: 'The cart' }], hasMore: false, truncated: false, sources: [] },
+        { notes: [], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'failing' }] },
+        { notes: [], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading', problem: wireText }] },
+        { notes: [], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, { source: 'slack', state: 'reading' }] },
+        { notes: [], hasMore: false, truncated: false, sources: [{ source: 'teams', state: 'reading' }] },
+      ],
+    },
+  },
+  'sticky.changed': {
+    payload: {
+      valid: [
+        { upserted: [checkoutNote], removed: [], truncated: false },
+        { upserted: [], removed: ['Old idea'], truncated: true },
+        { upserted: [], removed: [], truncated: false, sources: [{ source: 'slack', state: 'reading' }] },
+      ],
+      invalid: [{ upserted: [checkoutNote], removed: [] }, { upserted: [], removed: ['a/b'], truncated: false }, { upserted: [{ name: 'x.md' }], removed: [], truncated: false }],
+    },
+  },
+  'sticky.create': {
+    // The name is checked by the handler (sticky.name.invalid), so any short string passes the schema.
+    payload: { valid: [{ name: 'Payment form' }, { name: '結帳流程' }, { name: 'a/b' }], invalid: [{}, { name: 5 }, { name: 'x'.repeat(257) }, { name: 'Home', also: 1 }] },
+    result: { valid: [{ note: { name: 'Payment form', links: [] } }], invalid: [{}, { note: { name: 'Payment form' } }, { note: { name: 'CLAUDE', links: [] } }] },
+  },
+  'sticky.assistant.start': {
+    payload: emptyOnly,
+    result: { valid: [{ session: notesSession }], invalid: [{}, { session: session }, { session: { ...notesSession, topicId: 'tp_1' } }] },
+  },
 };

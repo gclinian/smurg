@@ -1,0 +1,46 @@
+: #1 object strict
+version: literal 1
+feedback: array [max_length maximum=1000] [custom] [custom]
+feedback[]: #2 object [custom] [custom] [custom] [custom] strict
+feedback[].id: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+feedback[].note: string [custom]
+feedback[].text: string [min_length minimum=1] [max_length maximum=4000] [custom] [custom]
+feedback[].cleaned: optional
+feedback[].cleaned: literal true
+feedback[].cut: optional
+feedback[].cut: literal true
+feedback[].author: #3 union by kind
+feedback[].author<0>: #4 object strict
+feedback[].author<0>.kind: literal "member"
+feedback[].author<0>.user: #5 object strict
+feedback[].author<0>.user.userId: string [string_format format=regex pattern=^(?:github:[1-9][0-9]{0,19}|google:[A-Za-z0-9_-]{1,255}|dev:[A-Za-z0-9._-]{1,64})$/]
+feedback[].author<0>.user.displayName: string [min_length minimum=1] [max_length maximum=256] [custom] [custom]
+feedback[].author<1>: #6 object [custom] strict
+feedback[].author<1>.kind: literal "outside"
+feedback[].author<1>.source: enum "slack"|"discord"
+feedback[].author<1>.name: string [min_length minimum=1] [max_length maximum=256] [custom]
+feedback[].author<1>.externalId: string [max_length maximum=32]
+feedback[].status: enum "waiting"|"accepted"|"rejected"|"withdrawn"
+feedback[].createdAt: number format=safeint [greater_than value=0 inclusive=true]
+feedback[].decidedBy: optional
+feedback[].decidedBy: the same as #5
+feedback[].decidedAt: optional
+feedback[].decidedAt: number format=safeint [greater_than value=0 inclusive=true]
+feedback[].rejectReason: optional
+feedback[].rejectReason: string [min_length minimum=0] [max_length maximum=1000] [custom]
+cursors: #7 object strict
+cursors.slack: optional
+cursors.slack: #8 object strict
+cursors.slack.channel: string [string_format format=regex pattern=^[CG][A-Z0-9]{8,31}$/]
+cursors.slack.after: string [string_format format=regex pattern=^[0-9]{1,16}\.[0-9]{1,16}$/]
+cursors.discord: optional
+cursors.discord: #9 object strict
+cursors.discord.channel: string [string_format format=regex pattern=^[0-9]{17,20}$/]
+cursors.discord.after: string [string_format format=regex pattern=^[0-9]{17,20}$/]
+builds: array [max_length maximum=200]
+builds[]: #10 object strict
+builds[].note: string [custom]
+builds[].topicId: string [string_format format=regex pattern=^[A-Za-z0-9_-]{1,64}$/]
+builds[].by: the same as #5
+builds[].at: number format=safeint [greater_than value=0 inclusive=true]
+builds[].hash: string [string_format format=regex pattern=^[0-9a-f]{64}$/]

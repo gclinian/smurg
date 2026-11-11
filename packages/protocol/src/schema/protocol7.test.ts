@@ -1,9 +1,10 @@
-// What protocol 7 added (smurg 0.8.0, DESIGN 0.8.0 D3, D8.2): the Welcome's `protocol`, and Claude for the sticky notes
-// as a session of purpose `notes`. Every message has samples in message-samples.fixture.ts (run by registry.test.ts);
-// this file holds the rules a sample alone does not say, and states, shape by shape, what a peer of protocol 6 meets:
-// the Welcome gained a required key, so this side refuses protocol 6's; a session only gained an enum value, so for it
-// the meaningful direction is the other one: protocol 6's own strict schema (the code of tag v0.7.0, the last
-// published smurg of protocol 6) refuses a session of purpose `notes`.
+// What protocol 7 added (smurg 0.8.0, DESIGN 0.8.0 D2, D3, D8.2): the Welcome's `protocol`, Claude for the sticky
+// notes as a session of purpose `notes`, and the messages `sticky.*`. Every message has samples in
+// message-samples.fixture.ts (run by registry.test.ts); this file holds the rules a sample alone does not say, and
+// states, shape by shape, what a peer of protocol 6 meets: the Welcome gained a required key, so this side refuses
+// protocol 6's; a session only gained an enum value, so for it the meaningful direction is the other one: protocol
+// 6's own strict schema (the code of tag v0.7.0, the last published smurg of protocol 6) refuses a session of purpose
+// `notes`; and protocol 6 has no message `sticky.*` (its registry knows none of the four types).
 import { execFile } from 'node:child_process';
 import { cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +16,12 @@ import { PROTOCOL_VERSION } from '../constants.ts';
 import { confinedPurpose } from '../tools.ts';
 import { AGENT_PURPOSES, agentSessionSchema } from './entities.ts';
 import { verdictSchema, welcomeSchema } from './handshake.ts';
-import { agentSession, notesSession, publicSettings } from './message-samples.fixture.ts';
+import { agentSession, homeNote, notesSession, publicSettings } from './message-samples.fixture.ts';
+import { MESSAGE_REGISTRY, MESSAGE_TYPES } from './registry.ts';
+import { feedbackSchema, noteBuildSchema, noteInfoSchema, stickyCursorsSchema } from './sticky.ts';
+
+/** The message types protocol 7 added. */
+const STICKY_TYPES = ['sticky.list', 'sticky.changed', 'sticky.create', 'sticky.assistant.start'] as const;
 
 const run = promisify(execFile);
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -81,6 +87,70 @@ describe('what a peer of protocol 6 meets, shape by shape (D8.2)', () => {
     const ours = tagHandshake.welcomeSchema.safeParse(welcome);
     expect(ours.success).toBe(false);
     expect(ours.error?.issues.map((issue) => issue.code)).toContain('unrecognized_keys');
+    // The messages of the sticky notes are no type of protocol 6: a peer of the tag refuses each one as unknown.
+    const tagRegistry = (await import(join(tree.src, 'schema', 'registry.ts'))) as { isMessageType: (type: string) => boolean };
+    for (const type of STICKY_TYPES) expect(tagRegistry.isMessageType(type), type).toBe(false);
+  });
+});
+
+describe('the messages of the sticky notes (D2.4, D2.5, D3.5)', () => {
+  it('are exactly four, under the one prefix `sticky`', () => {
+    expect(MESSAGE_TYPES.filter((type) => type.startsWith('sticky.'))).toEqual([...STICKY_TYPES]);
+  });
+
+  it('every member who may read files reads the index and its changes; a new note is a write; Claude for the sticky notes is a session', () => {
+    expect(MESSAGE_REGISTRY['sticky.list'].capability).toBe('file.read');
+    expect(MESSAGE_REGISTRY['sticky.changed'].capability).toBe('file.read');
+    expect(MESSAGE_REGISTRY['sticky.changed'].checks).toEqual(['recipients:all']);
+    expect(MESSAGE_REGISTRY['sticky.create'].capability).toBe('file.write');
+    expect(MESSAGE_REGISTRY['sticky.assistant.start'].capability).toBe('session.create');
+    // Nothing of a note's content is on the wire: no type of the four is sensitive.
+    for (const type of STICKY_TYPES) expect(MESSAGE_REGISTRY[type].sensitive || MESSAGE_REGISTRY[type].resultSensitive, type).toBe(false);
+  });
+
+  it('a NoteInfo says nothing of the content but the links: no excerpt, no size, no time', () => {
+    expect(noteInfoSchema.safeParse(homeNote).success).toBe(true);
+    for (const extra of [{ excerpt: 'The cart' }, { size: 12 }, { mtime: 1 }, { path: 'notes/Home.md' }]) expect(noteInfoSchema.safeParse({ ...homeNote, ...extra }).success, JSON.stringify(extra)).toBe(false);
+  });
+});
+
+describe('what sticky.json stores, from its first version on (D4.3, D5.2, D6.3)', () => {
+  const member = { kind: 'member', user: { userId: 'dev:amy', displayName: 'Amy' } } as const;
+  const outsider = { kind: 'outside', source: 'slack', name: 'Mei Chen', externalId: 'U012ABCDEF' } as const;
+  const waiting = { id: 'fb_1', note: 'Home', text: 'Add a dark mode.', author: member, status: 'waiting', createdAt: 1 } as const;
+  const decided = { decidedBy: { userId: 'dev:ian', displayName: 'Ian' }, decidedAt: 2 } as const;
+
+  it('feedback of a member and of a person outside the workspace, waiting or decided', () => {
+    for (const entry of [waiting, { ...waiting, author: outsider, cut: true }, { ...waiting, status: 'accepted', ...decided }, { ...waiting, status: 'rejected', ...decided, rejectReason: 'Not now' }, { ...waiting, status: 'withdrawn' }]) {
+      const parsed = feedbackSchema.safeParse(entry);
+      expect(parsed.success, JSON.stringify(entry)).toBe(true);
+    }
+  });
+
+  it('refuses what no step of the feedback writes', () => {
+    for (const entry of [
+      { ...waiting, ...decided },
+      { ...waiting, status: 'accepted' },
+      { ...waiting, status: 'accepted', decidedBy: decided.decidedBy },
+      { ...waiting, status: 'accepted', ...decided, rejectReason: 'x' },
+      { ...waiting, cut: true },
+      { ...waiting, note: 'a/b' },
+      { ...waiting, text: '' },
+      { ...waiting, text: 'x'.repeat(4001) },
+      { ...waiting, author: { ...outsider, externalId: '12345678901234567' } },
+      { ...waiting, author: { ...outsider, source: 'discord' } },
+      { ...waiting, author: { ...outsider, name: '' } },
+      { ...waiting, author: { kind: 'outside', source: 'teams', name: 'Mei', externalId: 'U012ABCDEF' } },
+    ]) expect(feedbackSchema.safeParse(entry).success, JSON.stringify(entry)).toBe(false);
+  });
+
+  it('one cursor per source, with the channel it belongs to; a build names its note, its topic, who and the hash', () => {
+    expect(stickyCursorsSchema.safeParse({}).success).toBe(true);
+    expect(stickyCursorsSchema.safeParse({ slack: { channel: 'C012ABCDEF', after: '1731300000.000100' }, discord: { channel: '123456789012345678', after: '123456789012345679' } }).success).toBe(true);
+    for (const cursors of [{ slack: { channel: 'D012ABCDEF', after: '1.2' } }, { discord: { channel: '1234', after: '123456789012345679' } }, { teams: {} }]) expect(stickyCursorsSchema.safeParse(cursors).success, JSON.stringify(cursors)).toBe(false);
+    const build = { note: 'Home', topicId: 'tp_1', by: { userId: 'dev:ian', displayName: 'Ian' }, at: 1, hash: 'a'.repeat(64) };
+    expect(noteBuildSchema.safeParse(build).success).toBe(true);
+    expect(noteBuildSchema.safeParse({ ...build, hash: 'A'.repeat(64) }).success).toBe(false);
   });
 });
 

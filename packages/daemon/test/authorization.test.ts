@@ -300,6 +300,11 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'admin.hostRules.seen': 'ok',
   'admin.notice.seen': 'ok',
   'admin.transcript.redact': NO_SESSION,
+  // protocol 7: the index; the host's note Home is made (and notes/), a second Home is taken; Claude for the sticky
+  // notes starts for the host, and a member with agent access is answered the running one.
+  'sticky.list': 'ok',
+  'sticky.create': { host: 'ok', agent: 'conflict sticky.create.exists', editor: 'conflict sticky.create.exists' },
+  'sticky.assistant.start': 'ok',
 };
 
 describe('the release composition: every request type × every role in front of the real handlers', () => {
@@ -373,13 +378,16 @@ describe('the release composition: every request type × every role in front of 
 
   it('what the allowed requests really did, and nothing the refused ones asked for', async () => {
     const host = members.get('host') as TestClient;
-    // Two free sessions (the host's, Rita's) and the discussion of the host's topic: three starts of the stand-in.
+    // Two free sessions (the host's, Rita's), the discussion of the host's topic and (protocol 7) the host's Claude for
+    // the sticky notes, which Rita was answered too: four starts of the stand-in.
     const { sessions } = await host.conn.request('session.list', {});
-    expect(sessions.map((session) => (session.kind === 'agent' ? `${session.purpose} by ${session.openedBy.userId}` : session.kind)).sort()).toEqual(['discussion by dev:host', 'free by dev:host', 'free by dev:rita']);
+    expect(sessions.map((session) => (session.kind === 'agent' ? `${session.purpose} by ${session.openedBy.userId}` : session.kind)).sort()).toEqual(['discussion by dev:host', 'free by dev:host', 'free by dev:rita', 'notes by dev:host']);
     const { topics } = await host.conn.request('topic.list', {});
     expect(topics).toMatchObject([{ name: 'Checkout', slug: 'checkout', createdBy: { userId: 'dev:host' } }]);
+    // The host's sticky note is the one note; nobody else made one.
+    expect((await host.conn.request('sticky.list', {})).notes).toEqual([{ name: 'Home', links: [] }]);
     // (The model probe, which asks Claude Code once which models it offers, is a start of the stand-in too: not a session.)
-    await waitFor(async () => (await claude.echoed()).filter((entry) => entry.kind === 'argv' && !String(entry.session).startsWith('smurg-probe-')).length === 3, { timeoutMs: 20_000, what: 'the three agent sessions to have started' });
+    await waitFor(async () => (await claude.echoed()).filter((entry) => entry.kind === 'argv' && !String(entry.session).startsWith('smurg-probe-')).length === 4, { timeoutMs: 20_000, what: 'the four agent sessions to have started' });
     // An Editor and a Viewer opened nothing, and the one invite a person made is the host's.
     expect(sessions.some((session) => ['dev:eddie', 'dev:vera'].includes(session.openedBy.userId))).toBe(false);
     expect(entries.filter((e) => e.action === 'invite.create' && e.actor.kind === 'user').map((e) => (e.actor.kind === 'user' ? e.actor.userId : ''))).toEqual(['dev:host']);
@@ -410,9 +418,10 @@ describe('the release composition: every request type × every role in front of 
   it('channel.leave is open to every member, with the real modules behind the teardown', async () => {
     for (const role of ROLES) await expect((members.get(role) as TestClient).conn.request('channel.leave', {})).resolves.toEqual({});
     expect(entries.filter((e) => e.action === 'member.leave').map((e) => (e.actor.kind === 'user' ? e.actor.userId : ''))).toEqual(['dev:rita', 'dev:eddie', 'dev:vera']);
-    // Rita left: her free session ended with her (ARCHITECTURE §3 "When a member goes"); the host's are still there.
+    // Rita left: her free session ended with her (ARCHITECTURE §3 "When a member goes"); the host's three (free,
+    // discussion, sticky notes) are still there.
     const host = members.get('host') as TestClient;
     await waitFor(async () => !(await host.conn.request('session.list', {})).sessions.some((session) => session.openedBy.userId === 'dev:rita' && session.status !== 'ended'), { timeoutMs: 15_000, what: 'the session of the member who left to end' });
-    expect((await host.conn.request('session.list', {})).sessions.filter((session) => session.openedBy.userId === 'dev:host' && session.status !== 'ended')).toHaveLength(2);
+    expect((await host.conn.request('session.list', {})).sessions.filter((session) => session.openedBy.userId === 'dev:host' && session.status !== 'ended')).toHaveLength(3);
   }, 60_000);
 });

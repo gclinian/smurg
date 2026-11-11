@@ -1,4 +1,4 @@
-// The worst case of every protocol 4, 5 and 6 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
+// The worst case of every protocol 4, 5, 6 and 7 message fits one Envelope (ARCHITECTURE §4.3): below MAX_APP_MESSAGE, with every
 // string below MSGPACK_MAX_STR_LENGTH. The samples are in worst-case.fixture.ts: at the schema's own maxima, or, where
 // the registry names a size rule, the largest message that rule lets through.
 import { describe, expect, it } from 'vitest';
@@ -18,6 +18,7 @@ import {
   worstEvent,
   worstHostState,
   worstInboxItem,
+  worstNote,
   worstNotesSession,
   worstPermission,
   worstPlan,
@@ -95,6 +96,8 @@ describe('worst-case sizes of the protocol 4 and 5 messages', () => {
     expect(sizes.inboxItem).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(sizes.suggestion).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(encodedSize(worstSession)).toBeLessThan(LIST_REPLY_MAX_BYTES);
+    // protocol 7: one sticky note of the index (D2.4)
+    expect(encodedSize(worstNote(0))).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(sizes.configRoot).toBeLessThan(MAX_APP_MESSAGE - 64 * 1024);
     // Single entities that travel whole.
     expect(encodedSize(worstPlan)).toBeLessThan(MAX_APP_MESSAGE);

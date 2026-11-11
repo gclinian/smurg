@@ -89,6 +89,20 @@ export const worstNotesSession = (() => {
   return { ...rest, purpose: 'notes', root: { kind: 'main' }, permissionMode: 'ask-all', modeChoice: null, modeInUse: 'ask-all', modeFixed: true };
 })();
 
+// ---- sticky notes (protocol 7, DESIGN 0.8.0 D2) -----------------------------------------------------------------------
+/** A sticky note's name at its limit: NOTE_NAME_MAX_CHARS three-byte characters, the last one telling them apart. */
+const noteName = (index: number, base = 0x4e00): string => `${wide(L.NOTE_NAME_MAX_CHARS - 1)}${String.fromCharCode(base + index)}`;
+/** The largest NoteInfo: the longest name, NOTE_LINKS_MAX links of the longest names, the newest builds. */
+export const worstNote = (index: number): unknown => ({
+  name: noteName(index),
+  links: many(L.NOTE_LINKS_MAX, (link) => noteName(link, 0x6000)),
+  builds: many(L.NOTE_INFO_BUILDS_MAX, (build) => id('tp', build)),
+});
+const worstSources = [
+  { source: 'slack', state: 'failing', problem: wireText },
+  { source: 'discord', state: 'failing', problem: wireText },
+];
+
 // ---- events --------------------------------------------------------------------------------------------------------
 const stamp = (seq: number): { seq: number; at: number } => ({ seq, at: T });
 const largestEvents = (seq: number): unknown[] => [
@@ -561,4 +575,9 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'admin.hostRules.seen': { payload: {}, result: {} },
   'admin.notice.seen': { payload: { notice: 'agents-auto' }, result: {} },
   'admin.transcript.redact': { payload: { sessionId: id('s'), seq: 9e6 }, result: {} },
+  // protocol 7 (DESIGN 0.8.0 D2.4, D2.5, D3.5): the index by the list rule; a change at its largest travels whole
+  'sticky.list': { payload: { after: noteName(0) }, result: { notes: list(L.NOTES_MAX, worstNote), hasMore: true, truncated: true, sources: worstSources } },
+  'sticky.changed': { payload: { upserted: many(L.NOTES_MAX, worstNote), removed: many(L.NOTES_MAX, (index) => noteName(index, 0x7000)), truncated: true, sources: worstSources } },
+  'sticky.create': { payload: { name: wide(L.SHORT_TEXT_MAX_CHARS) }, result: { note: worstNote(0) } },
+  'sticky.assistant.start': { payload: {}, result: { session: worstNotesSession } },
 };

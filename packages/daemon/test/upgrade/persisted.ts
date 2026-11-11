@@ -201,5 +201,16 @@ export function persistedKinds(): PersistedKind[] {
   ];
 }
 
-/** The documents 0.4.0 already wrote; every other one is new in 0.5.0. A document a later smurg adds is named here with its version. */
-const DOCUMENT_SINCE: Readonly<Record<string, PublishedVersion>> = { state: '0.4.0', conflicts: '0.4.0', worktrees: '0.4.0', sessions: '0.4.0', suggestions: '0.4.0' };
+/**
+ * The documents 0.4.0 already wrote; every other one is new in 0.5.0. A document a later smurg adds is named here with
+ * its version, or NOT_PUBLISHED while no published smurg wrote it: then no fixture must hold it (`sticky`, new in
+ * 0.8.0, DESIGN 0.8.0 D4.5).
+ */
+const DOCUMENT_SINCE: Readonly<Record<string, PublishedVersion | typeof NOT_PUBLISHED>> = {
+  state: '0.4.0',
+  conflicts: '0.4.0',
+  worktrees: '0.4.0',
+  sessions: '0.4.0',
+  suggestions: '0.4.0',
+  sticky: NOT_PUBLISHED,
+};

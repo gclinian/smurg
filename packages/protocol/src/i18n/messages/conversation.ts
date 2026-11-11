@@ -83,6 +83,11 @@ export const conversation = {
     en: (p) => `${p.name} opened this session`,
     'zh-TW': (p) => `${p.name} 開啟了這個 session`,
   }),
+  // 0.8.0 D3.5: the first line of Claude for the sticky notes
+  'conversation.started.notes': message({ name: 'string' }, {
+    en: (p) => `${p.name} started Claude for the sticky notes`,
+    'zh-TW': (p) => `${p.name} 啟動了便利貼的 Claude`,
+  }),
   'conversation.started.item': message({ number: 'number', branch: 'string' }, {
     en: (p) => `Started from plan item ${p.number} in the worktree ${p.branch}`,
     'zh-TW': (p) => `從計畫項目 ${p.number} 開始，worktree：${p.branch}`,

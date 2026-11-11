@@ -21,7 +21,7 @@ import {
 import { EVENTS_BATCH_MAX_BYTES, EVENTS_PAGE_MAX_BYTES, LIST_REPLY_MAX_BYTES, MESSAGE_TYPE_MAX_CHARS, RATE_LIMITS_PER_MINUTE } from './limits.ts';
 
 // ---------------------------------------------------------------------------------------------------------------
-// ARCHITECTURE §5, transcribed. Every row is one table row of §5.1–§5.11 as written there:
+// ARCHITECTURE §5, transcribed. Every row is one table row of §5.1–§5.12 as written there:
 //   [type, Dir column, capability notation of the architecture]
 // Notation: '[cap]' = capability in brackets, '(…)' = resource rule in parentheses (the handler decides), '' = nothing
 // given. If this list and the registry disagree, either the code or the architecture changed without the other.
@@ -201,6 +201,11 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['admin.hostRules.seen', 'c→d', '[admin]'],
   ['admin.notice.seen', 'c→d', '[admin]'],
   ['admin.transcript.redact', 'c→d', '[admin]'],
+  // §5.12 (protocol 7, DESIGN 0.8.0 D2, D3.5)
+  ['sticky.list', 'c→d', '[file.read]'],
+  ['sticky.changed', 'd→c', ''],
+  ['sticky.create', 'c→d', '[file.write]'],
+  ['sticky.assistant.start', 'c→d', '[session.create]'],
 ];
 
 function expectedAccess(dir: ArchDir, notation: string): MessageAccess {
@@ -371,6 +376,8 @@ describe('volatile messages, rates and size rules (ARCHITECTURE §4.3, §5.9)', 
       'inbox.list': 'list',
       'inbox.changed': 'list',
       'admin.claudeConfig.get': 'list',
+      // protocol 7: the index of the sticky notes, 500 notes at their largest do not fit one list reply
+      'sticky.list': 'list',
     });
     expect(EVENTS_PAGE_MAX_BYTES).toBeLessThan(LIST_REPLY_MAX_BYTES);
     expect(EVENTS_BATCH_MAX_BYTES).toBeLessThan(EVENTS_PAGE_MAX_BYTES);
@@ -387,10 +394,12 @@ describe('channels', () => {
     }
   });
 
-  it('uses only the prefixes of SPEC §7.2 plus ARCHITECTURE’s channel/activity/worktree and protocol 4’s six', () => {
+  it('uses only the prefixes of SPEC §7.2 plus ARCHITECTURE’s channel/activity/worktree, protocol 4’s six and protocol 7’s sticky', () => {
     const prefixes = new Set([
       'file', 'doc', 'exec', 'session', 'suggest', 'lock', 'presence', 'admin', 'channel', 'activity', 'worktree',
       'topic', 'plan', 'report', 'question', 'permission', 'inbox',
+      // protocol 7 (DESIGN 0.8.0 D2.1): ONE prefix for everything of the sticky notes
+      'sticky',
     ]);
     for (const type of MESSAGE_TYPES) {
       if (type === 'error') continue;
@@ -563,6 +572,13 @@ describe('wire types and router checks', () => {
       expect(mayInvoke('host', type), type).toBe(true);
       expect(mayInvoke('agent', type), type).toBe(false);
     }
+    // Protocol 7: every member who may read files reads the index; a new sticky note is a new file; Claude for the
+    // sticky notes is started like any agent session.
+    for (const role of ROLES) expect(mayInvoke(role, 'sticky.list'), role).toBe(true);
+    for (const role of ['host', 'agent', 'editor'] as const) expect(mayInvoke(role, 'sticky.create'), role).toBe(true);
+    expect(mayInvoke('viewer', 'sticky.create')).toBe(false);
+    for (const role of ['host', 'agent'] as const) expect(mayInvoke(role, 'sticky.assistant.start'), role).toBe(true);
+    for (const role of ['editor', 'viewer'] as const) expect(mayInvoke(role, 'sticky.assistant.start'), role).toBe(false);
     expect(mayInvoke('viewer', 'exec.resize')).toBe(true); // the owner check happens in the handler
     expect(mayInvoke('viewer', 'session.end')).toBe(true); // the handler decides who may end which session
     for (const role of ROLES) {
@@ -576,7 +592,7 @@ describe('wire types and router checks', () => {
     expect(mayReceive('viewer', 'admin.audit.entry')).toBe(false);
     expect(mayReceive('host', 'admin.audit.entry')).toBe(true);
     expect(mayReceive('viewer', 'exec.output')).toBe(true);
-    for (const type of ['session.host', 'session.events', 'session.delta', 'question.updated', 'permission.updated', 'topic.updated', 'plan.updated', 'report.updated', 'inbox.changed']) {
+    for (const type of ['session.host', 'session.events', 'session.delta', 'question.updated', 'permission.updated', 'topic.updated', 'plan.updated', 'report.updated', 'inbox.changed', 'sticky.changed']) {
       expect(mayReceive('viewer', type), type).toBe(true);
     }
     expect(mayReceive('viewer', 'file.read.ok')).toBe(true);

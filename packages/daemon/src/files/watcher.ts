@@ -446,9 +446,11 @@ export class FileWatcher {
     // 2.6.0 on macOS); the periodic check subscribes again once the same directory is back.
     if (events.some((event) => event.type === 'delete' && event.path === watch.root.realPath)) void this.dropLost(watch);
     if (err) {
-      // FSEvents can drop events under load: nothing tells which paths; clients re-list on their next open. The root
-      // itself may be gone: look now rather than at the next periodic check.
+      // FSEvents can drop events under load: nothing tells which paths; clients re-list on their next open, and so does
+      // a module that keeps a view of the files (file.watch-error). The root itself may be gone: look now rather than at
+      // the next periodic check.
       this.ctx.log.warn('file watcher reported an error', { root: watch.root.key, error: err.message.slice(0, 200) });
+      this.ctx.bus.emit('file.watch-error', { root: watch.root.ref });
       void this.checkRoot(watch);
     }
     if (events.length === 0) return;

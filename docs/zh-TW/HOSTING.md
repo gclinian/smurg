@@ -915,9 +915,10 @@ smurg 工作了一陣子，然後再更新一次），smurg 也會把那個檔�
 | `claude-trust.json` | 你對各個專案的 Claude Code 設定做過的決定 | 全部的決定：在你重新確認之前，agent session 不會載入專案的設定 |
 | `cards.json` | 哪些對話裡有選擇題和權限請求 | 之前問過的不會再顯示 |
 
-對話裡原本顯示的選擇題、權限請求或建議如果因此不見了，網頁會顯示「主人的電腦已經不再保留這張卡片。」有五個檔案不能單獨
-移到旁邊，只剩最後的辦法：`state.json` 和 `identity.key` 就是工作區本身，而其餘的狀態都指向 `agent-sessions.json`、
-`topics.json` 和 `reports.json`（少了其中一個，主題會指向不存在的 session 和報告）。系統讀不了的紀錄檔（`audit.jsonl`、
+對話裡原本顯示的選擇題、權限請求或建議如果因此不見了，網頁會顯示「主人的電腦已經不再保留這張卡片。」有六個檔案不能單獨
+移到旁邊，只剩最後的辦法：`state.json` 和 `identity.key` 就是工作區本身，其餘的狀態都指向 `agent-sessions.json`、
+`topics.json` 和 `reports.json`（少了其中一個，主題會指向不存在的 session 和報告），而 `sticky.json` 記著大家對便利貼寫的
+意見，以及每個連上的 Slack 或 Discord 頻道讀到哪裡、哪些主題是從哪張便利貼建立的。系統讀不了的紀錄檔（`audit.jsonl`、
 `audit-text.jsonl`、`activity.jsonl`）也可以移走：那個檔案記的內容會失去，smurg 會重新開一個。
 
 `~/.smurg/workspaces.json` 的 `shared` 裡，一筆資料長這樣（`workspaceId` 是工作區在 `~/.smurg/workspaces/` 裡的資料夾

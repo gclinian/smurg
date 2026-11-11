@@ -38,6 +38,7 @@ import {
   normalized,
   noteNameOf,
   noteNameSchema,
+  noteTree,
   offerAlwaysRule,
   parseInviteUrl,
   parseRuleString,
@@ -53,6 +54,7 @@ import {
   topicFileKind,
   truncateToUtf8Bytes,
   visibleText,
+  wikiLinks,
   wireText,
   withFewMarks,
 } from '../src/index.ts';
@@ -99,6 +101,9 @@ const LOOKS: Readonly<Record<string, Look>> = {
   isHiddenTempName: { run: (text) => void isHiddenTempName(text), fronts: ['.', '.a.tmp.1'] },
   // 0.8.0 D1.2: a name a member types, a path an agent writes (the tool gate, G13). Both refuse a long text first.
   'noteNameSchema and noteNameOf (a sticky note\u2019s name, a path an agent edits)': { run: (text) => void [noteNameSchema.safeParse(text), noteNameOf(text), noteNameOf(`notes/${text}.md`)], fronts: ['notes/', 'a '] },
+  // 0.8.0 D1.4, D2.3: a note's whole text (the daemon's index, the web's renderer on each plain run), and the tree
+  // of what it found.
+  'wikiLinks and noteTree (the links of a sticky note)': { run: (text) => void noteTree([{ name: 'Home', links: wikiLinks(text) }]), fronts: ['[[', '```', '    ', '~~~'] },
   fileRefKey: { run: (text) => void fileRefKey({ root: { kind: 'main' }, path: text }) },
   'checkRememberableRule, ruleCoversRequest and offerAlwaysRule (a rule a member asks to remember)': {
     run: (text) =>
@@ -262,7 +267,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'noise/patterns.ts': 2,
   'noise/testing/vectors.ts': 2,
   'normalize.ts': 1,
-  // 0.8.0 D1.2: two classes of single characters, each tried once per character of a name of at most 80 units.
+  // 0.8.0 D1.2: two classes of single characters, each tried once per character of a name of at most 80 units. The
+  // finder of wiki links (D1.4) has none: it reads the text once, character by character.
   'notes.ts': 2,
   'relay/device-login.ts': 5,
   'relay/frames.ts': 4,
@@ -274,6 +280,8 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'schema/paths.ts': 7,
   // 11 since protocol 5: modelIdSchema's, anchored, one class repeated once (linear), on at most 256 characters.
   'schema/primitives.ts': 11,
+  // 0.8.0 D6: the ids of Slack and Discord, each anchored, one class repeated a bounded number of times.
+  'schema/sticky.ts': 4,
   'testing/text-cost.ts': 3,
   'wire-text.ts': 1,
 };

@@ -18,6 +18,7 @@ import { inbox } from './messages/inbox.ts';
 import { notify } from './messages/notify.ts';
 import { roles } from './messages/roles.ts';
 import { sessions } from './messages/sessions.ts';
+import { sticky } from './messages/sticky.ts';
 import { topics } from './messages/topics.ts';
 import { worktrees } from './messages/worktrees.ts';
 
@@ -53,7 +54,7 @@ export { ADMIN_CHANGES, type AdminChange } from './messages/errors.ts';
 export { GIT_STEPS, type GitStep } from './messages/worktrees.ts';
 
 /** The message files, by area (tests: no id is defined in two files). */
-export const MESSAGE_GROUPS = { errors, files, sessions, conversation, topics, inbox, worktrees, activity, notify, client, roles } as const;
+export const MESSAGE_GROUPS = { errors, files, sessions, conversation, topics, inbox, worktrees, activity, notify, client, roles, sticky } as const;
 
 export const MESSAGES = {
   ...errors,
@@ -67,6 +68,7 @@ export const MESSAGES = {
   ...notify,
   ...client,
   ...roles,
+  ...sticky,
 } as const;
 export type MessageId = keyof typeof MESSAGES;
 /** `msg()`'s rest arguments for message `I`. */

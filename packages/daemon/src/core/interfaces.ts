@@ -239,6 +239,11 @@ export interface DaemonEvents {
   'settings.changed': { readonly settings: HostSettings; readonly previous: HostSettings; readonly by: Actor };
   /** From the watcher: every event means "re-check this path"; own echoes are detected by content hash. */
   'file.changed': { readonly root: RootRef; readonly changes: readonly FileChange[] };
+  /**
+   * The native watcher reported an error for a root (FSEvents can drop events under load): changes may have been
+   * missed, nothing says which. A listener that keeps a view of files there reads them again (the sticky notes' index).
+   */
+  'file.watch-error': { readonly root: RootRef };
   /** A human's Yjs update was applied to a doc (drives human locks and the activity feed). `channelId`: the sender's logical channel. */
   'doc.human-edit': { readonly file: FileRef; readonly docId: string; readonly userId: UserId; readonly channelId: string };
   'doc.saved': { readonly file: FileRef; readonly docId: string; readonly hash: string; readonly at: number };

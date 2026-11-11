@@ -179,9 +179,10 @@ describe('host console: members', () => {
     fireEvent.change(await screen.findByLabelText('Role of Amy'), { target: { value: 'editor' } });
     const dialog = screen.getByRole('alertdialog', { name: 'Change the role of Amy to Editor?' });
     // What ends, what passes to the host and what is removed (DESIGN §3.9), with today's numbers: Amy opened a
-    // terminal and a session without a topic, and started one work item.
-    expect(within(dialog).getByText('The terminals and the sessions without a topic that Amy opened end (2 sessions right now).')).toBeTruthy();
-    expect(within(dialog).getByText('The topic sessions Amy started (discussions and work items) pass to you and keep running (1 session right now).')).toBeTruthy();
+    // terminal and a session without a topic, and started one work item. Since 0.8.0 the words say that Claude for the
+    // sticky notes, which has no topic, passes to the host too (DESIGN 0.8.0 D3.5: S2 made it startable).
+    expect(within(dialog).getByText('The terminals and the sessions without a topic that Amy opened, except Claude for the sticky notes, end (2 sessions right now).')).toBeTruthy();
+    expect(within(dialog).getByText('The topic sessions (discussions and work items) and Claude for the sticky notes that Amy started pass to you and keep running (1 session right now).')).toBeTruthy();
     expect(within(dialog).getByText(/^What Amy put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun/)).toBeTruthy();
     // An editor still votes and may stay responsible: nothing about that is said.
     expect(within(dialog).queryByText(/A viewer only watches/)).toBeNull();
@@ -207,7 +208,7 @@ describe('host console: members', () => {
     // Agent access → viewer loses both; viewer → editor loses nothing and applies at once.
     fireEvent.change(screen.getByLabelText('Role of Amy'), { target: { value: 'viewer' } });
     const both = screen.getByRole('alertdialog', { name: 'Change the role of Amy to Viewer?' });
-    expect(within(both).getByText(/^The terminals and the sessions without a topic that Amy opened end/)).toBeTruthy();
+    expect(within(both).getByText(/^The terminals and the sessions without a topic that Amy opened, except Claude for the sticky notes, end/)).toBeTruthy();
     expect(within(both).getByText(/^A viewer only watches: the votes of Amy leave open questions/)).toBeTruthy();
     fireEvent.click(within(both).getByRole('button', { name: 'Cancel' }));
     fireEvent.change(screen.getByLabelText('Role of Bob'), { target: { value: 'editor' } });
@@ -230,11 +231,12 @@ describe('host console: members', () => {
     const view = renderConsole({ fixture: topicFixture() });
     fireEvent.click(await screen.findByRole('button', { name: 'Remove Amy' }));
     const dialog = screen.getByRole('alertdialog', { name: 'Remove Amy?' });
-    // What ends, what passes to the host STOPPED, what is removed (DESIGN §3.9).
-    expect(within(dialog).getByText('Every terminal and every session without a topic that Amy opened ends at once (2 sessions right now).')).toBeTruthy();
+    // What ends, what passes to the host STOPPED, what is removed (DESIGN §3.9; 0.8.0 D3.5: Claude for the sticky notes
+    // passes to the host like a topic's sessions).
+    expect(within(dialog).getByText('Every terminal and every session without a topic that Amy opened, except Claude for the sticky notes, ends at once (2 sessions right now).')).toBeTruthy();
     expect(
       within(dialog).getByText(
-        "The topic sessions Amy started (discussions and work items) are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn (1 session right now).",
+        "The topic sessions (discussions and work items) and Claude for the sticky notes that Amy started are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn (1 session right now).",
       ),
     ).toBeTruthy();
     expect(

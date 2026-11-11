@@ -120,7 +120,7 @@ describe('the release composition (DEFAULT_FEATURE_MODULES with the stand-in cla
     let d = await s.start();
 
     // ---- the daemon runs what production composes: every module, every service slot real
-    expect(DEFAULT_FEATURE_MODULES.map((module) => module.name)).toEqual(['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'inbox', 'local']);
+    expect(DEFAULT_FEATURE_MODULES.map((module) => module.name)).toEqual(['locks', 'hooks', 'files', 'docs', 'worktree', 'sessions', 'conversation', 'suggest', 'topics', 'sticky', 'inbox', 'local']);
     expect(FEATURE_SERVICE_NAMES.filter((name) => isStubService(d.ctx.services[name]))).toEqual([]);
     expect(d.ctx.lifecycle.status()).toMatchObject({ started: true, stopped: false, agents: { running: 0, waiting: 0, stalled: 0, idle: 0 }, topics: { total: 0, paused: 0 } });
     expect(d.ctx.lifecycle.status().claude).toBeUndefined();

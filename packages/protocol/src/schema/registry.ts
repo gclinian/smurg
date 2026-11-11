@@ -9,6 +9,7 @@ import * as files from './messages/files.ts';
 import * as inbox from './messages/inbox.ts';
 import * as presence from './messages/presence.ts';
 import * as sessions from './messages/sessions.ts';
+import * as sticky from './messages/sticky.ts';
 import * as suggestions from './messages/suggestions.ts';
 import * as topics from './messages/topics.ts';
 import * as transfer from './messages/transfer.ts';
@@ -670,6 +671,15 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'admin.transcript.redact': request(admin.adminTranscriptRedactPayloadSchema, admin.adminTranscriptRedactResultSchema, 'admin', {
     checks: ['agent-session'],
   }),
+
+  // ---- sticky.* (§5.12, protocol 7: DESIGN 0.8.0 D2, D3.5) ---------------------------------------------------------
+  'sticky.list': request(sticky.stickyListPayloadSchema, sticky.stickyListResultSchema, 'file.read', { sizeRule: 'list' }),
+  'sticky.changed': event(sticky.stickyChangedPayloadSchema, 'file.read', { checks: ['recipients:all'] }),
+  // As the caller, through the file service (a sticky note's name is never a host-only one).
+  'sticky.create': request(sticky.stickyCreatePayloadSchema, sticky.stickyCreateResultSchema, 'file.write', {
+    checks: ['path-guard', 'host-only-paths'],
+  }),
+  'sticky.assistant.start': request(sticky.stickyAssistantStartPayloadSchema, sticky.stickyAssistantStartResultSchema, 'session.create'),
 });
 
 // ---------------------------------------------------------------------------------------------------------------
