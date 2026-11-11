@@ -8,8 +8,10 @@
 // replayed). A role change (Welcome or channel.memberUpdated) is forwarded to the stores that depend on the role
 // (admin, docs).
 //
-// `sticky` (the sticky notes' index, DESIGN 0.8.0 D7.3) loads nothing when a channel opens: the notes view asks for it
-// when it is first shown (`stores.sticky.want()`), and from then on it is loaded again after every full resync.
+// `sticky` (the sticky notes' index and the feedback on them, DESIGN 0.8.0 D7.3): the index loads when the notes view
+// is first shown (`stores.sticky.want()`), and from then on again after every full resync. The feedback loads with the
+// channel for a member who holds session.drive (the waiting count on the mode link is right in every view, its event
+// is applied from then on), for everyone else with the index.
 //
 // `columns` is the one store the connection does not feed: the member's own view of the sessions view, kept in this
 // browser per workspace (stores/columns.ts).
@@ -68,7 +70,7 @@ export interface WorkspaceStores {
   readonly worktrees: WorktreesStore;
   readonly admin: AdminStore;
   readonly transfers: TransfersStore;
-  /** The sticky notes' index (DESIGN 0.8.0 D7.3): loaded once the notes view asked for it. */
+  /** The sticky notes' index (loaded once the notes view asked for it) and the feedback on them (DESIGN 0.8.0 D7.3). */
   readonly sticky: StickyStore;
   /** Background failures (a load that failed, a refresh that failed); newest last, at most 20. */
   readonly errors: ReadableStore<readonly StoreErrorEvent[]>;

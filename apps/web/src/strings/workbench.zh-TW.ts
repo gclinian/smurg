@@ -39,6 +39,7 @@ export const zhTW = {
   'mode.label': '模式',
   'mode.notes': '便利貼',
   'mode.notes.title': '便利貼：從 Home 長出來、互相連結的小張便利貼',
+  'mode.notes.waiting': '便利貼：{count} 則意見等待處理',
   'mode.sessions': 'session',
   'mode.sessions.title': 'session：對話、計畫、spec 與結果報告',
   'mode.sessions.counts': 'session：{waiting} 個在等，{look} 個待看',

@@ -13,10 +13,15 @@
 //   - a turn of Claude that writes `notes/Ideas.md` and links it from Home (a Write and an Edit, through the gate)
 //     shows the new note in both pages, in the list and in Home's text; the note's path in Claude's text opens it in
 //     the notes view;
+//   - feedback (DESIGN 0.8.0 D7.8, BUILD-PLAN S6): a Viewer's page gives it on a sticky note and has no Accept; it
+//     reaches nobody's agent while it waits; the host's page counts it, shows what Claude gets (composeFeedback of the
+//     entry, character for character) and accepts it; the stand-in's turn then changes the note, and every page shows
+//     the change and the feedback decided;
 //   - nothing the pages did was an error of the page, the Content Security Policy included.
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { composeFeedback } from '@smurg/protocol';
 import type { Page } from 'playwright-core';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { installFakeClaude, type FakeClaudeScenario } from '../../../../packages/daemon/src/testing/index.ts';
@@ -31,10 +36,23 @@ const CLI_MAIN = fileURLToPath(new URL('../../../../packages/cli/src/main.ts', i
 /** What the host types into Home: a line, and a link to a sticky note nobody wrote yet. */
 const HOME_TYPED = 'Our bookshop, one sticky note at a time.\n\nNext: [[Checkout]]\n';
 const IDEAS = '- Gift cards\n- A reading list per member\n';
+/** What the Viewer writes about Ideas: a marker the stand-in's turn below is matched by. */
+const FEEDBACK = 'Gift cards should come with gift wrapping.';
 
-/** The whole "model": asked for ideas, it writes a new sticky note and links it from Home. */
+/**
+ * The whole "model": asked for ideas, it writes a new sticky note and links it from Home; given the accepted feedback
+ * on Ideas (the host's message that quotes it), it changes Ideas.
+ */
 const SCENARIO: FakeClaudeScenario = {
   turns: [
+    {
+      match: 'gift wrapping',
+      steps: [
+        { tool: 'Read', input: { file_path: 'notes/Ideas.md' } },
+        { tool: 'Edit', input: { file_path: 'notes/Ideas.md', old_string: '- Gift cards\n', new_string: '- Gift cards, with gift wrapping\n' } },
+        { text: 'I changed notes/Ideas.md: gift cards come with gift wrapping.' },
+      ],
+    },
     {
       match: 'ideas',
       steps: [
@@ -52,6 +70,8 @@ describe.skipIf(chrome === null)('the sticky notes in a real browser (built app,
   let env: SmokeEnv;
   let host: Page;
   let amy: Page;
+  /** A Viewer, from the feedback's test on. */
+  let vic: Page | undefined;
 
   beforeAll(async () => {
     const claude = await installFakeClaude(await mkdtemp(join(process.env['TMPDIR'] as string, 'notes-claude-')), SCENARIO);
@@ -179,8 +199,50 @@ describe.skipIf(chrome === null)('the sticky notes in a real browser (built app,
     expect(await host.locator('.app-shell').getAttribute('data-mode')).toBe('notes');
   }, 240_000);
 
+  it('feedback: a Viewer gives it on a sticky note, the host reads what Claude gets and accepts it, and the stand-in\'s turn changes the note in every page', async () => {
+    const viewer = await env.newPage({ width: 1440, height: 900, locale: 'en-US' });
+    vic = viewer;
+    await joinAs(viewer, env, 'vic', 'viewer');
+    await toMode(viewer, 'notes');
+    await list(viewer).getByRole('treeitem', { name: 'Ideas' }).locator('.sticky-row__name').first().click();
+    await note(viewer).getByRole('heading', { level: 2, name: 'Ideas' }).waitFor({ timeout: STEP_MS });
+    const feedbackOf = (page: Page) => note(page).getByRole('region', { name: 'Feedback' });
+    // A Viewer gives feedback; nobody's page has a count for them, and they cannot accept.
+    await feedbackOf(viewer).getByRole('textbox', { name: 'Give feedback on Ideas' }).fill(FEEDBACK);
+    await feedbackOf(viewer).getByRole('button', { name: 'Give feedback' }).click();
+    const theirs = feedbackOf(viewer).locator('li.sticky-fb', { hasText: FEEDBACK });
+    await theirs.getByRole('button', { name: 'Withdraw' }).waitFor({ timeout: STEP_MS });
+    expect(await feedbackOf(viewer).getByRole('button', { name: 'Accept' }).count()).toBe(0);
+    expect(await viewer.locator('.app-topbar__mode .ui-count').count()).toBe(0);
+    // The host's page counts what waits, on the mode link and on the note's row.
+    await host.locator('.app-topbar__mode').getByRole('link', { name: 'Sticky notes: 1 piece of feedback waiting' }).waitFor({ timeout: STEP_MS });
+    await list(host).getByRole('treeitem', { name: 'Ideas, 1 piece of feedback waiting' }).waitFor({ timeout: STEP_MS });
+    // While it waits, nothing of it reached Claude for the sticky notes (no message of anyone holds it).
+    expect(await claudePane(host).locator('.conv-msg', { hasText: FEEDBACK }).count()).toBe(0);
+    // What Claude gets: composeFeedback of the entry, character for character.
+    await note(host).getByRole('heading', { level: 2, name: 'Ideas' }).waitFor({ timeout: STEP_MS });
+    const entry = feedbackOf(host).locator('li.sticky-fb', { hasText: FEEDBACK });
+    await entry.locator('summary', { hasText: 'What Claude gets' }).click();
+    const listed = (await env.stack.hostClient.conn.request('sticky.feedback.list', {})).feedback.find((one) => one.text === FEEDBACK);
+    if (listed === undefined || listed.author.kind !== 'member') throw new Error('the feedback is not listed as a member\'s');
+    const expected = composeFeedback({ note: 'Ideas', author: { kind: 'member', userId: listed.author.user.userId, displayName: listed.author.user.displayName, role: 'viewer' }, text: FEEDBACK });
+    expect(await entry.locator('.sticky-fb__message').textContent()).toBe(expected);
+    await entry.getByRole('button', { name: 'Accept' }).click();
+    // The stand-in's turn (matched by the accepted message) changes the note: every page shows it.
+    await waitUntil(async () => (await fileText('Ideas')).includes('- Gift cards, with gift wrapping\n'), STEP_MS, 'Claude changed notes/Ideas.md');
+    for (const page of [host, viewer]) {
+      await note(page).locator('.sticky-card__body').getByText('Gift cards, with gift wrapping').waitFor({ timeout: STEP_MS });
+      // Decided: folded under "Show 1 earlier" with who accepted it.
+      await feedbackOf(page).getByText('Show 1 earlier').waitFor({ timeout: STEP_MS });
+    }
+    expect(await viewer.locator('li.sticky-fb', { hasText: FEEDBACK }).getByRole('button').count()).toBe(0);
+    await host.locator('.app-topbar__mode').getByRole('link', { name: 'Sticky notes', exact: true }).waitFor({ timeout: STEP_MS });
+    // The host's own message to Claude quotes it.
+    await claudePane(host).locator('.conv-msg', { hasText: FEEDBACK }).first().waitFor({ timeout: STEP_MS });
+  }, 240_000);
+
   it('nothing the pages did was an error of the page, the Content Security Policy included', () => {
-    for (const page of [host, amy]) {
+    for (const page of [host, amy, ...(vic === undefined ? [] : [vic])]) {
       const problems = env.problemsOf(page);
       expect(problems.pageErrors).toEqual([]);
       expect(problems.console).toEqual([]);

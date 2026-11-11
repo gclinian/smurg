@@ -1,7 +1,10 @@
 // The pages that stand in for a sticky note (DESIGN 0.8.0 D7.6): while there is no Home, the first page; for a valid
 // name the index does not list (a link to a note not written yet, a typed address), the page of that name. A member
 // who may write files writes the note from there (sticky.create: an empty note, D2.5); everyone else is told who can.
-// The one way to make a note: a link always leads to a page, never to a file being made by a stray click.
+// The one way to make a note: a link always leads to a page, never to a file being made by a stray click. Under it,
+// that name's feedback (D7.6): a note renamed or gone keeps what waits on it, and a member with agent access can still
+// decide it here (the group "Feedback on sticky notes that are gone" of the list leads here). No box: feedback goes
+// only on a note the index lists.
 import { errorReasonOf, isSmurgError } from '@smurg/protocol';
 import { useId, useState } from 'react';
 import { describeError } from '../../lib/errors.ts';
@@ -9,6 +12,7 @@ import { selectNote } from '../../lib/stores/sticky.ts';
 import { useCan, useStores } from '../../lib/workspace/context.tsx';
 import { Button } from '../../ui/index.ts';
 import { IconPlus } from '../../ui/icons.tsx';
+import { NoteFeedback } from './Feedback.tsx';
 import { t } from './strings.ts';
 import './sticky.css';
 
@@ -66,6 +70,7 @@ export function NoPage({ kind, name }: NoPageProps) {
           )}
         </div>
       </section>
+      <NoteFeedback note={name} box={false} />
     </div>
   );
 }

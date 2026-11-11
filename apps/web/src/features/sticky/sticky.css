@@ -242,3 +242,166 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+
+/* ---- the waiting feedback in the list of notes (D7.8): a small count at the end of a row, for those who decide */
+.sticky-row__count {
+  flex: none;
+  margin-left: auto;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-text);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  line-height: 18px;
+  text-align: center;
+}
+/* A name that is gone: the outline of the small square. */
+.sticky-row__dot--gone::before {
+  background: transparent;
+  border: 1px dashed var(--color-text-subtle);
+  opacity: 1;
+}
+
+/* ---- the feedback under the open note (D7.8): plain and quiet, below the note it is about, never a second card */
+.sticky-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  width: 100%;
+  max-width: 44rem;
+  margin-top: var(--space-2);
+}
+.sticky-feedback__title {
+  margin: 0;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+}
+.sticky-feedback__box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.sticky-feedback__input {
+  min-height: 0;
+  resize: vertical;
+}
+.sticky-feedback__send {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-5);
+}
+.sticky-feedback__send > :last-child {
+  flex: none;
+}
+.sticky-feedback__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sticky-feedback__line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sticky-feedback__problem,
+.sticky-fb__problem {
+  margin: 0;
+  color: var(--color-danger-text);
+  font-size: var(--text-sm);
+}
+.sticky-feedback__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sticky-feedback__earlier > summary,
+.sticky-fb__sent > summary {
+  width: fit-content;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.sticky-feedback__earlier[open] > summary {
+  margin-bottom: var(--space-5);
+}
+
+/* One feedback: a thin line on its left, a little stronger while it waits. Its buttons are the quiet kind: the note
+   above stays what the eye goes to. */
+.sticky-fb {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-1) 0 var(--space-1) var(--space-5);
+  border-left: 2px solid var(--color-border-strong);
+}
+.sticky-fb:not([data-status='waiting']) {
+  border-left-color: var(--color-border);
+}
+.sticky-fb__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin: 0;
+  font-size: var(--text-sm);
+}
+.sticky-fb__who {
+  font-weight: var(--weight-semibold);
+  overflow-wrap: anywhere;
+}
+.sticky-fb__source {
+  color: var(--color-text-muted);
+  font-size: var(--text-xs);
+}
+.sticky-fb__time {
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.sticky-fb__note,
+.sticky-fb__decision {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sticky-fb__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.sticky-fb__reject {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+.sticky-fb__sent[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+/* What Claude gets: the message exactly as it goes, in a quiet box of its own, scrolled when long. */
+.sticky-fb__message {
+  max-height: 18rem;
+  overflow: auto;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}

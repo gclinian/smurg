@@ -7,7 +7,8 @@
 // Above the text, for a member who may write: Read / Edit (the shared editor of that one note, NoteEdit.tsx) and
 // "Add a sticky note" (AddNote.tsx, only while the note takes a change); for a member with a box in Claude's
 // conversation, "Ask Claude about this sticky note" (the notes view puts the link into that box, D7.7). A Viewer
-// reads, and has none of them.
+// reads, and has none of them. Under the note, for everyone: its feedback and the box "Give feedback" (Feedback.tsx,
+// D7.8).
 import { NOTES_HOME, fileRefKey, type NoteInfo } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useAppServices } from '../../app/services.tsx';
@@ -20,6 +21,7 @@ import { IconAgent, IconComment, IconEdit, IconEye } from '../../ui/icons.tsx';
 import { useDocumentText, useHeldDocument, useHeldDocumentWritable } from '../editor/standalone.tsx';
 import { Markdown, type MarkdownWikiLinks } from '../markdown/index.ts';
 import { AddNote } from './AddNote.tsx';
+import { NoteFeedback } from './Feedback.tsx';
 import { HOME_KEY, findWikiLinks, noteFile, noteKey } from './model.ts';
 import { NoteEdit } from './NoteEdit.tsx';
 import { NoPage } from './NoPage.tsx';
@@ -210,6 +212,7 @@ export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: 
         ) : null}
       </div>
       {note.oversized === true ? <p className="sticky-page__aside">{t('note.oversized')}</p> : null}
+      <NoteFeedback note={note.name} box />
     </article>
   );
 }

@@ -174,6 +174,11 @@ Sticky notes, and Claude for the sticky notes.
 | What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word); everyone gives it, a Viewer too | feedback; "give feedback on a sticky note" | 意見；「對便利貼提出意見」 | `sticky.json` `feedback`, `feedback.give`, `sticky.feedback.*` |
 | What a member with agent access does with waiting feedback: send it, exactly as written, to Claude for the sticky notes as their own message, or not (the suggestion's words, never another pair) | Accept / Reject; accepted / rejected | 採用 / 不採用；已採用 / 不採用 | `sticky.feedback.accept`, `sticky.feedback.reject` |
 | What the author does with their own feedback while it waits (the suggestion's word) | Withdraw / withdrawn | 撤回 / 已撤回 | `sticky.feedback.withdraw` |
+| The box under a sticky note where anyone writes feedback, and its button | Give feedback | 提出意見 | `sticky.feedback.give` |
+| Before Accept: the exact message Claude for the sticky notes would get, shown as plain text | What Claude gets | Claude 會收到什麼 | `sticky.feedback.preview` |
+| The decided feedback of a sticky note, folded under what waits | "Show 3 earlier" | 「顯示較早的 3 則」 | `sticky.feedback.earlier` |
+| How much feedback waits for a decision (shown only to members with agent access) | "2 pieces of feedback waiting" | 「2 則意見等待處理」 | `sticky.row.waiting`, `workbench.mode.notes.waiting` |
+| The names in the list of sticky notes that are gone (renamed, or their file removed) and still have waiting feedback | Feedback on sticky notes that are gone | 已經不在的便利貼上的意見 | `sticky.tree.gone` |
 | The third view of a workspace, beside the sessions view and code mode: the sticky notes grown from Home, and the open one | Sticky notes (the mode link; the view) | 便利貼 | `/w/<id>/notes`, `workbench.mode.notes` |
 | A link from one sticky note to another, written `[[Name]]`; the reader sees the note's name | wiki link (prose; never a label) | wiki 連結 | `[[Name]]` |
 | The sticky notes that Home does not reach by its links | Not linked | 未連結 | `sticky.tree.notLinked` |

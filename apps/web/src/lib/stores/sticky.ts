@@ -1,6 +1,6 @@
-// The sticky notes (DESIGN 0.8.0 D2, D7.3): the daemon's index of `notes/*.md` in the main workspace (each note's name
-// on disk, the names it links to, its flags; nothing else of its text), the outside sources' state, and the note
-// last open in the notes view of this page.
+// The sticky notes (DESIGN 0.8.0 D2, D4, D7.3, D7.8): the daemon's index of `notes/*.md` in the main workspace (each
+// note's name on disk, the names it links to, its flags; nothing else of its text), the outside sources' state, the
+// feedback people gave on the notes, and the note last open in the notes view of this page.
 //
 //   notes     by foldNoteName(name): Home and home are one note (D1.3). A fold twin the daemon does not read is in
 //             `shadowed`, by its own name. Loaded with every page of sticky.list, and kept current by sticky.changed,
@@ -11,12 +11,36 @@
 //             full resync and on a resumed channel. Asked again while it is ready (a resumed channel, a note somebody
 //             wrote a moment ago), it stays ready until the answer replaces it, and a failure keeps it as it was and
 //             goes to the caller (a resumed channel reports it): the open note stays held, the list keeps its focus;
+//   feedback  by id, in the daemon's order (oldest first), with a load status of its own: every page of
+//             sticky.feedback.list, then sticky.feedback.updated (one entry as it is now, or the id of one that went).
+//             For a member who holds `session.drive` it loads WITH THE CHANNEL (D7.3), so that the waiting count on
+//             the mode link is right in every view; for everyone else it loads with the index, when the notes view is
+//             first shown. Read again like the index (a resumed channel: it stays ready). A reply never takes an entry
+//             back to an earlier state (feedback only goes from waiting to accepted or rejected, or away), and never
+//             brings back an entry that went;
 //   lastOpen  the note the notes view showed last in this page, for the mode link (kept in memory only: a note's
 //             name is project text).
-import { NOTES_HOME, collectPages, foldNoteName, noteTree, type NoteInfo, type NoteTree, type NoteTreeNode, type SourceState } from '@smurg/protocol';
+//
+// The text typed into a note's feedback box and not sent yet lives in a map of this store, for the life of the page
+// (never in the browser's storage: it is project text), so that it is still there when the person comes back to the
+// note.
+import {
+  FEEDBACK_MAX,
+  NOTES_HOME,
+  can,
+  collectPages,
+  foldNoteName,
+  noteTree,
+  type Feedback,
+  type NoteInfo,
+  type NoteTree,
+  type NoteTreeNode,
+  type PayloadOf,
+  type SourceState,
+} from '@smurg/protocol';
 import { compareText } from '../format.ts';
 import { createStore, type ReadableStore } from '../store.ts';
-import { loadSnapshot, readyState, type AreaLifecycle, type Loadable, type StoreContext } from './base.ts';
+import { loadSnapshot, readyState, type AreaLifecycle, type Loadable, type LoadStatus, type StoreContext } from './base.ts';
 
 export interface StickyState extends Loadable {
   /** The notes view asked for the index: it is loaded, and loaded again after a resync. */
@@ -31,10 +55,16 @@ export interface StickyState extends Loadable {
   readonly sources: readonly SourceState[];
   /** The note last open in the notes view of this page; undefined: Home, or the view was not shown yet. */
   readonly lastOpen: string | undefined;
+  /** The feedback on the sticky notes (D4.3), by id, oldest first. A withdrawn entry is never here: it went. */
+  readonly feedback: ReadonlyMap<string, Feedback>;
+  /** The feedback's own load: `idle` until it was asked for on this channel (see the header). */
+  readonly feedbackStatus: LoadStatus;
+  /** A sentence when the feedback could not be loaded. */
+  readonly feedbackError: string | null;
 }
 
 export interface StickyStore extends ReadableStore<StickyState> {
-  /** The notes view is shown: the index is loaded now (once; afterwards sticky.changed keeps it current). */
+  /** The notes view is shown: the index is loaded now (once; afterwards sticky.changed keeps it current), and the feedback with it. */
   want(): Promise<void>;
   /** Asks for the index again. While it is ready it stays ready, and a failure leaves it as it was (and rejects). */
   reload(): Promise<void>;
@@ -42,6 +72,20 @@ export interface StickyStore extends ReadableStore<StickyState> {
   create(name: string): Promise<NoteInfo>;
   /** The notes view shows `name` (undefined: Home). */
   setLastOpen(name: string | undefined): void;
+  /** Asks for the feedback again (its "Try again"). While it is ready it stays ready, and a failure leaves it as it was. */
+  reloadFeedback(): Promise<void>;
+  /** sticky.feedback.create: feedback on the sticky note `note` (any member, a Viewer too). In the store before this resolves. */
+  giveFeedback(note: string, text: string): Promise<Feedback>;
+  /** sticky.feedback.withdraw: the author, while it waits. Gone from the store before this resolves. */
+  withdrawFeedback(feedbackId: string): Promise<void>;
+  /** sticky.feedback.accept (`session.drive`): the daemon sends it once to Claude for the sticky notes. */
+  acceptFeedback(feedbackId: string): Promise<Feedback>;
+  /** sticky.feedback.reject (`session.drive`), with an optional reason everyone sees. Nothing is sent. */
+  rejectFeedback(feedbackId: string, reason?: string): Promise<Feedback>;
+  /** What was typed into the feedback box of `note` and not sent yet ('' when nothing). */
+  feedbackDraft(note: string): string;
+  /** Keeps (or, with '', forgets) the unsent text of the feedback box of `note`, for the life of the page. */
+  setFeedbackDraft(note: string, text: string): void;
 }
 
 export const INITIAL_STICKY_STATE: StickyState = Object.freeze({
@@ -53,6 +97,9 @@ export const INITIAL_STICKY_STATE: StickyState = Object.freeze({
   truncated: false,
   sources: [],
   lastOpen: undefined,
+  feedback: new Map(),
+  feedbackStatus: 'idle',
+  feedbackError: null,
 });
 
 // ---- selectors
@@ -88,6 +135,97 @@ export function selectNoteTree(state: StickyState): StickyTree {
 
 /** Whether the index lists Home. */
 export const selectHasHome = (state: StickyState): boolean => state.notes.has(foldNoteName(NOTES_HOME));
+
+/** The feedback on one sticky note (D7.8): what waits, oldest first (a queue); what was decided, the newest decision first. */
+export interface NoteFeedback {
+  readonly waiting: readonly Feedback[];
+  readonly settled: readonly Feedback[];
+}
+
+const NO_FEEDBACK: NoteFeedback = Object.freeze({ waiting: Object.freeze([]), settled: Object.freeze([]) });
+
+interface FeedbackDerived {
+  /** By the folded name of the note each entry is on. */
+  readonly byNote: ReadonlyMap<string, NoteFeedback>;
+  /** How many wait, by the folded name of their note (only names with some). */
+  readonly waitingByNote: ReadonlyMap<string, number>;
+  readonly waiting: number;
+}
+
+const feedbackDerived = new WeakMap<ReadonlyMap<string, Feedback>, FeedbackDerived>();
+
+function deriveFeedback(feedback: ReadonlyMap<string, Feedback>): FeedbackDerived {
+  const known = feedbackDerived.get(feedback);
+  if (known !== undefined) return known;
+  const waiting = new Map<string, Feedback[]>();
+  const settled = new Map<string, Feedback[]>();
+  for (const entry of feedback.values()) {
+    const key = foldNoteName(entry.note);
+    const into = entry.status === 'waiting' ? waiting : settled;
+    const list = into.get(key);
+    if (list === undefined) into.set(key, [entry]);
+    else list.push(entry);
+  }
+  const byNote = new Map<string, NoteFeedback>();
+  const waitingByNote = new Map<string, number>();
+  let total = 0;
+  for (const key of new Set([...waiting.keys(), ...settled.keys()])) {
+    const queue = waiting.get(key) ?? [];
+    // The newest decision first; for two decided at the same moment, the daemon's order (oldest first).
+    const decided = (settled.get(key) ?? []).map((entry, index) => ({ entry, index }));
+    decided.sort((a, b) => (b.entry.decidedAt ?? b.entry.createdAt) - (a.entry.decidedAt ?? a.entry.createdAt) || a.index - b.index);
+    byNote.set(key, { waiting: queue, settled: decided.map(({ entry }) => entry) });
+    if (queue.length > 0) waitingByNote.set(key, queue.length);
+    total += queue.length;
+  }
+  const derived: FeedbackDerived = { byNote, waitingByNote, waiting: total };
+  feedbackDerived.set(feedback, derived);
+  return derived;
+}
+
+/** The feedback on the sticky note `name` (folded: feedback on `home` is Home's); the same object while it is the same. */
+export function selectFeedbackOf(state: StickyState, name: string): NoteFeedback {
+  return deriveFeedback(state.feedback).byNote.get(foldNoteName(name)) ?? NO_FEEDBACK;
+}
+
+/** How much feedback waits for a decision: on the sticky note `name` (folded), or on all of them. */
+export function selectWaitingCount(state: StickyState, name?: string): number {
+  const derived = deriveFeedback(state.feedback);
+  return name === undefined ? derived.waiting : (derived.waitingByNote.get(foldNoteName(name)) ?? 0);
+}
+
+/** A name with waiting feedback that the index does not hold (D7.4): the note was renamed, or its file went. */
+export interface GoneNote {
+  /** As the feedback names it (its oldest entry's spelling). */
+  readonly name: string;
+  readonly waiting: number;
+}
+
+const goneNotes = new WeakMap<ReadonlyMap<string, Feedback>, { readonly notes: ReadonlyMap<string, NoteInfo>; readonly gone: readonly GoneNote[] }>();
+const NO_GONE: readonly GoneNote[] = Object.freeze([]);
+
+/**
+ * The names with waiting feedback that the index does not hold, by name (compareText): the group "Feedback on sticky
+ * notes that are gone" (D7.4). None while the index is not loaded: every name would look gone.
+ */
+export function selectGoneNotes(state: StickyState): readonly GoneNote[] {
+  if (state.status !== 'ready') return NO_GONE;
+  const known = goneNotes.get(state.feedback);
+  if (known !== undefined && known.notes === state.notes) return known.gone;
+  // A name is spelled as its oldest feedback spells it, whatever became of that one: the row keeps its name while
+  // its feedback is decided one by one.
+  const spelling = new Map<string, string>();
+  for (const entry of state.feedback.values()) {
+    const key = foldNoteName(entry.note);
+    if (!spelling.has(key)) spelling.set(key, entry.note);
+  }
+  const counts = deriveFeedback(state.feedback).waitingByNote;
+  const names = [...counts.keys()].filter((key) => !state.notes.has(key));
+  const gone =
+    names.length === 0 ? NO_GONE : names.map((key) => ({ name: spelling.get(key) ?? key, waiting: counts.get(key) ?? 0 })).sort((a, b) => compareText(a.name, b.name));
+  goneNotes.set(state.feedback, { notes: state.notes, gone });
+  return gone;
+}
 
 // ---- the area
 
@@ -128,6 +266,29 @@ function put(maps: Maps, note: NoteInfo, before: Maps): void {
   }
 }
 
+/** The same entry, as far as anything of it can change (feedback changes only by its decision). */
+const sameFeedback = (a: Feedback, b: Feedback): boolean =>
+  a.id === b.id &&
+  a.status === b.status &&
+  a.decidedAt === b.decidedAt &&
+  a.decidedBy?.userId === b.decidedBy?.userId &&
+  a.decidedBy?.displayName === b.decidedBy?.displayName &&
+  a.rejectReason === b.rejectReason &&
+  a.note === b.note &&
+  a.text === b.text;
+
+/** Feedback goes from waiting to accepted or rejected, never back: `entry` when it is not an earlier state of `before`. */
+function later(before: Feedback | undefined, entry: Feedback): Feedback {
+  if (before === undefined) return entry;
+  if (before.status !== 'waiting' && entry.status === 'waiting') return before;
+  return sameFeedback(before, entry) ? before : entry;
+}
+
+type FeedbackUpdate = PayloadOf<'sticky.feedback.updated'>;
+
+/** How many ids of entries that went are remembered on a channel (a reply that comes after its entry went cannot bring it back). */
+const GONE_REMEMBERED = FEEDBACK_MAX * 2;
+
 export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecycle } {
   const state = createStore<StickyState>(INITIAL_STICKY_STATE);
   let ctx: StoreContext | null = null;
@@ -137,6 +298,47 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
   };
   /** The load that is on its way (want() called while one runs waits for it). */
   let loading: Promise<void> | null = null;
+  /** The feedback's load that is on its way. */
+  let feedbackLoading: Promise<void> | null = null;
+  /**
+   * The events that came while a load of the feedback was on its way, one list per load, applied again to its answer.
+   * The channel is ordered: a page asked for after an event holds it already, one asked for before does not; the
+   * events in order after the whole list give every entry its newest state.
+   */
+  const pendingEvents = new Set<FeedbackUpdate[]>();
+  /** The ids of entries that went on this channel (withdrawn, or dropped at a bound), oldest first. */
+  let gone = new Set<string>();
+  /** The unsent text of each note's feedback box, by folded name: for the life of the page, never stored. */
+  const drafts = new Map<string, string>();
+
+  const forget = (id: string): void => {
+    gone.add(id);
+    if (gone.size > GONE_REMEMBERED) gone.delete(gone.values().next().value as string);
+  };
+  /** One update into a copy of the feedback map. */
+  const applyUpdate = (map: Map<string, Feedback>, update: FeedbackUpdate): void => {
+    if ('removed' in update) {
+      forget(update.removed);
+      map.delete(update.removed);
+    } else if (update.feedback.status === 'withdrawn') {
+      forget(update.feedback.id);
+      map.delete(update.feedback.id);
+    } else if (!gone.has(update.feedback.id)) map.set(update.feedback.id, later(map.get(update.feedback.id), update.feedback));
+  };
+  /** An entry a reply carries, as the store then holds it. */
+  const upsertFeedback = (entry: Feedback): Feedback => {
+    state.setState((previous) => {
+      const map = new Map(previous.feedback);
+      applyUpdate(map, { feedback: entry });
+      return { ...previous, feedback: map };
+    });
+    return state.getState().feedback.get(entry.id) ?? entry;
+  };
+  /** This channel asks for the feedback: a member who holds session.drive at once, everyone else with the index. */
+  const feedbackWanted = (c: StoreContext): boolean => {
+    const role = c.role();
+    return state.getState().wanted || (role !== null && can(role, 'session.drive'));
+  };
 
   const fetchIndex = async (c: StoreContext): Promise<{ notes: NoteInfo[]; truncated: boolean; sources: readonly SourceState[] }> => {
     let truncated = false;
@@ -151,7 +353,7 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
     return { notes, truncated, sources };
   };
 
-  const load = (): Promise<void> => {
+  const loadIndex = (): Promise<void> => {
     if (!state.getState().wanted) return Promise.resolve();
     const c = context();
     // A refresh of an index on screen never shows it loading or failed: the views would put a spinner in the place of
@@ -178,15 +380,65 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
     return settled;
   };
 
+  const loadFeedback = (): Promise<void> => {
+    const c = context();
+    // Read again while it is ready (a resumed channel), it stays ready: the counts and the open note's feedback stay
+    // on screen until the answer replaces them, and a failure keeps them (and rejects).
+    const refresh = state.getState().feedbackStatus === 'ready';
+    const events: FeedbackUpdate[] = [];
+    pendingEvents.add(events);
+    const run = loadSnapshot(
+      c,
+      (loadable) => {
+        if (!refresh) state.setState((previous) => ({ ...previous, feedbackStatus: loadable.status, feedbackError: loadable.error }));
+      },
+      // `sticky.feedback.list` follows the list rule: read every page.
+      () =>
+        collectPages(async (after) => {
+          const page = await c.conn.request('sticky.feedback.list', after === undefined ? {} : { after });
+          return { items: page.feedback, hasMore: page.hasMore };
+        }, (entry: Feedback) => entry.id),
+      (list) =>
+        state.setState((previous) => {
+          const map = new Map<string, Feedback>();
+          for (const entry of list) {
+            const before = previous.feedback.get(entry.id);
+            map.set(entry.id, before !== undefined && sameFeedback(before, entry) ? before : entry);
+          }
+          for (const update of events) applyUpdate(map, update);
+          return { ...previous, feedback: map, feedbackStatus: 'ready', feedbackError: null };
+        }),
+    );
+    const settled = run.finally(() => {
+      pendingEvents.delete(events);
+      if (feedbackLoading === settled) feedbackLoading = null;
+    });
+    feedbackLoading = settled;
+    return settled;
+  };
+
+  /** The feedback, if this channel asks for it and has not asked yet (else the load on its way, if any). */
+  const wantFeedback = (c: StoreContext): Promise<void> => {
+    if (!feedbackWanted(c)) return Promise.resolve();
+    if (state.getState().feedbackStatus !== 'idle') return feedbackLoading ?? Promise.resolve();
+    return loadFeedback();
+  };
+
+  /** What a channel loads: the index once it was wanted, the feedback once it is wanted (a failure of either rejects). */
+  const load = (): Promise<void> => Promise.all([loadIndex(), feedbackWanted(context()) ? loadFeedback() : Promise.resolve()]).then(() => undefined);
+
   const store: StickyStore = {
     getState: state.getState,
     subscribe: state.subscribe,
     want() {
       if (state.getState().wanted) return loading ?? Promise.resolve();
       state.setState((previous) => ({ ...previous, wanted: true }));
-      return load();
+      // The feedback comes with the index (a member with session.drive has it from the channel): its failure is kept
+      // in its own status, where the view says it with "Try again".
+      wantFeedback(context()).catch(() => {});
+      return loadIndex();
     },
-    reload: load,
+    reload: loadIndex,
     async create(name) {
       const { note } = await context().conn.request('sticky.create', { name });
       state.setState((previous) => {
@@ -200,12 +452,37 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
     setLastOpen(name) {
       if (state.getState().lastOpen !== name) state.setState((previous) => ({ ...previous, lastOpen: name }));
     },
+    reloadFeedback: loadFeedback,
+    async giveFeedback(note, text) {
+      return upsertFeedback((await context().conn.request('sticky.feedback.create', { note, text })).feedback);
+    },
+    async withdrawFeedback(feedbackId) {
+      const { feedback } = await context().conn.request('sticky.feedback.withdraw', { feedbackId });
+      state.setState((previous) => {
+        const map = new Map(previous.feedback);
+        applyUpdate(map, { removed: feedback.id });
+        return { ...previous, feedback: map };
+      });
+    },
+    async acceptFeedback(feedbackId) {
+      return upsertFeedback((await context().conn.request('sticky.feedback.accept', { feedbackId })).feedback);
+    },
+    async rejectFeedback(feedbackId, reason) {
+      return upsertFeedback((await context().conn.request('sticky.feedback.reject', reason === undefined ? { feedbackId } : { feedbackId, reason })).feedback);
+    },
+    feedbackDraft(note) {
+      return drafts.get(foldNoteName(note)) ?? '';
+    },
+    setFeedbackDraft(note, text) {
+      if (text === '') drafts.delete(foldNoteName(note));
+      else drafts.set(foldNoteName(note), text);
+    },
   };
 
   const lifecycle: AreaLifecycle = {
     bind(c) {
       ctx = c;
-      const off = c.conn.on('sticky.changed', ({ upserted, removed, truncated, sources }) => {
+      const offIndex = c.conn.on('sticky.changed', ({ upserted, removed, truncated, sources }) => {
         // Nothing is shown before the index was asked for: a change alone would be a list of a few notes.
         if (!state.getState().wanted) return;
         state.setState((previous) => {
@@ -216,16 +493,37 @@ export function createStickyArea(): { store: StickyStore; lifecycle: AreaLifecyc
           return { ...previous, notes: maps.notes, shadowed: maps.shadowed, truncated, ...(sources === undefined ? {} : { sources }) };
         });
       });
-      return off;
+      const offFeedback = c.conn.on('sticky.feedback.updated', (update) => {
+        // Nothing is kept before the feedback was asked for on this channel: one entry alone is no list.
+        if (state.getState().feedbackStatus === 'idle') return;
+        for (const events of pendingEvents) events.push(update);
+        state.setState((previous) => {
+          const map = new Map(previous.feedback);
+          applyUpdate(map, update);
+          return { ...previous, feedback: map };
+        });
+      });
+      return () => {
+        offIndex();
+        offFeedback();
+      };
     },
     reset() {
-      // What was asked for stays asked for (`wanted`), and the note last open stays: load() fetches the index again.
+      // What was asked for stays asked for (`wanted`); the note last open and the unsent texts stay: load() fetches
+      // the index and the feedback again.
+      gone = new Set();
       state.setState((previous) => ({ ...INITIAL_STICKY_STATE, wanted: previous.wanted, lastOpen: previous.lastOpen }));
     },
     load,
     onResumed() {
-      // What the daemon tells every member (sticky.changed) is not replayed to a channel that was away: ask again.
-      if (state.getState().wanted) load().catch((error: unknown) => ctx?.reportError('sticky', error));
+      // What the daemon tells every member (sticky.changed, sticky.feedback.updated) is asked for again on a channel
+      // that was away.
+      if (state.getState().wanted) loadIndex().catch((error: unknown) => ctx?.reportError('sticky', error));
+      if (state.getState().feedbackStatus !== 'idle') loadFeedback().catch((error: unknown) => ctx?.reportError('sticky', error));
+    },
+    onRoleChange(role) {
+      // Made a member with agent access (or the host) on this channel: the waiting count is wanted from now on (D7.3).
+      if (ctx !== null && can(role, 'session.drive')) wantFeedback(ctx).catch((error: unknown) => ctx?.reportError('sticky', error));
     },
   };
   return { store, lifecycle };

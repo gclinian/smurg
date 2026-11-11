@@ -60,6 +60,20 @@ describe('the app in zh-TW', () => {
     expect(within(mode).getByRole('link', { name: '便利貼' }).getAttribute('title')).toBe('便利貼：從 Home 長出來、互相連結的小張便利貼');
     expect(within(mode).getByRole('link', { name: 'session' }).getAttribute('aria-current')).toBe('page');
     expect(within(mode).getByRole('link', { name: '手寫 code 模式' }).getAttribute('aria-current')).toBeNull();
+    // The feedback that waits, counted on the link for a member with agent access (DESIGN 0.8.0 D7.8).
+    const vic = { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } } as const;
+    await act(async () => {
+      conn.respond('sticky.feedback.list', {
+        feedback: [
+          { id: 'fb_1', note: 'Home', text: '多一點圖片。', author: vic, status: 'waiting', createdAt: 1 },
+          { id: 'fb_2', note: 'Home', text: '價格寫清楚。', author: vic, status: 'waiting', createdAt: 2 },
+        ],
+        hasMore: false,
+      });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+    const counted = within(mode).getByRole('link', { name: '便利貼：2 則意見等待處理' });
+    expect(counted.querySelector('.ui-count')?.textContent).toBe('2');
     expect(within(topbar).getByRole('button', { name: '顯示或隱藏收件夾與 session 清單' })).toBeTruthy();
     expect(screen.getByRole('complementary', { name: '收件夾與 session' })).toBeTruthy();
     expect(screen.getByRole('main', { name: '開啟的欄' })).toBeTruthy();

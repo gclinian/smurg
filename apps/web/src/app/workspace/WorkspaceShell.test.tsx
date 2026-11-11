@@ -2,7 +2,7 @@
 // commands that move between them, the overlays, the tab's title, F6, and the empty states of the right side.
 import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MAIN_ROOT, SmurgError, agentText, type AgentSession, type ConversationEvent, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
+import { MAIN_ROOT, SmurgError, agentText, type AgentSession, type ConversationEvent, type Feedback, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { buildAgentSession, buildEvent, buildInboxItem, buildTopic } from '@smurg/protocol/testing';
 import { useEffect } from 'react';
@@ -54,6 +54,8 @@ interface OpenOptions {
   inbox?: readonly InboxItem[];
   /** The index of the sticky notes the host answers with (asked for when the sticky notes are first shown). */
   notes?: readonly NoteInfo[];
+  /** The feedback on the sticky notes the host answers with (with the channel for session.drive, else with the notes). */
+  feedback?: readonly Feedback[];
 }
 
 async function open(options: OpenOptions = {}) {
@@ -74,7 +76,9 @@ async function open(options: OpenOptions = {}) {
       'session.list': { sessions: options.sessions ?? [DISCUSSION, CART, FREE, TERMINAL], hasMore: false },
       'topic.list': { topics: options.topics ?? [TOPIC], hasMore: false },
       'inbox.list': { items: options.inbox ?? [], hasMore: false },
+      'sticky.feedback.list': { feedback: [...(options.feedback ?? [])], hasMore: false },
     });
+    conn.handle('sticky.feedback.list', () => ({ feedback: [...(options.feedback ?? [])], hasMore: false }));
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
   });
   const session = services.manager.peek(WORKSPACE_ID)!;
@@ -265,6 +269,52 @@ describe('the workspace shell: the sticky notes, a third view', () => {
     expect(path()).toBe(`${NOTES_PATH}/Ideas`);
     expect(modeLink('Sticky notes').getAttribute('aria-current')).toBe('page');
   }, 30_000);
+
+  it('the feedback that waits is counted on the "Sticky notes" link for a member with agent access, in the sessions view before the sticky notes were ever shown, and in every view; nobody else sees a count (DESIGN 0.8.0 D7.3, D7.8)', async () => {
+    const vic = { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } } as const;
+    const fb = (id: string, note: string, extra: Partial<Feedback> = {}): Feedback => ({ id, note, text: `About ${note}.`, author: vic, status: 'waiting', createdAt: 1, ...extra }) as Feedback;
+    const feedback = [fb('fb_1', 'Home'), fb('fb_2', 'Ideas'), fb('fb_3', 'Home', { status: 'accepted', decidedBy: { userId: 'dev:host', displayName: 'Ian' }, decidedAt: 2 })];
+    for (const role of ['host', 'agent'] as const) {
+      const { conn } = await open({ role, feedback });
+      // The sessions view, and the sticky notes never shown: nothing of them is mounted, the index was not asked for.
+      expect(view('notes').childElementCount).toBe(0);
+      expect(conn.requestsOf('sticky.list')).toHaveLength(0);
+      expect(conn.requestsOf('sticky.feedback.list')).toHaveLength(1);
+      const link = modeLink('Sticky notes: 2 pieces of feedback waiting');
+      expect(link.getAttribute('href')).toBe(NOTES_PATH);
+      expect(link.querySelector('.ui-count')?.textContent).toBe('2');
+      // What every member is told keeps it right.
+      act(() => conn.emit('sticky.feedback.updated', { feedback: fb('fb_4', 'Checkout') }));
+      expect(modeLink('Sticky notes: 3 pieces of feedback waiting')).toBeTruthy();
+      act(() => conn.emit('sticky.feedback.updated', { feedback: fb('fb_1', 'Home', { status: 'rejected', decidedBy: { userId: 'dev:host', displayName: 'Ian' }, decidedAt: 3 }) }));
+      act(() => conn.emit('sticky.feedback.updated', { removed: 'fb_2' }));
+      expect(modeLink('Sticky notes: 1 piece of feedback waiting').querySelector('.ui-count')?.textContent).toBe('1');
+      // In code mode and in the sticky notes themselves too.
+      await userEvent.click(modeLink('Code mode'));
+      expect(await screen.findByRole('main', { name: 'Editor' }, { timeout: 15_000 })).toBeTruthy();
+      expect(modeLink('Sticky notes: 1 piece of feedback waiting')).toBeTruthy();
+      await userEvent.click(modeLink(/^Sticky notes/));
+      expect(await screen.findByRole('main', { name: 'Open sticky note' }, { timeout: 15_000 })).toBeTruthy();
+      expect(modeLink('Sticky notes: 1 piece of feedback waiting').getAttribute('aria-current')).toBe('page');
+      // The sticky notes shown asked for the index, not for the feedback again.
+      await waitFor(() => expect(conn.requestsOf('sticky.list')).toHaveLength(1));
+      expect(conn.requestsOf('sticky.feedback.list')).toHaveLength(1);
+      act(() => conn.emit('sticky.feedback.updated', { removed: 'fb_4' }));
+      expect(modeLink('Sticky notes').querySelector('.ui-count')).toBeNull();
+      cleanup();
+    }
+    for (const role of ['editor', 'viewer'] as const) {
+      const { conn } = await open({ role, feedback });
+      expect(conn.requestsOf('sticky.feedback.list')).toHaveLength(0);
+      expect(modeLink('Sticky notes').querySelector('.ui-count')).toBeNull();
+      // Shown, the sticky notes load the feedback with the index; still no count for them.
+      await userEvent.click(modeLink('Sticky notes'));
+      expect(await screen.findByRole('main', { name: 'Open sticky note' }, { timeout: 15_000 })).toBeTruthy();
+      await waitFor(() => expect(conn.requestsOf('sticky.feedback.list')).toHaveLength(1));
+      expect(modeLink('Sticky notes').querySelector('.ui-count')).toBeNull();
+      cleanup();
+    }
+  }, 60_000);
 
   it('hidden, the sticky notes never take the address: a note that comes to be written in another spelling is only remembered', async () => {
     const { conn, dispatch, path } = await open({ path: `${NOTES_PATH}/Reviews`, notes: [{ name: 'Home', links: [] }] });

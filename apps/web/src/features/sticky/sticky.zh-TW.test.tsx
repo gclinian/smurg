@@ -1,12 +1,15 @@
 // The sticky notes in Traditional Chinese (DESIGN 0.8.0 D7): the list's words, the open note's, the pages without a
-// note, and what a member does with the open note (Read / Edit, Add a sticky note, Ask Claude). A note's name is a
-// file's name and is never translated: `Home` is Home in both languages (D1.1).
-import { SmurgError } from '@smurg/protocol';
+// note, what a member does with the open note (Read / Edit, Add a sticky note, Ask Claude), and the feedback under it
+// (D7.8: the box, Accept and Reject, Withdraw, "What Claude gets", "Show N earlier", the counts, the group of notes
+// that are gone). A note's name is a file's name and is never translated: `Home` is Home in both languages (D1.1).
+import { SmurgError, type Feedback } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
 import { act, cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
-import { makeAgentLock } from '../../testing/fixtures.ts';
+import { describeError } from '../../lib/errors.ts';
+import { formatDateTime } from '../../lib/format.ts';
+import { T0, makeAgentLock } from '../../testing/fixtures.ts';
 import { useTestLocale } from '../../testing/locale.ts';
 import { notePath, openNotes } from './test-support.tsx';
 
@@ -111,5 +114,85 @@ describe('the sticky notes in zh-TW', () => {
     await userEvent.click(within(third).getByRole('button', { name: '新增' }));
     await view.settle();
     expect(within(note()).getByText('沒有加上「Checkout」的連結：「Home」現在不能修改。')).toBeTruthy();
+  });
+
+  it('the feedback under a note: the box and its line, an outside author\'s place, Accept / Reject / Withdraw, "What Claude gets", the earlier ones and their decisions, the counts, the notes that are gone, a refusal and "Start Claude"', async () => {
+    const vic = { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } } as const;
+    const amy = { kind: 'member', user: { userId: 'dev:amy', displayName: 'Amy' } } as const;
+    const mei = { userId: 'dev:mei', displayName: 'Mei' };
+    const feedback: Feedback[] = [
+      { id: 'fb_a', note: 'Home', text: '多一點圖片。', author: vic, status: 'waiting', createdAt: T0 },
+      { id: 'fb_o', note: 'Home', text: '優惠碼的欄位很難找。', author: { kind: 'outside', source: 'discord', name: 'Mei Chen', externalId: '123456789012345678' }, status: 'waiting', createdAt: T0 + 1 },
+      { id: 'fb_mine', note: 'Home', text: '我的意見。', author: amy, status: 'waiting', createdAt: T0 + 2 },
+      { id: 'fb_ok', note: 'Home', text: '價格寫清楚。', author: vic, status: 'accepted', decidedBy: mei, decidedAt: T0 + 60_000, createdAt: T0 },
+      { id: 'fb_no', note: 'Home', text: '深色模式。', author: vic, status: 'rejected', decidedBy: mei, decidedAt: T0 + 120_000, rejectReason: '今年不做', createdAt: T0 },
+      { id: 'fb_gone', note: 'Old ideas', text: '保留禮物卡。', author: vic, status: 'waiting', createdAt: T0 },
+    ];
+    const view = await shown({ role: 'host', feedback });
+    const part = within(note()).getByRole('region', { name: '意見' });
+    const box = within(part).getByRole('textbox', { name: '對「Home」提出意見' });
+    expect(document.getElementById(box.getAttribute('aria-describedby') ?? '')?.textContent).toBe('工作區裡的每個人都看得到。要等「可使用 agent」的成員採用，它才會交給 Claude。');
+    expect(within(part).getByRole('button', { name: '提出意見' })).toBeTruthy();
+    const entries = [...part.querySelectorAll<HTMLElement>(':scope > ul > li')];
+    expect(entries.map((entry) => within(entry).queryAllByRole('button').map((button) => button.textContent))).toEqual([
+      ['採用', '不採用'],
+      ['採用', '不採用'],
+      ['採用', '不採用', '撤回'],
+    ]);
+    // An outside author: the name and where they wrote.
+    expect(entries[1]?.querySelector('.sticky-fb__head')?.textContent).toBe(`Mei Chen來自 Discord${formatDateTime(T0 + 1)}`);
+    expect(within(entries[0] as HTMLElement).getByText('Claude 會收到什麼').tagName).toBe('SUMMARY');
+    expect(within(entries[0] as HTMLElement).getByText('按下「採用」，這段文字會以你的訊息送給便利貼的 Claude 一次。')).toBeTruthy();
+    // The earlier ones, folded, with their decisions in feedback's own words.
+    expect(within(part).getByText('顯示較早的 2 則').tagName).toBe('SUMMARY');
+    expect([...part.querySelectorAll(':scope > details > ul > li .sticky-fb__decision')].map((line) => line.textContent)).toEqual([
+      `Mei 不採用，${formatDateTime(T0 + 120_000)}：「今年不做」`,
+      `Mei 已採用，${formatDateTime(T0 + 60_000)}`,
+    ]);
+    // The counts on the rows, and the notes that are gone.
+    expect(within(list()).getByRole('treeitem', { name: 'Home，3 則意見等待處理' })).toBeTruthy();
+    const gone = within(list()).getByRole('heading', { level: 2, name: '已經不在的便利貼上的意見' });
+    expect(gone.getAttribute('title')).toBe('現在沒有這些名稱的便利貼，但上面的意見還在等待處理。');
+    expect(within(list()).getByRole('treeitem', { name: 'Old ideas，1 則意見等待處理' })).toBeTruthy();
+    // Reject asks why.
+    await userEvent.click(within(entries[0] as HTMLElement).getByRole('button', { name: '不採用' }));
+    expect(within(entries[0] as HTMLElement).getByRole('textbox', { name: '為什麼？（選填，每個人都看得到）' })).toBeTruthy();
+    expect(within(entries[0] as HTMLElement).getByRole('button', { name: '取消' })).toBeTruthy();
+    await userEvent.click(within(entries[0] as HTMLElement).getByRole('button', { name: '取消' }));
+    // Accept with Claude for the sticky notes not running: the host's words and "Start Claude".
+    const noAssistant = new SmurgError('conflict', msg('sticky.feedback.noAssistant'), { reason: 'no-assistant' });
+    view.conn.handle('sticky.feedback.accept', () => {
+      throw noAssistant;
+    });
+    await userEvent.click(within(entries[0] as HTMLElement).getByRole('button', { name: '採用' }));
+    await view.settle();
+    expect(within(entries[0] as HTMLElement).getByRole('alert').textContent).toBe(describeError(noAssistant));
+    expect(describeError(noAssistant)).toBe('便利貼的 Claude 沒有在執行。請先啟動它：採用的意見會交給它');
+    expect(within(entries[0] as HTMLElement).getByRole('button', { name: '啟動 Claude' })).toBeTruthy();
+    // A refused feedback: its own sentence around the host's words.
+    const full = new SmurgError('conflict', msg('sticky.feedback.full'), { reason: 'feedback-full', bound: 'members' });
+    view.conn.handle('sticky.feedback.create', () => {
+      throw full;
+    });
+    await userEvent.type(box, '再一則。');
+    await userEvent.click(within(part).getByRole('button', { name: '提出意見' }));
+    await view.settle();
+    expect(within(part.querySelector('.sticky-feedback__box') as HTMLElement).getByRole('alert').textContent).toBe(`你的意見沒有送出：${describeError(full)}`);
+  });
+
+  it('the feedback that could not be loaded, and an outside message that was cut, in zh-TW', async () => {
+    const failure = new SmurgError('conflict', msg('sticky.feedback.notFound'), { reason: 'unknown-feedback' });
+    await shown({ role: 'viewer', feedbackError: failure });
+    const part = within(note()).getByRole('region', { name: '意見' });
+    expect(within(part).getByRole('alert').textContent).toBe(`無法載入意見：${describeError(failure)}`);
+    expect(within(part).getByRole('button', { name: '重試' })).toBeTruthy();
+    cleanup();
+    await shown({
+      role: 'viewer',
+      feedback: [{ id: 'fb_cut', note: 'Home', text: '很長的訊息的開頭', cut: true, cleaned: true, author: { kind: 'outside', source: 'slack', name: 'Mei Chen', externalId: 'U012ABCDEF' }, status: 'waiting', createdAt: T0 }],
+    });
+    const entry = within(note()).getByRole('region', { name: '意見' }).querySelector(':scope > ul > li') as HTMLElement;
+    expect([...entry.querySelectorAll('.sticky-fb__note')].map((line) => line.textContent)).toEqual(['這則訊息比較長：只保留了開頭。', '已移除看不見的字元。']);
+    expect(entry.querySelector('.sticky-fb__source')?.textContent).toBe('來自 Slack');
   });
 });

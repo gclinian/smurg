@@ -40,6 +40,12 @@ const BASE_LOADS: readonly InteractiveRequestType[] = [
   'worktree.merge.list',
 ];
 const ADMIN_LOADS: readonly InteractiveRequestType[] = ['admin.member.list', 'admin.invite.list', 'admin.settings.get', 'admin.audit.query'];
+/**
+ * Requests a member who holds session.drive (the host, agent access) also sends on a fresh channel: the feedback on the
+ * sticky notes, for the waiting count on the mode link in every view (DESIGN 0.8.0 D7.3; re-taken in BUILD-PLAN S6:
+ * before 0.8.0 S6 nothing of the sticky notes loaded with a channel).
+ */
+const DRIVE_LOADS: readonly InteractiveRequestType[] = ['sticky.feedback.list'];
 
 type WelcomeOptions = NonNullable<Parameters<typeof makeWelcome>[0]>;
 
@@ -75,6 +81,7 @@ function answerEmpty(conn: FakeConnection): void {
       settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' },
     },
     'admin.audit.query': { entries: [] },
+    'sticky.feedback.list': { feedback: [], hasMore: false },
   };
   for (const [type, result] of Object.entries(answers) as [InteractiveRequestType, never][]) {
     while (conn.pendingOf(type).length > 0) conn.respond(type, result);
@@ -89,6 +96,9 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     admit();
     for (const type of BASE_LOADS) expect(conn.requestsOf(type), type).toHaveLength(1);
     for (const type of ADMIN_LOADS) expect(conn.requestsOf(type), type).toHaveLength(0);
+    // An Editor holds no session.drive: the feedback on the sticky notes waits for the notes view (DESIGN 0.8.0 D7.3).
+    for (const type of DRIVE_LOADS) expect(conn.requestsOf(type), type).toHaveLength(0);
+    expect(conn.requestsOf('sticky.list')).toHaveLength(0);
     conn.respond('session.list', { sessions: [makeSession()], hasMore: false });
     conn.respond('file.tree', { entries: [makeEntry('README.md'), makeEntry('src', 'dir')], truncated: false });
     await flush();
@@ -419,6 +429,43 @@ describe('workspace stores: initial load, live updates, full resync', () => {
     guest.admit();
     for (const type of ADMIN_LOADS) expect(guest.conn.requestsOf(type), type).toHaveLength(0);
     expect(guest.stores.admin.getState().enabled).toBe(false);
+  });
+
+  it('the feedback on the sticky notes: with the channel for a member who holds session.drive, again after a full resync; for the others with the notes view (DESIGN 0.8.0 D7.3)', async () => {
+    for (const role of ['host', 'agent'] as const) {
+      const member = setup({ role });
+      member.admit();
+      for (const type of DRIVE_LOADS) expect(member.conn.requestsOf(type), `${role} ${type}`).toHaveLength(1);
+      // The index itself still waits for the notes view.
+      expect(member.conn.requestsOf('sticky.list'), role).toHaveLength(0);
+      answerEmpty(member.conn);
+      await flush();
+      expect(member.stores.sticky.getState().feedbackStatus, role).toBe('ready');
+      member.admit({ resumed: false, channelId: 'ch_2' });
+      for (const type of DRIVE_LOADS) expect(member.conn.requestsOf(type), `${role} ${type} after a resync`).toHaveLength(2);
+      member.dispose();
+    }
+    for (const role of ['editor', 'viewer'] as const) {
+      const member = setup({ role });
+      member.admit();
+      answerEmpty(member.conn);
+      await flush();
+      expect(member.conn.requestsOf('sticky.feedback.list'), role).toHaveLength(0);
+      expect(member.stores.sticky.getState().feedbackStatus, role).toBe('idle');
+      // The notes view is shown: the index and the feedback, once each.
+      void member.stores.sticky.want();
+      void member.stores.sticky.want();
+      expect(member.conn.requestsOf('sticky.list'), role).toHaveLength(1);
+      expect(member.conn.requestsOf('sticky.feedback.list'), role).toHaveLength(1);
+      member.dispose();
+    }
+    // An Editor given agent access on this channel wants the count from then on.
+    const promoted = setup({ role: 'editor' });
+    promoted.admit();
+    answerEmpty(promoted.conn);
+    await flush();
+    promoted.admit({ resumed: true, role: 'agent' });
+    expect(promoted.conn.requestsOf('sticky.feedback.list')).toHaveLength(1);
   });
 
   it('role change on a resumed channel is applied to the stores (and reported once)', async () => {

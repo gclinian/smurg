@@ -50,6 +50,8 @@ export const tWorkbench = defineStrings(
     'mode.label': 'Mode',
     'mode.notes': 'Sticky notes',
     'mode.notes.title': 'Sticky notes: small notes that link to each other, grown from Home',
+    // The link's name while feedback waits, for a member with agent access (DESIGN 0.8.0 D7.8).
+    'mode.notes.waiting': { one: 'Sticky notes: {count} piece of feedback waiting', other: 'Sticky notes: {count} pieces of feedback waiting' },
     'mode.sessions': 'Sessions',
     'mode.sessions.title': 'Sessions: conversations, plans, specs and reports',
     'mode.sessions.counts': 'Sessions: {waiting} waiting, {look} to look at',

@@ -5,8 +5,10 @@
 // beside the name says so to every member (DESIGN 0.6.0 D13).
 //
 // The mode switch is three links (the mode is a route): the current one is marked aria-current. The "Sticky notes" link
-// leads to the note last open in this page. While another view is on screen the "Sessions" segment carries the two
-// inbox counts, so a question is not missed; the "Code mode" segment carries the number of open conflicts, because a
+// leads to the note last open in this page; for a member who can decide feedback (`session.drive`) it carries how much
+// feedback waits, in every view, also before the sticky notes were first shown (DESIGN 0.8.0 D7.8: the feedback loads
+// with the channel for them, D7.3). While another view is on screen the "Sessions" segment carries the two inbox
+// counts, so a question is not missed; the "Code mode" segment carries the number of open conflicts, because a
 // conflict can hold a person's unsaved text.
 import { useState } from 'react';
 import type { PresenceAgent, PresenceMember } from '@smurg/protocol';
@@ -16,6 +18,7 @@ import { routePath } from '../../lib/router.ts';
 import { shallowEqual, useStore } from '../../lib/store.ts';
 import { selectOpenConflicts } from '../../lib/stores/conflicts.ts';
 import { selectInboxCounts } from '../../lib/stores/inbox.ts';
+import { selectWaitingCount } from '../../lib/stores/sticky.ts';
 import { selectSettings } from '../../lib/stores/workspace.ts';
 import type { WorkspaceMode } from '../../lib/commands.ts';
 import { useCapabilities, useConnectionState, useMember, useStores, useWorkspaceInfo, useWorkspaceSession } from '../../lib/workspace/context.tsx';
@@ -151,6 +154,9 @@ function ModeSwitch({ view }: { view: TopBarView }) {
   const counts = useStore(stores.inbox, selectInboxCounts, shallowEqual);
   const conflicts = useStore(stores.conflicts, (state) => selectOpenConflicts(state).length);
   const lastNote = useStore(stores.sticky, (state) => state.lastOpen);
+  const canDecide = useCapabilities().canDrive;
+  const feedbackWaiting = useStore(stores.sticky, (state) => selectWaitingCount(state));
+  const showFeedback = canDecide && feedbackWaiting > 0;
   const paths: Record<WorkspaceMode, string> = {
     notes: modePath(session.workspaceId, 'notes', lastNote),
     sessions: modePath(session.workspaceId, 'sessions', lastNote),
@@ -173,6 +179,16 @@ function ModeSwitch({ view }: { view: TopBarView }) {
             icon: <IconFileText size={14} />,
             href: paths.notes,
             title: tWorkbench('mode.notes.title'),
+            ...(showFeedback
+              ? {
+                  badge: (
+                    <span className="ui-count ui-count--waiting" aria-hidden="true">
+                      {feedbackWaiting}
+                    </span>
+                  ),
+                  ariaLabel: tWorkbench('mode.notes.waiting', { count: feedbackWaiting }),
+                }
+              : {}),
           },
           {
             id: 'sessions',

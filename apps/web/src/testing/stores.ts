@@ -60,6 +60,9 @@ export const EMPTY_LOADS = {
     settings: { humanLockIdleMs: 30_000, agentLockTimeoutMs: 60_000, uploadChunkSize: 4 * 1024 * 1024, sharedDirs: [], diskReserveBytes: 0, diskReservePercent: 5, maxLiveAgents: 8, escalateAfterMs: 600_000, agentMcp: false, permissionMode: 'auto', merging: 'auto' },
   },
   'admin.audit.query': { entries: [] },
+  // A member who holds session.drive (the host, agent access) loads the feedback on the sticky notes with the channel,
+  // for the waiting count on the mode link (DESIGN 0.8.0 D7.3, BUILD-PLAN S6); everyone else with the notes view.
+  'sticky.feedback.list': { feedback: [], hasMore: false },
 } as const;
 
 /**
