@@ -3,8 +3,10 @@
 // is answered, an ended one is followed by a new one, two presses start one.
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AgentSession, type AuditEntry, type SmurgError } from '@smurg/protocol';
+import type { Principal } from '../../src/core/interfaces.ts';
 import { createStickyModule } from '../../src/sticky/module.ts';
 import { notesRolePrompt } from '../../src/sticky/prompts.ts';
+import type { StickyServiceImpl } from '../../src/sticky/service.ts';
 import { TEST_HOST_USER, waitFor, type TestClient } from '../../src/testing/index.ts';
 import { startSessionStack, type SessionStack, type SessionStackOptions } from '../sessions/setup.ts';
 
@@ -20,18 +22,21 @@ interface Rig {
   readonly mei: TestClient;
   readonly amy: TestClient;
   readonly audit: AuditEntry[];
+  readonly service: StickyServiceImpl;
   notesSessions(): AgentSession[];
 }
 
 async function rig(options: SessionStackOptions = {}): Promise<Rig> {
-  const s = await startSessionStack({ ...options, extraModules: [createStickyModule()] });
+  const sticky = createStickyModule();
+  const s = await startSessionStack({ ...options, extraModules: [sticky] });
   current = s;
   const audit: AuditEntry[] = [];
   s.t.ctx.audit.subscribe((entry) => audit.push(entry));
   const host = await s.t.connectHost();
   const mei = await s.t.connect({ userId: 'dev:mei', displayName: 'Mei', role: 'agent' });
   const amy = await s.t.connect({ userId: 'dev:amy', displayName: 'Amy', role: 'editor' });
-  return { s, host, mei, amy, audit, notesSessions: () => s.t.ctx.services.agents.list().filter((session) => session.purpose === 'notes') };
+  const service = sticky.serviceOf(s.t.ctx) as StickyServiceImpl;
+  return { s, host, mei, amy, audit, service, notesSessions: () => s.t.ctx.services.agents.list().filter((session) => session.purpose === 'notes') };
 }
 
 const refused = (promise: Promise<unknown>): Promise<SmurgError> => promise.then(
@@ -90,6 +95,21 @@ describe('sticky.assistant.start (D3.5)', { timeout: 60_000 }, () => {
     await r.host.conn.request('session.create', { kind: 'agent', workspace: { mode: 'main' } });
     expect(await refused(r.mei.conn.request('sticky.assistant.start', {}))).toMatchObject({ code: 'conflict', text: { id: 'session.limit.agents', params: { max: 1 } } });
     expect(r.notesSessions()).toEqual([]);
+  });
+
+  it('a press that waited its turn starts nothing for a member demoted or removed meanwhile (who went was torn down with nothing of it to hand over)', async () => {
+    const r = await rig();
+    const kai = await r.s.t.connect({ userId: 'dev:kai', displayName: 'Kai', role: 'agent' });
+    // What the router handed the handler when each press arrived (the role was checked then): the members as they were.
+    const asMei = r.s.t.ctx.members.principalOf('dev:mei') as Principal;
+    const asKai = r.s.t.ctx.members.principalOf(kai.userId) as Principal;
+    // While the presses wait behind a create or another start, the host changes Mei's role and removes Kai.
+    await r.host.conn.request('admin.member.setRole', { userId: 'dev:mei', role: 'editor' });
+    await r.host.conn.request('admin.member.kick', { userId: 'dev:kai' });
+    expect(await refused(r.service.startAssistant(asMei))).toMatchObject({ code: 'forbidden', detail: { reason: 'capability' } });
+    expect(await refused(r.service.startAssistant(asKai))).toMatchObject({ code: 'forbidden', detail: { reason: 'not-a-member' } });
+    expect(r.notesSessions()).toEqual([]);
+    expect(r.audit.filter((entry) => entry.action === 'session.create')).toEqual([]);
   });
 
   it('an Editor may not start it (an Editor\'s messages are suggestions; starting a session is agent access)', async () => {

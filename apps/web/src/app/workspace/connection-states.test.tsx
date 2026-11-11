@@ -235,9 +235,10 @@ describe('connection states in the UI', () => {
     const { services, conn } = await openAdmitted();
     await userEvent.click(screen.getByRole('button', { name: 'Leave' }));
     const dialog = await screen.findByRole('alertdialog', { name: 'Leave this workspace?' });
-    // What ends, what passes to the host, what is removed (DESIGN §3.9, §5.7).
-    expect(dialog.textContent).toContain('The terminals and the sessions without a topic that you opened end.');
-    expect(dialog.textContent).toContain('The topic sessions you started (discussions and work items) pass to the host and keep running.');
+    // What ends, what passes to the host, what is removed (DESIGN §3.9, §5.7). Claude for the sticky notes has no topic
+    // and passes to the host like a topic's sessions (DESIGN 0.8.0 D3.5).
+    expect(dialog.textContent).toContain('The terminals and the sessions without a topic that you opened, except Claude for the sticky notes, end.');
+    expect(dialog.textContent).toContain('The topic sessions (discussions and work items) and Claude for the sticky notes that you started pass to the host and keep running.');
     expect(dialog.textContent).toContain('What you put in place is removed');
     // There is no guest login on the host's computer any more (protocol v2).
     expect(dialog.textContent).not.toMatch(/Claude (login|sign-in|credentials)/i);

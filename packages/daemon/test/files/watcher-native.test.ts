@@ -8,6 +8,7 @@ import { existsSync } from 'node:fs';
 import { mkdir, rename, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
+import { MAIN_ROOT } from '@smurg/protocol';
 import type { DaemonEvents } from '../../src/core/interfaces.ts';
 import type { FileWatcher, NativeWatcherEvent, NativeWatcherModule, NativeWatcherSubscription, WatcherOptions } from '../../src/files/watcher.ts';
 import { waitFor } from '../../src/testing/index.ts';
@@ -163,6 +164,22 @@ describe('file watcher: calls into the native module', { timeout: 60_000 }, () =
     expect(native.liveDirs()).toEqual([]);
     expect(native.failedSubscribes).toEqual([]);
     expect(native.unsubscribedAt.size).toBeGreaterThan(0); // the scenario did subscribe and release repeatedly
+  });
+
+  it('an error the native module reports (FSEvents dropped events) goes on the bus once, for its root: whoever keeps a view of the files reads it all again', async () => {
+    const native = new RecordingNative();
+    const f = await start(native);
+    const errors: DaemonEvents['file.watch-error'][] = [];
+    f.t.ctx.bus.on('file.watch-error', (event) => errors.push(event));
+    const mainDir = f.t.ctx.roots.main.realPath;
+    await waitFor(() => native.liveDirs().includes(mainDir), { what: 'the main subscription' });
+    const main = native.callbacks.find((sub) => sub.dir === mainDir)?.fn as Callback;
+    main(new Error('Events were dropped by the FSEvents client. File system must be re-scanned.'), []);
+    expect(errors).toEqual([{ root: MAIN_ROOT }]);
+    // Events without an error say nothing of the kind.
+    main(null, [{ path: join(mainDir, 'README.md'), type: 'update' }]);
+    await delay(100);
+    expect(errors).toHaveLength(1);
   });
 
   it('the events of a removed root, or of a stopped watcher, reach nobody', async () => {

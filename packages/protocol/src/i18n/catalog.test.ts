@@ -16,6 +16,7 @@ import {
   MESSAGES,
   MESSAGE_GROUPS,
   MESSAGE_IDS,
+  NOTE_NAME_RULES,
   attentionRef,
   clientFailureRef,
   defaultErrorRef,
@@ -61,6 +62,7 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'conversation.mode.topic': { mode: PERMISSION_MODES },
   'conversation.held': { reason: HELD_REASONS },
   'conversation.heldLater': { reason: HELD_REASONS },
+  'sticky.name.invalid': { rule: NOTE_NAME_RULES },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {

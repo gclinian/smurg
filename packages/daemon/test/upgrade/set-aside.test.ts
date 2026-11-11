@@ -71,6 +71,14 @@ const OTHER_FILES = ['audit.jsonl', 'audit-text.jsonl', 'activity.jsonl', 'a tra
  */
 const NOT_IN_THE_FIXTURE: ReadonlySet<string> = new Set(['sticky']);
 
+/**
+ * What each of them holds when a start made it, as its design says (not as its `init` computes it): sticky.json is
+ * `{ version: 1, feedback: [], cursors: {}, builds: [] }` (DESIGN 0.8.0 D4.5).
+ */
+const MADE_AT_THE_START: Readonly<Record<string, Json>> = {
+  sticky: { version: 1, feedback: [], cursors: {}, builds: [] },
+};
+
 /** Said when the evidence against one of the three is gone. */
 const HANDLED_NOW = 'THE REST OF THE STATE NOW HANDLES THIS DOCUMENT BEING MISSING? Then it can be set aside: prove it here like the others (what is lost, nothing points nowhere), say `canSetAside: true` in its declaration and CAN_BE_SET_ASIDE, and add its row to docs/HOSTING.md §9.3';
 
@@ -117,6 +125,8 @@ interface View {
   readonly claudeConfig: Json;
   readonly audit: Json[];
   readonly activity: Json[];
+  /** The sticky notes (`sticky.list`, 0.8.0): no published smurg wrote notes/, so none is in the fixture's folder. */
+  readonly notes: Json[];
   /** Every request that was answered with an error. */
   readonly errors: string[];
 }
@@ -176,6 +186,7 @@ async function viewOf(t: TestDaemon): Promise<View> {
     claudeConfig: await ask('admin.claudeConfig.get', {}),
     audit: await list('admin.audit.query', { limit: 200 }, 'entries'),
     activity: await list('activity.list', { limit: 200 }, 'events'),
+    notes: await list('sticky.list', {}, 'notes'),
     errors,
   };
   host.close();
@@ -277,8 +288,12 @@ describe('one file of the workspace folder set aside: what smurg 0.5.0 wrote, st
         await expect(readFile(join(made.workspaceDir, `${name}.json`))).rejects.toMatchObject({ code: 'ENOENT' });
       });
       const document = declared().find((candidate) => candidate.name === name) as DocumentDeclaration;
-      expect(await readJson(join(copy.workspaceDir, `${name}.json`))).toEqual(document.init());
+      expect(MADE_AT_THE_START[name], `what ${name}.json holds when a start makes it`).toBeDefined();
+      expect(await readJson(join(copy.workspaceDir, `${name}.json`))).toEqual(MADE_AT_THE_START[name]);
+      expect(document.init()).toEqual(MADE_AT_THE_START[name]);
+      // Every request answers, the sticky module's own among them (viewOf asks sticky.list).
       expect(view.errors).toEqual([]);
+      expect(view.notes).toEqual([]);
       await running?.cleanup();
       running = null;
     }

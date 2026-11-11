@@ -9,13 +9,15 @@
 //   sticky.assistant.start  the running notes session, or one started now for the caller
 //
 // Writes of one workspace run one at a time (`serial`): two creates of `Home` and `home`, or two presses of "Start
-// Claude", never interleave their checks and their writes.
+// Claude", never interleave their checks and their writes. What waited its turn checks again what may have changed
+// meanwhile (the folder, the notes, the caller's membership and role).
 import { readdir } from 'node:fs/promises';
-import { join } from 'node:path';
 import {
   MAIN_ROOT,
   NOTES_DIR,
+  NOTES_MAX,
   SmurgError,
+  can,
   foldNoteName,
   isSessionOver,
   noteNameOf,
@@ -25,16 +27,17 @@ import {
   takeListPage,
   type AgentSession,
   type NoteInfo,
+  type NoteNameProblem,
   type PayloadOf,
   type ResultInputOf,
 } from '@smurg/protocol';
-import { msg } from '@smurg/protocol/i18n';
+import { msg, type NoteNameRule } from '@smurg/protocol/i18n';
 import type { DaemonContext } from '../core/context.ts';
 import { AuthorizationError } from '../core/errors.ts';
 import type { PersistentDocument, Principal } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { isStubService } from '../core/stubs.ts';
-import { INDEX_READER, NoteIndex, type IndexChange } from './index.ts';
+import { NoteIndex, lookAtNotesFolder, type IndexChange } from './index.ts';
 import { notesRolePrompt } from './prompts.ts';
 import { STICKY_DOCUMENT, initialStickyDocument, stickyDocumentSchema, type StickyDocument } from './store.ts';
 
@@ -44,6 +47,24 @@ export interface StickyModuleOptions {
 }
 
 export const DEFAULT_STICKY_DEBOUNCE_MS = 500;
+
+/** The rule a person is told for each reason a name is refused (`sticky.name.invalid`, D1.2). */
+const NAME_RULES: Readonly<Record<NoteNameProblem, NoteNameRule>> = {
+  'not-string': 'unseen',
+  empty: 'length',
+  'too-long': 'length',
+  markup: 'markup',
+  'white-space': 'space',
+  unseen: 'unseen',
+  'not-nfc': 'unseen',
+  'dot-name': 'edge',
+  edge: 'edge',
+  // A run of more than MARK_RUN_MAX combining marks is the only name left that checkRelPath refuses.
+  path: 'unseen',
+  'host-only': 'reserved',
+  // Every name the rules above let through is a topic name too; kept for the day one is not.
+  'topic-name': 'unseen',
+};
 
 /** Runs async work one at a time, in arrival order. */
 class Serial {
@@ -111,29 +132,35 @@ export class StickyServiceImpl {
 
   /**
    * `sticky.create` (D2.5): as the caller and one at a time, makes `notes` when it is missing (a `notes` there must be
-   * a real folder of that name), refuses a name that folds equal to a note's in a fresh listing, and creates the empty
-   * file through the file service, which refuses it when it exists. The index reads it at once.
+   * a real folder of that name), refuses a name that folds equal to a note's in a fresh listing and a note more than
+   * the index lists (NOTES_MAX), and creates the empty file through the file service, which refuses it when it exists.
+   * The index reads it at once, and the reply is what the index holds: never a note the index does not list.
    */
   async create(payload: PayloadOf<'sticky.create'>, principal: Principal): Promise<{ readonly note: NoteInfo }> {
     const problem = noteNameProblem(payload.name);
-    if (problem !== null) throw new SmurgError('bad_request', msg('sticky.name.invalid'), { reason: 'invalid-name', problem });
+    if (problem !== null) throw new SmurgError('bad_request', msg('sticky.name.invalid', { rule: NAME_RULES[problem] }), { reason: 'invalid-name', problem });
     const name = payload.name;
     return this.serial.run(async () => {
       const files = this.ctx.services.files;
-      let folder = await this.folder();
-      if (folder === 'missing') {
+      // A look that failed (an I/O error, the folder replaced meanwhile) throws here: nothing is written on a guess.
+      let folder = await lookAtNotesFolder(this.ctx);
+      if (folder.kind === 'missing') {
         try {
           await files.create({ file: { root: MAIN_ROOT, path: NOTES_DIR }, kind: 'dir' }, principal);
         } catch (err) {
           // Someone made it meanwhile: it is looked at below like any folder that was there.
           if (!(err instanceof SmurgError && err.code === 'conflict' && err.detail?.['reason'] === 'exists')) throw err;
         }
-        folder = await this.folder();
+        folder = await lookAtNotesFolder(this.ctx);
       }
       // A file, a symlink or `Notes` on a disk that ignores case: no sticky note is written through it.
-      if (folder !== 'real') throw new SmurgError('conflict', msg('file.notADirectory'), { reason: 'not-a-directory' });
-      const twin = await this.noteFolding(name);
-      if (twin !== null) throw existsError(twin);
+      if (folder.kind !== 'real') throw new SmurgError('conflict', msg('file.notADirectory'), { reason: 'not-a-directory' });
+      // The fresh listing: a listing that fails throws, so no create goes on without it.
+      const names = await notesIn(folder.realPath);
+      const key = foldNoteName(name);
+      const twin = names.find((existing) => foldNoteName(existing) === key);
+      if (twin !== undefined) throw existsError(twin);
+      if (names.length >= NOTES_MAX) throw fullError();
       try {
         await files.create({ file: { root: MAIN_ROOT, path: notePath(name) }, kind: 'file' }, principal);
       } catch (err) {
@@ -141,7 +168,11 @@ export class StickyServiceImpl {
         throw err;
       }
       await this.index.refreshNow();
-      return { note: this.index.find(name) ?? { name, links: [] } };
+      // Files written meanwhile by others (Claude, git, an editor) can still push it past NOTES_MAX: the file is there,
+      // the index does not list it, and so the reply holds no note.
+      const note = this.index.find(name);
+      if (note === null) throw fullError();
+      return { note };
     });
   }
 
@@ -156,6 +187,12 @@ export class StickyServiceImpl {
       const running = this.assistant();
       if (running !== null) return running;
       if (principal.kind !== 'user' || principal.userId === null || principal.actor.kind !== 'user') throw new AuthorizationError(undefined, { reason: 'not-a-member' });
+      // The member's CURRENT role, as a free session's start asks it: this press may have waited its turn behind a
+      // create or another start, and a member removed or demoted meanwhile was torn down with nothing of this to hand
+      // over. (The router checked the role when the message arrived.)
+      const member = this.ctx.members.active(principal.userId);
+      if (member === null) throw new AuthorizationError(undefined, { reason: 'not-a-member' });
+      if (!can(member.role, 'session.create')) throw new AuthorizationError(undefined, { reason: 'capability' });
       if (this.ctx.stopping.aborted) throw new SmurgError('conflict', msg('daemon.stopping'), { reason: 'stopping' });
       const ctx = this.ctx;
       const session = await ctx.services.agents.start({
@@ -198,32 +235,22 @@ export class StickyServiceImpl {
     this.ctx.hub.broadcast('sticky.changed', { upserted: [...change.upserted], removed: [...change.removed], truncated: change.truncated });
   }
 
-  /**
-   * `real`: `notes` is a real folder of that very name at the top of the main workspace (as the index reads it);
-   * `missing`: nothing is there; `other`: something else is (a file, a symlink, `Notes` on a disk that ignores case).
-   */
-  private async folder(): Promise<'real' | 'missing' | 'other'> {
-    try {
-      const resolved = await this.ctx.paths.resolve({ root: MAIN_ROOT, path: NOTES_DIR }, { principal: INDEX_READER, finalSymlink: 'self', audit: false });
-      if (!resolved.exists) return 'missing';
-      return resolved.identity?.kind === 'dir' && resolved.name === NOTES_DIR ? 'real' : 'other';
-    } catch {
-      return 'other';
-    }
-  }
+}
 
-  /** The note whose name folds equal to `name` in a fresh listing of `notes/`, by its name on disk, or null. */
-  private async noteFolding(name: string): Promise<string | null> {
-    const key = foldNoteName(name);
-    const entries = await readdir(join(this.ctx.roots.main.realPath, NOTES_DIR)).catch(() => [] as string[]);
-    for (const entry of entries) {
-      const existing = noteNameOf(`${NOTES_DIR}/${entry}`);
-      if (existing !== null && foldNoteName(existing) === key) return existing;
-    }
-    return null;
+/** The names of the notes in a fresh listing of the real `notes/` (rejects when it cannot be listed). */
+async function notesIn(folder: string): Promise<string[]> {
+  const names: string[] = [];
+  for (const entry of await readdir(folder)) {
+    const name = noteNameOf(`${NOTES_DIR}/${entry}`);
+    if (name !== null) names.push(name);
   }
+  return names;
 }
 
 function existsError(name: string): SmurgError {
   return new SmurgError('conflict', msg('sticky.create.exists', { name }), { reason: 'exists' });
+}
+
+function fullError(): SmurgError {
+  return new SmurgError('conflict', msg('sticky.create.full', { max: NOTES_MAX }), { reason: 'full' });
 }

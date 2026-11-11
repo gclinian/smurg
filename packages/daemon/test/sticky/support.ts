@@ -4,6 +4,7 @@
 import { afterEach } from 'vitest';
 import type { PayloadOf } from '@smurg/protocol';
 import { fakesModule } from '../../src/core/fakes/index.ts';
+import { createMemoryLogger } from '../../src/core/logger.ts';
 import { createFilesModule } from '../../src/files/module.ts';
 import { locksModule } from '../../src/locks/module.ts';
 import { createStickyModule } from '../../src/sticky/module.ts';
@@ -26,6 +27,8 @@ export interface NotesStack {
   readonly leo: TestClient;
   /** Every `sticky.changed` Leo's connection was sent, in order. */
   readonly changes: PayloadOf<'sticky.changed'>[];
+  /** What the daemon logged (the index says there when a listing or a read failed and is tried again). */
+  readonly logs: ReturnType<typeof createMemoryLogger>['lines'];
   /** Waits until the index has made one more listing than `before` (after a change on disk), and a little longer for the event. */
   listed(before: number, what: string): Promise<void>;
 }
@@ -51,7 +54,8 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
   const root = await createTempProject(scratch, 'project', { files: options.files ?? {} });
   await options.prepare?.(root);
   const sticky = createStickyModule({ fileDebounceMs: 30 });
-  const t = await createTestDaemon({ root, modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakesModule({ handlers: true }), sticky] });
+  const log = createMemoryLogger();
+  const t = await createTestDaemon({ root, log, modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakesModule({ handlers: true }), sticky] });
   cleanups.push(() => t.cleanup());
   const service = sticky.serviceOf(t.ctx) as StickyServiceImpl;
   const host = await t.connectHost();
@@ -69,6 +73,7 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
     amy,
     leo,
     changes,
+    logs: log.lines,
     listed: async (before, what) => {
       await waitFor(() => service.index.listings() > before, { timeoutMs: 10_000, what });
       // The event goes out with the listing; one round trip on Leo's connection is enough for it to arrive.

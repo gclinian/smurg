@@ -1755,7 +1755,11 @@ links and its flags, and nothing else of its content. It reads every note as a m
 (PathGuard with a Viewer's principal, no symlink, a regular file of one link, directly in a real `notes/`), lists
 `notes/` at the start and again after every change the watcher reports (`file.changed`, `doc.saved`), reads every
 note again when `notes` itself appears or goes and after `file.watch-error`, and holds at most 500 notes
-(`NOTES_MAX`).
+(`NOTES_MAX`). A look that fails for a passing reason (too many open files, an I/O error, a file or folder replaced
+while it was looked at) says nothing about the notes: a failed listing leaves the index as it was and announces
+nothing, a failed read leaves that note as it was, and either is tried again by itself, twice as late each time and at
+most 30 s apart (`RETRY_MAX_MS`), until it goes through. Only what the checks decide (and a file mode that lets nobody
+read the file) makes a note `unreadable`.
 
 ```ts
 type NoteInfo = {
@@ -1773,8 +1777,8 @@ type SourceState = { source: 'slack' | 'discord'; state: 'reading' | 'waiting-fo
 |---|---|---|---|
 | `sticky.list` | c→d | `{ after?: string }` → `{ notes: NoteInfo[], hasMore, truncated, sources: SourceState[] }` [file.read] | the index by name, code unit by code unit; `after` is the last note's name. `truncated`: `notes/` holds more than 500 notes. `sources` is empty until the outside sources come. Size rule: list |
 | `sticky.changed` | d→c | `{ upserted: NoteInfo[], removed: string[], truncated, sources? }` | to every member who holds `file.read`, only when a note appeared, went, or changed its links or flags (typing that changes no link sends nothing), or `truncated` changed |
-| `sticky.create` | c→d | `{ name }` → `{ note: NoteInfo }` [file.write] | as the caller, one at a time per workspace: makes `notes/` when it is missing (a `notes` that is a file or a symlink: `conflict`, `file.notADirectory`); refuses a name that folds equal to a note's in a fresh listing (`conflict`, reason `exists`, `sticky.create.exists`); creates the empty file through the file service (its `file.create` audit entries and activity name the person); the index has the note at once. A name that is no note's: `bad_request`, reason `invalid-name`, `sticky.name.invalid` |
-| `sticky.assistant.start` | c→d | `{}` → `{ session: AgentSession }` [session.create] | Claude for the sticky notes, one per workspace: the agent session of purpose `notes` that has not ended, or one started now (opened by the caller, nobody responsible, the main workspace, the host's default model, its first line `conversation.started.notes`), audited `session.create` with `purpose: 'notes'`; at the agent runtime's limit `session.limit.agents`. No id is stored |
+| `sticky.create` | c→d | `{ name }` → `{ note: NoteInfo }` [file.write] | as the caller, one at a time per workspace: makes `notes/` when it is missing (a `notes` that is a file or a symlink: `conflict`, `file.notADirectory`); refuses a name that folds equal to a note's in a fresh listing (`conflict`, reason `exists`, `sticky.create.exists`), and any new note when that listing holds 500 notes already (`conflict`, reason `full`, `sticky.create.full`); a listing or a look at `notes` that fails refuses the create (`internal`); creates the empty file through the file service (its `file.create` audit entries and activity name the person); the index has the note at once, and the reply is the index's NoteInfo (never one the index does not list). A name that is no note's: `bad_request`, reason `invalid-name` with `detail.problem`, `sticky.name.invalid` with the `rule` it breaks (`length`, `markup`, `space`, `unseen`, `edge`, `reserved`) |
+| `sticky.assistant.start` | c→d | `{}` → `{ session: AgentSession }` [session.create] | Claude for the sticky notes, one per workspace: the agent session of purpose `notes` that has not ended, or one started now (opened by the caller, nobody responsible, the main workspace, the host's default model, its first line `conversation.started.notes`), audited `session.create` with `purpose: 'notes'`; at the agent runtime's limit `session.limit.agents`. A press that waited its turn checks the caller's membership and role again before it starts anything (`forbidden`). No id is stored |
 
 `sticky.json` (§7.1) holds the feedback on sticky notes (`feedbackSchema` of `schema/sticky.ts`: by a member or by a
 person outside the workspace; `waiting`, `accepted`, `rejected` or `withdrawn`), one cursor per outside source and
