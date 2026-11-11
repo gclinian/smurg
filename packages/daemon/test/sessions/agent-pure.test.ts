@@ -12,7 +12,9 @@ import {
   ANY_MCP_TOOL,
   DISCUSSION_TOOLS,
   EXECUTION_TOOLS,
+  MAIN_SMURG_EDIT_DENY,
   NOTES_EDIT_ALLOW,
+  NOTES_SMURG_READ_DENY,
   ReachRuleError,
   RulePathError,
   STREAM_ARGS,
@@ -27,6 +29,7 @@ import {
   gateToolsOf,
   modeWithFallback,
   reachDenyRules,
+  smurgFolderDenyRules,
   smurgModeOf,
   type ClaudeMode,
   type ProcessFallback,
@@ -300,14 +303,30 @@ describe('launch profiles (DESIGN §2.5)', () => {
     expect(profile.strictMcp).toBe(true);
     expect(profile.ask).toEqual([]);
     expect(gateToolsOf(profile)).toEqual(DISCUSSION_TOOLS);
-    // The common deny rules of the root and smurg's own folder, and nothing beyond it (the gate confines it).
-    expect(profile.deny).toEqual([...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`), ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`), 'Edit(//Users/ian/shop/.smurg/**)']);
+    // The common deny rules of the root and smurg's own folder, for its edits AND its reads (G5 refuses a call that
+    // names `.smurg`; the read rule hides it from a search that names no path, as the host's private files are hidden),
+    // and nothing beyond it (the gate confines it).
+    expect(profile.deny).toEqual([...AGENT_READ_DENY_PATTERNS.map((p) => `Read(//Users/ian/shop/${p})`), ...AGENT_EDIT_DENY_PATTERNS.map((p) => `Edit(//Users/ian/shop/${p})`), 'Edit(//Users/ian/shop/.smurg/**)', 'Read(//Users/ian/shop/.smurg/**)']);
+    expect(NOTES_SMURG_READ_DENY).toBe('.smurg/**');
     expect(reachDenyRules({ purpose: 'notes', root: MAIN_ROOT, rootRealPath: '/Users/ian/shop', reach })).toEqual([]);
     for (const mode of ['ask-all', 'ask-commands', 'auto', 'ask-nothing'] as const) {
       for (const fallback of ['none', 'ask-commands', 'auto'] as const) expect(claudeModeFor('notes', mode, MAIN_ROOT, fallback), `${mode} ${fallback}`).toBe('default');
       // The daemon never allows its edit requests by itself: every one is refused without a card (permissions.ts).
       expect(daemonAllowsEdits('notes', mode, MAIN_ROOT), mode).toBe(false);
     }
+  });
+
+  // The check of b4dd349: what keeps smurg's own folder out of a session, which the sessions module also requires of
+  // the settings file as written. Only Claude for the sticky notes loses its reads (DESIGN 0.8.0 D3.3); a discussion
+  // and the others keep 0.7.0's rules.
+  it('smurg\'s own folder: out of the edit tools of every session in the main workspace, out of the reads of Claude for the sticky notes only', () => {
+    expect(MAIN_SMURG_EDIT_DENY).toBe('.smurg/**');
+    expect(smurgFolderDenyRules('notes', MAIN_ROOT, '/Users/ian/shop')).toEqual(['Edit(//Users/ian/shop/.smurg/**)', 'Read(//Users/ian/shop/.smurg/**)']);
+    for (const purpose of ['discussion', 'item', 'free'] as const) expect(smurgFolderDenyRules(purpose, MAIN_ROOT, '/Users/ian/shop'), purpose).toEqual(['Edit(//Users/ian/shop/.smurg/**)']);
+    expect(smurgFolderDenyRules('item', worktreeRoot('wt_1'), '/w/wt_1')).toEqual([]);
+    const discussion = buildProfile({ ...base, purpose: 'discussion', mode: 'ask-all', topicSlug: 'checkout' });
+    expect(discussion.deny).not.toContain('Read(//Users/ian/shop/.smurg/**)');
+    expect(discussion.deny).toContain('Edit(//Users/ian/shop/.smurg/**)');
   });
 
   // The title said "ask-all is the default mode" until 0.6.0, which made auto the default (DESIGN 0.6.0 D3): what the
@@ -640,7 +659,17 @@ describe('the tool gate (DESIGN §2.10)', () => {
       expect(gateDecision(notes, none, 'Grep', inside('.smurg'))).toEqual({ kind: 'deny', row: 'G5', path: '.smurg' });
       for (const pattern of ['../other/**', '/etc/**', '.smurg/**', 'a/.Smurg/*', '**/.smurg/uploads/*']) expect(gateDecision(notes, none, 'Glob', { kind: 'none' }, pattern), pattern).toEqual({ kind: 'deny', row: 'G5' });
       expect(gateDecision(notes, none, 'Glob', { kind: 'none' }, 'notes/*.md')).toEqual({ kind: 'pass' });
+      // A Grep's file filter (its `glob`, which hook-events.ts passes as the pattern) that names the folder: refused,
+      // the search would print the files' contents (the check of b4dd349). Excluding it (`!`) is no reach.
+      for (const glob of ['.smurg/**', '.smurg/uploads/**', '**/.SMURG/*', 'pkg/.smurg/x']) expect(gateDecision(notes, none, 'Grep', { kind: 'none' }, glob), glob).toEqual({ kind: 'deny', row: 'G5' });
+      expect(gateDecision(notes, none, 'Grep', inside('src'), '.smurg/**')).toEqual({ kind: 'deny', row: 'G5' });
+      for (const glob of ['src/**/*.ts', '*.md', '!.smurg/**']) expect(gateDecision(notes, none, 'Grep', { kind: 'none' }, glob), glob).toEqual({ kind: 'pass' });
+      // A search that names no path and no filter passes the gate: the profile's `Read(.smurg/**)` hides smurg's folder
+      // from it (smurgFolderDenyRules, pinned above with the profile).
       expect(gateDecision(notes, none, 'Grep', { kind: 'none' })).toEqual({ kind: 'pass' });
+      // A Grep's glob is no Glob pattern: it cannot leave the folder it searches, so G5's "leaves the root" is a Glob's.
+      expect(gateDecision(notes, none, 'Grep', { kind: 'none' }, '../other/**')).toEqual({ kind: 'pass' });
+      expect(gateDecision(discussion, none, 'Grep', { kind: 'none' }, '.smurg/**')).toEqual({ kind: 'pass' });
       expect(gateDecision(discussion, none, 'Read', inside('.smurg/uploads/x'))).toEqual({ kind: 'pass' });
       // No command, no network: G2 as for a discussion.
       expect(gateDecision(notes, none, 'Bash', { kind: 'none' })).toEqual({ kind: 'deny', row: 'G2' });

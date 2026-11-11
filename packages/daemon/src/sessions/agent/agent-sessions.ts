@@ -95,7 +95,6 @@ import { ControlError } from './claude-process.ts';
 import type { HostRulesImpl } from './host-rules.ts';
 import { AgentModels, withoutOneM } from './models.ts';
 import {
-  MAIN_SMURG_EDIT_DENY,
   ReachRuleError,
   RulePathError,
   buildProfile,
@@ -104,6 +103,7 @@ import {
   fileRule,
   gateToolsOf,
   reachDenyRules,
+  smurgFolderDenyRules,
   type ReachPlaces,
 } from './profiles.ts';
 import type { ProjectTrustImpl } from './project-settings.ts';
@@ -1009,10 +1009,11 @@ export class AgentSessionsImpl implements AgentSessions {
         // The session's model on EVERY start, the resume included (U1 E6: only that is deterministic).
         model: record.model,
       });
-      // What the settings file must hold beyond the folder (DESIGN 0.6.0 D8a, D10), checked on the file as written.
+      // What the settings file must hold beyond the folder and for smurg's own folder (DESIGN 0.6.0 D8a, D10; 0.8.0
+      // D3.3), checked on the file as written.
       reachRules = [
         ...reachDenyRules({ purpose: record.purpose, root: record.root, rootRealPath: root.realPath, reach }),
-        ...(record.root.kind === 'main' ? [fileRule('Edit', root.realPath, MAIN_SMURG_EDIT_DENY)] : []),
+        ...smurgFolderDenyRules(record.purpose, record.root, root.realPath),
       ];
     } catch (err) {
       if (err instanceof ReachRuleError) {

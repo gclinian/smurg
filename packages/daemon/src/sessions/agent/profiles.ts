@@ -154,6 +154,27 @@ export const HOST_HOME_AGENT_CONFIG: readonly string[] = Object.freeze(['.claude
 /** A session rooted in the main workspace: smurg's whole folder is out of its edit tools (DESIGN 0.6.0 D10). */
 export const MAIN_SMURG_EDIT_DENY = '.smurg/**';
 
+/**
+ * Claude for the sticky notes: smurg's whole folder is out of its reads too (DESIGN 0.8.0 D3.3, "G5 also refuses
+ * `.smurg/`": its transcripts, uploads, trash and worktrees, which a member may not read). The gate refuses a call
+ * that names the folder (G5); this rule hides it from a search that names no path or reaches it by a wildcard, as the
+ * common read rules hide the host's private files (Claude Code 2.1.288 hides a read-denied file from Grep:
+ * docs/research/claude-structured.md §5.4).
+ */
+export const NOTES_SMURG_READ_DENY = '.smurg/**';
+
+/**
+ * The deny rules that keep smurg's own folder of the shared folder out of a session, as buildProfile writes them:
+ * its edit tools for a session rooted in the main workspace (D10), its reads too for Claude for the sticky notes. The
+ * sessions module checks that the settings file as written holds each of them.
+ */
+export function smurgFolderDenyRules(purpose: AgentPurpose, root: RootRef, rootRealPath: string): string[] {
+  const rules: string[] = [];
+  if (root.kind === 'main') rules.push(fileRule('Edit', rootRealPath, MAIN_SMURG_EDIT_DENY));
+  if (purpose === 'notes') rules.push(fileRule('Read', rootRealPath, NOTES_SMURG_READ_DENY));
+  return rules;
+}
+
 /** Where the places of REACH_DENY are on this host: realpaths, as the sessions module resolved them. */
 export interface ReachPlaces {
   /** The shared folder (the main root). */
@@ -345,8 +366,9 @@ export function buildProfile(input: ProfileInput): LaunchProfile {
     ...AGENT_READ_DENY_PATTERNS.map((pattern) => fileRule('Read', rootRealPath, pattern)),
     ...AGENT_EDIT_DENY_PATTERNS.map((pattern) => fileRule('Edit', rootRealPath, pattern)),
   ];
-  // smurg's own folder in the shared folder (its history, worktrees, uploads, the share lock), as `.git` is (D10).
-  if (input.root.kind === 'main') deny.push(fileRule('Edit', rootRealPath, MAIN_SMURG_EDIT_DENY));
+  // smurg's own folder in the shared folder (its history, worktrees, uploads, the share lock), as `.git` is (D10); for
+  // Claude for the sticky notes its reads too (DESIGN 0.8.0 D3.3).
+  deny.push(...smurgFolderDenyRules(purpose, input.root, rootRealPath));
   // Beyond the session's own folder, in every mode (D8a).
   deny.push(...reachDenyRules({ purpose, root: input.root, rootRealPath, reach: input.reach }));
   if (input.topicSlug !== undefined) {

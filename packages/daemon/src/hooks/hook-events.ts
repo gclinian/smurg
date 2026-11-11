@@ -416,7 +416,9 @@ export async function handlePreToolUse(ctx: DaemonContext, state: HookSessionSta
   const located: LocateResult = needsPath ? await locateInSessionRoot(ctx, session, raw, input.cwd) : { ok: false, why: 'no-target' };
   const target: GateTarget = located.ok ? { kind: 'in', path: located.ref.path } : located.why === 'no-target' || (located.why === 'relative' && raw === undefined) ? { kind: 'none' } : { kind: 'outside' };
   const note = editing ? await noteEditFacts(ctx, session, located) : undefined;
-  const decision = gateDecision(session, protectedPaths, tool, target, input.tool_input?.pattern, note);
+  // The call's file pattern: a Glob's `pattern`, a Grep's `glob` (wire.ts forwards nothing else).
+  const filePattern = tool === 'Grep' ? input.tool_input?.glob : input.tool_input?.pattern;
+  const decision = gateDecision(session, protectedPaths, tool, target, filePattern, note);
   if (decision.kind === 'deny') {
     if (editing) releaseHeld(ctx, state, null);
     return gateDeny(ctx, state, input, tool, decision.row, decision.path);

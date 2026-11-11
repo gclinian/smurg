@@ -9,7 +9,8 @@
 // |    | depth) or on a file the trust gate recorded                                               |      |
 // | G4 | an edit tool on another host-only path, session with `pathRights: 'member'`               | deny |
 // | G5 | discussion and notes: Read / Glob / Grep outside the session's root, or of a host-private  | deny |
-// |    | path; for notes also anything in `.smurg/` (any depth, folded) or a Glob pattern naming it |      |
+// |    | path; for notes also anything in `.smurg/` (any depth, folded), or a Glob pattern or a     |      |
+// |    | Grep `glob` naming it (a search naming neither: the profile's `Read(.smurg/**)` hides it)  |      |
 // | G6 | discussion: an edit tool whose target is not its topic's SPEC.md or PLAN.md               | deny |
 // | G7 | work item: an edit tool on its topic's SPEC.md or PLAN.md                                 | deny |
 // | G13| notes (Claude for the sticky notes, whoever started it, the host too): an edit tool unless | deny |
@@ -138,8 +139,9 @@ function isNoteEdit(session: GateFacts, path: string | undefined, note: NoteEdit
 
 /**
  * The decision for one call. `extraProtected`: root-relative paths the trust gate recorded for the session's root
- * (ProjectTrust.protectedPaths). `pattern`: a Glob's pattern. `note`: for an edit of Claude for the sticky notes, what
- * the disk says about its target (G13; absent, the edit is refused).
+ * (ProjectTrust.protectedPaths). `pattern`: the call's file pattern, a Glob's `pattern` or a Grep's `glob` (never a
+ * Grep's `pattern`, which is what it searches for). `note`: for an edit of Claude for the sticky notes, what the disk
+ * says about its target (G13; absent, the edit is refused).
  */
 export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<string>, tool: string, target: GateTarget, pattern?: string, note?: NoteEditFacts): GateDecision {
   if (!toolInList(session.tools, tool)) return deny('G2');
@@ -164,10 +166,13 @@ export function gateDecision(session: GateFacts, extraProtected: ReadonlySet<str
     if (target.kind === 'outside') return deny('G5');
     if (path !== undefined && (isHostPrivatePath(path) || (notes && namesSmurgDir(path)))) return deny('G5', path);
     if (tool === 'Glob' && patternLeavesRoot(pattern)) return deny('G5');
-    // A pattern that names smurg's own folder is refused too. A wildcard can still match it: what Glob lists are names,
-    // not contents, and a Read of one is refused above.
-    if (notes && tool === 'Glob' && pattern !== undefined && pattern.split('/').some(isSmurgDirName)) return deny('G5');
-    // A Read that names no file cannot run; a search without a path searches the working directory.
+    // A file pattern that names smurg's own folder is refused too: a Glob's, and a Grep's `glob`, which would print the
+    // contents of the files it matches. A wildcard or a brace can still match the folder: the notes profile's read rule
+    // `Read(.smurg/**)` hides it from Claude Code's own searches (profiles.ts smurgFolderDenyRules), and a Read of a file
+    // in it is refused above.
+    if (notes && (tool === 'Glob' || tool === 'Grep') && pattern !== undefined && pattern.split('/').some(isSmurgDirName)) return deny('G5');
+    // A Read that names no file cannot run; a search without a path searches the working directory (for the sticky
+    // notes without smurg's own folder: the read rule above).
   }
   return { kind: 'pass' };
 }

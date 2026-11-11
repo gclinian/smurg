@@ -47,6 +47,17 @@ describe('hook wire helpers', () => {
     expect(projectHookInput('nonsense')).toEqual({});
   });
 
+  // The check of b4dd349: the gate needs a Grep's file filter (G5 of Claude for the sticky notes refuses one that names
+  // .smurg); what a Grep searches for (its `pattern`) stays in the hook process, as before.
+  it('forwards the file pattern of a search: a Glob\'s `pattern`, a Grep\'s `glob`; never what a Grep searches for', () => {
+    const grep = projectHookInput({ hook_event_name: 'PreToolUse', tool_name: 'Grep', tool_input: { pattern: 'SECRET=.*', glob: '.smurg/uploads/**', path: '/p', output_mode: 'content' } });
+    expect(grep['tool_input']).toEqual({ path: '/p', glob: '.smurg/uploads/**' });
+    expect(hookInputSchema.safeParse(grep).success).toBe(true);
+    expect(hookInputSchema.parse(grep).tool_input?.glob).toBe('.smurg/uploads/**');
+    expect(projectHookInput({ hook_event_name: 'PreToolUse', tool_name: 'Glob', tool_input: { pattern: '.smurg/**', glob: 'x' } })['tool_input']).toEqual({ pattern: '.smurg/**' });
+    expect(projectHookInput({ hook_event_name: 'PreToolUse', tool_name: 'Read', tool_input: { file_path: '/p/a', glob: 'x', pattern: 'y' } })['tool_input']).toEqual({ file_path: '/p/a' });
+  });
+
   it('recognises the event of an input it cannot parse', () => {
     expect(sniffHookEventName('{"session_id":"x","hook_event_name": "Stop","tool_response":{"content":"')).toBe('Stop');
     expect(sniffHookEventName('garbage')).toBeNull();

@@ -6,6 +6,7 @@ import { chmod, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MAIN_ROOT, type AgentSession, type ConversationEvent, type HostState, type PayloadOf } from '@smurg/protocol';
+import { msg } from '@smurg/protocol/i18n';
 import type { AgentRequest, DaemonEvents, Principal } from '../../src/core/interfaces.ts';
 import type { AgentSessionsImpl } from '../../src/sessions/agent/agent-sessions.ts';
 import { createSessionsModule } from '../../src/sessions/module.ts';
@@ -880,9 +881,12 @@ describe('Claude for the sticky notes (purpose `notes`, DESIGN 0.8.0 D3)', { tim
     expect(argv[argv.indexOf('--tools') + 1]).toBe('Read,Glob,Grep,Edit,Write,AskUserQuestion');
     expect(argv[argv.indexOf('--permission-mode') + 1]).toBe('default');
     expect(argv).toContain('--strict-mcp-config');
-    const settings = echoed.find((entry) => entry.kind === 'settings' && entry.session === notes.id)?.value as { permissions: { allow: string[]; defaultMode: string } };
+    const settings = echoed.find((entry) => entry.kind === 'settings' && entry.session === notes.id)?.value as { permissions: { allow: string[]; deny: string[]; defaultMode: string } };
     expect(settings.permissions.allow).toContain(`Edit(/${root}/notes/*.md)`);
     expect(settings.permissions.defaultMode).toBe('default');
+    // smurg's own folder is out of its reads as well as its edits (the check of b4dd349): a search that names no path
+    // does not print what is in .smurg (G5 refuses a call that names it).
+    expect(settings.permissions.deny).toEqual(expect.arrayContaining([`Read(/${root}/.smurg/**)`, `Edit(/${root}/.smurg/**)`]));
     // The mode is fixed: refused on the wire with the discussion's sentence; the wire says ask-all.
     await expect(r.host.conn.request('session.mode.set', { sessionId: notes.id, mode: 'ask-commands' })).rejects.toMatchObject({ code: 'conflict', text: { id: 'session.mode.fixed' } });
     expect((await r.host.conn.request('session.list', {})).sessions.find((session) => session.id === notes.id)).toMatchObject({ purpose: 'notes', modeFixed: true, permissionMode: 'ask-all' });
@@ -930,6 +934,21 @@ describe('Claude for the sticky notes (purpose `notes`, DESIGN 0.8.0 D3)', { tim
     expect(r.agents.get(ended.id)?.status).toBe('ended');
     r.s.t.advanceClock(61 * 60_000);
     await waitFor(() => r.agents.get(ended.id) === null, { timeoutMs: 10_000, what: 'the ended notes session to be forgotten' });
+    expect(r.agents.get(live.id)?.status).toBe('idle');
+  });
+
+  // The check of b4dd349: the second pass of a free session's retention, the workspace's transcript budget.
+  it('over the workspace\'s transcript budget an ended one goes before it is old, as an ended free session does; a live one stays', async () => {
+    const r = await rig([], { daemon: { agents: { freeSessionRetentionMs: 30 * 24 * 60 * 60_000, transcriptSegmentBytes: 2_000, transcriptMaxSessionBytes: 6_000, transcriptMaxBytes: 3_000, escalationSweepMs: 20, parkAfterMs: 24 * 60 * 60_000 } } });
+    const ended = await startNotes(r);
+    const live = await startNotes(r);
+    for (const id of [ended.id, live.id]) await r.until(id, idle, 'the start');
+    await r.host.conn.request('session.end', { sessionId: ended.id });
+    expect(r.agents.get(ended.id)?.status).toBe('ended');
+    for (let i = 0; i < 120; i++) r.agents.append(live.id, { kind: 'line', text: msg('conversation.agent.restarting'), fallback: `line ${i} ${'x'.repeat(100)}` });
+    // An hour, not thirty days: only the budget can remove it.
+    r.s.t.advanceClock(61 * 60_000);
+    await waitFor(() => r.agents.get(ended.id) === null, { timeoutMs: 10_000, what: 'the ended notes session to go for the budget' });
     expect(r.agents.get(live.id)?.status).toBe('idle');
   });
 });

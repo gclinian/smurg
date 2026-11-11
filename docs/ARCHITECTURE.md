@@ -673,9 +673,12 @@ three, `SESSION_MODE_CHOICES`, or null to follow), a session's `model` (an opaqu
 dialog's history, and the update's notice. Exact equality stays: a 0.5.x page or command meets 0.5.1's cut-off words
 (`version`), in both directions, and a local `smurg attach` across versions ends at once with the other-version words
 (its attach answer embeds the strict Welcome, whose `publicSettings` gained `permissionMode`). `PROTOCOL_VERSION` is 7
-since 0.8.0 (sticky notes), and the Welcome carries it as the required key `protocol` (`z.literal(PROTOCOL_VERSION)`):
-the control socket has no ClientHello, so this key is what makes a local `smurg attach` and a daemon of different
-protocols refuse each other's Welcome, for this raise and every later one (DESIGN 0.8.0 D8.2).
+since 0.8.0 (sticky notes), and the Welcome carries it as the required key `protocol`, an integer that must equal the
+reader's `PROTOCOL_VERSION`: `welcomeSchema` compares it at every parse, not when the schema loads (so that
+`apps/web/e2e/smoke/version.smoke.test.ts` can give a daemon another number in its own process), and refuses a
+Welcome with another number or without the key. The control socket has no ClientHello, so this key is what makes a
+local `smurg attach` and a daemon of different protocols refuse each other's Welcome, for this raise and every later
+one (DESIGN 0.8.0 D8.2).
 
 Error codes: `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`, `locked`, `path_denied`,
 `insufficient_disk`, `too_large`, `host_only`, `rate_limited`, `internal`. Finer distinctions travel in
@@ -2630,7 +2633,7 @@ becomes a card or an answer of the daemon's own (§5.9).
 | Session | `permissionMode` on the wire | Claude Code's mode | `--tools` | Rules besides the common ones | A request that reaches the daemon |
 |---|---|---|---|---|---|
 | Discussion (fixed: `modeFixed`) | reads `ask-all` | `default` | `Read, Glob, Grep, Edit, Write, AskUserQuestion` | allow `Edit` of its topic's `SPEC.md` and `PLAN.md` | `AskUserQuestion` → a question card; anything else → denied by the daemon at once with a fixed English sentence, no card (the gate has refused it before: this is the second layer) |
-| 0.8.0: Claude for the sticky notes (purpose `notes`: no topic, no item, the main workspace only, one per workspace; fixed: `modeFixed`) | reads `ask-all` | `default` | the discussion's six | allow `Edit(//<root>/notes/*.md)` only (never wider than G13, which runs first and binds); no remembered rules, strict MCP, no rules beyond its folder (the gate confines it: G5, G13) | as a discussion's: a question card, anything else denied at once with no card (answer kind `discussion`, its own sentence). When the member who started it leaves or loses agent access it passes to the host like a topic's session (`AgentSessions.setOwner`, the line `conversation.owner.handover`); the host or its opener ends it; an ended one follows a free session's retention |
+| 0.8.0: Claude for the sticky notes (purpose `notes`: no topic, no item, the main workspace only, one per workspace; fixed: `modeFixed`) | reads `ask-all` | `default` | the discussion's six | allow `Edit(//<root>/notes/*.md)` only (never wider than G13, which runs first and binds); deny `Read(//<root>/.smurg/**)` beside the `Edit` one every main session has (`smurgFolderDenyRules`: G5 refuses a call that names `.smurg`, and this rule hides smurg's folder from a search that names no path, as the host's private files are hidden); no remembered rules, strict MCP, no rules beyond its folder (the gate confines it: G5, G13) | as a discussion's: a question card, anything else denied at once with no card (answer kind `discussion`, its own sentence). When the member who started it leaves or loses agent access it passes to the host like a topic's session (`AgentSessions.setOwner`, the line `conversation.owner.handover`); the host or its opener ends it; an ended one follows a free session's retention |
 | Work item, or free session, in `auto` (the default since 0.6.0) | `auto` | `auto` | `EXECUTION_TOOLS` | a work item: deny `Edit` of its topic's `SPEC.md` and `PLAN.md`; the remembered rules of the session and of its topic; the rules beyond its folder | what Claude Code's check sends to a person (three refusals in a row), a hook's "ask" (G10, G11a, G12): cards |
 | Work item or free session in a worktree, `ask-commands` | `ask-commands` | `acceptEdits` | `EXECUTION_TOOLS` | as the row above | a question card, or a permission card |
 | Any session but a confined one, `ask-all` | `ask-all` | `default` | `EXECUTION_TOOLS` | as its row | cards |
@@ -3188,7 +3191,8 @@ derives the session and everything it knows about it from the token, never from 
 socket. A malformed request is answered `{ id | null, error: { code, message } }` and the socket is closed. The hook
 forwards a PROJECTION of Claude Code's input (`projectHookInput`: event and tool names, ids, cwd, the permission
 mode, the paths a call names — an edit's or a Read's `file_path` / `notebook_path`, a search's `path`, a Glob's
-`pattern` — and the lifecycle fields). The GATE hook also forwards the command of a `Bash` `PreToolUse`, whole,
+`pattern`, since 0.8.0 a Grep's file filter `glob` (never a Grep's `pattern`, what it searches for) — and the
+lifecycle fields). The GATE hook also forwards the command of a `Bash` `PreToolUse`, whole,
 because row G10 reads which files it names; a command whose JSON form is longer than
 `HOOK_COMMAND_FORWARD_MAX_BYTES` (32 KiB) is not cut (a cut command is another command) but left out and marked
 `command_omitted`, and the gate then asks a person where it would have read it. The Bash activity hook never
@@ -3222,7 +3226,7 @@ system (`bashVerdict`, on the pure reader `hooks/bash-guard.ts`), and the facts 
 | G2 | the tool is not in the session's tool list and is not `mcp__smurg__*` | deny; logged once per session and tool |
 | G3 | an edit tool whose target is Claude Code's configuration (`.claude/**`, `.mcp.json`, `.git/**`, at any depth), or a path the trust gate recorded (`ProjectTrust.protectedPaths`) or anything below one, under any spelling a file system folds onto it | deny, for every session, the host's own included |
 | G4 | an edit tool on another host-only path (§5.2), session with `pathRights: 'member'` | deny |
-| G5 | confined session (a discussion, Claude for the sticky notes): `Read` / `Glob` / `Grep` whose path lies outside the session's root or names a host-private path, or a Glob pattern that can leave the root (absolute, `~`, a `..` segment); 0.8.0: for Claude for the sticky notes also a path, or a Glob pattern, with a segment that folds to `.smurg` (what a member may not read) | deny |
+| G5 | confined session (a discussion, Claude for the sticky notes): `Read` / `Glob` / `Grep` whose path lies outside the session's root or names a host-private path, or a Glob pattern that can leave the root (absolute, `~`, a `..` segment); 0.8.0: for Claude for the sticky notes also a path, a Glob pattern or a Grep's `glob` with a segment that folds to `.smurg` (what a member may not read); a search with no such path or pattern (one that names no path, or reaches `.smurg` by a wildcard) passes the gate, and the session's deny rule `Read(//<root>/.smurg/**)` hides the folder from it (§7.6 "Profiles") | deny |
 | G6 | discussion session: an edit tool whose target is not `specs/<slug>/SPEC.md` or `specs/<slug>/PLAN.md` of its topic | deny |
 | G7 | work item's session: an edit tool on its topic's `SPEC.md` or `PLAN.md` | deny |
 | G13 | 0.8.0: Claude for the sticky notes (purpose `notes`), whoever started it, the host included: an edit tool, unless the session is rooted in the MAIN workspace, `noteNameOf` accepts the resolved target (`notes/` + one segment + the literal `.md` + a valid note name, so never `notes/CLAUDE.md`, `notes/x.MD` or `notes/a/b.md`), `notes` is a real folder (not a symbolic link, not missing), nothing but a regular file of one link is at the target (a new note: nothing), and no other entry of `notes/` has a name that folds equal to it (`foldRelPath`). Facts that cannot be read refuse | deny, "Refused by smurg: Claude for the sticky notes writes only Markdown files directly in notes/ (a valid sticky note name, then .md)." |

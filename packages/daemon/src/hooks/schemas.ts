@@ -30,9 +30,10 @@ export const hookInputSchema = z.object({
     .object({
       file_path: pathString.optional(),
       notebook_path: pathString.optional(),
-      /** A search's directory; a Glob's pattern. */
+      /** A search's directory; a Glob's pattern; a Grep's file filter (its `glob`). */
       path: pathString.optional(),
       pattern: pathString.optional(),
+      glob: pathString.optional(),
       /** A Bash PreToolUse from the gate hook: the command whole, or `command_omitted` when it was too long to forward. */
       command: z.string().max(HOOK_COMMAND_FORWARD_MAX_BYTES).optional(),
       command_omitted: z.boolean().optional(),

@@ -162,7 +162,8 @@ function pathString(value: unknown): string | undefined {
 
 /**
  * What the daemon needs from the hook input Claude Code wrote to stdin: the event, the tool, and the paths the call
- * names (an edit's or a Read's `file_path`, a search's `path` and a Glob's `pattern`: the gate decides by them).
+ * names (an edit's or a Read's `file_path`, a search's `path`, a Glob's `pattern` and a Grep's file filter `glob`: the
+ * gate decides by them; a Grep's `pattern` is what it searches for and stays here).
  * With `command` (the GATE hook only, never the Bash activity hook): the command of a Bash PreToolUse, whole or not
  * at all (`command_omitted`), because the gate reads which files it names (hooks/bash-guard.ts).
  * Everything else stays in the hook process: URLs, questions, file contents (`tool_input.content`, `new_string`,
@@ -194,6 +195,10 @@ export function projectHookInput(raw: unknown, options: { readonly command?: boo
     if (input['tool_name'] === 'Glob') {
       const pattern = pathString(toolInput['pattern']);
       if (pattern !== undefined) projected['pattern'] = pattern;
+    }
+    if (input['tool_name'] === 'Grep') {
+      const glob = pathString(toolInput['glob']);
+      if (glob !== undefined) projected['glob'] = glob;
     }
     if (options.command === true && input['tool_name'] === BASH_TOOL_NAME && input['hook_event_name'] === 'PreToolUse') {
       const command = toolInput['command'];
