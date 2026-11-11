@@ -22,7 +22,7 @@ import {
 import { DEFAULT_FEATURE_MODULES, createDaemon, type Daemon } from '../daemon.ts';
 import type { AgentsConfig, LimitsConfig, SessionLaunchConfig, TimingConfig } from '../core/config.ts';
 import type { DaemonContext, FeatureModule } from '../core/context.ts';
-import type { PowerService } from '../core/interfaces.ts';
+import type { ConnectorsEntry, PowerService } from '../core/interfaces.ts';
 import { ShiftableClock, type Clock } from '../core/lifecycle.ts';
 import { silentLogger, type Logger } from '../core/logger.ts';
 import { SYSTEM_PRINCIPAL } from '../core/permissions.ts';
@@ -70,6 +70,10 @@ export interface TestDaemonOptions {
   readonly workspaceId?: string;
   /** As `smurg host` (DESIGN 0.7.0 D15): what goes on after a restart waits for `t.daemon.goOn()`. Default: it goes on at the start. */
   readonly deferGoOn?: boolean;
+  /** As `smurg host` hands it (DESIGN 0.8.0 D6.2): the connected Slack and Discord channels. Default: none. */
+  readonly connectors?: () => ConnectorsEntry | null;
+  /** The fake Slack and Discord servers on 127.0.0.1 (DaemonOptions.outsideBaseUrls). */
+  readonly outsideBaseUrls?: { readonly slack?: string; readonly discord?: string };
 }
 
 export interface ConnectTestClientOptions {
@@ -191,6 +195,8 @@ export async function createTestDaemon(options: TestDaemonOptions = {}): Promise
       homeDir: join(base, 'home'),
       ...(options.power ? { power: options.power } : {}),
       ...(options.deferGoOn === true ? { deferGoOn: true } : {}),
+      ...(options.connectors ? { connectors: options.connectors } : {}),
+      ...(options.outsideBaseUrls ? { outsideBaseUrls: options.outsideBaseUrls } : {}),
       random: () => 0.5,
     });
     await daemon.start();

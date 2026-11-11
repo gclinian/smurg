@@ -14,8 +14,16 @@
 // The bounds (D4.5): at most FEEDBACK_MAX entries and FEEDBACK_STORED_MAX_CHARS characters of text and reasons
 // together. Waiting feedback is never dropped: a create, or a reject's reason, that does not fit once the oldest
 // rejected entries, then the oldest accepted ones, are gone is refused (`feedback-full`). At most FEEDBACK_WAITING_PER_MEMBER_MAX waiting per
-// member and FEEDBACK_WAITING_FROM_MEMBERS_MAX from members together (the outside budgets come with the sources).
-// When a member is removed (kicked, or left), their waiting feedback is withdrawn by the system.
+// member and FEEDBACK_WAITING_FROM_MEMBERS_MAX from members together; at most FEEDBACK_WAITING_PER_OUTSIDER_MAX per person
+// outside the workspace and FEEDBACK_WAITING_FROM_OUTSIDE_MAX from outside together (D4.5: one person in a connected
+// channel fills at most their own budget). When a member is removed (kicked, or left), their waiting feedback is
+// withdrawn by the system.
+//
+// The outside intake (D6.3, `createOutside`): a message of a person in a connected Slack or Discord channel becomes
+// feedback here, from the poller of sources/poll.ts, with no request and no member: its text through `agentText`
+// (Slack's `&amp; &lt; &gt;` decoded first), cut at FEEDBACK_TEXT_MAX_CHARS on a code-point boundary and marked `cut`;
+// its writer's name cleaned (nothing unseen, white space collapsed, at most OUTSIDE_NAME_MAX_CHARS, else "Slack user" /
+// "Discord user"); audited by the system with the source and the outside id. It reaches no agent here either.
 //
 // Every change happens in one synchronous step of the event loop (a check and its write never interleave with
 // another request's), so no serialization is needed here; an accept on its way to the agent is in `accepting`, and
@@ -25,14 +33,23 @@ import {
   FEEDBACK_STORED_MAX_CHARS,
   FEEDBACK_TEXT_MAX_CHARS,
   FEEDBACK_WAITING_FROM_MEMBERS_MAX,
+  FEEDBACK_WAITING_FROM_OUTSIDE_MAX,
   FEEDBACK_WAITING_PER_MEMBER_MAX,
+  FEEDBACK_WAITING_PER_OUTSIDER_MAX,
+  OUTSIDE_NAME_MAX_CHARS,
   SmurgError,
+  agentText,
   agentTextWithin,
   feedbackInputTextSchema,
+  feedbackSchema,
   feedbackStoredChars,
+  normalized,
+  outsideNameSchema,
+  shownAgentText,
   takeListPage,
   type Feedback,
   type FeedbackAuthorForAgent,
+  type OutsideSource,
   type PayloadOf,
   type ResultInputOf,
   type UserRef,
@@ -55,6 +72,10 @@ export interface FeedbackLimits {
   readonly maxEntries: number;
   /** Characters of the texts and reasons of every entry kept (`feedbackStoredChars`). */
   readonly maxStoredChars: number;
+  /** Waiting feedback of one person outside the workspace (their source and outside id). */
+  readonly waitingPerOutsider: number;
+  /** Waiting feedback from outside the workspace together (both sources). */
+  readonly waitingFromOutside: number;
 }
 
 export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = Object.freeze({
@@ -62,7 +83,25 @@ export const DEFAULT_FEEDBACK_LIMITS: FeedbackLimits = Object.freeze({
   waitingFromMembers: FEEDBACK_WAITING_FROM_MEMBERS_MAX,
   maxEntries: FEEDBACK_MAX,
   maxStoredChars: FEEDBACK_STORED_MAX_CHARS,
+  waitingPerOutsider: FEEDBACK_WAITING_PER_OUTSIDER_MAX,
+  waitingFromOutside: FEEDBACK_WAITING_FROM_OUTSIDE_MAX,
 });
+
+/** A message of a person outside the workspace, cleaned and bound to its note, as the poller hands it over (D6.3). */
+export interface OutsideFeedbackInput {
+  readonly source: OutsideSource;
+  /** Their id at the source (checked by the source's pattern). */
+  readonly externalId: string;
+  /** Their name as cleaned (`outsideName`). */
+  readonly name: string;
+  /** The text as cleaned (`outsideText`). */
+  readonly text: OutsideText;
+  /** The note's name on disk. */
+  readonly note: string;
+}
+
+/** Which budget of D4.5 has no room for one more waiting feedback from outside, if any. */
+export type OutsideRoom = 'room' | 'outside' | 'person';
 
 /** Why the system withdrew someone's waiting feedback (the audit's `reason`). */
 export type SystemWithdrawReason = 'author-kicked' | 'author-left' | 'author-removed';
@@ -216,6 +255,79 @@ export class FeedbackService {
     const entries = this.entries();
     const page = takeListPage(entries, this.placeOf(input.after, entries), (entry) => entry.id);
     return { feedback: page.items, hasMore: page.hasMore };
+  }
+
+  // =================================================================================================================
+  // The outside intake (D6.3): from the poller of sources/poll.ts, never from a request
+  // =================================================================================================================
+
+  /**
+   * Whether one more waiting feedback from outside fits the budgets of D4.5: from outside together, and (with `who`)
+   * from that one person. The stored bounds are `createOutside`'s (they depend on the text).
+   */
+  outsideRoom(who?: { readonly source: OutsideSource; readonly externalId: string }): OutsideRoom {
+    const waiting = this.entries().filter((item) => item.status === 'waiting' && item.author.kind === 'outside');
+    if (waiting.length >= this.limits.waitingFromOutside) return 'outside';
+    if (who !== undefined && waiting.filter((item) => item.author.kind === 'outside' && item.author.source === who.source && item.author.externalId === who.externalId).length >= this.limits.waitingPerOutsider) return 'person';
+    return 'room';
+  }
+
+  /**
+   * A waiting feedback from a person outside the workspace (D6.3): within the outside budgets and the stored bounds,
+   * else nothing is made and the bound that is full is answered (the poller stops reading there: `waiting-for-room`).
+   * Audited by the system with the source and the outside id; told to every member; not written to disk here (the
+   * poller flushes once its read, and the cursor that goes with it, are done). `invalid`: what it would store is no
+   * entry (a name or a text the store's schema refuses), and nothing is made.
+   */
+  createOutside(input: OutsideFeedbackInput): { readonly entry: Feedback } | { readonly full: 'outside' | 'person' | 'stored' } | { readonly invalid: true } {
+    const room = this.outsideRoom(input);
+    if (room !== 'room') return { full: room };
+    const entry: Feedback = {
+      id: newId('fb'),
+      note: input.note,
+      text: input.text.text,
+      ...(input.text.cleaned ? { cleaned: true as const } : {}),
+      ...(input.text.cut ? { cut: true as const } : {}),
+      author: { kind: 'outside', source: input.source, name: input.name, externalId: input.externalId },
+      status: 'waiting',
+      createdAt: this.ctx.clock.now(),
+    };
+    // Fail closed: what a service sent never stops the store (an update that fails its schema throws).
+    if (!feedbackSchema.safeParse(entry).success) return { invalid: true };
+    const dropped = this.makeRoom({ entries: 1, chars: feedbackStoredChars(entry) });
+    if (dropped === null) return { full: 'stored' };
+    this.forget(dropped);
+    this.document().update((draft) => {
+      const gone = new Set(dropped);
+      draft.feedback = draft.feedback.filter((item) => !gone.has(item.id));
+      draft.feedback.push(entry);
+    });
+    this.ctx.audit.record({
+      actor: SYSTEM_ACTOR,
+      action: 'sticky.feedback.create',
+      outcome: 'ok',
+      target: entry.id,
+      detail: {
+        feedbackId: entry.id,
+        note: entry.note,
+        outsideSource: input.source,
+        outsideId: input.externalId,
+        writtenBy: input.name,
+        feedback: entry.text,
+        createdAt: entry.createdAt,
+        ...(input.text.cleaned ? { cleaned: true } : {}),
+        ...(input.text.cut ? { cut: true } : {}),
+      },
+      fullText: ['feedback'],
+    });
+    for (const id of dropped) this.ctx.hub.broadcast('sticky.feedback.updated', { removed: id });
+    this.publish(entry);
+    return { entry };
+  }
+
+  /** sticky.json written now (the poller, after a read). A failure is logged; the store writes the document again. */
+  flush(): Promise<void> {
+    return this.persist();
   }
 
   // =================================================================================================================
@@ -422,6 +534,76 @@ function cleanText(text: unknown): { readonly text: string; readonly cleaned: bo
   const within = agentTextWithin(parsed.data, FEEDBACK_TEXT_MAX_CHARS);
   if (!within.ok) throw new SmurgError('bad_request', msg('sticky.feedback.invalidText'), { reason: 'invalid-text' });
   return within;
+}
+
+/** A message's text as feedback keeps it (D6.3): cleaned, at most FEEDBACK_TEXT_MAX_CHARS, and whether it was cut. */
+export interface OutsideText {
+  readonly text: string;
+  readonly cleaned: boolean;
+  readonly cut: boolean;
+}
+
+/**
+ * Slack's escapes of its three control characters, decoded (https://docs.slack.dev/messaging/formatting-message-text):
+ * `&lt;` and `&gt;` first, `&amp;` last, so that `&amp;lt;` stays the text `&lt;`. A mention (`<@U…>`) or a link
+ * (`<https://…|label>`) is Slack's own markup and stays as it is.
+ */
+export function decodeSlackText(raw: string): string {
+  return raw.replaceAll('&lt;', '<').replaceAll('&gt;', '>').replaceAll('&amp;', '&');
+}
+
+/** The first `max` UTF-16 units of `text`, never ending inside a surrogate pair. */
+function headOf(text: string, max: number): string {
+  if (text.length <= max) return text;
+  const last = text.charCodeAt(max - 1);
+  return text.slice(0, last >= 0xd800 && last <= 0xdbff ? max - 1 : max);
+}
+
+/**
+ * A message's text as feedback (D6.3): Slack's escapes decoded, then `agentText` (what is stored, shown and quoted);
+ * when that is longer than FEEDBACK_TEXT_MAX_CHARS it is cut on a code-point boundary, cleaned once more (the cut may
+ * leave a last line that looks like a header, which is then quoted) and marked `cut`. Null: nothing is left to read.
+ */
+export function outsideText(raw: string, source: OutsideSource): OutsideText | null {
+  const first = agentText(source === 'slack' ? decodeSlackText(raw) : raw);
+  let text = first.text;
+  let cut = false;
+  let bound = FEEDBACK_TEXT_MAX_CHARS;
+  // Each turn shortens the head by what the quoting added (two characters for a last line that is quoted now): two
+  // turns do in practice; the bound only keeps the loop finite whatever the text.
+  for (let turn = 0; text.length > FEEDBACK_TEXT_MAX_CHARS && turn < 8; turn++) {
+    cut = true;
+    text = agentText(headOf(first.text, bound)).text;
+    bound = Math.max(1, bound - Math.max(1, text.length - FEEDBACK_TEXT_MAX_CHARS));
+  }
+  if (text.length > FEEDBACK_TEXT_MAX_CHARS) text = headOf(text, FEEDBACK_TEXT_MAX_CHARS);
+  if (text.trim() === '') return null;
+  return { text, cleaned: first.cleaned, cut };
+}
+
+/**
+ * The name of a person outside the workspace as feedback shows it (D6.3): nothing unseen (`shownAgentText`), every run
+ * of white space one space, trimmed, NFC, at most OUTSIDE_NAME_MAX_CHARS on a code-point boundary; "Slack user" /
+ * "Discord user" when nothing is left (a name is people's text: never translated).
+ */
+export function outsideName(raw: string | null, source: OutsideSource): string {
+  const fallback = source === 'slack' ? 'Slack user' : 'Discord user';
+  if (raw === null) return fallback;
+  let collapsed = '';
+  let space = false;
+  for (const char of shownAgentText(raw)) {
+    if (char.trim() === '') {
+      space = collapsed !== '';
+      continue;
+    }
+    if (space) collapsed += ' ';
+    space = false;
+    collapsed += char;
+    // More than a name can keep is not looked at (the cut below takes the first OUTSIDE_NAME_MAX_CHARS).
+    if (collapsed.length > OUTSIDE_NAME_MAX_CHARS * 2) break;
+  }
+  const name = headOf(normalized(collapsed, 'NFC'), OUTSIDE_NAME_MAX_CHARS).trimEnd();
+  return name !== '' && outsideNameSchema.safeParse(name).success ? name : fallback;
 }
 
 function fullError(bound: 'members' | 'stored'): SmurgError {

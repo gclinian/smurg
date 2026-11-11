@@ -83,4 +83,9 @@ export const zhTW = {
   'builds.showArchived': '顯示已封存的主題',
   'builds.archivedFailed': '無法載入已封存的主題：{reason}',
   'builds.archivedMark': '已封存',
+  'sources.title': 'Slack 和 Discord',
+  'sources.hint': '你用 smurg connect 連接的頻道。由你的電腦讀取；只有你看得到這裡。',
+  'sources.reading': '{source}：每分鐘讀取一次新訊息。',
+  'sources.waiting': '{source}：等候空間。來自外部的意見，已經有 smurg 能保留的上限那麼多在等待處理（所有人合計，或是其中一個人）；有一些被採用或不採用之後就會繼續讀取。',
+  'sources.failing': '{source}：沒有讀取。{reason}',
 } as const;

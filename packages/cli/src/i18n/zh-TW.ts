@@ -1,10 +1,11 @@
 // The CLI's own messages in Traditional Chinese (zh-TW): the same ids and parameters as en.ts (checked by type and by
 // test/i18n.test.ts). The wording is the one smurg has always used; it changes only where a sentence became false.
-import type { ClaudeLogin, ClaudeVerdict, DurationUnit, HostHold, ProjectSettings, RelayAction, SetAsideDocument, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
+import type { ClaudeLogin, ClaudeVerdict, ConnectSource, DurationUnit, HostHold, ProjectSettings, RelayAction, SetAsideDocument, StateSubject, UnreadableHost, UrlSubject, VersionedStateFile, en } from './en.ts';
 
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: '登入資料檔（credentials.json）',
   workspaces: '工作區紀錄檔（workspaces.json）',
+  connectors: '已連接頻道的清單（connectors.json）',
   logs: '紀錄檔目錄',
   'daemon-key': 'daemon 的金鑰或狀態目錄',
   'device-key': '這台裝置的金鑰（device.key）',
@@ -13,7 +14,11 @@ const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
 const BAD_FORMAT_NEXT: Readonly<Record<VersionedStateFile, string>> = {
   credentials: '否則請把這個檔案移到別處，再重新登入（smurg login）。',
   workspaces: '否則請修好它，或把備份放回來：它記錄每個分享的資料夾對應哪個工作區，沒有它，smurg host 會幫資料夾建立新的工作區（成員、邀請連結、daemon 金鑰都是新的）。',
+  connectors: '否則請把這個檔案移到別處，再重新連接頻道（smurg connect）。',
 };
+
+/** 服務的名稱：是名稱，不翻譯。 */
+const SOURCE_NAME: Readonly<Record<ConnectSource, string>> = { slack: 'Slack', discord: 'Discord' };
 
 const UNREADABLE_HOST: Readonly<Record<UnreadableHost, string>> = {
   'no-answer': '它沒有回應',
@@ -93,6 +98,7 @@ const GUIDE_KEPT = 'https://smurg.ai/zh-TW/docs/hosting/#92-更新之後工作�
 const GUIDE_GOING_BACK = 'https://smurg.ai/zh-TW/docs/hosting/#94-如果你照-smurg-050-的指示把狀態資料夾移走了';
 const GUIDE_AGENTS = 'https://smurg.ai/zh-TW/docs/hosting/#52-agent-自己能做什麼什麼要先問';
 const GUIDE_MERGING = 'https://smurg.ai/zh-TW/docs/hosting/#103-合併以及什麼在等它';
+const GUIDE_SOURCES = 'https://smurg.ai/zh-TW/docs/hosting/#11-slack-和-discord';
 
 const HOST_HOLD: Readonly<Record<HostHold, string>> = {
   policy: '改到只有主人能合併的檔案',
@@ -126,6 +132,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   status               顯示正在分享的工作區
   login                登入 relay（公用 relay 用 Google）
   logout               登出 relay
+  connect <來源>       連接 Slack 或 Discord 頻道：頻道裡的訊息會成為便利貼上的意見
+  disconnect <來源>    中斷這個頻道的連接
   update               把 smurg 更新到最新版本（--check 只檢查）
   uninstall            從這台電腦移除 smurg
   licenses             顯示授權條款與第三方軟體的授權聲明
@@ -147,6 +155,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'args.missing': (p) => `缺少參數 <${p.name}>`,
   'args.surplus': (p) => `多了不認得的參數「${p.value}」`,
   'arg.folder': () => '資料夾',
+  'arg.source': () => 'slack|discord',
   'arg.session': () => 'session',
   'arg.generic': () => '參數',
 
@@ -205,6 +214,49 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   忘記這台電腦上的 relay 登入資料。--all 忘記所有 relay 的登入。
 `,
   'login.done': (p) => `已登入 ${p.origin}：${p.name}（${p.userId}）`,
+
+  // ---- connect / disconnect（DESIGN 0.8.0 D6.2）
+  'usage.connect': () => `用法：smurg connect slack|discord [資料夾] --channel <id> [--relay 網址]
+
+  把一個 Slack 頻道或一個 Discord 頻道連接到你分享的資料夾的工作區。smurg host 分享這個資料夾時，這台電腦每分鐘
+  透過 HTTPS 讀一次頻道的新訊息（relay 看不到這些訊息），每則由人寫的訊息都會成為意見，放在訊息用 [[名稱]] 指名的
+  便利貼上，沒有指名就放在 Home。它會和其他意見一樣等待處理，直到「可使用 agent」的成員採用它。連接之前寫的訊息不會讀取。
+  smurg 會用不顯示的方式詢問 bot 的 token，存在 ~/.smurg/connectors.json（權限 0600）；agent session 以你的身分執行，
+  讀得到這個檔案，就像讀得到你的 relay 登入資料一樣。
+  --channel <id>      頻道的 id（Slack：C 或 G 開頭，後面是英文字母和數字；Discord：17 到 20 位數字）
+  --relay 網址        這個資料夾分享到的 relay（預設：和 smurg host 相同）
+  說明（要建立的 bot、它最少需要的權限）：${GUIDE_SOURCES}
+`,
+  'usage.disconnect': () => `用法：smurg disconnect slack|discord [資料夾] [--relay 網址]
+
+  中斷頻道和你分享的資料夾的工作區之間的連接：它的 token 會從 ~/.smurg/connectors.json 移除，分享這個資料夾的
+  smurg host 會在幾秒內停止讀取它。從它來的意見會留著。
+`,
+  'connect.source.unknown': (p) => `smurg 連接的是 Slack 或 Discord 頻道，不是「${p.source}」`,
+  'connect.source.hint': () => '請寫 smurg connect slack 或 smurg connect discord。',
+  'connect.channel.missing': () => '請用 --channel <id> 指定頻道',
+  'connect.channel.invalid': (p) => `--channel 的值不是 ${SOURCE_NAME[p.source]} 頻道的 id`,
+  'connect.channel.hint': (p) =>
+    p.source === 'slack'
+      ? 'Slack 頻道的 id 是 C 或 G 開頭，後面接英文字母和數字（C0123ABCDE），在頻道詳細資料的最下面。'
+      : 'Discord 頻道的 id 是 17 到 20 位數字：開啟開發者模式，再在頻道上選「複製頻道 ID」。',
+  'connect.notShared': (p) => `這台電腦還沒有分享這個資料夾：${p.folder}`,
+  'connect.notShared.hint': () => '請先執行一次 smurg host <資料夾>（用相同的 --relay），再連接頻道。',
+  'connect.token.prompt': (p) => `你的 ${SOURCE_NAME[p.source]} app 的 bot token（不會顯示）：`,
+  'connect.token.missing': () => '沒有輸入 token，什麼都沒有改',
+  'connect.token.invalid': (p) => `這不是 ${SOURCE_NAME[p.source]} 的 bot token，什麼都沒有改`,
+  'connect.token.hint': (p) =>
+    p.source === 'slack'
+      ? 'Slack 的 bot token 以 xoxb- 開頭（OAuth & Permissions 頁的 Bot User OAuth Token）。'
+      : 'Discord 的 bot token 在你的 application 的 Bot 頁（Reset Token）。',
+  'connect.done': (p) =>
+    `已把 ${SOURCE_NAME[p.source]} 頻道 ${p.channel} 連接到 ${p.folder}。\n` +
+    'smurg host 分享這個資料夾時，這台電腦每分鐘讀一次這個頻道的新訊息；每則由人寫的訊息都會成為便利貼上的意見。' +
+    `現在正在分享它的 smurg host 會在幾秒內開始讀取。說明：${GUIDE_SOURCES}`,
+  'connect.replaced': (p) => `它取代了原本連接的 ${SOURCE_NAME[p.source]} 頻道 ${p.channel}，那個頻道不會再讀取。`,
+  'disconnect.done': (p) => `已中斷 ${SOURCE_NAME[p.source]} 頻道 ${p.channel} 和 ${p.folder} 的連接：它的 token 已移除，分享這個資料夾的 smurg host 會在幾秒內停止讀取它。`,
+  'disconnect.unread': (p) => `已移除 ${p.folder} 的 ${SOURCE_NAME[p.source]} 項目，這個 smurg 讀不懂它。`,
+  'disconnect.none': (p) => `${p.folder} 沒有連接 ${SOURCE_NAME[p.source]} 頻道。`,
   'logout.allAndRelay': () => '--all 和 --relay 不能同時使用',
   'logout.all': (p) => `已登出所有 relay（${p.count} 個）。`,
   'logout.allNone': () => '這台電腦上沒有任何 relay 登入資料。',
@@ -566,6 +618,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'host.state.unsaved': () =>
     '\n⚠ 無法寫入 smurg 的狀態檔（磁碟已滿或沒有權限？）。剛才的變更（例如踢人、改角色、撤銷邀請）現在有效，' + '但在寫入成功之前停止分享的話，重新啟動後會消失；smurg 會持續重試。',
   'host.state.saved': () => '✓ smurg 的狀態檔已重新寫入成功。',
+  'host.connectors.notRead': (p) => `在這個問題解決之前，不會讀取任何 Slack 或 Discord 頻道：${p.problem}`,
+  'host.connectors.readAgain': () => 'connectors.json 又可以讀取了：會讀取它列出的頻道。',
   'host.login.otherAccount': (p) => `\n⚠ ${p.origin} 的新登入是另一個帳號（${p.name}），這個工作區屬於原本的帳號，smurg host 不會改用它。`,
   'host.login.renewed': () => '已改用新的 relay 登入。',
   'host.login.expiring': (p) => `\n⚠ relay 的登入將在 ${p.time} 到期，到期後組員無法連線。請在另一個終端機執行 smurg login --relay ${p.origin}；smurg host 會自動改用新的登入。`,

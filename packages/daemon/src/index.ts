@@ -57,7 +57,7 @@ export type { DaemonContext, FeatureModule } from './core/context.ts';
 // The control-socket module: `smurg host` awaits whenClosed() so it exits only after `smurg stop` saw the socket go.
 export { createLocalControlModule, localControlModule, type LocalControlModule, type LocalControlModuleOptions } from './local/module.ts';
 export type * from './core/interfaces.ts';
-export { AUDIT_FULL_TEXT_HEAD_CHARS, FEATURE_SERVICE_LABELS, FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID, POWER_REASONS } from './core/interfaces.ts';
+export { AUDIT_FULL_TEXT_HEAD_CHARS, FEATURE_SERVICE_LABELS, FEATURE_SERVICE_NAMES, LOCAL_DEVICE_ID, POWER_REASONS, type ConnectorEntry, type ConnectorsEntry } from './core/interfaces.ts';
 export { AuthorizationError, PATH_DENIED_REASONS, PathDeniedError, isAuthorizationError, isPathDeniedError, notImplemented, type PathDeniedReason } from './core/errors.ts';
 export { DisposableStack, ManualClock, ShiftableClock, monotonicNow, newId, systemClock, toDisposable, type Clock, type Disposable } from './core/lifecycle.ts';
 export { LOG_UNSAFE_CHARACTER, createLineLogger, createMemoryLogger, quoteForLog, silentLogger, type LogFields, type Logger, type LogLevel } from './core/logger.ts';

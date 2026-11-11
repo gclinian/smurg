@@ -247,7 +247,11 @@ describe('the invariant, in the code itself (as test/suggest/suggestions.test.ts
     const code = (text: string): string => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
     const conversationCalls: string[] = [];
     const otherSends: string[] = [];
-    for (const name of await readdir(srcDir)) {
+    // Every file of src/sticky/, its folder of outside sources (0.8.0 S8) too: a message from Slack or Discord is
+    // feedback like any other, and reaches an agent only through the same one accept.
+    const names = (await readdir(srcDir, { recursive: true })).filter((name) => name.endsWith('.ts'));
+    expect(names).toContain(join('sources', 'poll.ts'));
+    for (const name of names) {
       const text = code(await readFile(join(srcDir, name), 'utf8'));
       for (const match of text.matchAll(/\.conversation\b/g)) conversationCalls.push(`${name}@${match.index}`);
       for (const match of text.matchAll(/\.agents\s*\.\s*send\s*\(|\bsendAs\s*\(|\[\s*['"`]send['"`]\s*\]|\.suggestions\b/g)) otherSends.push(`${name}@${match.index}`);

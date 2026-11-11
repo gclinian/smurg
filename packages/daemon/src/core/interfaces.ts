@@ -688,6 +688,35 @@ export interface DaemonStatus {
  * `smurg attach`). stop() also stops every module, the caller included: answer the client first, then call it
  * without awaiting it from inside the module.
  */
+/**
+ * One connected channel of `~/.smurg/connectors.json` for this workspace, as `smurg host` read it (DESIGN 0.8.0 D6.2).
+ * Handed over as it is in the file: the daemon checks the channel id and the token by their source's form before
+ * anything is fetched (a file edited by hand or by an agent). `connectedAt` (epoch ms): when `smurg connect` connected
+ * it; nothing written in the channel before then becomes feedback.
+ */
+export interface ConnectorEntry {
+  readonly token: string;
+  readonly channel: string;
+  readonly connectedAt: number;
+}
+
+/** The workspace's entry of connectors.json: at most one Slack and one Discord channel. */
+export interface ConnectorsEntry {
+  readonly slack?: ConnectorEntry;
+  readonly discord?: ConnectorEntry;
+}
+
+/**
+ * What the daemon knows of the outside sources of the sticky notes (DESIGN 0.8.0 D6.1): the entry `smurg host` read
+ * last (null: no channel connected; asked again every second, never stored), and where the two services are. The
+ * base URLs are absent in production (src/sticky/sources/ has the two fixed hosts); only a test gives others, through
+ * DaemonOptions, never a file, a flag or the environment.
+ */
+export interface OutsideAccess {
+  connectors(): ConnectorsEntry | null;
+  readonly baseUrls: { readonly slack?: string; readonly discord?: string };
+}
+
 export interface DaemonLifecycle {
   stop(reason?: string): Promise<void>;
   status(): DaemonStatus;

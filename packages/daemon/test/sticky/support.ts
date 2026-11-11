@@ -9,6 +9,7 @@ import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import type { PayloadOf } from '@smurg/protocol';
 import type { AgentsConfig } from '../../src/core/config.ts';
+import type { ConnectorsEntry } from '../../src/core/interfaces.ts';
 import type { FeatureModule } from '../../src/core/context.ts';
 import { fakesModule, fakesOf, type Fakes } from '../../src/core/fakes/index.ts';
 import { toDisposable } from '../../src/core/lifecycle.ts';
@@ -61,6 +62,13 @@ export interface NotesOptions {
   readonly topics?: boolean;
   /** The agent runtime's limits (`ctx.config.agents`: `maxAgentSessions`). */
   readonly agents?: Partial<AgentsConfig>;
+  /** The Slack and Discord channels smurg host would hand over (DESIGN 0.8.0 D6.2), and the fake servers they are on. */
+  readonly connectors?: () => ConnectorsEntry | null;
+  readonly outsideBaseUrls?: { readonly slack?: string; readonly discord?: string };
+  /** A state dir and a shared folder of an earlier start (a restart): owned by the caller, kept as they are. */
+  readonly stateDir?: string;
+  readonly root?: string;
+  readonly workspaceId?: string;
 }
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -72,8 +80,8 @@ afterEach(async () => {
 export async function startNotes(options: NotesOptions = {}): Promise<NotesStack> {
   const scratch = await createTempDir('sticky');
   cleanups.push(() => removeTempDir(scratch));
-  const root = await createTempProject(scratch, 'project', { files: options.files ?? {} });
-  await options.prepare?.(root);
+  const root = options.root ?? (await createTempProject(scratch, 'project', { files: options.files ?? {} }));
+  if (options.root === undefined) await options.prepare?.(root);
   const sticky = createStickyModule({ ...options.sticky, fileDebounceMs: 30 });
   const log = createMemoryLogger();
   const real: FeatureModule[] = [
@@ -87,6 +95,10 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
     log,
     modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakes, ...real, sticky],
     ...(options.agents === undefined ? {} : { agents: options.agents }),
+    ...(options.connectors === undefined ? {} : { connectors: options.connectors }),
+    ...(options.outsideBaseUrls === undefined ? {} : { outsideBaseUrls: options.outsideBaseUrls }),
+    ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
+    ...(options.workspaceId === undefined ? {} : { workspaceId: options.workspaceId }),
   });
   cleanups.push(() => t.cleanup());
   const service = sticky.serviceOf(t.ctx) as StickyServiceImpl;

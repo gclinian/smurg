@@ -48,6 +48,7 @@ import { absoluteRule, checkLaunchArgs, fileRule } from '../src/sessions/agent/p
 import { cannotFollow, effectsOf, headerEffectsOf, isGuardable, namesAPath, scriptCandidates } from '../src/sessions/agent/project-settings.ts';
 import { buildToolResult, buildToolView, diffFromPatch, editOf, headTail, safeId, stripAnsi, suggestedRuleOf, toolName } from '../src/sessions/agent/tool-view.ts';
 import { envEntryPidsFromPs, parseProcessTable } from '../src/sessions/kill-tree.ts';
+import { decodeSlackText, outsideName, outsideText } from '../src/sticky/feedback.ts';
 import { linksOfNote } from '../src/sticky/index.ts';
 import { PLAN_MARKER_END, PLAN_MARKER_START, parsePlan } from '../src/topics/plan-format.ts';
 import { countOpenQuestions } from '../src/topics/plan-service.ts';
@@ -210,6 +211,12 @@ const LOOKS: Readonly<Record<string, Look>> = {
   // ---- the sticky notes (DESIGN 0.8.0 D2.2): the index reads every note a member or Claude wrote, NOTE_MAX_BYTES at
   // most (LARGE_CHARS: one size is the bound, sixteen times it is what the function would cost beyond it)
   'linksOfNote (the index reads a sticky note: UTF-8, then its wiki links)': { run: (text) => void linksOfNote(new TextEncoder().encode(text)), fronts: ['[[', '```', '~~~', '    '] },
+  // (0.8.0 D6.3: what a person wrote in a connected Slack or Discord channel, and their name there, before they are
+  // feedback; a message is at most 100,000 characters as read, a name is cut at 256)
+  'outsideText, outsideName and decodeSlackText (a message of a connected channel)': {
+    run: (text) => void [outsideText(text, 'slack'), outsideText(text, 'discord'), outsideName(text, 'slack'), decodeSlackText(text)],
+    fronts: ['&amp;', '&lt;', '[Ian · Host]', '[[', ' \t\n'],
+  },
   'clipExcerpt, mentionExcerpt and excerptOf (an inbox item)': { run: (text) => void [clipExcerpt(text), mentionExcerpt(text, 'Ian'), mentionExcerpt(`${text}@Ian ${text}`, 'Ian'), excerptOf(text)], fronts: ['@Ian'] },
   'summary, shownPath, clipText, safeDisplayName and safeToolName (an activity line)': { run: (text) => void [summary(text), shownPath(text), clipText(text, 200), safeDisplayName(text, 'member'), safeToolName(text)] },
   'sanitizeAuditDetail and quoteForLog (the audit log, the daemon\u2019s log)': { run: (text) => void [sanitizeAuditDetail({ text, nested: { text }, list: [text] }, ['text']), quoteForLog(text)] },
@@ -713,6 +720,10 @@ const ORDERINGS: Readonly<Record<string, number>> = {
   // (0.8.0 D1.3, D2.2: the names of one listing of notes/, compared as they are, at most a few thousand of at most 80
   // units: the first of two fold twins is the note, and the first NOTES_MAX are listed)
   'sticky/index.ts': 1,
+  // (0.8.0 D6: the messages of one read of a connected channel, by their position: Slack's ts, Discord's id, compared as
+  // numbers once each; at most 500 and 100 of them)
+  'sticky/sources/discord.ts': 1,
+  'sticky/sources/slack.ts': 1,
   'suggest/suggestion-service.ts': 3,
   // (0.7.0: the merge queue's candidates by the time their report was registered, the topic's creation and the item's
   // number; the items merged before one, by when they were merged and their number: numbers, at most 40 per plan)

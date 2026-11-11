@@ -139,4 +139,32 @@ export const sticky = {
     en: (p) => BUILD_STEP_TEXTS[p.step as BuildStep]?.en ?? 'The topic was made and is in the sessions view, but a later step did not go through.',
     'zh-TW': (p) => BUILD_STEP_TEXTS[p.step as BuildStep]?.['zh-TW'] ?? '主題已經建立，可以在 session 畫面找到，但後面的步驟沒有完成',
   }),
+
+  // ---- Slack and Discord (D6): why a connected channel is not read (`SourceState.problem`, state `failing`). The
+  // notes view puts the source's name in front ("Slack: …"), so no text names it. The first two are said before
+  // anything is fetched: what connectors.json holds for the source does not have the form it must have (D6.2).
+  'sticky.source.channelInvalid': message({}, {
+    en: () => 'The channel id in connectors.json does not have the form of a channel id, so smurg never reads the channel. Connect it again with smurg connect.',
+    'zh-TW': () => 'connectors.json 裡的頻道 id 不是頻道 id 的格式，所以 smurg 不會讀取這個頻道。請用 smurg connect 重新連接',
+  }),
+  'sticky.source.tokenInvalid': message({}, {
+    en: () => 'The bot token in connectors.json does not have the form of a bot token, so smurg never uses it. Connect the channel again with smurg connect.',
+    'zh-TW': () => 'connectors.json 裡的 bot token 不是 bot token 的格式，所以 smurg 不會使用它。請用 smurg connect 重新連接頻道',
+  }),
+  'sticky.source.tokenRefused': message({}, {
+    en: () => 'The bot token was refused. Connect the channel again with smurg connect and a bot token that works.',
+    'zh-TW': () => 'bot token 被拒絕了。請用 smurg connect 和可以用的 bot token 重新連接頻道',
+  }),
+  'sticky.source.noAccess': message({}, {
+    en: () => 'The bot may not read this channel. Add the bot to the channel and give it the permissions the host guide names.',
+    'zh-TW': () => 'bot 沒有權限讀取這個頻道。請把 bot 加進頻道，並給它主人指南列出的權限',
+  }),
+  'sticky.source.unreachable': message({}, {
+    en: () => 'smurg could not reach the service. It tries again in a minute.',
+    'zh-TW': () => 'smurg 連不上這個服務，一分鐘後會再試一次',
+  }),
+  'sticky.source.badAnswer': message({}, {
+    en: () => 'The answer could not be read: it was redirected, too large, or not in the expected form. smurg tries again in a minute.',
+    'zh-TW': () => '無法讀取回應：它被轉址、太大，或不是預期的格式。smurg 一分鐘後會再試一次',
+  }),
 } as const;

@@ -296,8 +296,10 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'schema/paths.ts': 7,
   // 11 since protocol 5: modelIdSchema's, anchored, one class repeated once (linear), on at most 256 characters.
   'schema/primitives.ts': 11,
-  // 0.8.0 D6: the ids of Slack and Discord, each anchored, one class repeated a bounded number of times.
-  'schema/sticky.ts': 4,
+  // 0.8.0 D6: the ids of Slack and Discord, each anchored, one class repeated a bounded number of times; and (0.8.0 S8)
+  // the two bot tokens' forms, the same: anchored at both ends, one class, at most 256 characters, tried once on a
+  // token of at most OUTSIDE_TOKEN_MAX_CHARS (`isOutsideBotToken` looks at the length first).
+  'schema/sticky.ts': 6,
   'testing/text-cost.ts': 3,
   'wire-text.ts': 1,
 };

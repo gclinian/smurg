@@ -9,6 +9,9 @@
 // with waiting feedback that the index does not hold (a note renamed, or its file gone); a row there opens that name's
 // page, where the feedback can still be decided. Nobody else sees a count. While the index is cut at its limit there is
 // no such group (selectGoneNotes): a name it does not hold may be a sticky note past the limit, not one that is gone.
+//
+// For the host, at the foot: the Slack and Discord channels they connected, and what this computer does with each
+// (Sources.tsx, D6.4).
 import { NOTES_HOME, NOTES_MAX } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useStore } from '../../lib/store.ts';
@@ -18,6 +21,7 @@ import { Button, Spinner, Tree, type TreeNode } from '../../ui/index.ts';
 import { IconChevronRight } from '../../ui/icons.tsx';
 import { HOME_KEY, ancestorsOf, homeRows, noteKey, notLinkedRows, unfoldRequestsOf, type NoteRow } from './model.ts';
 import { useNoteNavigation, useStickyIndex } from './NoteRead.tsx';
+import { Sources } from './Sources.tsx';
 import { t } from './strings.ts';
 import './sticky.css';
 
@@ -201,6 +205,7 @@ export function NoteTree({ open }: NoteTreeProps) {
         </div>
       ) : null}
       {index.truncated ? <p className="sticky-tree__line">{t('tree.truncated', { max: NOTES_MAX })}</p> : null}
+      <Sources />
     </div>
   );
 }

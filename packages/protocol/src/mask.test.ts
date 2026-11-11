@@ -30,6 +30,17 @@ describe('mask', () => {
     }
   });
 
+  it('a Slack bot token as smurg connect keeps it (DESIGN 0.8.0 D6.2) is hidden by the Slack rule; a Discord bot token has no literal prefix, and no rule claims it', () => {
+    // What an agent session, which runs as the host, would print of ~/.smurg/connectors.json.
+    const slack = 'xoxb-' + '1234567890123-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx';
+    expect(mask(`{ "slack": { "token": "${slack}", "channel": "C0123ABCD" } }`)).toBe(`{ "slack": { "token": "${MASKED}", "channel": "C0123ABCD" } }`);
+    expect(hasMaskable(slack)).toBe(true);
+    // The masks learn only the forms with a literal prefix: a Discord token alone is left as it is (the host guide says
+    // that agent sessions can read connectors.json, as they can read the relay login).
+    const discord = 'MTI3NDU2Nzg5MDEyMzQ1Njc4.GaBcDe.' + 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ab';
+    expect(mask(discord)).toBe(discord);
+  });
+
   it('hides a PEM private key block whole and keeps the text around it', () => {
     const pem = ['-----BEGIN OPENSSH PRIVATE KEY-----', 'b3BlbnNzaC1rZXktdjEAAAAABG5vbmU', 'AAAAEbm9uZQAAAAAAAAABAAAAMwAAAAt', '-----END OPENSSH PRIVATE KEY-----'].join('\n');
     expect(mask(`before\n${pem}\nafter`)).toBe(`before\n${MASKED}\nafter`);

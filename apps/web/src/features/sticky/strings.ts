@@ -112,6 +112,13 @@ export const t = defineStrings(
     'builds.showArchived': 'Show archived topics',
     'builds.archivedFailed': 'The archived topics could not be loaded: {reason}',
     'builds.archivedMark': 'Archived',
+    // The Slack and Discord channels the host connected (D6.4), at the foot of the list, for the host only. {source} is
+    // the service's name (Slack, Discord), never translated.
+    'sources.title': 'Slack and Discord',
+    'sources.hint': 'The channels you connected with smurg connect. Your computer reads them; only you see this.',
+    'sources.reading': '{source}: new messages are read once a minute.',
+    'sources.waiting': '{source}: waiting for room. As much feedback from outside waits as smurg keeps, from everyone or from one person; reading goes on once some of it is accepted or rejected.',
+    'sources.failing': '{source}: not read. {reason}',
   },
   zhTW,
 );

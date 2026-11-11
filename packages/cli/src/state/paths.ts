@@ -14,6 +14,8 @@ export interface StatePaths {
   readonly credentials: string;
   /** Shared folders → workspace ids, and workspaces joined through the relay. */
   readonly workspaces: string;
+  /** The Slack and Discord channels connected to each shared folder's workspace, with their bot tokens (0600; 0.8.0). */
+  readonly connectors: string;
   /** Daemon logs of `smurg host` (never secrets). */
   readonly logsDir: string;
 }
@@ -39,6 +41,7 @@ export function statePaths(env: Readonly<Record<string, string | undefined>>): S
     runDir: join(stateDir, 'run'),
     credentials: join(stateDir, 'credentials.json'),
     workspaces: join(stateDir, 'workspaces.json'),
+    connectors: join(stateDir, 'connectors.json'),
     logsDir: join(stateDir, 'logs'),
   };
 }

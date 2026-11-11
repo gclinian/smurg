@@ -1,8 +1,10 @@
 // Feature module of src/sticky/ (ARCHITECTURE §7.2, §5.12; DESIGN 0.8.0 D2.1): everything of the sticky notes on the
 // host: the index of `notes/` (index.ts), new notes, the one Claude for the sticky notes, the feedback on the notes
-// (feedback.ts; its one send to an agent is accept.ts) and `sticky.json` (store.ts). Its bus listeners (service.ts
-// attach) follow the files of `notes/` and withdraw the waiting feedback of a member who is kicked or leaves. Slot:
-// none (no other module calls it: its handlers and bus listeners are its only callers, like local/module.ts).
+// (feedback.ts; its one send to an agent is accept.ts), the Slack and Discord channels the host connected
+// (sources/: read from this computer once a minute, their messages become feedback) and `sticky.json` (store.ts). Its
+// bus listeners (service.ts attach) follow the files of `notes/` and withdraw the waiting feedback of a member who is
+// kicked or leaves. Slot: none (no other module calls it: its handlers, its bus listeners and the sources' timer are
+// its only callers, like local/module.ts). What `smurg host` connected comes through `ctx.outside` (DaemonOptions).
 //
 // Order (src/daemon.ts): after topics, before inbox. Its start() lists `notes/` through PathGuard (the core) and
 // opens its document; its handlers call the file service and the agent runtime lazily, so files, sessions and

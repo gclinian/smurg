@@ -8,9 +8,11 @@ export type RelayAction = 'claim' | 'login' | 'dev-login' | 'verify';
 /** Where a relay or web URL came from (relay/relay.ts relayOriginOf). */
 export type UrlSubject = 'flag' | 'web-origin' | 'env' | 'credentials' | 'built-in' | 'invite';
 /** A private file or directory of the state dir (state/private-file.ts stateProblem). */
-export type StateSubject = 'credentials' | 'workspaces' | 'logs' | 'daemon-key' | 'device-key';
+export type StateSubject = 'credentials' | 'workspaces' | 'connectors' | 'logs' | 'daemon-key' | 'device-key';
 /** A private file of the state dir that carries a `version` (state/private-file.ts versionedRecord). */
-export type VersionedStateFile = 'credentials' | 'workspaces';
+export type VersionedStateFile = 'credentials' | 'workspaces' | 'connectors';
+/** A service whose channel the host connects (`smurg connect`; DESIGN 0.8.0 D6). */
+export type ConnectSource = 'slack' | 'discord';
 /**
  * Why a running smurg host could not be read by this command (channel/local-channel.ts): no answer came, the answer
  * is not one this command knows, the connection was closed before one came, or (after an attach) a message could not
@@ -27,6 +29,7 @@ export type ProjectSettings = 'used' | 'ignored' | 'none';
 const STATE_SUBJECT: Readonly<Record<StateSubject, string>> = {
   credentials: 'The login file (credentials.json)',
   workspaces: 'The workspace list (workspaces.json)',
+  connectors: 'The list of connected channels (connectors.json)',
   logs: 'The log folder',
   'daemon-key': "The daemon's key or state folder",
   'device-key': "This device's key (device.key)",
@@ -37,7 +40,11 @@ const BAD_FORMAT_NEXT: Readonly<Record<VersionedStateFile, string>> = {
   credentials: 'Otherwise move the file away and log in again (smurg login).',
   workspaces:
     'Otherwise repair it or put a copy back: it links every shared folder to its workspace, and without it smurg host gives a folder a new workspace (new members, new invite links, a new daemon key).',
+  connectors: 'Otherwise move the file away and connect the channels again (smurg connect).',
 };
+
+/** A service's name: a name, never translated. */
+const SOURCE_NAME: Readonly<Record<ConnectSource, string>> = { slack: 'Slack', discord: 'Discord' };
 
 const UNREADABLE_HOST: Readonly<Record<UnreadableHost, string>> = {
   'no-answer': 'it did not answer',
@@ -147,6 +154,8 @@ const GUIDE_GOING_BACK = 'https://smurg.ai/docs/hosting/#94-if-you-moved-the-sta
 const GUIDE_AGENTS = 'https://smurg.ai/docs/hosting/#52-what-agents-do-by-themselves-and-what-they-ask-first';
 /** Host guide 10.3 (merging, and what waits for it): printed by `smurg host`, so the heading can never be renamed (0.7.0). */
 const GUIDE_MERGING = 'https://smurg.ai/docs/hosting/#103-merging-and-what-waits-for-it';
+/** The host guide's section on Slack and Discord (DESIGN 0.8.0 D6.2). */
+const GUIDE_SOURCES = 'https://smurg.ai/docs/hosting/#11-slack-and-discord';
 
 /** A decision that is the host's alone (DESIGN 0.7.0 D9, `HOST_HOLDS`), in the words of the web's `hold.*` (B.2). */
 export type HostHold = 'policy' | 'local-changes' | 'in-the-way' | 'staged' | 'branch' | 'git-busy' | 'history-changed' | 'merge-failed' | 'by-hand' | 'undo-interrupted';
@@ -187,6 +196,8 @@ Usage: smurg <command> [options]
   status               Show the workspaces being shared
   login                Log in to the relay (the public relay uses Google)
   logout               Log out of the relay
+  connect <source>     Connect a Slack or Discord channel: its messages become feedback on sticky notes
+  disconnect <source>  Disconnect that channel again
   update               Update smurg to the latest version (--check only checks)
   uninstall            Remove smurg from this computer
   licenses             Show the license and the third-party notices
@@ -208,6 +219,7 @@ Docs: https://smurg.ai/docs/
   'args.missing': (p: { name: string }) => `Missing argument <${p.name}>`,
   'args.surplus': (p: { value: string }) => `Unexpected argument "${p.value}"`,
   'arg.folder': () => 'folder',
+  'arg.source': () => 'slack|discord',
   'arg.session': () => 'session',
   'arg.generic': () => 'argument',
 
@@ -273,6 +285,50 @@ Docs: https://smurg.ai/docs/
   'logout.allNone': () => 'There is no relay login on this computer.',
   'logout.done': (p: { origin: string }) => `Logged out of ${p.origin}.`,
   'logout.none': (p: { origin: string }) => `There is no login for ${p.origin}.`,
+  // ---- connect / disconnect (DESIGN 0.8.0 D6.2)
+  'usage.connect': () => `Usage: smurg connect slack|discord [folder] --channel <id> [--relay URL]
+
+  Connect one Slack channel or one Discord channel to the workspace of a folder you share. While smurg host shares
+  the folder, this computer reads the channel's new messages once a minute over HTTPS (the relay never sees them),
+  and each message of a person becomes feedback on the sticky note it names with [[Name]], else on Home. It waits
+  there like any other feedback until a member with agent access accepts it. What was written before is not read.
+  smurg asks for the bot's token without showing it and keeps it in ~/.smurg/connectors.json (mode 0600); agent
+  sessions run as you and can read that file, as they can read your relay login.
+  --channel <id>      the channel's id (Slack: C or G and letters and digits; Discord: 17 to 20 digits)
+  --relay URL         the relay the folder is shared at (default: as for smurg host)
+  Guide (the bot to make, its smallest permissions): ${GUIDE_SOURCES}
+`,
+  'usage.disconnect': () => `Usage: smurg disconnect slack|discord [folder] [--relay URL]
+
+  Disconnect the channel from the workspace of a folder you share: its token leaves ~/.smurg/connectors.json, and a
+  smurg host that shares the folder stops reading it within a few seconds. Feedback that came from it stays.
+`,
+  'connect.source.unknown': (p: { source: string }) => `smurg connects a Slack or a Discord channel, not "${p.source}"`,
+  'connect.source.hint': () => 'Write smurg connect slack or smurg connect discord.',
+  'connect.channel.missing': () => 'Name the channel with --channel <id>',
+  'connect.channel.invalid': (p: { source: ConnectSource }) => `The --channel value is not a ${SOURCE_NAME[p.source]} channel id`,
+  'connect.channel.hint': (p: { source: ConnectSource }): string =>
+    p.source === 'slack'
+      ? "A Slack channel id is C or G and then letters and digits (C0123ABCDE): it is at the bottom of the channel's details."
+      : 'A Discord channel id is 17 to 20 digits: turn on Developer Mode, then choose Copy Channel ID on the channel.',
+  'connect.notShared': (p: { folder: string }) => `This folder is not shared from this computer yet: ${p.folder}`,
+  'connect.notShared.hint': () => 'Run smurg host <folder> once (with the same --relay), then connect the channel.',
+  'connect.token.prompt': (p: { source: ConnectSource }) => `Bot token of your ${SOURCE_NAME[p.source]} app (it is not shown): `,
+  'connect.token.missing': () => 'No token was given; nothing was changed',
+  'connect.token.invalid': (p: { source: ConnectSource }) => `This is not a bot token of ${SOURCE_NAME[p.source]}; nothing was changed`,
+  'connect.token.hint': (p: { source: ConnectSource }): string =>
+    p.source === 'slack'
+      ? 'A Slack bot token starts with xoxb- (OAuth & Permissions, Bot User OAuth Token).'
+      : "A Discord bot token is on your application's Bot page (Reset Token).",
+  'connect.done': (p: { source: ConnectSource; channel: string; folder: string }) =>
+    `Connected the ${SOURCE_NAME[p.source]} channel ${p.channel} to ${p.folder}.\n` +
+    "While smurg host shares this folder, this computer reads the channel's new messages once a minute; each message of a person becomes feedback on a sticky note. " +
+    `A smurg host that shares it now starts within a few seconds. Guide: ${GUIDE_SOURCES}`,
+  'connect.replaced': (p: { source: ConnectSource; channel: string }) => `It takes the place of the ${SOURCE_NAME[p.source]} channel ${p.channel}, which is no longer read.`,
+  'disconnect.done': (p: { source: ConnectSource; channel: string; folder: string }) =>
+    `Disconnected the ${SOURCE_NAME[p.source]} channel ${p.channel} from ${p.folder}: its token was removed, and a smurg host that shares the folder stops reading it within a few seconds.`,
+  'disconnect.unread': (p: { source: ConnectSource; folder: string }) => `Removed the ${SOURCE_NAME[p.source]} entry of ${p.folder}, which this smurg could not read.`,
+  'disconnect.none': (p: { source: ConnectSource; folder: string }) => `No ${SOURCE_NAME[p.source]} channel is connected to ${p.folder}.`,
   'login.open': (p: { page: string; code: string; minutes: number }) =>
     `On any device (a computer or a phone), open:\n  ${p.page}\nEnter the code: ${p.code}   (valid for ${duration(p.minutes, 'minute')})\n`,
   'login.opened': () => '(The URL above was opened in this computer\'s browser.)\n',
@@ -684,6 +740,8 @@ Docs: https://smurg.ai/docs/
     "\nWarning: smurg's state file could not be written (is the disk full, or a permission missing?). Recent changes (removing a member, changing a role, revoking an invite) are in force now, " +
     'but they are lost after a restart if you stop sharing before a write succeeds; smurg keeps trying.',
   'host.state.saved': () => "smurg's state file was written again.",
+  'host.connectors.notRead': (p: { problem: string }) => `No Slack or Discord channel is read while this lasts: ${p.problem}`,
+  'host.connectors.readAgain': () => 'connectors.json can be read again: its channels are read.',
   'host.login.otherAccount': (p: { origin: string; name: string }) =>
     `\nWarning: the new login for ${p.origin} is another account (${p.name}); this workspace belongs to the original account, so smurg host does not use it.`,
   'host.login.renewed': () => 'Now using the new relay login.',

@@ -78,6 +78,17 @@ const cliCredentials = z.strictObject({
   defaultRelay: z.string().nullable(),
   relays: z.record(z.string(), z.strictObject({ token: z.string().regex(/^[A-Za-z0-9._-]+$/), userId: z.string().max(256), displayName: z.string().max(256), provider: z.string().max(32), savedAt: z.number(), expiresAt: z.number() })),
 });
+/**
+ * `~/.smurg/connectors.json` (packages/cli/src/state/connectors.ts, DESIGN 0.8.0 D6.2): the Slack and Discord channels
+ * the host connected to each shared folder's workspace, with their bot tokens (mode 0600). New in 0.8.0: no published
+ * smurg wrote it (no fixture holds it). A channel id or a token of another form is kept as the file holds it: the daemon
+ * checks both before anything is fetched.
+ */
+const cliConnectorsSource = z.strictObject({ token: z.string().min(1).max(256), channel: z.string().min(1).max(64), connectedAt: z.number() });
+const cliConnectors = z.strictObject({
+  version: z.literal(1),
+  workspaces: z.record(z.string().max(64), z.strictObject({ slack: cliConnectorsSource.optional(), discord: cliConnectorsSource.optional() })),
+});
 /** One line of audit-text.jsonl (src/core/audit-text.ts writes it and reads `text` back by its hash). */
 const auditTextLine = z.strictObject({ sha256: z.string().regex(/^[0-9a-f]{64}$/), at: z.number(), text: z.string() });
 /** One line of an upload's journal (src/files/upload-store.ts JOURNAL_LINE). */
@@ -193,6 +204,7 @@ export function persistedKinds(): PersistedKind[] {
     { kind: 'conflicts/<hex of the conflict id>.bin (the agent\'s version of a file, bytes)', pattern: new RegExp(`^${WS}conflicts/[0-9a-f]+\\.bin$`), homes: ['host'], since: '0.4.0', schema: noSchema, read: whole },
     { kind: 'workspaces.json (the command: shared folders and joined workspaces)', pattern: /^workspaces\.json$/, homes: ['host', 'member'], since: '0.4.0', schema: (version) => ({ schema: cliWorkspaces(version), frozen: false, described: true }), read: json },
     { kind: 'credentials.json (the command: relay logins)', pattern: /^credentials\.json$/, homes: ['host', 'member'], since: '0.4.0', schema: () => ({ schema: cliCredentials, frozen: false, described: true }), read: json },
+    { kind: 'connectors.json (the command: outside sources)', pattern: /^connectors\.json$/, homes: ['host'], since: NOT_PUBLISHED, schema: () => ({ schema: cliConnectors, frozen: false, described: true }), read: json },
     { kind: 'device.key (a device\'s private key) and pins/<hex of the workspace id>.pub (the daemon key it saw): 32 bytes each', pattern: /^(device\.key|pins\/[0-9a-f]+\.pub)$/, homes: ['host', 'member', 'device'], since: '0.4.0', schema: noSchema, read: whole, problems: key32 },
     { kind: 'logs/<workspace id>.log (the host log of `smurg host`: text lines, never read back by smurg)', pattern: /^logs\/[^/]+\.log$/, homes: ['host'], since: '0.4.0', schema: noSchema, read: whole },
     { kind: 'run/<12 characters>.pid (the process id of a running daemon; removed at a clean stop)', pattern: /^run\/[A-Za-z0-9]{12}\.pid$/, homes: ['host'], since: '0.4.0', schema: noSchema, read: whole },

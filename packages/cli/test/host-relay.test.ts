@@ -6,7 +6,7 @@
 // (R4.1), a member with agent access types into it (§11 D-15); a guest later reconnects with the pinned key only.
 // `smurg stop` and Ctrl-C end the host.
 import { generateKeyPairSync, randomBytes } from 'node:crypto';
-import { lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { createConnection } from 'node:net';
 import { basename, dirname, join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -35,6 +35,7 @@ import { renderText } from '../src/i18n/index.ts';
 import { hostUsage, inviteHeading, runHost } from '../src/commands/host.ts';
 import { LocalWorkspaceChannel } from '../src/channel/local-channel.ts';
 import { statePaths } from '../src/state/paths.ts';
+import { connectChannel, disconnectChannel } from '../src/state/connectors.ts';
 import { loadCredentials, saveSession } from '../src/state/credentials.ts';
 import { loadWorkspaces, rememberSharedFolder } from '../src/state/workspaces.ts';
 import type { UpdateNoticeDeps } from '../src/update/notice.ts';
@@ -71,6 +72,8 @@ async function startHost(
   more: {
     readonly now?: () => number;
     readonly credentialsWatchMs?: number;
+    /** How often connectors.json is read again (DESIGN 0.8.0 D6.2). */
+    readonly connectorsWatchMs?: number;
     readonly loggedIn?: boolean;
     readonly onIo?: (io: TestIo) => void;
     /** More environment (SMURG_INSTALL_BASE_URL of a local downloads server) and the update notice's seams. */
@@ -110,6 +113,7 @@ async function startHost(
     },
     onReady: (daemon) => ready(daemon),
     ...(more.credentialsWatchMs !== undefined ? { credentialsWatchMs: more.credentialsWatchMs } : {}),
+    ...(more.connectorsWatchMs !== undefined ? { connectorsWatchMs: more.connectorsWatchMs } : {}),
     ...(more.update ? { update: more.update } : {}),
   });
   cleanups.push(async () => {
@@ -413,6 +417,31 @@ describe('smurg host', () => {
     await waitFor(() => h.io.out().includes('the relay login expires at'), { what: 'the expiry reminder' });
     // Secrets never reach the terminal.
     for (const token of [renewed, 'other.account-token', 'short.lived-token']) expect(h.io.out()).not.toContain(token);
+  });
+
+  it('hands the workspace\'s channels of connectors.json to its daemon in this process and reads the file again every few seconds; a file it may not read connects nothing and is told, and so is its recovery (DESIGN 0.8.0 D6.2)', async () => {
+    const h = await startHost([], [], undefined, { connectorsWatchMs: 50 });
+    const paths = statePaths(h.env);
+    expect(h.daemon.ctx.outside.connectors()).toBeNull();
+    const slack = { token: 'xoxb-' + '1111111111111-2222222222222-FakeTokenForTestsOnly', channel: 'C0123ABCDE', connectedAt: 1 };
+    await connectChannel(paths, h.workspaceId, 'slack', slack);
+    // Another workspace's channel is not this one's.
+    await connectChannel(paths, 'ws_another_folder', 'discord', { token: 'FAKE0discord0token.for-tests_only.0123456789abcdef', channel: '123456789012345678', connectedAt: 1 });
+    await waitFor(() => h.daemon.ctx.outside.connectors() !== null, { what: 'the channel handed over' });
+    expect(h.daemon.ctx.outside.connectors()).toEqual({ slack });
+    // A file others can read: nothing is handed over meanwhile, one line says why; then it can be read again.
+    await chmod(paths.connectors, 0o644);
+    await waitFor(() => h.daemon.ctx.outside.connectors() === null, { what: 'nothing handed over' });
+    await waitFor(() => h.io.out().includes('No Slack or Discord channel is read while this lasts: The list of connected channels (connectors.json) can be read by other users'), { what: 'the line' });
+    await chmod(paths.connectors, 0o600);
+    await waitFor(() => h.io.out().includes('connectors.json can be read again: its channels are read.'), { what: 'the recovery' });
+    expect(h.daemon.ctx.outside.connectors()).toEqual({ slack });
+    // Disconnected while sharing: no longer handed over.
+    await disconnectChannel(paths, h.workspaceId, 'slack');
+    await waitFor(() => h.daemon.ctx.outside.connectors() === null, { what: 'the channel gone' });
+    // The token is in nothing this command printed, and in no environment a session inherits.
+    expect(h.io.out() + h.io.err()).not.toContain('FakeTokenForTestsOnly');
+    expect(Object.values(process.env).some((value) => value?.includes('FakeTokenForTestsOnly') === true)).toBe(false);
   });
 
   it('a state file the disk refuses is told on the terminal, and so is its recovery', async () => {

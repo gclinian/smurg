@@ -73,6 +73,8 @@ describe('state paths', () => {
       runDir: '/tmp/x/run',
       credentials: '/tmp/x/credentials.json',
       workspaces: '/tmp/x/workspaces.json',
+      // 0.8.0 (DESIGN 0.8.0 D6.2): the connected Slack and Discord channels.
+      connectors: '/tmp/x/connectors.json',
       logsDir: '/tmp/x/logs',
     });
     expect(statePaths({ HOME: '/home/amy' }).stateDir).toBe('/home/amy/.smurg');

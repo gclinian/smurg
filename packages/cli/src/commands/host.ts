@@ -29,6 +29,10 @@
 //  8. stops gracefully on Ctrl-C / SIGTERM / SIGHUP or `smurg stop` (another Ctrl-C within 2 s is ignored, a later one
 //     leaves at once). A stop ends the terminals and the agents' processes; agent sessions stay (their conversations
 //     are on disk) and come back idle at the next start, so the last line says how many are paused when there are any.
+// 10. 0.8.0 (DESIGN 0.8.0 D6.2): the Slack and Discord channels `smurg connect` connected to this folder's workspace
+//     (~/.smurg/connectors.json) are handed to the daemon in this process, as the relay login is, and the file is read
+//     again every few seconds (a channel connected or disconnected while sharing, a new token). Never through the control
+//     socket, never in the environment. A file that cannot be read is one line (no channel is read meanwhile).
 //  9. 0.7.0 (DESIGN D15, D18; R-SAFE S16): plans go on by themselves after a restart, but only once this command has
 //     said so. The daemon is made with `deferGoOn`; after the links, ONE line names the topics that go on where they
 //     stopped (and one the topics a person paused, which stay paused), and only then `daemon.goOn()` lets them go on.
@@ -50,6 +54,7 @@ import {
   SocketPathError,
   createDaemon,
   createLineLogger,
+  type ConnectorsEntry,
   type Daemon,
   type FeatureModule,
   type HostSocketFactory,
@@ -72,6 +77,7 @@ import type { CliSignal } from '../cli/io.ts';
 import { ctlPathFor, probeDaemon, probeDaemons } from '../channel/discover.ts';
 import { ensureSession } from '../relay/login.ts';
 import { pickRelay, relayApi, relayDefaultText, relayOriginOf, relayProblem } from '../relay/relay.ts';
+import { loadConnectors } from '../state/connectors.ts';
 import { loadCredentials, type StoredSession } from '../state/credentials.ts';
 import { homeDirOf, hostLogPath, workspaceStateDir } from '../state/paths.ts';
 import { stateProblem, stateProblemSaysWhy } from '../state/private-file.ts';
@@ -122,6 +128,8 @@ const MIN_EXPIRES_SEC = 60;
 const POWER_WATCH_MS = 2_000;
 /** How often the host command re-reads credentials.json for a renewed relay login. */
 const CREDENTIALS_WATCH_MS = 5_000;
+/** How often the host command re-reads connectors.json for a channel connected or disconnected meanwhile (D6.2). */
+const CONNECTORS_WATCH_MS = 5_000;
 /** A relay login is renewed before sharing, and the host is reminded while sharing, when it has less left than this. */
 export const HOST_SESSION_MIN_VALIDITY_MS = 24 * 3600_000;
 /** A dropped relay link is told only when it has not come back within this time (brief blips are not news). */
@@ -142,11 +150,15 @@ export interface HostDeps {
      * `claude` on the test machine's PATH (the developer's own) is never run.
      */
     readonly sessions?: Partial<SessionLaunchConfig>;
+    /** TEST ONLY: fake Slack and Discord servers on 127.0.0.1 (DaemonOptions.outsideBaseUrls; DESIGN 0.8.0 D6.1). */
+    readonly outsideBaseUrls?: { readonly slack?: string; readonly discord?: string };
   };
   /** Called once the summary is printed. */
   readonly onReady?: (daemon: Daemon) => void;
   /** TEST ONLY: how often credentials.json is re-read (default CREDENTIALS_WATCH_MS). */
   readonly credentialsWatchMs?: number;
+  /** TEST ONLY: how often connectors.json is re-read (default CONNECTORS_WATCH_MS). */
+  readonly connectorsWatchMs?: number;
   /** The update notice's seams (the executable, its version, fetch, the timeout). */
   readonly update?: UpdateNoticeDeps;
 }
@@ -468,6 +480,8 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   // writes the stamp): the line about a folder set aside is said at the first such start only.
   const stampedBefore = await wasStamped(workspaceDir);
   const modules = deps.daemon?.modules ?? DEFAULT_FEATURE_MODULES;
+  // The channels connected to this workspace, as the file says now (asked by the daemon every second from here on).
+  const connectors = await watchConnectors(ctx, workspaceId, deps.connectorsWatchMs ?? CONNECTORS_WATCH_MS);
   const power = new HostPower(deps.daemon?.power ?? new KeepAwake({ enabled: keepAwake, log: log.logger.child({ module: 'power' }) }));
   let daemon: Daemon;
   try {
@@ -493,8 +507,11 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
       homeDir: homeDirOf(io.env),
       // What goes on after a restart waits until the start lines below said what it is (DESIGN 0.7.0 D15).
       deferGoOn: true,
+      connectors: () => connectors.current(),
+      ...(deps.daemon?.outsideBaseUrls ? { outsideBaseUrls: deps.daemon.outsideBaseUrls } : {}),
     });
   } catch (err) {
+    connectors.dispose();
     // createDaemon logged why (the state it refused, review F3); the log is flushed before the hint names it.
     // That line is in the log file. On the terminal it is shown only when the command has no words of its own for
     // the refusal: a StateFileError (./host-state.ts) and a KeyFileError with a text name the file and the reason.
@@ -579,6 +596,7 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
   const updateCheck = new AbortController();
   const cleanup = async (): Promise<void> => {
     updateCheck.abort();
+    connectors.dispose();
     if (powerWatch !== undefined) clearInterval(powerWatch);
     relayWatch?.dispose();
     topicsWatch?.dispose();
@@ -621,6 +639,10 @@ export async function runHost(argv: readonly string[], ctx: CommandContext, deps
     // Switched off with --no-keep-awake (reason 'disabled') is the host's own choice: nothing to tell.
     const startPower = daemon.status().power;
     if (!startPower.active && startPower.reason !== 'disabled') say(ctx, m('host.keepAwake.notice', { state: powerState(startPower) }));
+    // connectors.json that cannot be read (its mode, its format): one line now, one when that changes.
+    connectors.tellFromNow((text) => {
+      if (stopping === null) say(ctx, text);
+    });
     // While it runs: a topic ready to check, a work item that waits for the host (what is so now is known already).
     topicsWatch = watchTopics(daemon, (text) => {
       if (stopping === null) say(ctx, text);
@@ -691,6 +713,57 @@ async function refuseOverlappingShare(ctx: CommandContext, folder: string): Prom
       });
     }
   }
+}
+
+interface ConnectorsWatch {
+  /** The entry the daemon is handed (null: nothing connected, or a file that cannot be read). */
+  current(): ConnectorsEntry | null;
+  /** From now on `tell` hears when the file cannot be read, and when it can again (what is so now is told at once). */
+  tellFromNow(tell: (text: Text) => void): void;
+  dispose(): void;
+}
+
+/**
+ * connectors.json for `workspaceId`, read now and every `intervalMs` (DESIGN 0.8.0 D6.2). What the daemon gets is the
+ * workspace's entry as the file holds it (its channel ids and tokens are checked by the daemon); a file this command
+ * refuses (another owner, a mode others can read, a newer or damaged format) connects nothing meanwhile.
+ */
+async function watchConnectors(ctx: CommandContext, workspaceId: string, intervalMs: number): Promise<ConnectorsWatch> {
+  const read = async (): Promise<{ readonly entry: ConnectorsEntry | null; readonly problem: Text | null }> => {
+    try {
+      const found = await loadConnectors(ctx.paths, workspaceId);
+      return { entry: found.slack === undefined && found.discord === undefined ? null : found, problem: null };
+    } catch (err) {
+      return { entry: null, problem: (err instanceof CliError ? err : stateProblem(err, 'connectors')).text };
+    }
+  };
+  let state = await read();
+  let tell: ((text: Text) => void) | null = null;
+  let busy = false;
+  const poll = setInterval(() => {
+    if (busy) return;
+    busy = true;
+    void read()
+      .then((next) => {
+        const before = state.problem === null ? null : tr(ctx, state.problem);
+        const after = next.problem === null ? null : tr(ctx, next.problem);
+        state = next;
+        if (tell === null || before === after) return;
+        tell(after === null ? m('host.connectors.readAgain') : m('host.connectors.notRead', { problem: after }));
+      })
+      .finally(() => {
+        busy = false;
+      });
+  }, intervalMs);
+  poll.unref?.();
+  return {
+    current: () => state.entry,
+    tellFromNow: (listener) => {
+      tell = listener;
+      if (state.problem !== null) listener(m('host.connectors.notRead', { problem: tr(ctx, state.problem) }));
+    },
+    dispose: () => clearInterval(poll),
+  };
 }
 
 interface RelayWatchTarget {

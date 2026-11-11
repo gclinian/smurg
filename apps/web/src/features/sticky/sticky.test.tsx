@@ -1525,3 +1525,39 @@ describe('"Build this" (D5.3): a topic made from the open sticky note, nothing s
     expect(within(section()).getByText('1 archived topic is not shown.')).toBeTruthy();
   });
 });
+
+describe('the Slack and Discord channels the host connected (D6.4)', () => {
+  const sourcesPart = (): HTMLElement | null => within(list()).queryByRole('region', { name: 'Slack and Discord' });
+  const lines = (): (string | null)[] => within(sourcesPart() as HTMLElement).getAllByRole('listitem').map((item) => item.textContent);
+  const failing = { source: 'discord' as const, state: 'failing' as const, problem: { text: msg('sticky.source.tokenRefused'), fallback: renderEnglish(msg('sticky.source.tokenRefused')) } };
+
+  it('the host sees one line per connected source, under the list: reading, waiting for room, not read with the host\'s words; it follows what the host tells', async () => {
+    const view = await shown({ role: 'host', list: () => ({ notes: [...NOTES], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, failing] }) });
+    expect(sourcesPart()).toBeTruthy();
+    expect(within(list()).getByRole('heading', { name: 'Slack and Discord' }).getAttribute('title')).toBe('The channels you connected with smurg connect. Your computer reads them; only you see this.');
+    expect(lines()).toEqual(['Slack: new messages are read once a minute.', 'Discord: not read. The bot token was refused. Connect the channel again with smurg connect and a bot token that works.']);
+    // The state is in words, the dot only repeats it.
+    expect(within(sourcesPart() as HTMLElement).getAllByRole('listitem').map((item) => item.getAttribute('data-state'))).toEqual(['reading', 'failing']);
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: [], truncated: false, sources: [{ source: 'slack', state: 'waiting-for-room' }] }));
+    expect(lines()).toEqual([
+      'Slack: waiting for room. As much feedback from outside waits as smurg keeps, from everyone or from one person; reading goes on once some of it is accepted or rejected.',
+    ]);
+    // A change of the index alone (no `sources`) leaves them as they are.
+    act(() => view.conn.emit('sticky.changed', { upserted: [{ name: 'Apple', links: ['Zebra'] }], removed: [], truncated: false }));
+    expect(lines()).toHaveLength(1);
+    // Disconnected: the part goes.
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: [], truncated: false, sources: [] }));
+    expect(sourcesPart()).toBeNull();
+  });
+
+  it('nobody but the host sees the sources, and the host sees nothing while none is connected', async () => {
+    for (const role of ['agent', 'editor', 'viewer'] as const) {
+      await shown({ role, list: () => ({ notes: [...NOTES], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, failing] }) });
+      expect(sourcesPart(), role).toBeNull();
+      expect(within(list()).queryByText(/Slack:/), role).toBeNull();
+      cleanup();
+    }
+    await shown({ role: 'host' });
+    expect(sourcesPart()).toBeNull();
+  });
+});

@@ -45,8 +45,10 @@ import {
   type DaemonStatus,
   type FeatureServiceName,
   type FeatureServices,
+  type ConnectorsEntry,
   type LocalAttachInput,
   type LocalAttachment,
+  type OutsideAccess,
   type PowerService,
   type WorkspaceDescriptor,
 } from './core/interfaces.ts';
@@ -165,6 +167,38 @@ export interface DaemonOptions {
    * printed what goes on and calls `Daemon.goOn()`. Without it (tests, the e2e harness) it goes on at the end of `start()`.
    */
   readonly deferGoOn?: boolean;
+  /**
+   * The outside sources of the sticky notes (DESIGN 0.8.0 D6.2): `smurg host` hands the workspace's entry of
+   * ~/.smurg/connectors.json as it read it last (null: no channel connected), in this process, as it hands the relay
+   * login. The daemon asks again every second; while it answers null nothing is fetched. A token never goes on the
+   * wire, into a state file, the audit log, a log line or the environment.
+   */
+  readonly connectors?: () => ConnectorsEntry | null;
+  /**
+   * TEST ONLY: the base URLs of fake Slack and Discord servers (default: the two fixed hosts of src/sticky/sources/).
+   * Replaceable only here, never through a file, a flag or the environment (D6.1); a URL that is not https, or http on
+   * 127.0.0.1, is refused, so that no test sends a token anywhere else.
+   */
+  readonly outsideBaseUrls?: { readonly slack?: string; readonly discord?: string };
+}
+
+/**
+ * A base URL of an outside source as DaemonOptions may give it: https, or http on 127.0.0.1 (a test's fake server),
+ * with no user, no query and no fragment. Anything else throws: the token would follow it.
+ */
+function outsideBaseUrl(which: string, value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new TypeError(`the ${which} base URL is not a URL`);
+  }
+  const local = url.protocol === 'http:' && url.hostname === '127.0.0.1';
+  if ((url.protocol !== 'https:' && !local) || url.username !== '' || url.password !== '' || url.search !== '' || url.hash !== '') {
+    throw new TypeError(`the ${which} base URL must be https, or http on 127.0.0.1`);
+  }
+  return url.href.endsWith('/') ? url.href.slice(0, -1) : url.href;
 }
 
 /** What a start found that goes on by itself, and the topics a person paused (DESIGN 0.7.0 D18: `smurg host`'s lines). */
@@ -266,6 +300,8 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
   });
   const clock = options.clock ?? systemClock;
   const log = options.log ?? createLineLogger();
+  // Checked before anything is read or written: a wrong base URL is a mistake of the caller, never a state to start in.
+  const outsideBaseUrls = { slack: outsideBaseUrl('Slack', options.outsideBaseUrls?.slack), discord: outsideBaseUrl('Discord', options.outsideBaseUrls?.discord) };
 
   // ~/.smurg must be private: refuse (never chmod) a directory other users can read.
   await ensurePrivateDirectory(config.stateDir);
@@ -471,6 +507,11 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       attachLocal: (input: LocalAttachInput) => attachLocal(input),
       goOnAtNextStart: () => (daemonRef as Daemon).goOnAtNextStart(),
     });
+    const connectors = options.connectors ?? (() => null);
+    const outside: OutsideAccess = Object.freeze({
+      connectors: () => connectors(),
+      baseUrls: Object.freeze({ ...(outsideBaseUrls.slack !== undefined ? { slack: outsideBaseUrls.slack } : {}), ...(outsideBaseUrls.discord !== undefined ? { discord: outsideBaseUrls.discord } : {}) }),
+    });
     const ctx: DaemonContext = Object.freeze({
       config,
       workspace,
@@ -491,6 +532,7 @@ export async function createDaemon(options: DaemonOptions): Promise<Daemon> {
       services,
       stopping: stopping.signal,
       lifecycle,
+      outside,
     });
 
     const provided = new Map<FeatureServiceName, string>();

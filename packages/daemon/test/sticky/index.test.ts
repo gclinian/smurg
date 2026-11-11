@@ -139,10 +139,16 @@ describe('the index of notes/ (D2.2)', { timeout: 60_000 }, () => {
       },
     });
     expect(await notes(s)).toEqual([]);
-    // Made a real folder again: listed.
+    // Made a real folder again: listed. The folder is written beside the shared folder and renamed into place whole, so
+    // the watcher reports one new folder `notes` that already holds Home.md, and every listing after it sees the file.
+    // (Made in place with mkdir and then a write, a listing that fell between the two under load saw an empty folder,
+    // and Linux's inotify does not report a file written into a folder before the watcher added that folder: nothing
+    // came after it, S6/S7. That case is ARCHITECTURE §12's known limit of Linux, not what this test is about.)
+    const ready = join(s.root, '..', 'notes-ready');
+    await mkdir(ready);
+    await writeFile(join(ready, 'Home.md'), '[[A]]\n');
     await rm(join(s.root, 'notes'));
-    await mkdir(join(s.root, 'notes'));
-    await writeFile(join(s.root, 'notes', 'Home.md'), '[[A]]\n');
+    await rename(ready, join(s.root, 'notes'));
     await until('the real folder', () => named(s, 'Home') !== null);
   });
 

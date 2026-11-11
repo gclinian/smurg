@@ -301,4 +301,19 @@ describe('"Build this" in zh-TW (D5.3)', () => {
     await view.settle();
     expect(within(section()).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Homespecs/home-2已封存', 'Homespecs/home']);
   });
+
+  it('the Slack and Discord channels the host connected, in zh-TW: each line and the host\'s words for why one is not read', async () => {
+    const problem = { text: msg('sticky.source.channelInvalid'), fallback: 'The channel id in connectors.json does not have the form of a channel id, so smurg never reads the channel. Connect it again with smurg connect.' };
+    const view = await shown({ role: 'host', list: () => ({ notes: [{ name: 'Home', links: [] }], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, { source: 'discord', state: 'failing', problem }] }) });
+    const part = screen.getByRole('region', { name: 'Slack 和 Discord' });
+    expect(within(part).getByRole('heading', { name: 'Slack 和 Discord' }).getAttribute('title')).toBe('你用 smurg connect 連接的頻道。由你的電腦讀取；只有你看得到這裡。');
+    expect(within(part).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Slack：每分鐘讀取一次新訊息。',
+      'Discord：沒有讀取。connectors.json 裡的頻道 id 不是頻道 id 的格式，所以 smurg 不會讀取這個頻道。請用 smurg connect 重新連接',
+    ]);
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: [], truncated: false, sources: [{ source: 'discord', state: 'waiting-for-room' }] }));
+    expect(within(screen.getByRole('region', { name: 'Slack 和 Discord' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+      'Discord：等候空間。來自外部的意見，已經有 smurg 能保留的上限那麼多在等待處理（所有人合計，或是其中一個人）；有一些被採用或不採用之後就會繼續讀取。',
+    ]);
+  });
 });

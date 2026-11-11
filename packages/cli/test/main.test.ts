@@ -105,7 +105,8 @@ describe('smurg CLI', () => {
 
   it('--help lists every command', async () => {
     const { stdout } = await run(process.execPath, [MAIN, '--help'], { timeout: 20_000 });
-    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'update', 'uninstall', 'licenses']) expect(stdout).toContain(`  ${command}`);
+    // 0.8.0 (DESIGN 0.8.0 D6.2): connect and disconnect, the Slack and Discord channels of a shared folder.
+    for (const command of ['host', 'attach', 'stop', 'status', 'login', 'logout', 'connect', 'disconnect', 'update', 'uninstall', 'licenses']) expect(stdout).toContain(`  ${command}`);
     expect(stdout).toContain('SMURG_HOME');
     expect(stdout).toContain('https://smurg.ai/docs/');
   });

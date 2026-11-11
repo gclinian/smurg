@@ -48,8 +48,11 @@ export interface UninstallDeps {
   readonly stopWaitMs?: number;
 }
 
-/** What a state dir holds at its top (ARCHITECTURE §7.1; `cwd` was the daemon's working directory until 0.2.0). */
-const STATE_ENTRIES: readonly string[] = ['credentials.json', 'device.key', 'workspaces.json', 'run', 'pins', 'logs', 'sessions', 'workspaces', 'cwd', '.DS_Store'];
+/**
+ * What a state dir holds at its top (ARCHITECTURE §7.1; `cwd` was the daemon's working directory until 0.2.0;
+ * `connectors.json`, the connected Slack and Discord channels, since 0.8.0).
+ */
+const STATE_ENTRIES: readonly string[] = ['credentials.json', 'device.key', 'workspaces.json', 'connectors.json', 'run', 'pins', 'logs', 'sessions', 'workspaces', 'cwd', '.DS_Store'];
 /** A private file being replaced (../state/private-file.ts, @smurg/protocol/node key-file.ts). */
 const STATE_TEMP_ENTRY = /^\.[A-Za-z0-9._-]+\.[0-9a-f]{12,16}\.tmp$/;
 /** What the daemon creates inside a shared folder's `.smurg/` (ARCHITECTURE §7.1). */

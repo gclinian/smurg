@@ -25,6 +25,7 @@ import { runCli } from '../src/cli/run.ts';
 import type { UninstallDeps } from '../src/commands/uninstall.ts';
 import { m, renderText } from '../src/i18n/index.ts';
 import { nativeCacheRoots } from '../src/sea/native.ts';
+import { connectChannel } from '../src/state/connectors.ts';
 import { statePaths } from '../src/state/paths.ts';
 import { rememberSharedFolder } from '../src/state/workspaces.ts';
 import { fakeTerminal, makeDirs, testIo, type Dirs, type TestIo } from './helpers.ts';
@@ -223,6 +224,17 @@ describe('smurg uninstall', () => {
       'smurg was removed from this computer. To install it again: curl -fsSL https://smurg.ai/install.sh | sh',
       '',
     ]);
+  });
+
+  it('a SMURG_HOME that holds connectors.json (the connected Slack and Discord channels, 0.8.0) is smurg\'s own: it is removed with the rest, and the token with it', async () => {
+    const s = await setup();
+    await connectChannel(statePaths(s.env), 'ws_uninstall_aaaaaaaa', 'slack', { token: 'xoxb-' + '1111111111111-2222222222222-FakeTokenForTestsOnly', channel: 'C0123ABCDE', connectedAt: 1 });
+    expect(await exists(join(s.dirs.stateDir, 'connectors.json'))).toBe(true);
+    const { code, io } = await uninstall(s, [], { answer: 'y' });
+    expect(io.err()).toBe('');
+    expect(code).toBe(0);
+    expect(await exists(s.dirs.stateDir)).toBe(false);
+    expect(io.out()).not.toContain('FakeTokenForTestsOnly');
   });
 
   it('in zh-TW (LANG=zh_TW.UTF-8): the plan, the question and the refusal are Chinese', async () => {

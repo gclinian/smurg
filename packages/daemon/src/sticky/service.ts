@@ -3,13 +3,15 @@
 // agent is accept.ts) and "Build this" (build.ts). No other module calls it (no service slot): its handlers and its
 // bus listeners are its only callers.
 //
-//   sticky.list             one list-rule page of the index (`sources` stays empty until the outside sources come)
-//   sticky.changed          what changed in the index, to every member who may read files
+//   sticky.list             one list-rule page of the index, with the state of the connected outside sources
+//   sticky.changed          what changed in the index, or in a source's state, to every member who may read files
 //   sticky.create           a new, empty note, written as the caller through the file service (its audit entry and
 //                           activity name the person); `notes/` is made when it is missing
 //   sticky.assistant.start  the running notes session, or one started now for the caller
 //   sticky.feedback.*       feedback.ts (create, withdraw, reject, list) and accept.ts (accept)
 //   sticky.spec, .build     build.ts: the text a topic's spec would be made of, and the topic made from it
+//   (no request)            sources/poll.ts: the Slack and Discord channels the host connected, read once a minute;
+//                           each message of a person becomes waiting feedback (feedback.ts createOutside)
 //
 // Every NoteInfo members are told holds the note's `builds` (the topics made from it that are there, the newest 8,
 // D2.4): the index knows nothing of them; this service adds them to what the index lists and announces, and announces
@@ -49,13 +51,19 @@ import { NoteBuilder } from './build.ts';
 import { FeedbackService, type FeedbackLimits } from './feedback.ts';
 import { NoteIndex, lookAtNotesFolder, type IndexChange } from './index.ts';
 import { notesRolePrompt } from './prompts.ts';
+import { OutsideSources } from './sources/poll.ts';
 import { STICKY_DOCUMENT, initialStickyDocument, stickyDocumentSchema, type StickyDocument } from './store.ts';
 
 export interface StickyModuleOptions {
   /** The quiet period after a change in `notes/` before the index reads again (default 500 ms, as the topics' files). */
   readonly fileDebounceMs?: number;
-  /** The bounds of the feedback (D4.5; default the protocol's: 20 waiting per member, 300 from members, 1000, 2 Mi). */
+  /**
+   * The bounds of the feedback (D4.5; default the protocol's: 20 waiting per member, 300 from members, 20 per person
+   * outside, 200 from outside, 1000, 2 Mi).
+   */
   readonly feedbackLimits?: Partial<FeedbackLimits>;
+  /** TEST ONLY: the outside sources' minute between two reads, and how often the entry is looked at (D6.1). */
+  readonly sources?: { readonly readIntervalMs?: number; readonly lookMs?: number };
 }
 
 export const DEFAULT_STICKY_DEBOUNCE_MS = 500;
@@ -98,6 +106,8 @@ export class StickyServiceImpl {
   readonly acceptor: FeedbackAccept;
   /** "Build this" (D5): the spec of a note, and the topic made from it. */
   readonly builder: NoteBuilder;
+  /** The Slack and Discord channels the host connected (D6). */
+  readonly sources: OutsideSources;
   private readonly serial = new Serial();
   private doc: PersistentDocument<StickyDocument> | null = null;
 
@@ -111,6 +121,14 @@ export class StickyServiceImpl {
       document: () => this.requireDoc(),
       serial: (work) => this.serial.run(work),
       buildsChanged: (name) => this.announceBuilt(name),
+    });
+    this.sources = new OutsideSources(ctx, {
+      feedback: this.feedback,
+      index: this.index,
+      document: () => this.requireDoc(),
+      changed: () => this.announceSources(),
+      ...(options.sources?.readIntervalMs === undefined ? {} : { readIntervalMs: options.sources.readIntervalMs }),
+      ...(options.sources?.lookMs === undefined ? {} : { lookMs: options.sources.lookMs }),
     });
   }
 
@@ -141,13 +159,18 @@ export class StickyServiceImpl {
     return stack;
   }
 
-  /** The module's start: `sticky.json` is opened (written from its first version when missing), the notes are listed. */
+  /**
+   * The module's start: `sticky.json` is opened (written from its first version when missing), the notes are listed,
+   * and then the connected outside sources are read (a message needs the index to find its note).
+   */
   async start(): Promise<void> {
     this.doc = await this.ctx.state.document(STICKY_DOCUMENT, stickyDocumentSchema, initialStickyDocument);
     await this.index.load();
+    this.sources.start();
   }
 
   async stop(): Promise<void> {
+    await this.sources.stop();
     await this.index.stop();
     await this.serial.run(async () => {});
     await this.doc?.flush().catch((err: unknown) => {
@@ -158,7 +181,7 @@ export class StickyServiceImpl {
   /** `sticky.list`: one page of the index by the list rule, in its order. */
   list(payload: PayloadOf<'sticky.list'>): ResultInputOf<'sticky.list'> {
     const page = takeListPage(this.index.list().map((note) => this.withBuilds(note)), payload.after, (note) => note.name);
-    return { notes: page.items, hasMore: page.hasMore, truncated: this.index.truncated(), sources: [] };
+    return { notes: page.items, hasMore: page.hasMore, truncated: this.index.truncated(), sources: this.sources.states() };
   }
 
   /**
@@ -280,6 +303,11 @@ export class StickyServiceImpl {
     if (note.shadowed === true || this.doc === null) return note;
     const builds = this.builder.buildsOf(note.name, gone);
     return builds.length === 0 ? note : { ...note, builds };
+  }
+
+  /** A source was connected or disconnected, or its state changed (D6.4): every member is told the sources as they are. */
+  private announceSources(): void {
+    this.ctx.hub.broadcast('sticky.changed', { upserted: [], removed: [], truncated: this.index.truncated(), sources: this.sources.states() });
   }
 
   /** A note was built (D5.2): every member is told its NoteInfo with the new topic. */

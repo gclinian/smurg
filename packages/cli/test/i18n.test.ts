@@ -82,7 +82,9 @@ const UNIONS: Readonly<Record<string, readonly string[]>> = {
   trust: ['used', 'ignored', 'none'],
   // Why a running smurg host could not be read (a host of another version), and the two versioned state files.
   why: ['no-answer', 'not-understood', 'closed', 'message'],
-  file: ['credentials', 'workspaces'],
+  file: ['credentials', 'workspaces', 'connectors'],
+  // The two services whose channel the host connects (0.8.0, `smurg connect`).
+  source: ['slack', 'discord'],
   // The documents a host can set aside alone (a refused workspace state), and the one the catalog has no own sentence for.
   document: ['inbox', 'suggestions', 'conflicts', 'worktrees', 'sessions', 'host-rules', 'claude-trust', 'cards', 'other'],
   // A decision that is the host's alone (0.7.0, `host.topicWaits`); every other `reason` takes any text.
@@ -90,8 +92,8 @@ const UNIONS: Readonly<Record<string, readonly string[]>> = {
 };
 const SUBJECTS: Readonly<Record<string, readonly string[]>> = {
   'relay.badUrl': ['flag', 'web-origin', 'env', 'credentials', 'built-in', 'invite'],
-  state: ['credentials', 'workspaces', 'logs', 'daemon-key', 'device-key'],
-  'state.newer': ['credentials', 'workspaces'],
+  state: ['credentials', 'workspaces', 'connectors', 'logs', 'daemon-key', 'device-key'],
+  'state.newer': ['credentials', 'workspaces', 'connectors'],
 };
 
 interface Sample {
@@ -139,6 +141,8 @@ const SAMPLES: readonly Sample[] = [
 /** zh-TW texts that are the same as the English ones on purpose (a URL-free name, a unit, a table cell). */
 const IDENTICAL_IN_BOTH: readonly MessageId[] = [
   'arg.session',
+  // (0.8.0: the two words `smurg connect` takes, as they are typed)
+  'arg.source',
   'attach.note',
   'uninstall.plan.item',
   'update.progress.unknown',

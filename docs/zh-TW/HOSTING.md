@@ -1346,3 +1346,34 @@ agent 不照規矩來的時候，損害有限的原因：smurg 會自己檢查�
   並在那裡跑冒煙測試。
 - 還沒有做的：針對 spec 某一段的留言、費用或 token 數字，以及 agent 對話的終端機介面（`smurg attach` 只能接上終端機
   session：組員指南 §10）。
+
+## 11. Slack 和 Discord
+
+便利貼上的意見也可以來自 Slack 和 Discord：每個分享的資料夾可以各連接一個 Slack 頻道和一個 Discord 頻道。有人在那裡寫的每則訊息，
+都會成為訊息用 `[[名稱]]` 指名的那張便利貼上的意見，沒有指名就放在 `Home`；寫的人不是成員（顯示他的名稱和
+「來自 Slack」或「來自 Discord」）。它和其他意見一樣等待處理：在「可使用 agent」的成員採用之前，沒有任何模型會讀到它。
+
+在分享的資料夾裡連接頻道（要先用 `smurg host` 從這台電腦分享過它）；`smurg connect` 會用不顯示的方式詢問 bot 的 token：
+
+```sh
+smurg connect slack --channel C0123ABCDE
+smurg connect discord --channel 123456789012345678
+smurg disconnect slack
+```
+
+- **只有你的電腦會讀頻道。** `smurg host` 分享這個資料夾時，每分鐘透過 HTTPS 讀一次頻道的新訊息，只連到 `slack.com` 和
+  `discord.com`。relay 不參與，也看不到這些訊息。正在執行的 `smurg host` 會在幾秒內發現你連接或中斷了頻道。
+- **不讀以前的訊息。** 第一次讀取只記下頻道目前的位置：之前的訊息，以及頻道沒有連接時寫的訊息，都不會成為意見。bot 和 app 的訊息、
+  空白的訊息會略過。超過 4,000 個字元的訊息會被截斷，並註明這件事。
+- **什麼存在哪裡。** token 和頻道 id 留在這台電腦的 `~/.smurg/connectors.json`（權限 0600），不會進到工作區、稽核紀錄或任何一行
+  紀錄檔裡。每個頻道讀到哪裡、以及意見本身，存在工作區的 `sticky.json`。`smurg disconnect` 會移除 token；意見會留著。
+- **上限。** 來自外部、同時等待處理的意見最多 200 則，同一個人最多 20 則。上限滿了，smurg 就停止讀取那個頻道，等其中一些意見被採用
+  或不採用之後再繼續讀。
+- **狀態。** 便利貼畫面會在便利貼清單下面告訴你，每個頻道是在讀取、在等候空間，還是沒有讀取以及原因：token 被拒絕、bot 沒有權限讀取
+  頻道、連不上服務。`connectors.json` 裡格式不對的頻道 id 或 token（檔案被改過）會顯示為沒有讀取，smurg 也絕不會使用它。
+- **agent session 以你的身分執行。** 它們讀得到 `connectors.json`，就像讀得到你的 relay 登入資料一樣。agent 寫出來的 Slack token
+  （`xoxb-`）會變成 `[masked]`（盡力而為，§4）；Discord 的 token 沒有固定的開頭，smurg 認不出來。每個 bot 只給它需要的權限：
+  - Slack：你自己工作區的 app，用 bot token（`xoxb-`），權限範圍是 `channels:history`（私人頻道是 `groups:history`）和
+    `users:read`；把 bot 邀請進頻道。
+  - Discord：一個 bot，在那個頻道有 View Channel（檢視頻道）和 Read Message History（讀取訊息歷史）權限，並在 Developer Portal 開啟 Message Content Intent
+    （沒有它，Discord 送來的每則訊息都是空的）。

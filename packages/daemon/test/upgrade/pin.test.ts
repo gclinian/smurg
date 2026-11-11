@@ -138,7 +138,11 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * D4.8): the audit's enum widens by the action `sticky.build` (schema/entities.ts; shapes/audit.line.txt): no step, as
  * for feedback; schema/limits.ts gained SPEC_FROM_NOTES_MAX_BYTES (no stored file holds a spec's text); the registry and
  * schema/messages/sticky.ts gained `sticky.spec` and `sticky.build` (the wire only). The builds of sticky.json are
- * written now, in the shape S2 declared (sticky/store.ts and schema/sticky.ts did not change).
+ * written now, in the shape S2 declared (sticky/store.ts and schema/sticky.ts did not change). Taken again for 0.8.0 S8
+ * (DESIGN 0.8.0 D6.2): schema/sticky.ts gained isOutsideChannelId, isOutsideBotToken and OUTSIDE_TOKEN_MAX_CHARS, the
+ * forms smurg connect and the daemon's sources check a channel id and a bot token by (connectors.json is the command's
+ * file, not a document of the workspace); no schema of a stored file changed, and the cursors and outside feedback of
+ * sticky.json are written now in the shape S2 declared (sticky/store.ts did not change): no step.
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'agent-text.ts': '46b91b84394ab8f98101518742ba31ba3989c7db5676565d7e81756f5026a296',
@@ -184,7 +188,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'schema/primitives.ts': '97784d0308afe035d50582cbcc8296adcf9891816597351377ed885d854f2733',
   'schema/redact.ts': 'ba90ab8105d459f1f363c1bd162c6f84e49ecf2801bcbf58e797c6388ace7b92',
   'schema/registry.ts': 'b97da5cc49dd30a52ae8ecce90e74b62e1f6d6883b0060035e068f9afd114933',
-  'schema/sticky.ts': 'd38f25525a1422b32cf71446a5dbb8a146e6b1cf9cf1c35ebe41d05088826ae1',
+  'schema/sticky.ts': '883ad4a9861ae31ac203fe0d60d8a31c66c7429e2cf970beb5d45684589fffb9',
   'schema/topics.ts': '3a13817b41681e941d2f112ed27a9e88cfaa2d15ed11b0d4525cd115e822d571',
   'wire-text.ts': '0c93a045203d15779396e7c0e073e7f7e4c0996f8a64b8c627faf2615b5a36e5',
 };

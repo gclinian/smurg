@@ -52,6 +52,11 @@ export async function runCli(argv: readonly string[], io: CliIo, deps: CliDeps =
         const [{ runLogin, runLogout }, { commandContext }] = await Promise.all([import('../commands/login.ts'), import('../commands/context.ts')]);
         return await (command === 'login' ? runLogin : runLogout)(rest, commandContext(io, lang));
       }
+      case 'connect':
+      case 'disconnect': {
+        const [{ runConnect, runDisconnect }, { commandContext }] = await Promise.all([import('../commands/connect.ts'), import('../commands/context.ts')]);
+        return await (command === 'connect' ? runConnect : runDisconnect)(rest, commandContext(io, lang));
+      }
       case 'update': {
         const [{ runUpdate }, { commandContext }] = await Promise.all([import('../commands/update.ts'), import('../commands/context.ts')]);
         return await runUpdate(rest, commandContext(io, lang), deps.update);

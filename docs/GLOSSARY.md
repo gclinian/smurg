@@ -188,6 +188,10 @@ Sticky notes, and Claude for the sticky notes.
 | Start the one Claude for the sticky notes of the workspace | Start Claude / Start Claude again (after it ended) | 啟動 Claude / 重新啟動 Claude | `sticky.assistant.start`, `workbench.notes.chat.start` |
 | Make a topic from the open sticky note, its spec the text of the note and the notes it links to, its plan one work item; its discussion session starts as every new topic's does, and the work starts only with Start in the topic's plan | Build this; the dialog's button: Make the topic | 把它做出來；對話框的按鈕：建立主題 | `sticky.build`, `sticky.build.button`, `sticky.build.confirm` |
 | The topics made from a sticky note, listed in its card | Topics built from this sticky note | 從這張便利貼建立的主題 | `NoteInfo.builds`, `sticky.builds.title` |
+| What the host does to have the messages of one Slack or Discord channel become feedback on the sticky notes of a shared folder, and to stop it | connect / disconnect a channel (`smurg connect`, `smurg disconnect`) | 連接 / 中斷連接頻道 | `connectors.json`, `connect.*`, `disconnect.*` |
+| A conversation of Slack or Discord that is connected | channel | 頻道 | `SourceState.source` |
+| The secret of the Slack app or Discord bot that reads the channel; it stays on the host's computer | bot token | bot token | `connectors.json` `token` |
+| What the host's computer does with a connected channel (shown to the host under the list of sticky notes) | read once a minute; waiting for room; not read | 每分鐘讀取一次；等候空間；沒有讀取 | `SourceState`, `sticky.sources.*`, `sticky.source.*` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
 of a file (`Home` reads Home in the zh-TW notes view too). What Claude for the sticky notes may do is said in its own
@@ -203,6 +207,7 @@ Names that are stored and shown to everyone have ONE spelling and are never tran
 | Browser device name | `Chrome (macOS)`, fallback `Browser` |
 | CLI device name | `smurg CLI (<hostname>)`, fallback `smurg CLI` |
 | Relay fallback user name | `Google user` |
+| A person outside the workspace with no name in Slack or Discord (0.8.0) | `Slack user`, `Discord user` |
 | Language names in the switch | `English`, `繁體中文` (each always in its own language) |
 
 Text written by a person or an agent (a message, a suggestion, a comment, a vote's own answer, a note for the agent,

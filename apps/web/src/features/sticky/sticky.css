@@ -524,3 +524,36 @@
   font-family: var(--font-mono);
   font-size: var(--text-xs);
 }
+
+/* The Slack and Discord channels the host connected (Sources.tsx): one quiet line each, a dot that says the state in
+   colour beside words that say it too. */
+.sticky-sources__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0 var(--space-3);
+  list-style: none;
+}
+.sticky-sources__item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}
+.sticky-sources__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-success);
+  transform: translateY(-1px);
+}
+.sticky-sources__item[data-state='waiting-for-room'] .sticky-sources__dot {
+  background: var(--color-warning);
+}
+.sticky-sources__item[data-state='failing'] .sticky-sources__dot {
+  background: var(--color-danger);
+}

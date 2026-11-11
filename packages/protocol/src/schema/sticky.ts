@@ -51,6 +51,29 @@ export const SLACK_TS_PATTERN = /^[0-9]{1,16}\.[0-9]{1,16}$/;
 /** Discord: every id (a channel, a user, a message) is a snowflake. */
 export const DISCORD_ID_PATTERN = /^[0-9]{17,20}$/;
 
+/**
+ * The channel a host connects (`smurg connect slack|discord --channel <id>`), checked by the command when it is typed
+ * and by the daemon again whenever it reads the entry of `~/.smurg/connectors.json` (DESIGN 0.8.0 D6.2): an id that
+ * fails is never put into a URL that carries the token (a file edited by hand or by an agent, `C0123/../x`).
+ */
+export function isOutsideChannelId(source: OutsideSource, id: string): boolean {
+  return (source === 'slack' ? SLACK_CHANNEL_PATTERN : DISCORD_ID_PATTERN).test(id);
+}
+
+/** The longest bot token smurg takes (Slack's are about 60 characters, Discord's about 72). */
+export const OUTSIDE_TOKEN_MAX_CHARS = 256;
+/** A Slack bot token (`xoxb-`: a bot's, never a person's `xoxp-`, D6.1) and a Discord bot token (no fixed prefix). */
+const SLACK_BOT_TOKEN = /^xoxb-[A-Za-z0-9-]{1,250}$/;
+const DISCORD_BOT_TOKEN = /^[A-Za-z0-9._-]{20,256}$/;
+
+/**
+ * A bot token of the source's form: the characters a token has, nothing a header or a URL would read otherwise, at most
+ * OUTSIDE_TOKEN_MAX_CHARS. Checked by `smurg connect` and by the daemon before it puts a token into a request.
+ */
+export function isOutsideBotToken(source: OutsideSource, token: string): boolean {
+  return token.length <= OUTSIDE_TOKEN_MAX_CHARS && (source === 'slack' ? SLACK_BOT_TOKEN : DISCORD_BOT_TOKEN).test(token);
+}
+
 export const slackChannelIdSchema = z.string().regex(SLACK_CHANNEL_PATTERN, 'not a Slack channel id');
 export const slackUserIdSchema = z.string().regex(SLACK_USER_PATTERN, 'not a Slack user id');
 export const slackTsSchema = z.string().regex(SLACK_TS_PATTERN, 'not a Slack message time');

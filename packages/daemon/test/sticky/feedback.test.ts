@@ -10,7 +10,9 @@ import {
   FEEDBACK_STORED_MAX_CHARS,
   FEEDBACK_TEXT_MAX_CHARS,
   FEEDBACK_WAITING_FROM_MEMBERS_MAX,
+  FEEDBACK_WAITING_FROM_OUTSIDE_MAX,
   FEEDBACK_WAITING_PER_MEMBER_MAX,
+  FEEDBACK_WAITING_PER_OUTSIDER_MAX,
   collectPages,
   feedbackStoredChars,
   type AuditEntry,
@@ -154,8 +156,17 @@ describe('sticky.feedback.create: anyone, a Viewer too, on a note the index hold
 
 describe('the bounds of D4.5, one by one', { timeout: 60_000 }, () => {
   it('are the protocol\'s numbers by default', () => {
-    expect(DEFAULT_FEEDBACK_LIMITS).toEqual({ waitingPerMember: FEEDBACK_WAITING_PER_MEMBER_MAX, waitingFromMembers: FEEDBACK_WAITING_FROM_MEMBERS_MAX, maxEntries: FEEDBACK_MAX, maxStoredChars: FEEDBACK_STORED_MAX_CHARS });
-    expect([FEEDBACK_WAITING_PER_MEMBER_MAX, FEEDBACK_WAITING_FROM_MEMBERS_MAX, FEEDBACK_MAX, FEEDBACK_STORED_MAX_CHARS]).toEqual([20, 300, 1000, 2 * 1024 * 1024]);
+    // 0.8.0 S8 (DESIGN 0.8.0 D4.5, D6.3): the outside budgets came with the sources, 20 per person outside and 200
+    // from outside together.
+    expect(DEFAULT_FEEDBACK_LIMITS).toEqual({
+      waitingPerMember: FEEDBACK_WAITING_PER_MEMBER_MAX,
+      waitingFromMembers: FEEDBACK_WAITING_FROM_MEMBERS_MAX,
+      maxEntries: FEEDBACK_MAX,
+      maxStoredChars: FEEDBACK_STORED_MAX_CHARS,
+      waitingPerOutsider: FEEDBACK_WAITING_PER_OUTSIDER_MAX,
+      waitingFromOutside: FEEDBACK_WAITING_FROM_OUTSIDE_MAX,
+    });
+    expect([FEEDBACK_WAITING_PER_MEMBER_MAX, FEEDBACK_WAITING_FROM_MEMBERS_MAX, FEEDBACK_MAX, FEEDBACK_STORED_MAX_CHARS, FEEDBACK_WAITING_PER_OUTSIDER_MAX, FEEDBACK_WAITING_FROM_OUTSIDE_MAX]).toEqual([20, 300, 1000, 2 * 1024 * 1024, 20, 200]);
   });
 
   it(`at most ${FEEDBACK_WAITING_PER_MEMBER_MAX} waiting per member, whatever their role: the next is refused, and room comes back when one is decided or withdrawn`, async () => {

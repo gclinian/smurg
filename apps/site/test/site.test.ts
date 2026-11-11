@@ -139,7 +139,7 @@ describe('the built site', () => {
     for (const path of GENERATED_PAGES) expect(publicFiles(), path).not.toContain(path);
   });
 
-  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 234 KB and the two drawn icons', () => {
+  it('public/ stays under 160 KB in total (the preview pictures aside), and every page with everything it loads under 238 KB and the two drawn icons', () => {
     // The preview pictures are not loaded by any page: they have their own bound (the next test).
     const total = publicFiles()
       .filter((path) => !SOCIAL_CARDS.includes(path))
@@ -173,10 +173,14 @@ describe('the built site', () => {
       // says how work items merge by themselves, what stops them and who decides, the end of a topic and undo with its
       // limits, and §10.5 what goes on by itself after a restart (DESIGN 0.7.0 D21): the page's bound was 192 KB, and
       // 234 KB with what it loads. The fixes before the release brought the English page to 192 KB (§5 names the one
-      // other `CLAUDE_CODE_*` variable agents get): the page's bound is 196 KB, and 234 KB with what it loads.
-      expect(size(path), `${path} itself`).toBeLessThan(196 * 1024);
+      // other `CLAUDE_CODE_*` variable agents get): the page's bound is 196 KB, and 234 KB with what it loads. 0.8.0:
+      // §11 says how the host connects a Slack and a Discord channel, what is read and stored where, the budgets, the
+      // state the notes view shows and the smallest permissions of each bot (DESIGN 0.8.0 D6.2); it adds 3.3 KB to the
+      // built page (196,812 bytes without it, 200,215 with it, measured with the site's own build): both bounds rose by
+      // 4 KB, to 200 KB, and 238 KB with what the page loads.
+      expect(size(path), `${path} itself`).toBeLessThan(200 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
-      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(234 * 1024);
+      expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(238 * 1024);
     }
     // The notices are text, not a page: generous, but bounded.
     expect(size(NOTICES_FILE.slice(1))).toBeLessThan(2 * 1024 * 1024);

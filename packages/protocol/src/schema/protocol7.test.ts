@@ -20,7 +20,7 @@ import { AGENT_PURPOSES, AUDIT_ACTIONS, agentSessionSchema, auditActionSchema } 
 import { verdictSchema, welcomeSchema } from './handshake.ts';
 import { agentSession, homeNote, notesSession, publicSettings } from './message-samples.fixture.ts';
 import { MESSAGE_REGISTRY, MESSAGE_TYPES } from './registry.ts';
-import { feedbackSchema, noteBuildSchema, noteInfoSchema, stickyCursorsSchema } from './sticky.ts';
+import { OUTSIDE_TOKEN_MAX_CHARS, feedbackSchema, isOutsideBotToken, isOutsideChannelId, noteBuildSchema, noteInfoSchema, stickyCursorsSchema } from './sticky.ts';
 
 /** The message types protocol 7 added: the index, a new note, Claude for the sticky notes (S2), feedback (S5, D4.4), Build this (S7, D5). */
 const STICKY_TYPES = [
@@ -212,6 +212,17 @@ describe('what sticky.json stores, from its first version on (D4.3, D5.2, D6.3)'
     const build = { note: 'Home', topicId: 'tp_1', by: { userId: 'dev:ian', displayName: 'Ian' }, at: 1, hash: 'a'.repeat(64) };
     expect(noteBuildSchema.safeParse(build).success).toBe(true);
     expect(noteBuildSchema.safeParse({ ...build, hash: 'A'.repeat(64) }).success).toBe(false);
+  });
+
+  it('a connected channel id and bot token have their source’s form before anything is fetched (D6.2): what is no id or no token is refused, never repaired', () => {
+    for (const id of ['C0123ABCD', 'G0123ABCDEF', `C${'A'.repeat(31)}`]) expect(isOutsideChannelId('slack', id), id).toBe(true);
+    for (const id of ['C0123/../x', 'c0123abcd', 'D0123ABCD', 'C0123', `C${'A'.repeat(32)}`, 'C0123ABCD ', ' C0123ABCD', 'C0123ABCD\n', '123456789012345678']) expect(isOutsideChannelId('slack', id), id).toBe(false);
+    for (const id of ['12345678901234567', '123456789012345678', '12345678901234567890']) expect(isOutsideChannelId('discord', id), id).toBe(true);
+    for (const id of ['1234567890123456', '123456789012345678901', '12345678901234567a', '../123456789012345678', 'C0123ABCD', '123456789012345678/messages']) expect(isOutsideChannelId('discord', id), id).toBe(false);
+    for (const token of ['xoxb-' + '1234567890123-1234567890123-AbCdEfGhIjKlMnOpQrStUvWx', 'xoxb-1']) expect(isOutsideBotToken('slack', token), token).toBe(true);
+    for (const token of ['xoxp-' + '1234567890123-AbCd', 'xoxb-', 'xoxb-abc def', 'xoxb-abc\r\nX-Other: 1', 'Bearer xoxb-abc', `xoxb-${'a'.repeat(251)}`, '']) expect(isOutsideBotToken('slack', token), token).toBe(false);
+    for (const token of ['MTI3NDU2Nzg5MDEyMzQ1Njc4.GaBcDe.' + 'AbCdEfGhIjKlMnOpQrStUvWxYz0123456789ab', 'a'.repeat(20), 'a'.repeat(OUTSIDE_TOKEN_MAX_CHARS)]) expect(isOutsideBotToken('discord', token), token).toBe(true);
+    for (const token of ['a'.repeat(19), 'a'.repeat(OUTSIDE_TOKEN_MAX_CHARS + 1), 'Bot MTI3NDU2Nzg5MDEyMzQ1Njc4', 'MTI3NDU2Nzg5MDEyMzQ1Njc4\nX', 'MTI3NDU2Nzg5MDEyMzQ1Njc4/../x']) expect(isOutsideBotToken('discord', token), token).toBe(false);
   });
 });
 

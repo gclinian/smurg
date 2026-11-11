@@ -1661,3 +1661,42 @@ Limits of this version that are known:
   built by GitHub Actions on their own platforms and smoke-tested there.
 - Not built: comments on a section of a spec, cost or token figures, and a terminal client for agent conversations
   (`smurg attach` attaches terminal sessions only: the guide for teammates, §10).
+
+## 11. Slack and Discord
+
+Feedback on sticky notes can also come from one Slack channel and one Discord channel per shared folder. Each message
+a person writes there becomes feedback on the sticky note it names with `[[Name]]`, else on `Home`, from a person who
+is not a member (shown with their name and "from Slack" or "from Discord"). It waits like any other feedback: no model
+reads it until a member with agent access accepts it.
+
+Connect a channel in the shared folder (once `smurg host` has shared it from this computer); `smurg connect` asks for
+the bot's token without showing it:
+
+```sh
+smurg connect slack --channel C0123ABCDE
+smurg connect discord --channel 123456789012345678
+smurg disconnect slack
+```
+
+- **Only your computer reads the channel.** While `smurg host` shares the folder, it reads the channel's new messages
+  over HTTPS once a minute, from `slack.com` and `discord.com` only. The relay is not involved and never sees them.
+  A `smurg host` that runs picks up a connect or a disconnect within a few seconds.
+- **Nothing from before.** The first read only notes where the channel is: earlier messages, and messages written
+  while the channel was not connected, never become feedback. Messages of bots and apps, and empty ones, are skipped.
+  A message longer than 4,000 characters is cut, and says so.
+- **What is stored where.** The token and the channel id stay on this computer in `~/.smurg/connectors.json` (mode
+  0600), never in the workspace, the audit log or a log line. Where each channel was read up to, and the feedback,
+  are in the workspace's `sticky.json`. `smurg disconnect` removes the token; the feedback stays.
+- **The budgets.** At most 200 pieces of feedback from outside wait at once, and 20 from one person. When a budget is
+  full, smurg stops reading that channel and reads on once some of that feedback is accepted or rejected.
+- **The state.** The notes view shows you, under the list of sticky notes, whether each channel is read, waits for
+  room, or is not read and why: the token was refused, the bot may not read the channel, the service could not be
+  reached. A channel id or a token in `connectors.json` that does not have its form (an edited file) shows as not read,
+  and smurg never uses it.
+- **Agent sessions run as you.** They can read `connectors.json`, as they can read your relay login. A Slack token
+  (`xoxb-`) in what an agent writes becomes `[masked]` (best effort, §4); a Discord token has no fixed prefix, so
+  smurg cannot recognize it. Give each bot only what it needs:
+  - Slack: an app of your own workspace with a bot token (`xoxb-`) and the scopes `channels:history` (for a private
+    channel `groups:history`) and `users:read`; invite the bot to the channel.
+  - Discord: a bot with View Channel and Read Message History in that channel, and the Message Content Intent turned
+    on in the Developer Portal (without it Discord sends every message empty).

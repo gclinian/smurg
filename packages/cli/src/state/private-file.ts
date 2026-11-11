@@ -1,4 +1,4 @@
-// Small private JSON files under the state dir (credentials.json, workspaces.json): written atomically with mode 0600
+// Small private JSON files under the state dir (credentials.json, workspaces.json, connectors.json): written atomically with mode 0600
 // (open 'wx' 0600 + fchmod + fsync + rename, in a 0700 directory) and read only when they are a regular file owned by
 // this user without group/other bits. A file that fails a check is refused, never "repaired" (fail closed): the
 // person gets a message that says what to fix.
@@ -57,7 +57,7 @@ export function stateProblem(err: unknown, subject: StateSubject): CliError {
 
 /** A file that is there and is not what this smurg reads: refused, left as it is, and the hint says what it holds. */
 function badFormat(path: string, what: StateSubject): CliError {
-  return new CliError(m('state.badFormat', { subject: what, path }), { hint: m('state.badFormat.hint', { file: what === 'workspaces' ? 'workspaces' : 'credentials' }) });
+  return new CliError(m('state.badFormat', { subject: what, path }), { hint: m('state.badFormat.hint', { file: what === 'workspaces' || what === 'connectors' ? what : 'credentials' }) });
 }
 
 /**

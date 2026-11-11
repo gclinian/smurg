@@ -18,6 +18,7 @@ import type {
   Hub,
   InviteService,
   MemberDirectory,
+  OutsideAccess,
   PathGuard,
   PowerService,
   RateLimiter,
@@ -56,6 +57,8 @@ export interface DaemonContext {
   readonly stopping: AbortSignal;
   /** stop / status / local attach, for the control-socket module (src/local/). */
   readonly lifecycle: DaemonLifecycle;
+  /** The Slack and Discord channels `smurg host` connected (the sticky module reads them, DESIGN 0.8.0 D6). */
+  readonly outside: OutsideAccess;
 }
 
 export interface FeatureModule {
