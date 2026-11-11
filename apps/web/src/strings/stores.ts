@@ -22,6 +22,7 @@ export const tStores = defineStrings(
     'area.presence': 'Online members',
     'area.workspace': 'Workspace',
     'area.transfers': 'Transfers',
+    'area.sticky': 'Sticky notes',
     // A session nobody gave a title, where the sentence already names who opened it. (The full default title,
     // "Terminal (Ian)", is the wire catalogue's `session.title.*`: one wording for the web app and the CLI.)
     'session.kind.agent': 'Claude',

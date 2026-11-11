@@ -1,7 +1,8 @@
-// The shell of a workspace's two views (DESIGN §5.1, AD-12): the sessions view and code mode are BOTH mounted and one
-// is shown; the other is hidden and inert. So composer drafts, open columns, editor tabs and scroll positions survive
-// the switch and nothing reconnects. The mode is the route (`/w/:id` or `/w/:id/code`): a reload and the back button
-// keep it. Code mode's chunk (Monaco, xterm) is loaded when code mode is first shown.
+// The shell of a workspace's three views (DESIGN §5.1, AD-12; DESIGN 0.8.0 D7.1): the sticky notes, the sessions view
+// and code mode. One is shown; the others are hidden and inert, and a view stays mounted once it was shown. So composer
+// drafts, open columns, editor tabs and scroll positions survive the switch and nothing reconnects. The mode is the
+// route (`/w/:id/notes[/:name]`, `/w/:id` or `/w/:id/code`): a reload and the back button keep it. Code mode's chunk
+// (Monaco, xterm) is loaded when code mode is first shown; the sticky notes' chunk when they are first shown.
 //
 // The shell also owns what belongs to neither view: the top bar, the connection banners, the commands that move
 // between the views (openColumn, setMode, openInCodeMode), the overlays the features registered (dialogs and command
@@ -25,16 +26,19 @@ import { ConnectionBanner } from '../connection/indicators.tsx';
 import { useAppServices } from '../services.tsx';
 import { readLayout, writeLayout, type LayoutSwitch, type ShellLayout } from './layout.ts';
 import { SessionsView } from './SessionsView.tsx';
-import { TopBar, type LayoutToggles } from './TopBar.tsx';
+import { TopBar, modePath, type LayoutToggles } from './TopBar.tsx';
 import { useWorkspaceNotices } from './useWorkspaceNotices.ts';
 
 const Workbench = lazyChunk(() => import('./Workbench.tsx'));
+const NotesView = lazyChunk(() => import('./NotesView.tsx'));
 
 export interface WorkspaceShellProps {
   mode: WorkspaceMode;
+  /** The sticky notes: the note in the address (none: Home). */
+  note?: string;
 }
 
-export function WorkspaceShell({ mode }: WorkspaceShellProps) {
+export function WorkspaceShell({ mode, note }: WorkspaceShellProps) {
   const session = useWorkspaceSession();
   const stores = useStores();
   const commands = useCommands();
@@ -44,6 +48,7 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
   const { router, keyStorage } = useAppServices();
   const persistentKeys = useStore(keyStorage, (s) => s.persistent);
   const waiting = useStore(stores.inbox, (s) => selectInboxCounts(s).waiting);
+  const lastNote = useStore(stores.sticky, (s) => s.lastOpen);
   const workspaceId = session.workspaceId;
 
   const [layout, setLayoutState] = useState<ShellLayout>(readLayout);
@@ -62,12 +67,24 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
     if (mode === 'code') setCodeMounted(true);
   }, [mode]);
 
+  // The sticky notes likewise; while they are hidden they keep the note they showed (the address is another view's).
+  const [notesMounted, setNotesMounted] = useState(mode === 'notes');
+  useEffect(() => {
+    if (mode === 'notes') setNotesMounted(true);
+  }, [mode]);
+  const shownNote = mode === 'notes' ? note : lastNote;
+  useEffect(() => {
+    if (mode === 'notes') stores.sticky.setLastOpen(note);
+  }, [mode, note, stores]);
+
   useWorkspaceNotices();
 
   const modeRef = useRef(mode);
   modeRef.current = mode;
+  const lastNoteRef = useRef(lastNote);
+  lastNoteRef.current = lastNote;
   const goTo = (next: WorkspaceMode): void => {
-    if (modeRef.current !== next) router.navigate(routePath({ name: next === 'code' ? 'code' : 'workspace', workspaceId }));
+    if (modeRef.current !== next) router.navigate(modePath(workspaceId, next, lastNoteRef.current));
   };
 
   useCommandHandler('setMode', ({ mode: next }) => goTo(next));
@@ -152,6 +169,19 @@ export function WorkspaceShell({ mode }: WorkspaceShellProps) {
         ) : null}
       </div>
       <div className="app-shell__views">
+        <div className="app-shell__view" data-view="notes" hidden={mode !== 'notes'} inert={mode !== 'notes'}>
+          {notesMounted ? (
+            <Suspense
+              fallback={
+                <div className="app-shell__loading">
+                  <Spinner label={tWorkbench('mode.notes')} />
+                </div>
+              }
+            >
+              <NotesView shown={mode === 'notes'} {...(shownNote === undefined ? {} : { note: shownNote })} />
+            </Suspense>
+          ) : null}
+        </div>
         <div className="app-shell__view" data-view="sessions" hidden={mode !== 'sessions'} inert={mode !== 'sessions'}>
           <SessionsView shown={mode === 'sessions'} layout={layout} setSwitch={setSwitch} />
         </div>

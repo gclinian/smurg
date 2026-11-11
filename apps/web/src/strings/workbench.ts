@@ -2,15 +2,20 @@ import { defineStrings } from './catalog.ts';
 import { zhTW } from './workbench.zh-TW.ts';
 
 // The workspace shell (/w/:workspaceId): the top bar with the mode switch, the sessions view around its columns, code
-// mode's layout, and the console shell.
+// mode's layout, the sticky notes' layout (DESIGN 0.8.0 D7.2), and the console shell.
 export const tWorkbench = defineStrings(
   'workbench',
   {
     'skip': 'Skip to main content',
+    'skip.note': 'Skip to the sticky note',
     'region.files': 'Files',
     'region.editor': 'Editor',
     'region.session': 'Session beside the editor',
     'region.drawer': 'Activity, transfers and terminal',
+    // The three panes of the sticky notes (DESIGN 0.8.0 D7.2).
+    'region.notesTree': 'All sticky notes',
+    'region.note': 'Open sticky note',
+    'region.notesChat': 'Claude for the sticky notes',
     'tab.activity': 'Activity',
     'tab.conflicts': 'Conflicts',
     'tab.transfers': 'Transfers',
@@ -32,6 +37,8 @@ export const tWorkbench = defineStrings(
     'workspace.asksNothing.title':
       "The host lets this workspace's agents run commands as the host with no check by Claude Code and no question from smurg; only smurg's fixed limits stay.",
     'mode.label': 'Mode',
+    'mode.notes': 'Sticky notes',
+    'mode.notes.title': 'Sticky notes: small notes that link to each other, grown from Home',
     'mode.sessions': 'Sessions',
     'mode.sessions.title': 'Sessions: conversations, plans, specs and reports',
     'mode.sessions.counts': 'Sessions: {waiting} waiting, {look} to look at',

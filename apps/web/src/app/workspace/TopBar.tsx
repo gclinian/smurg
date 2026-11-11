@@ -1,11 +1,13 @@
-// The top bar of a workspace, in both modes and in the console: workspace name and host, connection status, member
-// avatars with presence, own role, the console link (host), the mode switch "Sessions | Code mode" (DESIGN §5.1),
-// the layout toggles of the mode on screen, language, theme, and "Leave" (channel.leave). While the host lets the
-// workspace's agents ask for nothing, a badge beside the name says so to every member (DESIGN 0.6.0 D13).
+// The top bar of a workspace, in its three views and in the console: workspace name and host, connection status,
+// member avatars with presence, own role, the console link (host), the mode switch "Sticky notes | Sessions | Code
+// mode" (DESIGN §5.1, DESIGN 0.8.0 D7.1), the layout toggles of the mode on screen (none in the sticky notes, D7.2),
+// language, theme, and "Leave" (channel.leave). While the host lets the workspace's agents ask for nothing, a badge
+// beside the name says so to every member (DESIGN 0.6.0 D13).
 //
-// The mode switch is two links (the mode is a route): the current one is marked aria-current. While code mode is on
-// screen the "Sessions" segment carries the two inbox counts, so a question is not missed while hand-coding; the
-// "Code mode" segment carries the number of open conflicts, because a conflict can hold a person's unsaved text.
+// The mode switch is three links (the mode is a route): the current one is marked aria-current. The "Sticky notes" link
+// leads to the note last open in this page. While another view is on screen the "Sessions" segment carries the two
+// inbox counts, so a question is not missed; the "Code mode" segment carries the number of open conflicts, because a
+// conflict can hold a person's unsaved text.
 import { useState } from 'react';
 import type { PresenceAgent, PresenceMember } from '@smurg/protocol';
 import { describeError } from '../../lib/errors.ts';
@@ -19,7 +21,7 @@ import type { WorkspaceMode } from '../../lib/commands.ts';
 import { useCapabilities, useConnectionState, useMember, useStores, useWorkspaceInfo, useWorkspaceSession } from '../../lib/workspace/context.tsx';
 import { tWorkbench } from '../../strings/workbench.ts';
 import { Avatar, Badge, Button, Dialog, IconButton, LanguageMenu, Segmented, Tooltip, useToast } from '../../ui/index.ts';
-import { IconCode, IconLogOut, IconPanelBottom, IconPanelLeft, IconPanelRight, IconSessions, IconSettings, IconShieldAlert, IconUsers } from '../../ui/icons.tsx';
+import { IconCode, IconFileText, IconLogOut, IconPanelBottom, IconPanelLeft, IconPanelRight, IconSessions, IconSettings, IconShieldAlert, IconUsers } from '../../ui/icons.tsx';
 import { InboxCounts } from '../../features/sidebar/index.tsx';
 import { tUi } from '../../strings/ui.ts';
 import { tApp } from '../../strings/app.ts';
@@ -38,6 +40,41 @@ export interface LayoutToggles {
 }
 
 export type TopBarView = WorkspaceMode | 'console';
+
+/** Where a mode is: the sticky notes at the note last open in this page (none: Home). */
+export function modePath(workspaceId: string, mode: WorkspaceMode, lastNote: string | undefined): string {
+  switch (mode) {
+    case 'notes':
+      return routePath({ name: 'notes', workspaceId, ...(lastNote === undefined ? {} : { note: lastNote }) });
+    case 'sessions':
+      return routePath({ name: 'workspace', workspaceId });
+    case 'code':
+      return routePath({ name: 'code', workspaceId });
+  }
+}
+
+/** The layout toggles of a view: the left column of the sessions view, code mode's three panels, none elsewhere. */
+function LayoutToggleGroup({ view, layout }: { view: TopBarView; layout: LayoutToggles }) {
+  switch (view) {
+    case 'notes':
+    case 'console':
+      return null;
+    case 'sessions':
+      return (
+        <div className="app-topbar__toggles" role="group" aria-label={tWorkbench('topbar.togglePanels')}>
+          <IconButton label={tWorkbench('topbar.toggleLeft')} icon={<IconPanelLeft />} size="sm" pressed={layout.left} onClick={() => layout.toggle('left')} />
+        </div>
+      );
+    case 'code':
+      return (
+        <div className="app-topbar__toggles" role="group" aria-label={tWorkbench('topbar.togglePanels')}>
+          <IconButton label={tWorkbench('topbar.toggleSidebar')} icon={<IconPanelLeft />} size="sm" pressed={layout.files} onClick={() => layout.toggle('files')} />
+          <IconButton label={tWorkbench('topbar.toggleDrawer')} icon={<IconPanelBottom />} size="sm" pressed={layout.drawer} onClick={() => layout.toggle('drawer')} />
+          <IconButton label={tWorkbench('topbar.toggleSide')} icon={<IconPanelRight />} size="sm" pressed={layout.side} onClick={() => layout.toggle('side')} />
+        </div>
+      );
+  }
+}
 
 const MAX_AVATARS = 6;
 
@@ -94,19 +131,7 @@ export function TopBar({ view, layout }: { view: TopBarView; layout?: LayoutTogg
           </Link>
         ) : null}
         <ModeSwitch view={view} />
-        {layout && view !== 'console' ? (
-          <div className="app-topbar__toggles" role="group" aria-label={tWorkbench('topbar.togglePanels')}>
-            {view === 'sessions' ? (
-              <IconButton label={tWorkbench('topbar.toggleLeft')} icon={<IconPanelLeft />} size="sm" pressed={layout.left} onClick={() => layout.toggle('left')} />
-            ) : (
-              <>
-                <IconButton label={tWorkbench('topbar.toggleSidebar')} icon={<IconPanelLeft />} size="sm" pressed={layout.files} onClick={() => layout.toggle('files')} />
-                <IconButton label={tWorkbench('topbar.toggleDrawer')} icon={<IconPanelBottom />} size="sm" pressed={layout.drawer} onClick={() => layout.toggle('drawer')} />
-                <IconButton label={tWorkbench('topbar.toggleSide')} icon={<IconPanelRight />} size="sm" pressed={layout.side} onClick={() => layout.toggle('side')} />
-              </>
-            )}
-          </div>
-        ) : null}
+        {layout ? <LayoutToggleGroup view={view} layout={layout} /> : null}
         <LanguageMenu />
         <ThemeMenu />
         <Button size="sm" variant="secondary" icon={<IconLogOut />} onClick={() => setLeaving(true)}>
@@ -118,18 +143,20 @@ export function TopBar({ view, layout }: { view: TopBarView; layout?: LayoutTogg
   );
 }
 
-/** "Sessions | Code mode": two links, the current one marked; neither is current in the host console. */
+/** "Sticky notes | Sessions | Code mode": three links, the current one marked; none is current in the host console. */
 function ModeSwitch({ view }: { view: TopBarView }) {
   const session = useWorkspaceSession();
   const { router } = useAppServices();
   const stores = useStores();
   const counts = useStore(stores.inbox, selectInboxCounts, shallowEqual);
   const conflicts = useStore(stores.conflicts, (state) => selectOpenConflicts(state).length);
+  const lastNote = useStore(stores.sticky, (state) => state.lastOpen);
   const paths: Record<WorkspaceMode, string> = {
-    sessions: routePath({ name: 'workspace', workspaceId: session.workspaceId }),
-    code: routePath({ name: 'code', workspaceId: session.workspaceId }),
+    notes: modePath(session.workspaceId, 'notes', lastNote),
+    sessions: modePath(session.workspaceId, 'sessions', lastNote),
+    code: modePath(session.workspaceId, 'code', lastNote),
   };
-  // The inbox is one click away while hand-coding; in the sessions view the left column shows the counts itself.
+  // The inbox is one click away in the other views; in the sessions view the left column shows the counts itself.
   const showCounts = view !== 'sessions' && counts.waiting + counts.look > 0;
   const showConflicts = view !== 'code' && conflicts > 0;
   return (
@@ -140,6 +167,13 @@ function ModeSwitch({ view }: { view: TopBarView }) {
         value={view === 'console' ? null : view}
         onChange={(mode) => router.navigate(paths[mode])}
         options={[
+          {
+            id: 'notes',
+            label: tWorkbench('mode.notes'),
+            icon: <IconFileText size={14} />,
+            href: paths.notes,
+            title: tWorkbench('mode.notes.title'),
+          },
           {
             id: 'sessions',
             label: tWorkbench('mode.sessions'),

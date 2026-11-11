@@ -3,7 +3,23 @@
 import { describe, expect, it } from 'vitest';
 import { clampSize, splitLimits } from '../../ui/split-resize.ts';
 import { COLUMN_MIN_PX } from '../../ui/columns-layout.ts';
-import { LEFT_MAX_PX, LEFT_MIN_PX, MIN_COLUMNS_PX, MIN_EDITOR_PX, MIN_MAIN_PX, MIN_SIDE_PX, SEPARATOR_PX, minRightOfFiles } from './layout-limits.ts';
+import {
+  LEFT_MAX_PX,
+  LEFT_MIN_PX,
+  MIN_COLUMNS_PX,
+  MIN_EDITOR_PX,
+  MIN_MAIN_PX,
+  MIN_NOTE_PX,
+  MIN_RIGHT_OF_NOTES_TREE,
+  MIN_SIDE_PX,
+  NOTES_CHAT_DEFAULT_PX,
+  NOTES_CHAT_MAX_PX,
+  NOTES_TREE_DEFAULT_PX,
+  NOTES_TREE_MAX_PX,
+  NOTES_TREE_MIN_PX,
+  SEPARATOR_PX,
+  minRightOfFiles,
+} from './layout-limits.ts';
 
 /** The widths of file tree | editor | session column in a window, from the remembered sizes (the props of Workbench.tsx). */
 function widths(windowWidth: number, remembered: { sidebar: number; side: number }, layout = { side: true }) {
@@ -51,6 +67,25 @@ describe('code mode layout limits', () => {
       }
     }
     expect(widths(1440, { sidebar: 260, side: 420 })).toMatchObject({ sidebar: 260, side: 420, editor: 758 });
+  });
+
+  // DESIGN 0.8.0 D7.2: the sticky notes are list | note | Claude, the same arithmetic as code mode's three panes.
+  it('the sticky notes in a window from 1024 px up: the list, the note and Claude\'s pane each keep their minimum, whatever was remembered', () => {
+    expect(MIN_RIGHT_OF_NOTES_TREE).toBe(MIN_NOTE_PX + 1 + MIN_SIDE_PX);
+    for (const windowWidth of [1024, 1280, 1440, 1920]) {
+      for (const tree of [NOTES_TREE_MIN_PX, NOTES_TREE_DEFAULT_PX, NOTES_TREE_MAX_PX]) {
+        for (const chat of [MIN_SIDE_PX, NOTES_CHAT_DEFAULT_PX, NOTES_CHAT_MAX_PX]) {
+          const treeShown = clampSize(tree, splitLimits({ minSize: NOTES_TREE_MIN_PX, maxSize: NOTES_TREE_MAX_PX, minOther: MIN_RIGHT_OF_NOTES_TREE, containerSize: windowWidth, separatorSize: SEPARATOR_PX }));
+          const right = windowWidth - treeShown - SEPARATOR_PX;
+          const chatShown = clampSize(chat, splitLimits({ minSize: MIN_SIDE_PX, maxSize: NOTES_CHAT_MAX_PX, minOther: MIN_NOTE_PX, containerSize: right, separatorSize: SEPARATOR_PX }));
+          const note = right - chatShown - SEPARATOR_PX;
+          const at = `${windowWidth}/${tree}/${chat}`;
+          expect(treeShown, at).toBeGreaterThanOrEqual(NOTES_TREE_MIN_PX);
+          expect(chatShown, at).toBeGreaterThanOrEqual(MIN_SIDE_PX);
+          expect(note, at).toBeGreaterThanOrEqual(MIN_NOTE_PX);
+        }
+      }
+    }
   });
 
   it('the left column of the sessions view leaves the columns one column at its widest, in a 1024 px window', () => {

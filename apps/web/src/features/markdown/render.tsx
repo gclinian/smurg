@@ -7,6 +7,9 @@
 //   - a code block is plain monospace text;
 //   - a path that the caller's adapter resolves is a button that opens the file (paths.ts);
 //   - a member named with "@" is marked when the caller says who can be named;
+//   - a wiki link `[[Name]]` (when the caller gives `wikiLinks`: a sticky note, DESIGN 0.8.0 D7.5) is an in-app link
+//     to that note's page, shown as the name (its brackets are its markup, as a link's are); never inside a code span
+//     or a link's words; a link to a note that is not written yet looks different AND says so in words;
 //   - NOTHING OF THE TEXT IS HIDDEN. What Markdown keeps out of sight is put on the page: a reference definition is
 //     printed as its line, a destination that is not a link stays in the text with its brackets, a title follows its
 //     link, the whole line after a code fence stands above the code, a link without text shows its address, and a
@@ -15,8 +18,9 @@
 //     formatted within the lexer's bounds (lex.ts) is shown as it was written, with a note;
 //   - the lexer has a time budget and a render has none, so whatever looks at a piece of text here costs in proportion
 //     to its length: single passes, no expression that is tried again from every character of a long run.
-import { Fragment, memo, useEffect, useRef, useState, type ReactNode } from 'react';
+import { Fragment, memo, useEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import type { Token, Tokens } from 'marked';
+import { gapAfter } from '../../lib/format.ts';
 import { trimEndOf } from '../../lib/trim.ts';
 import { decodeEntities } from './entities.ts';
 import type { PlainToken } from './lex.ts';
@@ -24,12 +28,33 @@ import { namesAnotherPlace, safeHref } from './links.ts';
 import type { MarkdownPaths, PathMatch, PathTarget } from './paths.ts';
 import { t } from './strings.ts';
 
+/** A wiki link of one run of text: `[start, end)` in UTF-16 units of that run (the brackets included), and the name. */
+export interface WikiLinkMatch {
+  readonly start: number;
+  readonly end: number;
+  readonly name: string;
+}
+
+/** The caller's sticky notes (DESIGN 0.8.0 D7.5): which `[[Name]]` are links, and where each one leads. */
+export interface MarkdownWikiLinks {
+  /** The wiki links of a run of plain text, in order and not overlapping. Synchronous and cheap: it runs while rendering. */
+  find(text: string): readonly WikiLinkMatch[];
+  /** Whether that sticky note is written (one that is not is drawn apart, and says so in words). */
+  exists(name: string): boolean;
+  /** The in-app address of that sticky note's page. */
+  href(name: string): string;
+  /** A plain click (no modifier key): go there without loading the page again. Any other click is the link's. */
+  open(name: string): void;
+}
+
 export interface RenderContext {
   /** The heading level a `#` gets (2–6); deeper headings follow and stop at 6. */
   readonly headingBase: number;
   readonly paths: MarkdownPaths | undefined;
   /** Display names that are marked when written as `@name`. */
   readonly mentions: readonly string[] | undefined;
+  /** `[[Name]]` links to sticky notes; undefined: they are text. */
+  readonly wikiLinks: MarkdownWikiLinks | undefined;
 }
 
 const escapeRegExp = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -112,6 +137,22 @@ function PathLink({ match, paths }: { match: PathMatch; paths: MarkdownPaths }) 
   );
 }
 
+/** A link to a sticky note's page. A note that is not written yet: another look, and words for whoever cannot see it. */
+function WikiLink({ name, links }: { name: string; links: MarkdownWikiLinks }) {
+  const exists = links.exists(name);
+  const onClick = (event: MouseEvent<HTMLAnchorElement>): void => {
+    if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    links.open(name);
+  };
+  return (
+    <a className={exists ? 'md-wiki' : 'md-wiki md-wiki--missing'} href={links.href(name)} title={t('wiki.open', { name })} onClick={onClick}>
+      {name}
+      {exists ? null : <span className="ui-visually-hidden">{`${gapAfter(name)}${t('wiki.missing')}`}</span>}
+    </a>
+  );
+}
+
 /** `text` with the members it names marked, and nothing else changed. */
 export function markMentions(text: string, names: readonly string[]): ReactNode {
   const mentions = findMentions(text, names);
@@ -131,30 +172,45 @@ export function markMentions(text: string, names: readonly string[]): ReactNode 
   return out;
 }
 
-/** A run of plain text with its paths and mentions marked. */
+type Mark = { readonly start: number; readonly end: number; readonly node: (index: number) => ReactNode };
+
+/**
+ * `taken` and those of `more` that touch none of them, in the order of the text. Both lists are in that order and
+ * neither overlaps itself: one walk finds what touches what (a look at every mark for every other would cost the
+ * product of the two in a text made of both).
+ */
+function withMarks(taken: readonly Mark[], more: readonly Mark[]): Mark[] {
+  const out: Mark[] = [];
+  let next = 0;
+  for (const mark of more) {
+    while (next < taken.length && (taken[next] as Mark).end <= mark.start) out.push(taken[next++] as Mark);
+    if (next < taken.length && (taken[next] as Mark).start < mark.end) continue;
+    out.push(mark);
+  }
+  while (next < taken.length) out.push(taken[next++] as Mark);
+  return out;
+}
+
+/** A run of plain text with its wiki links, then its mentions, then its paths marked (a later kind never inside an earlier one). */
 function textRun(text: string, context: RenderContext, key: string): ReactNode {
   if (text === '') return null;
-  type Mark = { start: number; end: number; node: (index: number) => ReactNode };
-  const marks: Mark[] = [];
+  let marks: Mark[] = [];
+  const wikiLinks = context.wikiLinks;
+  if (wikiLinks !== undefined) {
+    marks = wikiLinks.find(text).map((link) => ({ start: link.start, end: link.end, node: (index) => <WikiLink key={`${key}.${index}.w`} name={link.name} links={wikiLinks} /> }));
+  }
   if (context.mentions !== undefined) {
-    for (const mention of findMentions(text, context.mentions)) {
-      marks.push({ ...mention, node: (index) => <span key={`${key}.${index}`} className="md-mention">{text.slice(mention.start, mention.end)}</span> });
-    }
+    const mentions = findMentions(text, context.mentions).map((mention) => ({ ...mention, node: (index: number) => <span key={`${key}.${index}`} className="md-mention">{text.slice(mention.start, mention.end)}</span> }));
+    marks = withMarks(marks, mentions);
   }
   const paths = context.paths;
   if (paths !== undefined) {
-    // Both lists are in the order of the text: one walk finds the paths that touch a mention (a look at every
-    // mention for every path would cost the product of the two in a text made of both).
-    const mentions = marks.length;
-    let next = 0;
-    for (const match of paths.find(text)) {
-      while (next < mentions && (marks[next] as Mark).end <= match.start) next += 1;
-      if (next < mentions && (marks[next] as Mark).start < match.end) continue;
-      marks.push({ start: match.start, end: match.end, node: (index) => <PathLink key={`${key}.${index}.${match.text}`} match={match} paths={paths} /> });
-    }
+    marks = withMarks(
+      marks,
+      paths.find(text).map((match) => ({ start: match.start, end: match.end, node: (index: number) => <PathLink key={`${key}.${index}.${match.text}`} match={match} paths={paths} /> })),
+    );
   }
   if (marks.length === 0) return text;
-  marks.sort((a, b) => a.start - b.start);
   const out: ReactNode[] = [];
   let at = 0;
   marks.forEach((mark, index) => {
@@ -235,7 +291,7 @@ function renderInline(tokens: readonly Token[] | undefined, context: RenderConte
       case 'codespan':
         out.push(
           <code key={key} className="md-code">
-            <InlineText text={decodeEntities((one as Tokens.Codespan).text)} context={{ ...context, mentions: undefined }} id={key} />
+            <InlineText text={decodeEntities((one as Tokens.Codespan).text)} context={{ ...context, mentions: undefined, wikiLinks: undefined }} id={key} />
           </code>,
         );
         break;
@@ -251,8 +307,8 @@ function renderInline(tokens: readonly Token[] | undefined, context: RenderConte
           out.push(<InlineText key={key} text={link.raw} context={context} id={key} />);
           break;
         }
-        // Inside a link nothing else is clickable: no path buttons, no nested links.
-        const children = renderInline(link.tokens, { ...context, paths: undefined }, `${key}.`);
+        // Inside a link nothing else is clickable: no path buttons, no nested links, no wiki links.
+        const children = renderInline(link.tokens, { ...context, paths: undefined, wikiLinks: undefined }, `${key}.`);
         const shown = shownText(link.tokens);
         if (shown.trim() === '') {
           out.push(<ExternalLink key={key} href={href}>{href}</ExternalLink>);
@@ -444,7 +500,8 @@ export function renderBlocks(tokens: readonly Token[], context: RenderContext, p
 }
 
 function sameContext(a: RenderContext, b: RenderContext): boolean {
-  return a.headingBase === b.headingBase && a.paths === b.paths && a.mentions === b.mentions;
+  // A new wikiLinks is a new set of written notes: a link that now leads to one is drawn again.
+  return a.headingBase === b.headingBase && a.paths === b.paths && a.mentions === b.mentions && a.wikiLinks === b.wikiLinks;
 }
 
 /**

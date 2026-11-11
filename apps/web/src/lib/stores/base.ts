@@ -55,7 +55,8 @@ export type AreaName =
   | 'conflicts'
   | 'worktrees'
   | 'admin'
-  | 'transfers';
+  | 'transfers'
+  | 'sticky';
 
 export interface StoreContext {
   readonly conn: WorkspaceConnection;

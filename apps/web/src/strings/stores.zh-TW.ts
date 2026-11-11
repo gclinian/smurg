@@ -17,6 +17,7 @@ export const zhTW = {
   'area.presence': '線上成員',
   'area.workspace': '工作區',
   'area.transfers': '傳輸',
+  'area.sticky': '便利貼',
   'session.kind.agent': 'Claude',
   'session.kind.terminal': '終端機',
   'status.running': '執行中',

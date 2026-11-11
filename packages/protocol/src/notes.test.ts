@@ -13,6 +13,7 @@ import {
   noteNameSchema,
   notePath,
   noteTree,
+  wikiLinkSpans,
   wikiLinks,
   type NoteTreeNode,
 } from './notes.ts';
@@ -227,6 +228,27 @@ describe('wiki links: wikiLinks (D1.4)', () => {
     expect(wikiLinks('Text\n\n    [[Indented]]\n')).toEqual(['Indented']);
     // A backtick escaped with a backslash: marked shows a backtick and the link; the finder opens a span there.
     expect(wikiLinks('\\` [[Escaped]] `')).toEqual([]);
+  });
+});
+
+describe('wiki links of one rendered run: wikiLinkSpans (D1.4, D7.5)', () => {
+  it('says where each link is, its brackets included, every time it is written, by the link rule of wikiLinks', () => {
+    const text = 'See [[Checkout]], [[checkout]] and [[Checkout]] again; [[a/b]] [[結帳流程]].';
+    const spans = wikiLinkSpans(text);
+    expect(spans.map((span) => span.name)).toEqual(['Checkout', 'checkout', 'Checkout', '結帳流程']);
+    expect(spans[0]).toEqual({ start: 4, end: 16, name: 'Checkout' });
+    for (const span of spans) expect(text.slice(span.start, span.end)).toBe(`[[${span.name}]]`);
+    expect(wikiLinkSpans('')).toEqual([]);
+    expect(wikiLinkSpans('[[[Home]]] [[a[[Inner]] [[Split\nline]]').map((span) => span.name)).toEqual(['Home', 'Inner']);
+    expect(wikiLinkSpans(`[[${'x'.repeat(NOTE_NAME_MAX_CHARS)}y]] [[CLAUDE]] [[ Home ]]`)).toEqual([]);
+  });
+
+  it('takes nothing of the run for code (the lexer did) and keeps every link, past the index\'s thirty-two', () => {
+    expect(wikiLinkSpans('`[[A]]` ``` [[B]]').map((span) => span.name)).toEqual(['A', 'B']);
+    const many = Array.from({ length: NOTE_LINKS_MAX + 8 }, (_, i) => `[[Note ${i}]]`).join(' ');
+    expect(wikiLinkSpans(many)).toHaveLength(NOTE_LINKS_MAX + 8);
+    // The same text, read as a whole note, has the index's links: the first thirty-two names.
+    expect(wikiLinks(many)).toHaveLength(NOTE_LINKS_MAX);
   });
 });
 

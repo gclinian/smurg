@@ -209,6 +209,29 @@
   color: var(--color-accent);
   font-weight: var(--weight-medium);
 }
+/* A wiki link to a sticky note (DESIGN 0.8.0 D7.5): an in-app link, drawn as the note's name. One to a note that is not
+   written yet has a dashed underline and the muted colour, and says so in words (a visually hidden part): never the
+   colour alone. */
+.md-body .md-wiki {
+  color: var(--color-accent);
+  font-weight: var(--weight-medium);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  border-radius: var(--radius-sm);
+}
+.md-body .md-wiki:hover {
+  text-decoration-thickness: 2px;
+}
+.md-body .md-wiki:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.md-body .md-wiki--missing {
+  color: var(--color-text-muted);
+  font-weight: inherit;
+  text-decoration-style: dashed;
+}
 /* A text that is still being written ends with a caret, inside its last block. */
 .md-body--streaming:empty::after,
 .md-body--streaming > :last-child:not(ul, ol, pre, blockquote, .md-table)::after,

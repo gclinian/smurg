@@ -2,8 +2,9 @@
 // its name is the file's name without `.md`. ONE predicate says what a note's name is (`noteNameProblem`,
 // `isNoteName`, `noteNameSchema`) and ONE says whether a root-relative path is a note's file (`noteNameOf`): the tool
 // gate (row G13), the daemon's index and `sticky.create` ask these and nothing else. `notePath` is the inverse.
-// Two names are one note when they fold equal (`foldNoteName`, D1.3). ONE finder reads the links of a note's text
-// (`wikiLinks`, D1.4), and ONE function grows the tree from Home along them (`noteTree`, D2.3).
+// Two names are one note when they fold equal (`foldNoteName`, D1.3). ONE rule finds the links of a note's text
+// (D1.4): `wikiLinks` reads a whole note with it (the daemon's index), `wikiLinkSpans` one plain run of rendered text
+// (the web's renderer). ONE function grows the tree from Home along them (`noteTree`, D2.3).
 //
 // Pure: browser, Worker and Node safe. What a check costs is bounded by NOTE_NAME_MAX_CHARS, asked first; what the
 // finder costs is in proportion to the text (each place where a link may start is looked at for at most
@@ -261,48 +262,81 @@ function outsideCode(text: string, visit: (from: number, to: number) => boolean)
 }
 
 /**
+ * Calls `visit(start, end, name)` for each wiki link of `text[from, to)`, in order, until it answers false (THE link
+ * rule of D1.4, which both finders below share): `[[`, a valid note name, `]]`, at most WIKI_LINK_MAX_CHARS units in
+ * all, no bracket and no line end inside; a target that is no valid name is dropped; in `[[[Name]]]` the outer
+ * brackets are text. `[start, end)` holds the brackets. Each place where a link may start is looked at for at most
+ * WIKI_LINK_MAX_CHARS units.
+ */
+function eachWikiLink(text: string, from: number, to: number, visit: (start: number, end: number, name: string) => boolean): boolean {
+  for (let i = from; i + 1 < to; i++) {
+    if (text.charCodeAt(i) !== OPEN || text.charCodeAt(i + 1) !== OPEN) continue;
+    const last = Math.min(to, i + WIKI_LINK_MAX_CHARS) - 1;
+    let close = -1;
+    for (let j = i + 2; j < last; j++) {
+      const c = text.charCodeAt(j);
+      // A link holds no bracket and no line end: the next `[` is tried again on its own.
+      if (c === OPEN || c === LF) break;
+      if (c === CLOSE) {
+        if (text.charCodeAt(j + 1) === CLOSE) close = j;
+        break;
+      }
+    }
+    if (close < 0) continue;
+    const name = text.slice(i + 2, close);
+    if (isNoteName(name) && !visit(i, close + 2, name)) return false;
+    i = close + 1;
+  }
+  return true;
+}
+
+/**
  * The sticky notes a note's text links to (DESIGN 0.8.0 D1.4): each `[[Name]]` outside fenced code and code spans
  * whose Name is a valid note name, in order, each once (names that fold equal are one link: the first spelling is
  * kept), at most NOTE_LINKS_MAX. A link is at most WIKI_LINK_MAX_CHARS units and holds no bracket and no line end; a
  * target that is no valid name is dropped; in `[[[Name]]]` the outer brackets are text. One pass, no regular
- * expression.
+ * expression. The daemon's index reads a note's whole text with it.
  *
- * The web renderer runs it on each plain run of text that marked produced. The two agree wherever a whole `[[Name]]`
- * is one plain run; they disagree only about what counts as code (an indented code block, a backtick escaped with a
- * backslash: marked reads code or text there, this finder the other), which notes.test.ts names.
+ * The web renderer reads each plain run of text that marked produced with `wikiLinkSpans`, the same link rule. The two
+ * agree wherever a whole `[[Name]]` is one plain run; they disagree only about what counts as code (an indented code
+ * block, a backtick escaped with a backslash: marked reads code or text there, this finder the other), which
+ * notes.test.ts names.
  */
 export function wikiLinks(text: string): string[] {
   const names: string[] = [];
   const seen = new Set<string>();
-  outsideCode(text, (from, to) => {
-    for (let i = from; i + 1 < to; i++) {
-      if (text.charCodeAt(i) !== OPEN || text.charCodeAt(i + 1) !== OPEN) continue;
-      const last = Math.min(to, i + WIKI_LINK_MAX_CHARS) - 1;
-      let close = -1;
-      for (let j = i + 2; j < last; j++) {
-        const c = text.charCodeAt(j);
-        // A link holds no bracket and no line end: the next `[` is tried again on its own.
-        if (c === OPEN || c === LF) break;
-        if (c === CLOSE) {
-          if (text.charCodeAt(j + 1) === CLOSE) close = j;
-          break;
-        }
-      }
-      if (close < 0) continue;
-      const name = text.slice(i + 2, close);
-      if (isNoteName(name)) {
-        const key = foldNoteName(name);
-        if (!seen.has(key)) {
-          seen.add(key);
-          names.push(name);
-          if (names.length >= NOTE_LINKS_MAX) return false;
-        }
-      }
-      i = close + 1;
-    }
+  outsideCode(text, (from, to) =>
+    eachWikiLink(text, from, to, (_start, _end, name) => {
+      const key = foldNoteName(name);
+      if (seen.has(key)) return true;
+      seen.add(key);
+      names.push(name);
+      return names.length < NOTE_LINKS_MAX;
+    }),
+  );
+  return names;
+}
+
+/** One wiki link of a run of text: `[start, end)` in UTF-16 units, its brackets included, and the name inside. */
+export interface WikiLinkSpan {
+  readonly start: number;
+  readonly end: number;
+  readonly name: string;
+}
+
+/**
+ * Every wiki link of ONE run of plain text, where it is (DESIGN 0.8.0 D1.4, D7.5: the web renderer draws each as a
+ * link): the link rule of `wikiLinks`, but nothing of the run is taken for code (the caller's Markdown lexer took the
+ * code out before), and a link that comes again is listed again, every time it is written. In order, not overlapping.
+ * One pass, no regular expression.
+ */
+export function wikiLinkSpans(text: string): WikiLinkSpan[] {
+  const spans: WikiLinkSpan[] = [];
+  eachWikiLink(text, 0, text.length, (start, end, name) => {
+    spans.push({ start, end, name });
     return true;
   });
-  return names;
+  return spans;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

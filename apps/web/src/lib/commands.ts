@@ -26,8 +26,11 @@ export type UploadSource =
       readonly handles: readonly Promise<FileSystemHandle | null>[];
     };
 
-/** The two views of a workspace (DESIGN §5.1): the sessions view (the main screen) and code mode (the workbench). */
-export type WorkspaceMode = 'sessions' | 'code';
+/**
+ * The three views of a workspace: the sticky notes (DESIGN 0.8.0 D7), the sessions view (the main screen) and code mode
+ * (the workbench) (DESIGN §5.1).
+ */
+export type WorkspaceMode = 'notes' | 'sessions' | 'code';
 
 /** A panel of code mode: the file tree, the editor, the session column beside the editor, and the tabs of the bottom drawer. */
 export type PanelId = 'files' | 'editor' | 'session' | 'activity' | 'conflicts' | 'transfers' | 'terminal';
@@ -70,7 +73,10 @@ export interface CommandMap {
      */
     readonly inPlaceOf?: ColumnTarget;
   };
-  /** Switch between the sessions view and code mode (a route change: both stay mounted). Handler: the workspace shell. */
+  /**
+   * Switch between the views (a route change: a view shown once stays mounted). The sticky notes open at the note last
+   * open in this page. Handler: the workspace shell.
+   */
   setMode: { readonly mode: WorkspaceMode };
   /**
    * Switch to code mode on `root`: the file tree shows that root, `file` (a path inside that root, when given) opens

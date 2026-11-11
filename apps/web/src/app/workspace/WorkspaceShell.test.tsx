@@ -2,7 +2,7 @@
 // commands that move between them, the overlays, the tab's title, F6, and the empty states of the right side.
 import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MAIN_ROOT, type InboxItem, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
+import { MAIN_ROOT, type InboxItem, type NoteInfo, type Role, type SessionInfo, type Topic } from '@smurg/protocol';
 import { buildInboxItem, buildTopic } from '@smurg/protocol/testing';
 import { useEffect } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -21,16 +21,18 @@ import WorkspaceRoute from './WorkspaceRoute.tsx';
 
 const SESSIONS_PATH = `/w/${WORKSPACE_ID}`;
 const CODE_PATH = `/w/${WORKSPACE_ID}/code`;
+const NOTES_PATH = `/w/${WORKSPACE_ID}/notes`;
 
 function Routed({ slots }: { slots: readonly FeatureSlots[] }) {
   const route = useRoute();
-  if (route.name !== 'workspace' && route.name !== 'code' && route.name !== 'console') return <p>{`elsewhere: ${route.name}`}</p>;
+  if (route.name !== 'workspace' && route.name !== 'code' && route.name !== 'console' && route.name !== 'notes') return <p>{`elsewhere: ${route.name}`}</p>;
   return (
     <WorkspaceRoute
       key={route.workspaceId}
       workspaceId={route.workspaceId}
       view={route.name === 'workspace' ? 'sessions' : route.name}
       {...(route.name === 'console' && route.section !== undefined ? { section: route.section } : {})}
+      {...(route.name === 'notes' && route.note !== undefined ? { note: route.note } : {})}
       slots={REGISTRIES.get(slots) ?? REGISTRIES.set(slots, createSlotRegistry(slots)).get(slots)!}
     />
   );
@@ -45,6 +47,8 @@ interface OpenOptions {
   sessions?: readonly SessionInfo[];
   topics?: readonly Topic[];
   inbox?: readonly InboxItem[];
+  /** The index of the sticky notes the host answers with (asked for when the sticky notes are first shown). */
+  notes?: readonly NoteInfo[];
 }
 
 async function open(options: OpenOptions = {}) {
@@ -58,6 +62,7 @@ async function open(options: OpenOptions = {}) {
   );
   await waitFor(() => expect(services.connections).toHaveLength(1));
   const { conn } = services.connections[0]!;
+  conn.handle('sticky.list', () => ({ notes: [...(options.notes ?? [])], hasMore: false, truncated: false, sources: [] }));
   act(() => conn.admit(makeWelcome({ role: options.role ?? 'host' })));
   await act(async () => {
     answerLoads(conn, {
@@ -72,7 +77,7 @@ async function open(options: OpenOptions = {}) {
   return { services, conn, session, stores: session.stores, dispatch, path: () => services.router.getState().pathname };
 }
 
-const view = (name: 'sessions' | 'code'): HTMLElement => document.querySelector(`.app-shell__view[data-view="${name}"]`) as HTMLElement;
+const view = (name: 'notes' | 'sessions' | 'code'): HTMLElement => document.querySelector(`.app-shell__view[data-view="${name}"]`) as HTMLElement;
 const topbar = (): HTMLElement => screen.getByRole('banner', { name: 'Workspace' });
 const modeLink = (name: string | RegExp): HTMLElement => within(within(topbar()).getByRole('group', { name: 'Mode' })).getByRole('link', { name });
 const columnNames = (): (string | null)[] => [...view('sessions').querySelectorAll('[data-column-id]')].map((element) => element.getAttribute('aria-label'));
@@ -186,6 +191,96 @@ describe('the workspace shell: the mode is a route and both views stay mounted',
     expect(toggle.getAttribute('aria-pressed')).toBe('true');
     expect(pane.style.width).toBe('288px');
   });
+});
+
+// DESIGN 0.8.0 D7.1, D7.2: a third view, at /w/:id/notes[/:name], mounted the first time it is shown.
+describe('the workspace shell: the sticky notes, a third view', () => {
+  it('three mode links, Sticky notes first; the sticky notes are not loaded until they are shown, then mounted once, with no layout toggles', async () => {
+    const { conn, path } = await open({ notes: [{ name: 'Home', links: [] }] });
+    expect(within(within(topbar()).getByRole('group', { name: 'Mode' })).getAllByRole('link').map((link) => [link.textContent, link.getAttribute('href')])).toEqual([
+      ['Sticky notes', NOTES_PATH],
+      ['Sessions', SESSIONS_PATH],
+      ['Code mode', CODE_PATH],
+    ]);
+    expect(modeLink('Sticky notes').getAttribute('title')).toBe('Sticky notes: small notes that link to each other, grown from Home');
+    // Not shown yet: nothing of it is mounted, and the index was not asked for.
+    expect(view('notes').hidden).toBe(true);
+    expect(view('notes').childElementCount).toBe(0);
+    expect(conn.requestsOf('sticky.list')).toHaveLength(0);
+
+    await userEvent.click(modeLink('Sticky notes'));
+    expect(path()).toBe(NOTES_PATH);
+    expect(await screen.findByRole('main', { name: 'Open sticky note' }, { timeout: 15_000 })).toBeTruthy();
+    expect(isShown(view('notes'))).toBe(true);
+    expect(view('sessions').hidden).toBe(true);
+    expect(view('sessions').hasAttribute('inert')).toBe(true);
+    expect(modeLink('Sticky notes').getAttribute('aria-current')).toBe('page');
+    expect(document.querySelector('.app-shell')?.getAttribute('data-mode')).toBe('notes');
+    expect(screen.getByRole('complementary', { name: 'All sticky notes' })).toBeTruthy();
+    expect(within(topbar()).queryByRole('group', { name: 'Layout' })).toBeNull();
+    // The panes' widths are remembered under their own keys (smurg.pane.*), never in smurg.layout.
+    expect(screen.getAllByRole('separator').map((separator) => separator.getAttribute('aria-label'))).toEqual([
+      'Drag or use the arrow keys to resize All sticky notes',
+      'Drag or use the arrow keys to resize Claude for the sticky notes',
+    ]);
+    await waitFor(() => expect(conn.requestsOf('sticky.list')).toHaveLength(1));
+    const mounted = document.querySelector('.app-notes');
+
+    // To code mode and back to the sessions view: the sticky notes stay mounted, hidden and inert.
+    await userEvent.click(modeLink('Code mode'));
+    expect(await screen.findByRole('main', { name: 'Editor' }, { timeout: 15_000 })).toBeTruthy();
+    expect(view('notes').hidden).toBe(true);
+    expect(view('notes').hasAttribute('inert')).toBe(true);
+    await userEvent.click(modeLink('Sessions'));
+    expect(path()).toBe(SESSIONS_PATH);
+    await userEvent.click(modeLink('Sticky notes'));
+    expect(isShown(view('notes'))).toBe(true);
+    expect(document.querySelector('.app-notes')).toBe(mounted);
+    expect(conn.requestsOf('sticky.list')).toHaveLength(1);
+    expect(window.localStorage.getItem('smurg.layout')).toBeNull();
+  }, 30_000);
+
+  it('the mode link and setMode lead back to the sticky note last open in this page', async () => {
+    const { dispatch, path } = await open({ path: `${NOTES_PATH}/Ideas` });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Ideas' }, { timeout: 15_000 })).toBeTruthy();
+    await dispatch('setMode', { mode: 'sessions' });
+    expect(path()).toBe(SESSIONS_PATH);
+    // Hidden, the sticky notes keep the note they showed.
+    expect(within(view('notes')).getByRole('heading', { level: 2, name: 'Ideas', hidden: true })).toBeTruthy();
+    expect(modeLink('Sticky notes').getAttribute('href')).toBe(`${NOTES_PATH}/Ideas`);
+    await dispatch('setMode', { mode: 'notes' });
+    expect(path()).toBe(`${NOTES_PATH}/Ideas`);
+    expect(modeLink('Sticky notes').getAttribute('aria-current')).toBe('page');
+  }, 30_000);
+
+  it('a reload keeps the note: /w/:id/notes/:name opens the sticky notes at that note, the sessions view mounted behind', async () => {
+    await open({ path: `${NOTES_PATH}/${encodeURIComponent('Payment form')}` });
+    expect(await screen.findByRole('heading', { level: 2, name: 'Payment form' }, { timeout: 15_000 })).toBeTruthy();
+    expect(isShown(view('notes'))).toBe(true);
+    expect(within(view('sessions')).getByRole('complementary', { name: 'Inbox and sessions', hidden: true })).toBeTruthy();
+    expect(view('code').childElementCount).toBe(0);
+  }, 30_000);
+
+  it('a login from a sticky note returns to that note', async () => {
+    const { services, conn } = await open({ path: `${NOTES_PATH}/${encodeURIComponent('Payment form')}` });
+    act(() => conn.setState({ kind: 'closed', reason: 'login-required' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Log in with Google' }));
+    expect(services.router.assigned[0]).toContain(encodeURIComponent(`${NOTES_PATH}/${encodeURIComponent('Payment form')}`));
+  }, 30_000);
+
+  it('F6 and Shift+F6 move between the list of sticky notes and the open note; the skip link leads to the note', async () => {
+    await open({ path: NOTES_PATH, notes: [{ name: 'Home', links: [] }] });
+    const home = await screen.findByRole('treeitem', { name: 'Home' }, { timeout: 15_000 });
+    const name = screen.getByRole('heading', { level: 2, name: 'Home' });
+    act(() => home.focus());
+    await userEvent.keyboard('{F6}');
+    expect(document.activeElement).toBe(name);
+    await userEvent.keyboard('{F6}');
+    expect(document.activeElement).toBe(home);
+    await userEvent.keyboard('{Shift>}{F6}{/Shift}');
+    expect(document.activeElement).toBe(name);
+    expect(within(view('notes')).getByRole('link', { name: 'Skip to the sticky note' }).getAttribute('href')).toBe('#notes-main');
+  }, 30_000);
 });
 
 describe('the workspace shell: commands', () => {

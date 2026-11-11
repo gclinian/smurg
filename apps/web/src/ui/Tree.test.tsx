@@ -157,6 +157,60 @@ describe('Tree', () => {
     expect(onActivate).not.toHaveBeenCalled();
   });
 
+  // DESIGN 0.8.0 D7.4: a sticky note that links to others is a group, and opening it is what a person wants.
+  it('with activatesGroups, Enter, Space and a click open a group and unfold it; its twisty only folds and unfolds it', async () => {
+    const onActivate = vi.fn();
+    const withTwisty: TreeNode[] = NODES.map((node) =>
+      node.children === undefined
+        ? node
+        : {
+            ...node,
+            content: (
+              <>
+                <span data-tree-twisty aria-hidden="true">
+                  ▸
+                </span>
+                <span>{node.id}</span>
+              </>
+            ),
+          },
+    );
+    render(<Harness nodes={withTwisty} initial={[]} activatesGroups onActivate={onActivate} />);
+    const group = item('Checkout redesign, Executing');
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+    // A click on the row opens the group's thing and unfolds it; a second click opens it again and folds nothing.
+    await userEvent.click(screen.getByText('checkout'));
+    expect(onActivate).toHaveBeenLastCalledWith('checkout', { side: false });
+    expect(group.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.click(screen.getByText('checkout'));
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    expect(group.getAttribute('aria-expanded')).toBe('true');
+    // The twisty folds and unfolds, and opens nothing.
+    const twisty = group.querySelector('[data-tree-twisty]') as HTMLElement;
+    await userEvent.click(twisty);
+    expect(group.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.click(twisty);
+    expect(group.getAttribute('aria-expanded')).toBe('true');
+    expect(onActivate).toHaveBeenCalledTimes(2);
+    // Enter and Space open a folded group and unfold it; Left and Right still fold it, and open nothing.
+    const search = item('Search filters, Spec');
+    search.focus();
+    await userEvent.keyboard('{Enter}');
+    expect(onActivate).toHaveBeenLastCalledWith('search', { side: false });
+    expect(search.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(search.getAttribute('aria-expanded')).toBe('false');
+    await userEvent.keyboard(' ');
+    expect(onActivate).toHaveBeenCalledTimes(4);
+    expect(search.getAttribute('aria-expanded')).toBe('true');
+    await userEvent.keyboard('{ArrowLeft}{ArrowRight}');
+    expect(search.getAttribute('aria-expanded')).toBe('true');
+    expect(onActivate).toHaveBeenCalledTimes(4);
+    // A leaf is opened as before.
+    await userEvent.click(screen.getByText('Spec'));
+    expect(onActivate).toHaveBeenLastCalledWith('spec', { side: false });
+  });
+
   it('a key belongs to the row that has the focus, not to the group around it', async () => {
     const onToggle = vi.fn();
     render(<Tree label="t" nodes={NODES} expanded={new Set(['checkout'])} onToggle={onToggle} onActivate={() => {}} />);

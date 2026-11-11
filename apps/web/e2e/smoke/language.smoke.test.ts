@@ -142,7 +142,8 @@ describe.skipIf(chrome === null)('the language of the app (built app, real relay
     expect(await topbar.locator('.ui-badge').first().textContent()).toContain('主人');
     await host.getByRole('button', { name: '離開' }).waitFor({ timeout: STEP_MS });
     // The mode switch and the feed (the drawer is still open): the same event of the host, now in Chinese.
-    expect(await topbar.getByRole('group', { name: '模式' }).getByRole('link').allTextContents()).toEqual(['session', '手寫 code 模式']);
+    // Three links since 0.8.0 (DESIGN 0.8.0 D7.1: the sticky notes are a third view, first in the switch).
+    expect(await topbar.getByRole('group', { name: '模式' }).getByRole('link').allTextContents()).toEqual(['便利貼', 'session', '手寫 code 模式']);
     expect(await host.getByRole('tab', { name: '活動', exact: true }).getAttribute('aria-selected')).toBe('true');
     await host.locator('.activity-feed').getByText('新增檔案 notes.txt', { exact: true }).first().waitFor({ timeout: STEP_MS });
     expect(await host.evaluate(() => window.localStorage.getItem('smurg.lang'))).toBe('zh-TW');

@@ -29,8 +29,15 @@ export interface TreeProps {
   /** The ids of the expanded groups. */
   expanded: ReadonlySet<string>;
   onToggle(id: string, expanded: boolean): void;
-  /** Enter, Space or a click on a leaf. (On a group they expand or collapse it.) */
+  /** Enter, Space or a click on a leaf. (On a group they expand or collapse it, unless `activatesGroups`.) */
   onActivate(id: string, how: TreeActivation): void;
+  /**
+   * A group is a thing too (a sticky note that links to others, DESIGN 0.8.0 D7.4): Enter, Space and a click on a group
+   * activate it and unfold it when it is folded; a click on its twisty (an element of its content marked
+   * `data-tree-twisty`, no control) only folds or unfolds it, and Right / Left fold as on any tree. Default: off (a
+   * group only folds and unfolds).
+   */
+  activatesGroups?: boolean;
   /** Shift+F10, the menu key or a right click on a row: where its context menu opens. */
   onMenu?(id: string, at: { readonly x: number; readonly y: number }): void;
   className?: string;
@@ -56,7 +63,7 @@ function flatten(nodes: readonly TreeNode[], expanded: ReadonlySet<string>, leve
  * Left collapses it or goes to the parent, Home / End jump, Enter (and Space) activate a leaf or toggle a group,
  * Shift+Enter activates "to the side", Shift+F10 and the menu key ask for the row's context menu.
  */
-export function Tree({ label, labelledBy, nodes, expanded, onToggle, onActivate, onMenu, className, ref }: TreeProps) {
+export function Tree({ label, labelledBy, nodes, expanded, onToggle, onActivate, onMenu, activatesGroups = false, className, ref }: TreeProps) {
   const rows = flatten(nodes, expanded);
   const [activeId, setActiveId] = useState<string | null>(null);
   const items = useRef(new Map<string, HTMLDivElement>());
@@ -81,10 +88,16 @@ export function Tree({ label, labelledBy, nodes, expanded, onToggle, onActivate,
     else focusAfterRender.current = true;
   };
 
-  const activate = (row: Flat, side: boolean): void => {
+  /** `twisty`: the click was on the group's twisty, which only folds. */
+  const activate = (row: Flat, side: boolean, twisty = false): void => {
     setActiveId(row.node.id);
-    if (row.node.children !== undefined) onToggle(row.node.id, !expanded.has(row.node.id));
-    else onActivate(row.node.id, { side });
+    const isGroup = row.node.children !== undefined;
+    if (isGroup && (!activatesGroups || twisty)) {
+      onToggle(row.node.id, !expanded.has(row.node.id));
+      return;
+    }
+    if (isGroup && !expanded.has(row.node.id)) onToggle(row.node.id, true);
+    onActivate(row.node.id, { side });
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>, row: Flat, index: number): void => {
@@ -135,7 +148,8 @@ export function Tree({ label, labelledBy, nodes, expanded, onToggle, onActivate,
 
   const onRowClick = (event: MouseEvent<HTMLDivElement>, row: Flat): void => {
     if (event.button !== 0) return;
-    activate(row, event.shiftKey);
+    const twisty = event.target instanceof Element ? event.target.closest('[data-tree-twisty]') : null;
+    activate(row, event.shiftKey, twisty !== null && event.currentTarget.contains(twisty));
   };
 
   const render = (list: readonly TreeNode[], level: number, parentId: string | null): ReactNode =>

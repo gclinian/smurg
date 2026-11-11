@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { findPathCandidates, mayAskAbout, normalizeSessionPath } from '../agents/path-links.ts';
 import { decodeEntities } from './entities.ts';
-import { MAX_PATH_LOOKUPS, Markdown, PlainText, STREAM_PARSE_MS, StreamingMarkdown, findMentions, safeHref, type MarkdownPaths, type PathMatch } from './index.ts';
+import { wikiLinkSpans, wikiLinks as daemonWikiLinks } from '@smurg/protocol';
+import { MAX_PATH_LOOKUPS, Markdown, PlainText, STREAM_PARSE_MS, StreamingMarkdown, findMentions, safeHref, type MarkdownPaths, type MarkdownWikiLinks, type PathMatch } from './index.ts';
 import { MARKDOWN_MAX_CHARS, MARKDOWN_MAX_INLINE_CHARS, PAUSE_MAX_MS, lexMarkdown, parseBudgetMs } from './lex.ts';
 import { LABEL_MAX_CHARS, namesAnotherPlace } from './links.ts';
 import { parseStreaming } from './Markdown.tsx';
@@ -718,6 +719,121 @@ describe('Markdown: paths and mentions', () => {
     expect([...root.querySelectorAll('.md-mention')].map((node) => node.textContent)).toEqual(['@Mei Lin', '@Ian']);
     expect(html('`@Ian`', { mentions: names }).querySelector('.md-mention')).toBeNull();
     expect(findMentions('@Ian', [])).toEqual([]);
+  });
+});
+
+// DESIGN 0.8.0 D7.5: `[[Name]]` in a sticky note is a link to that note's page. The finder is the protocol's
+// (wikiLinkSpans: the link rule of the daemon's wikiLinks), run on each plain run of text the lexer produced.
+describe('Markdown: wiki links of sticky notes', () => {
+  const notes = (written: readonly string[]): MarkdownWikiLinks & { opened: string[] } => {
+    const opened: string[] = [];
+    return {
+      opened,
+      find: wikiLinkSpans,
+      exists: (name) => written.includes(name),
+      href: (name) => `/w/ws/notes/${encodeURIComponent(name)}`,
+      open: (name) => void opened.push(name),
+    };
+  };
+  const links = (root: HTMLElement): [string | null, string | null][] => [...root.querySelectorAll('a.md-wiki')].map((a) => [a.textContent, a.getAttribute('href')]);
+
+  it('a [[Name]] is an <a href> to the note\'s page, titled with its name; a plain click opens it in the app, another click is the link\'s', () => {
+    const wiki = notes(['Checkout', 'Payment form']);
+    const root = html('See [[Checkout]] and **[[Payment form]]**, in a list:\n\n- [[Checkout]]\n\n# About [[Checkout]]', { wikiLinks: wiki });
+    expect(links(root)).toEqual([
+      ['Checkout', '/w/ws/notes/Checkout'],
+      ['Payment form', '/w/ws/notes/Payment%20form'],
+      ['Checkout', '/w/ws/notes/Checkout'],
+      ['Checkout', '/w/ws/notes/Checkout'],
+    ]);
+    const first = screen.getAllByRole('link', { name: 'Checkout' })[0] as HTMLElement;
+    expect(first.getAttribute('title')).toBe('Open the sticky note Checkout');
+    expect(first.hasAttribute('target')).toBe(false);
+    fireEvent.click(first);
+    expect(wiki.opened).toEqual(['Checkout']);
+    // A click with a modifier (a new tab, a new window) is the browser's: the app does not move.
+    for (const modifier of [{ metaKey: true }, { ctrlKey: true }, { shiftKey: true }, { altKey: true }]) fireEvent.click(first, modifier);
+    fireEvent.click(first, { button: 1 });
+    expect(wiki.opened).toEqual(['Checkout']);
+    // The text reads as written, without the brackets of the links.
+    expect(root.querySelector('p')?.textContent).toBe('See Checkout and Payment form, in a list:');
+  });
+
+  it('a link to a note that is not written yet is drawn apart and says so in words, not by its colour alone', () => {
+    const root = html('Next: [[Refunds]], and [[Checkout]].', { wikiLinks: notes(['Checkout']) });
+    const missing = root.querySelector('a.md-wiki--missing') as HTMLElement;
+    expect(missing.className).toBe('md-wiki md-wiki--missing');
+    expect(missing.getAttribute('href')).toBe('/w/ws/notes/Refunds');
+    // What a screen reader reads (jsdom's name trims the hidden part's own space; a browser keeps it).
+    expect(missing.textContent).toBe('Refunds (not written yet)');
+    expect(missing.querySelector('.ui-visually-hidden')?.textContent).toBe(' (not written yet)');
+    expect(screen.getByRole('link', { name: 'Checkout' }).className).toBe('md-wiki');
+    expect(root.querySelectorAll('.md-wiki--missing')).toHaveLength(1);
+  });
+
+  it('a new set of written notes draws the links again', () => {
+    const view = render(<Markdown text="[[Refunds]]" wikiLinks={notes([])} />);
+    expect(view.container.querySelector('.md-wiki--missing')).toBeTruthy();
+    view.rerender(<Markdown text="[[Refunds]]" wikiLinks={notes(['Refunds'])} />);
+    expect(view.container.querySelector('.md-wiki--missing')).toBeNull();
+    expect(view.container.querySelector('.md-wiki')?.textContent).toBe('Refunds');
+  });
+
+  it('never inside a code span, a code block or the words of a link, and without wikiLinks a [[Name]] is text', () => {
+    const wiki = notes(['Home']);
+    // (marked never puts a whole `[[Name]]` into a link's words but in an address: `<https://…/[[Home]]>`.)
+    const text = ['Use `[[Home]]` as written.', '', '```', '[[Home]]', '```', '', '<https://example.com/[[Home]]> and [[Home]]'].join('\n');
+    const root = html(text, { wikiLinks: wiki });
+    expect(links(root)).toEqual([['Home', '/w/ws/notes/Home']]);
+    expect(root.querySelector('a.md-link')?.textContent).toBe('https://example.com/[[Home]]');
+    expect(root.querySelector('code.md-code')?.textContent).toBe('[[Home]]');
+    expect(root.querySelector('pre code')?.textContent).toBe('[[Home]]');
+    expect(html('[[Home]] and [[Ideas]]').querySelectorAll('a')).toHaveLength(0);
+    expect(html('[[Home]] and [[Ideas]]').textContent).toBe('[[Home]] and [[Ideas]]');
+  });
+
+  it('a target that is no sticky note name stays text; a mention and a path never take a part of a link', async () => {
+    const asked: string[] = [];
+    const paths: MarkdownPaths = {
+      find(text) {
+        const found: PathMatch[] = [];
+        for (const match of text.matchAll(/[\w./-]+\.md/g)) found.push({ start: match.index, end: match.index + match[0].length, text: match[0] });
+        return found;
+      },
+      async resolve(match) {
+        asked.push(match.text);
+        return null;
+      },
+    };
+    const root = html('[[a/b]] [[CLAUDE]] [[ Home ]] [[Home]] [[notes.md]] @Mei and notes/Home.md', { wikiLinks: notes(['Home', 'notes.md']), mentions: ['Mei'], paths });
+    expect(links(root)).toEqual([
+      ['Home', '/w/ws/notes/Home'],
+      ['notes.md', '/w/ws/notes/notes.md'],
+    ]);
+    expect(root.querySelector('.md-mention')?.textContent).toBe('@Mei');
+    await act(async () => {});
+    // The path inside the link `[[notes.md]]` is not a path; the one after the mention is.
+    expect(asked).toEqual(['notes/Home.md']);
+  });
+
+  it('the known differences with the daemon\'s finder (wikiLinks), only about what is code or a link\'s words (DESIGN 0.8.0 D1.4)', () => {
+    const wiki = notes(['Indented', 'Escaped', 'Worded']);
+    // An indented code block: code here, a link to the daemon's index (it skips fences and code spans only).
+    const indented = 'Text\n\n    [[Indented]]\n';
+    expect(links(html(indented, { wikiLinks: wiki }))).toEqual([]);
+    expect(daemonWikiLinks(indented)).toEqual(['Indented']);
+    // A backtick escaped with a backslash: a backtick and a link here; the daemon's finder opens a code span there.
+    const escaped = '\\` [[Escaped]] `';
+    expect(links(html(escaped, { wikiLinks: wiki }))).toEqual([['Escaped', '/w/ws/notes/Escaped']]);
+    expect(daemonWikiLinks(escaped)).toEqual([]);
+    // A link's words or address: words here (`[[x]](url)` is a link with the words `[x]`), a wiki link to the daemon.
+    for (const worded of ['[[Worded]](https://example.com/w)', '<https://example.com/[[Worded]]>']) {
+      expect(links(html(worded, { wikiLinks: wiki })), worded).toEqual([]);
+      expect(daemonWikiLinks(worded), worded).toEqual(['Worded']);
+    }
+    // Everywhere else the two agree: one plain run that holds the whole link.
+    const plain = 'See [[Indented]], **[[Escaped]]** and - [[Worded]]';
+    expect([...html(plain, { wikiLinks: wiki }).querySelectorAll('a.md-wiki')].map((a) => a.textContent)).toEqual(daemonWikiLinks(plain));
   });
 });
 

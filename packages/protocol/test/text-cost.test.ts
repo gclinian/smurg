@@ -54,6 +54,7 @@ import {
   topicFileKind,
   truncateToUtf8Bytes,
   visibleText,
+  wikiLinkSpans,
   wikiLinks,
   wireText,
   withFewMarks,
@@ -104,6 +105,8 @@ const LOOKS: Readonly<Record<string, Look>> = {
   // 0.8.0 D1.4, D2.3: a note's whole text (the daemon's index, the web's renderer on each plain run), and the tree
   // of what it found.
   'wikiLinks and noteTree (the links of a sticky note)': { run: (text) => void noteTree([{ name: 'Home', links: wikiLinks(text) }]), fronts: ['[[', '```', '    ', '~~~'] },
+  // 0.8.0 D7.5: each plain run of a rendered sticky note (the web's renderer draws every link it finds).
+  'wikiLinkSpans (the links of one run of a rendered sticky note)': { run: (text) => void wikiLinkSpans(text), fronts: ['[[', '[[a', '[[a]'] },
   fileRefKey: { run: (text) => void fileRefKey({ root: { kind: 'main' }, path: text }) },
   'checkRememberableRule, ruleCoversRequest and offerAlwaysRule (a rule a member asks to remember)': {
     run: (text) =>

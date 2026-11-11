@@ -43,7 +43,8 @@ describe.skipIf(chrome === null)('the app in zh-TW (built app, real relay, syste
 
     // The sessions view in Chinese: the mode switch, the inbox, the session list and its "New" control.
     const mode = topbar.getByRole('group', { name: '模式' });
-    expect(await mode.getByRole('link').allTextContents()).toEqual(['session', '手寫 code 模式']);
+    // Three links since 0.8.0 (DESIGN 0.8.0 D7.1: the sticky notes are a third view, first in the switch).
+    expect(await mode.getByRole('link').allTextContents()).toEqual(['便利貼', 'session', '手寫 code 模式']);
     await host.getByRole('complementary', { name: '收件夾與 session' }).waitFor({ timeout: STEP_MS });
     await host.getByRole('button', { name: '新增', exact: true }).waitFor({ timeout: STEP_MS });
 

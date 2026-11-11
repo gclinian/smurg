@@ -1,6 +1,7 @@
-// /w/:workspaceId (the sessions view), /w/:workspaceId/code (code mode) and /w/:workspaceId/console (the host
-// console). Loaded lazily (its own chunk): the landing and join pages do not pay for the workspace and its features.
-// The two modes share ONE WorkspaceShell that keeps both mounted (DESIGN §5.1); the console is a page of its own.
+// /w/:workspaceId (the sessions view), /w/:workspaceId/code (code mode), /w/:workspaceId/notes[/:name] (the sticky
+// notes, DESIGN 0.8.0 D7.1) and /w/:workspaceId/console (the host console). Loaded lazily (its own chunk): the landing
+// and join pages do not pay for the workspace and its features. The three views share ONE WorkspaceShell that keeps
+// each view mounted once it was shown (DESIGN §5.1); the console is a page of its own.
 //
 // The page acquires THE session of the workspace from the manager (the one the join page opened, or a new one in
 // device mode) and gates on the connection:
@@ -29,18 +30,20 @@ import { TopBar } from './TopBar.tsx';
 import { useWorkspaceNotices } from './useWorkspaceNotices.ts';
 import { WorkspaceShell } from './WorkspaceShell.tsx';
 
-export type WorkspaceView = 'sessions' | 'code' | 'console';
+export type WorkspaceView = 'notes' | 'sessions' | 'code' | 'console';
 
 export interface WorkspaceRouteProps {
   workspaceId: string;
   view: WorkspaceView;
   /** The console section an inbox item asked for. */
   section?: ConsoleSection;
+  /** The sticky notes: the note in the address (none: Home). */
+  note?: string;
   // What the features registered (default: the slots.tsx of every feature folder; a test passes its own).
   slots?: SlotRegistry;
 }
 
-export default function WorkspaceRoute({ workspaceId, view, section, slots = featureSlotRegistry }: WorkspaceRouteProps) {
+export default function WorkspaceRoute({ workspaceId, view, section, note, slots = featureSlotRegistry }: WorkspaceRouteProps) {
   const { manager } = useAppServices();
   const [handle, setHandle] = useState<WorkspaceHandle | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -57,21 +60,43 @@ export default function WorkspaceRoute({ workspaceId, view, section, slots = fea
   return (
     <WorkspaceProvider session={handle.session}>
       <SlotRegistryProvider registry={slots}>
-        <ConnectionGate workspaceId={workspaceId} view={view} {...(section === undefined ? {} : { section })} onReconnect={() => setAttempt((n) => n + 1)}>
-          {view === 'console' ? <ConsoleShell {...(section === undefined ? {} : { section })} /> : <WorkspaceShell mode={view} />}
+        <ConnectionGate workspaceId={workspaceId} view={view} {...(section === undefined ? {} : { section })} {...(note === undefined ? {} : { note })} onReconnect={() => setAttempt((n) => n + 1)}>
+          {view === 'console' ? <ConsoleShell {...(section === undefined ? {} : { section })} /> : <WorkspaceShell mode={view} {...(note === undefined ? {} : { note })} />}
         </ConnectionGate>
       </SlotRegistryProvider>
     </WorkspaceProvider>
   );
 }
 
-/** The path of a view (where a login returns to). */
-function viewPath(workspaceId: string, view: WorkspaceView, section?: ConsoleSection): string {
-  if (view === 'console') return routePath({ name: 'console', workspaceId, ...(section === undefined ? {} : { section }) });
-  return routePath({ name: view === 'code' ? 'code' : 'workspace', workspaceId });
+/** The path of a view (where a login returns to): the note of the sticky notes too. */
+function viewPath(workspaceId: string, view: WorkspaceView, section?: ConsoleSection, note?: string): string {
+  switch (view) {
+    case 'console':
+      return routePath({ name: 'console', workspaceId, ...(section === undefined ? {} : { section }) });
+    case 'notes':
+      return routePath({ name: 'notes', workspaceId, ...(note === undefined ? {} : { note }) });
+    case 'code':
+      return routePath({ name: 'code', workspaceId });
+    case 'sessions':
+      return routePath({ name: 'workspace', workspaceId });
+  }
 }
 
-export function ConnectionGate({ workspaceId, view, section, onReconnect, children }: { workspaceId: string; view: WorkspaceView; section?: ConsoleSection; onReconnect(): void; children: ReactNode }) {
+export function ConnectionGate({
+  workspaceId,
+  view,
+  section,
+  note,
+  onReconnect,
+  children,
+}: {
+  workspaceId: string;
+  view: WorkspaceView;
+  section?: ConsoleSection;
+  note?: string;
+  onReconnect(): void;
+  children: ReactNode;
+}) {
   const state = useConnectionState();
   const stores = useStores();
   const admitted = useStore(stores.workspace, (s) => s.generation > 0);
@@ -85,7 +110,7 @@ export function ConnectionGate({ workspaceId, view, section, onReconnect, childr
 
   if (state.kind === 'key-mismatch') return <KeyMismatchScreen state={state} />;
   if (status.kind === 'login-required') {
-    return <LoginRequiredScreen view={status} returnPath={viewPath(workspaceId, view, section)} />;
+    return <LoginRequiredScreen view={status} returnPath={viewPath(workspaceId, view, section, note)} />;
   }
   if (status.blocking) {
     const reconnectable = state.kind === 'closed' && state.reason === 'local';

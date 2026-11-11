@@ -20,7 +20,7 @@ import { cx } from '../../ui/cx.ts';
 import { formatWhenIdle } from './idle.ts';
 import { lexMarkdown, lexMarkdownPieces, ranOut, waitsForTime } from './lex.ts';
 import type { MarkdownPaths, PathTarget } from './paths.ts';
-import { MdBlock, markMentions, type RenderContext } from './render.tsx';
+import { MdBlock, markMentions, type MarkdownWikiLinks, type RenderContext } from './render.tsx';
 import { stableLength } from './stream.ts';
 import './markdown.css';
 
@@ -38,6 +38,11 @@ export interface MarkdownOptions {
   readonly paths?: MarkdownPaths | undefined;
   /** Display names that are marked when written as `@name`. */
   readonly mentions?: readonly string[] | undefined;
+  /**
+   * `[[Name]]` becomes a link to that sticky note's page (DESIGN 0.8.0 D7.5); without it, it is text. A new object is a
+   * new set of written notes: every link is drawn again.
+   */
+  readonly wikiLinks?: MarkdownWikiLinks | undefined;
   /** The level of a `#` heading: 3 inside a column (its title is the h2), 4 inside a card (default 3). */
   readonly headingBase?: number;
   /** A single line break is a line break (what a person typed with Shift+Enter); default: Markdown's soft break. */
@@ -71,9 +76,9 @@ function lookupsOfOneText(paths: MarkdownPaths): MarkdownPaths {
 }
 
 function useRenderContext(options: MarkdownOptions): RenderContext {
-  const { headingBase = 3, paths, mentions } = options;
+  const { headingBase = 3, paths, mentions, wikiLinks } = options;
   const limited = useMemo(() => (paths === undefined ? undefined : lookupsOfOneText(paths)), [paths]);
-  return useMemo(() => ({ headingBase, paths: limited, mentions }), [headingBase, limited, mentions]);
+  return useMemo(() => ({ headingBase, paths: limited, mentions, wikiLinks }), [headingBase, limited, mentions, wikiLinks]);
 }
 
 export interface PlainTextProps {

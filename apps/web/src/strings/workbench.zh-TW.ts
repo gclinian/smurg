@@ -1,10 +1,14 @@
 // zh-TW table of the `workbench` namespace: exactly the keys of ./workbench.ts (the English table defines them).
 export const zhTW = {
   'skip': '跳到主要內容',
+  'skip.note': '跳到便利貼',
   'region.files': '檔案',
   'region.editor': '編輯器',
   'region.session': '編輯器旁的 session',
   'region.drawer': '動態、傳輸與終端機',
+  'region.notesTree': '所有便利貼',
+  'region.note': '開啟的便利貼',
+  'region.notesChat': '便利貼的 Claude',
   'tab.activity': '活動',
   'tab.conflicts': '衝突',
   'tab.transfers': '傳輸',
@@ -24,6 +28,8 @@ export const zhTW = {
   'workspace.asksNothing.badge': 'agent 什麼都不問',
   'workspace.asksNothing.title': '主人讓這個工作區的 agent 以主人的身分執行指令，Claude Code 不檢查，smurg 也不會先問；只剩 smurg 固定的限制。',
   'mode.label': '模式',
+  'mode.notes': '便利貼',
+  'mode.notes.title': '便利貼：從 Home 長出來、互相連結的小張便利貼',
   'mode.sessions': 'session',
   'mode.sessions.title': 'session：對話、計畫、spec 與結果報告',
   'mode.sessions.counts': 'session：{waiting} 個在等，{look} 個待看',

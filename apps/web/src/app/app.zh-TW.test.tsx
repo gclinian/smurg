@@ -49,8 +49,12 @@ describe('the app in zh-TW', () => {
     expect(within(topbar).getByText('可使用 agent')).toBeTruthy();
     expect(within(topbar).getByRole('status').textContent).toContain('已連線');
     expect(within(topbar).getByRole('button', { name: '離開' })).toBeTruthy();
-    // The mode switch: the sessions view is the main screen; code mode is behind the switch.
+    // The mode switch: the sessions view is the main screen; the sticky notes (DESIGN 0.8.0 D7.1) and code mode are behind
+    // the switch.
     const mode = within(topbar).getByRole('group', { name: '模式' });
+    expect(within(mode).getAllByRole('link').map((link) => link.textContent)).toEqual(['便利貼', 'session', '手寫 code 模式']);
+    expect(within(mode).getByRole('link', { name: '便利貼' }).getAttribute('aria-current')).toBeNull();
+    expect(within(mode).getByRole('link', { name: '便利貼' }).getAttribute('title')).toBe('便利貼：從 Home 長出來、互相連結的小張便利貼');
     expect(within(mode).getByRole('link', { name: 'session' }).getAttribute('aria-current')).toBe('page');
     expect(within(mode).getByRole('link', { name: '手寫 code 模式' }).getAttribute('aria-current')).toBeNull();
     expect(within(topbar).getByRole('button', { name: '顯示或隱藏收件夾與 session 清單' })).toBeTruthy();

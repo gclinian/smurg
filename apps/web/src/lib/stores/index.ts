@@ -8,6 +8,9 @@
 // replayed). A role change (Welcome or channel.memberUpdated) is forwarded to the stores that depend on the role
 // (admin, docs).
 //
+// `sticky` (the sticky notes' index, DESIGN 0.8.0 D7.3) loads nothing when a channel opens: the notes view asks for it
+// when it is first shown (`stores.sticky.want()`), and from then on it is loaded again after every full resync.
+//
 // `columns` is the one store the connection does not feed: the member's own view of the sessions view, kept in this
 // browser per workspace (stores/columns.ts).
 import type { ConnectionState } from '@smurg/protocol/client';
@@ -28,6 +31,7 @@ import { createInboxArea, type InboxStore } from './inbox.ts';
 import { createLocksArea, type LocksStore } from './locks.ts';
 import { createPresenceArea, type PresenceStore } from './presence.ts';
 import { createSessionsArea, type SessionsStore } from './sessions.ts';
+import { createStickyArea, type StickyStore } from './sticky.ts';
 import { createSuggestionsArea, type SuggestionsStore } from './suggestions.ts';
 import { createTopicsArea, type TopicsStore } from './topics.ts';
 import { createTransfersArea, type TransfersStore } from './transfers.ts';
@@ -64,6 +68,8 @@ export interface WorkspaceStores {
   readonly worktrees: WorktreesStore;
   readonly admin: AdminStore;
   readonly transfers: TransfersStore;
+  /** The sticky notes' index (DESIGN 0.8.0 D7.3): loaded once the notes view asked for it. */
+  readonly sticky: StickyStore;
   /** Background failures (a load that failed, a refresh that failed); newest last, at most 20. */
   readonly errors: ReadableStore<readonly StoreErrorEvent[]>;
 }
@@ -114,6 +120,7 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
   const worktrees = createWorktreesArea();
   const admin = createAdminArea();
   const transfers = createTransfersArea(() => scheduler.now());
+  const sticky = createStickyArea();
 
   const areas: readonly (readonly [AreaName, AreaLifecycle])[] = [
     ['presence', presence.lifecycle],
@@ -131,6 +138,7 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
     ['worktrees', worktrees.lifecycle],
     ['admin', admin.lifecycle],
     ['transfers', transfers.lifecycle],
+    ['sticky', sticky.lifecycle],
   ];
 
   const ctx: StoreContext = {
@@ -203,6 +211,7 @@ export function createWorkspaceStores(conn: WorkspaceConnection, options: Create
     worktrees: worktrees.store,
     admin: admin.store,
     transfers: transfers.store,
+    sticky: sticky.store,
     errors: readonly(errors),
   };
 
@@ -228,6 +237,7 @@ export * from './inbox.ts';
 export * from './locks.ts';
 export * from './presence.ts';
 export * from './sessions.ts';
+export * from './sticky.ts';
 export * from './suggestions.ts';
 export * from './topics.ts';
 export * from './transfers.ts';

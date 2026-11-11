@@ -22,12 +22,13 @@ import { cardDomId, commandHead, commandsOfRule, commonDir, quoteSelection, show
 import { formatSelectionForAgent, sanitizeForAgent } from '../src/features/editor/selection.ts';
 import { wrapsLines } from '../src/features/editor/view-model.ts';
 import { decodeEntities } from '../src/features/markdown/entities.ts';
-import { Markdown, MarkdownPieces, PlainText, findMentions, safeHref, type MarkdownPaths } from '../src/features/markdown/index.ts';
+import { Markdown, MarkdownPieces, PlainText, findMentions, safeHref, type MarkdownPaths, type MarkdownWikiLinks } from '../src/features/markdown/index.ts';
 import * as lex from '../src/features/markdown/lex.ts';
 import { PAUSE_MAX_MS, URGENT_PARSE_MS, forgetParses, lexMarkdown, lexMarkdownPieces, parseBudgetMs, waitsForTime } from '../src/features/markdown/lex.ts';
 import { LABEL_MAX_CHARS, namesAnotherPlace } from '../src/features/markdown/links.ts';
 import { parseStreaming } from '../src/features/markdown/Markdown.tsx';
 import { stableLength } from '../src/features/markdown/stream.ts';
+import { findWikiLinks } from '../src/features/sticky/model.ts';
 import { specOpenQuestions, specSections } from '../src/features/topics/model.ts';
 import { hasInvisible, parseDiffLines, revealInvisible, splitDiffSections } from '../src/features/worktree/diff-model.ts';
 import { renderWireText } from '../src/lib/errors.ts';
@@ -216,6 +217,14 @@ const paths: MarkdownPaths = {
   resolve: () => Promise.resolve(null),
 };
 
+/** The sticky notes' wiki links, as features/sticky/NoteRead.tsx hands them to the renderer (DESIGN 0.8.0 D7.5). */
+const wikiLinks: MarkdownWikiLinks = {
+  find: findWikiLinks,
+  exists: (name) => name.length % 2 === 0,
+  href: (name) => `/w/ws/notes/${encodeURIComponent(name)}`,
+  open: () => {},
+};
+
 const NOTHING_PARSED = { text: '', stableText: '', stable: [], tail: [] } as const;
 
 interface Look {
@@ -235,6 +244,8 @@ const LOOKS: Readonly<Record<string, Look>> = {
   'specOpenQuestions (before "Generate plan")': { run: (text) => void specOpenQuestions(text), fronts: ['## open questions', '## open questions\n- ', '## open questions\n1. none'] },
   'the path finder of a conversation': { run: (text) => void paths.find(text), fronts: ['src/a', '../', 'a.b', '.git/'] },
   'the path finder of a terminal line': { run: (text) => void findPathCandidates(text), fronts: ['src/a', 'a.ts:1'] },
+  // 0.8.0 D7.5: every plain run of a rendered sticky note.
+  'the wiki link finder of a sticky note (findWikiLinks)': { run: (text) => void findWikiLinks(text), fronts: ['[[', '[[a', '[[a]', '[[a]]'] },
   normalizeSessionPath: { run: (text) => void normalizeSessionPath(text), fronts: ['src/a', '../'] },
   'the mention finder': { run: (text) => void findMentions(text, NAMES), fronts: ['@Ian', '@a'] },
   'mentionsIn (who a message names)': { run: (text) => void mentionsIn(text, PEOPLE), fronts: ['@Ian', '@a'] },
@@ -286,6 +297,8 @@ const MOUNTS: Readonly<Record<string, Look>> = {
     fronts: ['- ', 'http://a.a', '[a](http://a.a) ', '<!--'],
   },
   '<Markdown> of a person\u2019s message (line breaks kept)': { run: (text) => void renderToStaticMarkup(<Markdown text={text} breaks paths={paths} mentions={NAMES} />), fronts: ['http://a.a'] },
+  // 0.8.0 D7.5: the Read view of a sticky note.
+  '<Markdown> with wiki links (a sticky note)': { run: (text) => void renderToStaticMarkup(<Markdown text={text} wikiLinks={wikiLinks} paths={paths} />), fronts: ['[[', '[[a]] ', '- [[a]]'] },
   '<PlainText> (a suggestion, a comment)': { run: (text) => void renderToStaticMarkup(<PlainText text={text} mentions={NAMES} />), fronts: ['@Ian'] },
   'a streaming text': { run: (text) => void parseStreaming(text, NOTHING_PARSED), fronts: ['```\n'] },
 };
@@ -990,7 +1003,7 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'lib/format.ts': 3,
   'lib/presence-css.ts': 3,
   'lib/relay/auth.ts': 1,
-  'lib/router.ts': 4,
+  'lib/router.ts': 5,
   'lib/web-address.ts': 1,
   'strings/catalog.ts': 5,
   'ui/Avatar.tsx': 3,

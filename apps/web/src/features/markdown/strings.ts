@@ -10,6 +10,10 @@ export const t = defineStrings(
     'image.noAlt': 'Image',
     'image.notLoaded': 'Images are not loaded here. This link opens the image in a new tab.',
     'path.open': 'Open {path}',
+    // A wiki link of a sticky note (DESIGN 0.8.0 D7.5); after a link to a note that is not written yet, for a reader
+    // who does not see the link's other look.
+    'wiki.open': 'Open the sticky note {name}',
+    'wiki.missing': '(not written yet)',
     'task.done': 'Done',
     'task.open': 'Not done',
     'code.label': 'Code',

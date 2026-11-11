@@ -489,6 +489,37 @@
 .app-sessions__main:focus-visible {
   box-shadow: inset var(--focus-ring);
 }
+/* The sticky notes (NotesView.tsx, DESIGN 0.8.0 D7.2): list | open note | Claude, each pane scrolls on its own. */
+.app-notes {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.app-notes__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.app-notes__tree {
+  height: 100%;
+  overflow: auto;
+  background: var(--color-surface-1);
+}
+.app-notes__main {
+  height: 100%;
+  min-width: 0;
+  overflow: auto;
+  background: var(--color-bg);
+}
+.app-notes__main:focus-visible {
+  box-shadow: inset var(--focus-ring);
+}
+/* Claude's pane: empty until the conversation comes to it (BUILD-PLAN S4); the room of the note around it until then. */
+.app-notes__chat {
+  height: 100%;
+  background: var(--color-bg);
+}
 /* The right side while no column is open. */
 .app-empty {
   flex: 1;

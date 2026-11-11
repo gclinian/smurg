@@ -42,6 +42,11 @@ const MOUNTS: readonly string[] = [
   'topics → agents/ModelPicker.tsx',
   'topics → agents/ModePicker.tsx',
   'console → agents/agent-choice.ts',
+  // The open sticky note is a file held as a shared document, as the spec column holds SPEC.md (DESIGN 0.8.0 D7.3,
+  // D7.5): its live text for the Read view (and, from BUILD-PLAN S4, the editor of that one note).
+  'sticky → editor/standalone.tsx',
+  // A sticky note is read with the one Markdown renderer, which draws its wiki links (DESIGN 0.8.0 D7.3, D7.5).
+  'sticky → markdown/index.ts',
 ];
 
 describe('features and each other', () => {

@@ -4,6 +4,8 @@ export const zhTW = {
   'image.noAlt': '圖片',
   'image.notLoaded': '這裡不會載入圖片。這個連結會在新分頁開啟圖片。',
   'path.open': '開啟 {path}',
+  'wiki.open': '開啟便利貼「{name}」',
+  'wiki.missing': '（還沒寫）',
   'task.done': '已完成',
   'task.open': '未完成',
   'code.label': '程式碼',

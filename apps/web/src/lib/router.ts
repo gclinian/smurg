@@ -5,11 +5,13 @@
 //   /join/:workspaceId                   invite acceptance (the fragment was already captured by boot/capture-invite.ts)
 //   /w/:workspaceId                      workspace: the sessions view (the main screen)
 //   /w/:workspaceId/code                 workspace: code mode (files, editor, terminal)
+//   /w/:workspaceId/notes                workspace: the sticky notes, at Home (DESIGN 0.8.0 D7.1)
+//   /w/:workspaceId/notes/:name          workspace: the sticky notes, at the note `name` (encodeURIComponent)
 //   /w/:workspaceId/console              host console
 //   /w/:workspaceId/console/:section     host console at one of its sections (what an inbox item of the host opens)
 //
 // The mode of a workspace is a route (DESIGN AD-12): a reload and the back button keep it.
-import { CONSOLE_SECTIONS, type ConsoleSection } from '@smurg/protocol';
+import { CONSOLE_SECTIONS, noteNameSchema, type ConsoleSection } from '@smurg/protocol';
 import { isWorkspaceId } from '@smurg/protocol/relay';
 import { createStore, type ReadableStore } from './store.ts';
 
@@ -20,6 +22,8 @@ export type Route =
   | { readonly name: 'workspace'; readonly workspaceId: string }
   /** Code mode. */
   | { readonly name: 'code'; readonly workspaceId: string }
+  /** The sticky notes (DESIGN 0.8.0 D7.1): the note `note` (a valid sticky note name), or Home when there is none. */
+  | { readonly name: 'notes'; readonly workspaceId: string; readonly note?: string }
   | { readonly name: 'console'; readonly workspaceId: string; readonly section?: ConsoleSection }
   | { readonly name: 'not-found'; readonly pathname: string };
 
@@ -27,8 +31,23 @@ const JOIN = /^\/join\/([^/]+)\/?$/;
 const WORKSPACE = /^\/w\/([^/]+)\/?$/;
 const CODE = /^\/w\/([^/]+)\/code\/?$/;
 const CONSOLE = /^\/w\/([^/]+)\/console(?:\/([^/]+))?\/?$/;
+const NOTES = /^\/w\/([^/]+)\/notes(?:\/([^/]+))?\/?$/;
 
-/** Strict: an invalid workspace id or an unknown console section is not-found, never "repaired". */
+/**
+ * The sticky note an address names: the segment decoded (a malformed escape such as `%E0` is no name) and then a
+ * valid sticky note name as it is, never cleaned (DESIGN 0.8.0 D1.2); else null.
+ */
+function noteOfSegment(segment: string): string | null {
+  let name: string;
+  try {
+    name = decodeURIComponent(segment);
+  } catch {
+    return null;
+  }
+  return noteNameSchema.safeParse(name).success ? name : null;
+}
+
+/** Strict: an invalid workspace id, an unknown console section or a name that is no sticky note's is not-found, never "repaired". */
 export function parseRoute(pathname: string): Route {
   if (pathname === '/' || pathname === '') return { name: 'landing' };
   for (const [pattern, name] of [
@@ -36,12 +55,17 @@ export function parseRoute(pathname: string): Route {
     [WORKSPACE, 'workspace'],
     [CODE, 'code'],
     [CONSOLE, 'console'],
+    [NOTES, 'notes'],
   ] as const) {
     const match = pattern.exec(pathname);
     if (!match) continue;
     const workspaceId = match[1] as string;
     if (!isWorkspaceId(workspaceId)) return { name: 'not-found', pathname };
-    if (name !== 'console' || match[2] === undefined) return { name, workspaceId };
+    if ((name !== 'console' && name !== 'notes') || match[2] === undefined) return { name, workspaceId };
+    if (name === 'notes') {
+      const note = noteOfSegment(match[2]);
+      return note === null ? { name: 'not-found', pathname } : { name, workspaceId, note };
+    }
     const section = CONSOLE_SECTIONS.find((known) => known === match[2]);
     return section === undefined ? { name: 'not-found', pathname } : { name, workspaceId, section };
   }
@@ -58,6 +82,8 @@ export function routePath(route: Exclude<Route, { name: 'not-found' }>): string 
       return `/w/${route.workspaceId}`;
     case 'code':
       return `/w/${route.workspaceId}/code`;
+    case 'notes':
+      return route.note === undefined ? `/w/${route.workspaceId}/notes` : `/w/${route.workspaceId}/notes/${encodeURIComponent(route.note)}`;
     case 'console':
       return route.section === undefined ? `/w/${route.workspaceId}/console` : `/w/${route.workspaceId}/console/${route.section}`;
   }

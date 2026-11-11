@@ -36,8 +36,8 @@ export function App({ services }: { services: AppServices }) {
 
 function Pages() {
   const route = useRoute();
-  // One page per address: the sessions view and code mode are two addresses of one element, and going back from a
-  // code mode that did not load must show the sessions view again.
+  // One page per address: the sticky notes, the sessions view and code mode are addresses of one element, and going
+  // back from a code mode that did not load must show the sessions view again.
   return (
     <PageBoundary resetKey={route.name === 'not-found' ? `not-found:${route.pathname}` : routePath(route)}>
       <Routes route={route} />
@@ -53,9 +53,10 @@ function Routes({ route }: { route: Route }) {
       return <JoinPage key={route.workspaceId} workspaceId={route.workspaceId} />;
     case 'workspace':
     case 'code':
+    case 'notes':
     case 'console':
-      // One element for the three views of a workspace: switching between the sessions view and code mode keeps
-      // both mounted (the shell hides one), and the connection is the same in all three.
+      // One element for the pages of a workspace: switching between the sticky notes, the sessions view and code mode
+      // keeps each view that was shown mounted (the shell hides the others), and the connection is the same in all.
       return (
         <Suspense fallback={<ConnectingScreen view={describeConnection({ kind: 'idle' })} title={tWorkbench('connecting.title')} />}>
           <WorkspaceRoute
@@ -63,6 +64,7 @@ function Routes({ route }: { route: Route }) {
             workspaceId={route.workspaceId}
             view={route.name === 'workspace' ? 'sessions' : route.name}
             {...(route.name === 'console' && route.section !== undefined ? { section: route.section } : {})}
+            {...(route.name === 'notes' && route.note !== undefined ? { note: route.note } : {})}
           />
         </Suspense>
       );

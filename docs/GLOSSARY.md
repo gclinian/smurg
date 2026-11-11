@@ -172,10 +172,14 @@ Sticky notes, and Claude for the sticky notes.
 | The agent session that writes the sticky notes (one per workspace) | Claude for the sticky notes (prose); Sticky notes (its title and its kind) | 便利貼的 Claude；便利貼 | `notes`, `session.title.notes`, `sessions.purpose.notes` |
 | The first sticky note | `Home` (a file name: never translated) | `Home` | `notes/Home.md` |
 | What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word) | feedback | 意見 | `sticky.json` `feedback` |
+| The third view of a workspace, beside the sessions view and code mode: the sticky notes grown from Home, and the open one | Sticky notes (the mode link; the view) | 便利貼 | `/w/<id>/notes`, `workbench.mode.notes` |
+| A link from one sticky note to another, written `[[Name]]`; the reader sees the note's name | wiki link (prose; never a label) | wiki 連結 | `[[Name]]` |
+| The sticky notes that Home does not reach by its links | Not linked | 未連結 | `sticky.tree.notLinked` |
+| A sticky note that a link names and that has no file yet | not written yet | 還沒寫 | `markdown.wiki.missing`, `sticky.missing.body` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
-of a file. What Claude for the sticky notes may do is said in its own words, never in the discussion's: it reads the
-project and writes only sticky notes.
+of a file (`Home` reads Home in the zh-TW notes view too). What Claude for the sticky notes may do is said in its own
+words, never in the discussion's: it reads the project and writes only sticky notes.
 
 ## Language-neutral names
 

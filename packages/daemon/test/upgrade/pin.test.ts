@@ -127,7 +127,9 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * 0.8.0 D4.5): sticky/store.ts, a new document that no published smurg wrote, leads to notes.ts and schema/sticky.ts
  * (new: the note names and the entities sticky.json stores), and through the barrel to schema/messages/sticky.ts (new)
  * and schema/registry.ts and schema/index.ts (the sticky.* messages); schema/limits.ts gained the sticky notes' bounds.
- * No document a published smurg wrote accepts anything else: no step.
+ * No document a published smurg wrote accepts anything else: no step. Taken again for 0.8.0 S3 (DESIGN 0.8.0 D1.4, D7.5):
+ * notes.ts gained wikiLinkSpans, the web renderer's finder of wiki links, which shares the one link rule of wikiLinks;
+ * no stored rule changed (noteNameSchema and every schema are as they were): no step.
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'agent-text.ts': 'fcfc79b5fe3180bb8724d2800cb057a8b271299917d8a69319ccb49bd7064b75',
@@ -140,7 +142,7 @@ const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'mask.ts': '3bd5168fc9d394dbb72b0cc76d1e44e8867f16b07ee2fa139eb50abd57fbf48e',
   'node/key-file.ts': '8ef9a66fb06797fba933c28723068eac3d3329d71ad478f4967e859ed6d1a5eb',
   'normalize.ts': '5149ee3a744186ab39f5e27c77b26c14a54710d082d63d12811c79a5cc5b2378',
-  'notes.ts': 'cde727402401525a759f0066b5c9565b53a9b2e914141cb04074ebe4e5aaa781',
+  'notes.ts': '1b1df77bbecfde191f1a3bc6ccaf61853213a495b421dc414880e4dd067e6731',
   'relay/binary.ts': 'ef4fc2b7c0166e9e5be18b3d5bc100ed1175cc1cd831a51b730d08a6cb401d4b',
   'relay/close-codes.ts': '9902b5aa33153f93751c4f8ebe9100b25bb5aec0f247812328a4e0f49a903ac1',
   'relay/frames.ts': '6cc87c1c2bf9aeec18facc53d8b78ed8c75dd2c2698f0ae73e0bb5babe136901',

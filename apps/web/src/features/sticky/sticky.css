@@ -1,0 +1,203 @@
+/* The sticky notes (features/sticky, DESIGN 0.8.0 D7): the list of notes on the left and the open note in the middle,
+   drawn as one sticky note: a card tinted with the theme's warm soft colour over the panel, in light and dark alike.
+   Calm on purpose: generous room, few lines, no colour without words. */
+
+/* ---- the list of notes */
+.sticky-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+}
+.sticky-tree__tree .ui-tree__row,
+.sticky-tree__tree .ui-tree__group .ui-tree__row {
+  min-height: 32px;
+  padding: 0 var(--space-4) 0 var(--space-3);
+  border-radius: var(--radius-md);
+}
+.sticky-tree__tree .ui-tree__item[aria-selected='true'] > .ui-tree__row {
+  background: var(--color-warning-soft);
+  font-weight: var(--weight-medium);
+}
+.sticky-tree__tree .ui-tree__row[data-quiet] {
+  color: var(--color-text-muted);
+}
+.sticky-row {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding-left: calc(var(--sticky-depth, 0) * 16px);
+}
+.sticky-row__twisty,
+.sticky-row__dot {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  color: var(--color-text-subtle);
+}
+.sticky-row__twisty {
+  border-radius: var(--radius-sm);
+  transition: transform var(--duration-fast) var(--ease);
+}
+.sticky-row__twisty:hover {
+  background: var(--color-surface-3);
+  color: var(--color-text);
+}
+.ui-tree__item[aria-expanded='true'] > .ui-tree__row .sticky-row__twisty {
+  transform: rotate(90deg);
+}
+/* A leaf: a small square, the shape of a sticky note. */
+.sticky-row__dot::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--color-warning);
+  opacity: 0.55;
+}
+.sticky-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sticky-row__mark {
+  flex: none;
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+}
+.sticky-tree__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-7);
+}
+.sticky-tree__group:first-child {
+  margin-top: 0;
+}
+.sticky-tree__heading {
+  margin: 0;
+  padding: 0 var(--space-3);
+  color: var(--color-text-subtle);
+  font-size: var(--text-xs);
+  font-weight: var(--weight-semibold);
+  letter-spacing: 0.04em;
+}
+.sticky-tree__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+
+/* ---- the open note */
+.sticky-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-5);
+  min-height: 100%;
+  padding: var(--space-10) var(--space-8);
+}
+.sticky-page__line {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.sticky-page__aside {
+  width: 100%;
+  max-width: 44rem;
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}
+.sticky-card {
+  position: relative;
+  width: 100%;
+  max-width: 44rem;
+  min-height: 14rem;
+  padding: var(--space-9) var(--space-9) var(--space-10);
+  border-radius: var(--radius-lg);
+  /* The warm soft colour over the panel: opaque in both themes. */
+  background-color: var(--color-surface-2);
+  background-image: linear-gradient(var(--color-warning-soft), var(--color-warning-soft));
+  box-shadow: var(--shadow-popover);
+  color: var(--color-text);
+}
+/* The strip along the top of a sticky note. */
+.sticky-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 6px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  background: var(--color-warning-soft);
+}
+/* A note that is not written yet: the outline of one. */
+.sticky-card--blank {
+  min-height: 0;
+  background-image: none;
+  background-color: transparent;
+  box-shadow: none;
+  border: 1px dashed var(--color-border-strong);
+}
+.sticky-card--blank::before {
+  content: none;
+}
+.sticky-card__name {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-2xl);
+  font-weight: var(--weight-semibold);
+  line-height: var(--leading-tight);
+  overflow-wrap: anywhere;
+}
+.sticky-card__name:focus-visible {
+  outline: none;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+}
+.sticky-card__body {
+  font-size: var(--text-lg);
+  line-height: var(--leading-normal);
+}
+.sticky-card__text .md-h--1 {
+  font-size: var(--text-xl);
+}
+.sticky-card__quiet {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+}
+.sticky-card__quiet + .sticky-card__quiet {
+  margin-top: var(--space-4);
+}
+.sticky-card__lock {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-6);
+  padding: var(--space-2) var(--space-5);
+  border-radius: var(--radius-full);
+  background: var(--color-info-soft);
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+.sticky-card__actions {
+  margin-top: var(--space-8);
+}
+.sticky-card__problem {
+  margin: var(--space-5) 0 0;
+  color: var(--color-danger-text);
+}

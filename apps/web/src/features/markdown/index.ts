@@ -14,6 +14,6 @@ export {
   type PlainTextProps,
   type StreamingMarkdownProps,
 } from './Markdown.tsx';
-export { findMentions } from './render.tsx';
+export { findMentions, type MarkdownWikiLinks, type WikiLinkMatch } from './render.tsx';
 export { LINK_PROTOCOLS, safeHref } from './links.ts';
 export type { MarkdownPaths, PathMatch, PathTarget } from './paths.ts';

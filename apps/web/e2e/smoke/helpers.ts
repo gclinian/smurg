@@ -302,22 +302,28 @@ export async function joinAsHost(page: Page, env: JoinEnv, name = 'host'): Promi
   await joinWith(page, env, env.hostLink(), name);
 }
 
-/** The view of the workspace that is on screen: the sessions view or code mode (the other one is mounted and hidden). */
+/** The view of the workspace that is on screen: the sticky notes, the sessions view or code mode (the others are hidden). */
 const SHOWN_VIEW = '.app-shell__view:not([hidden])';
 
-/** The mode a page shows: the sessions view (`/w/:id`) or code mode (`/w/:id/code`). */
-export type SmokeMode = 'sessions' | 'code';
+/** The mode a page shows: the sticky notes (`/w/:id/notes[/:name]`), the sessions view (`/w/:id`) or code mode (`/w/:id/code`). */
+export type SmokeMode = 'notes' | 'sessions' | 'code';
+
+/** The top bar's link of each mode (DESIGN 0.8.0 D7.1): code mode's ends in "/code", the sticky notes' holds "/notes". */
+const MODE_LINK: Readonly<Record<SmokeMode, string>> = {
+  notes: 'a[href*="/notes"]',
+  sessions: 'a:not([href$="/code"]):not([href*="/notes"])',
+  code: 'a[href$="/code"]',
+};
 
 /**
- * Switches `page` to `mode` with the top bar's mode switch (two links; nothing reloads, both views stay mounted) and
- * resolves once that view is on screen (code mode: once its chunk is loaded and its editor region is there). Does
- * nothing when the page shows that mode already.
+ * Switches `page` to `mode` with the top bar's mode switch (three links; nothing reloads, a view shown once stays
+ * mounted) and resolves once that view is on screen (code mode: once its chunk is loaded and its editor region is
+ * there). Does nothing when the page shows that mode already.
  */
 export async function toMode(page: Page, mode: SmokeMode): Promise<void> {
   const shell = page.locator(`.app-shell[data-mode="${mode}"]`);
   if ((await shell.count()) === 0) {
-    // The two segments are links: code mode's ends in "/code", the sessions view's is the workspace's own address.
-    await page.locator(`.app-topbar__mode ${mode === 'code' ? 'a[href$="/code"]' : 'a:not([href$="/code"])'}`).click();
+    await page.locator(`.app-topbar__mode ${MODE_LINK[mode]}`).click();
     await shell.waitFor({ timeout: STEP_MS });
   }
   await page.locator(`${SHOWN_VIEW}[data-view="${mode}"]`).waitFor({ timeout: STEP_MS });
