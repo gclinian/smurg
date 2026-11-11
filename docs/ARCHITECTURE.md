@@ -1807,18 +1807,19 @@ type Feedback = {
 
 Bounds (`sticky.json`): at most 1000 entries and 2 Mi characters of texts and reasons together; a withdrawn entry is
 removed at once (the audit log keeps it); at a bound the oldest rejected entries go first, then the oldest accepted
-(each told as `{ removed }`); waiting ones never: a create that cannot fit is refused (`conflict`, reason
-`feedback-full`, `sticky.feedback.full`). At most 20 waiting per member (`sticky.feedback.tooManyWaiting`) and 300
-from members together. When a member is kicked or leaves, their waiting feedback is withdrawn by the system (audited
-with the reason). Every create is audited with its full text; so are accepts, rejections and withdrawals.
+(each told as `{ removed }`), for a new text as for a reject's reason; waiting ones never: a create, or a reject with a
+reason, that cannot fit is refused (`conflict`, reason `feedback-full`, `sticky.feedback.full`). At most 20 waiting
+per member (`sticky.feedback.tooManyWaiting`) and 300 from members together. When a member is kicked or leaves, their
+waiting feedback is withdrawn by the system (audited with the reason). Every create is audited with its full text; so
+are accepts, rejections and withdrawals.
 
 | Type | Dir | Payload | Notes |
 |---|---|---|---|
 | `sticky.feedback.create` [feedback.give] | c→d | `{ note, text }` → `{ feedback: Feedback }` | a note the index holds (else `not_found`, `sticky.note.missing`), stored by its name on disk; the text through `agentText` once (`sticky.feedback.invalidText` when blank or too long then); within the bounds above. Rate bucket: `suggestion` |
-| `sticky.feedback.withdraw` (author, waiting) | c→d | `{ feedbackId }` → `{ feedback: Feedback }` | the member who wrote it, while it waits (`sticky.feedback.authorOnly`); removed at once, the reply says `withdrawn`; refused while an accept of it is on its way (`conflict`, reason `accepting`) |
+| `sticky.feedback.withdraw` (author, waiting) | c→d | `{ feedbackId }` → `{ feedback: Feedback }` | the member who wrote it, while it waits: anyone else gets the router's audited `forbidden` (reason `not-owner:feedback`; the service checks it again, `sticky.feedback.authorOnly`); removed at once, the reply says `withdrawn`; refused while an accept of it is on its way (`conflict`, reason `accepting`) |
 | `sticky.feedback.accept` [session.drive] | c→d | `{ feedbackId }` → `{ feedback: Feedback }` | while it waits (else `conflict`, reason `not-waiting`), once at a time (`accepting`); Claude for the sticky notes must run (else `conflict`, reason `no-assistant`, `sticky.feedback.noAssistant`); ONE `ConversationService.send` of `composeFeedback` as the caller; `accepted` only after it went through; a member author is named with their role now. Nothing of it is edited |
-| `sticky.feedback.reject` [session.drive] | c→d | `{ feedbackId, reason? }` → `{ feedback: Feedback }` | while it waits; `rejected`, `decidedBy`, `decidedAt`, `rejectReason`; nothing is sent |
-| `sticky.feedback.list` [file.read] | c→d | `{ after? }` → `{ feedback: Feedback[], hasMore }` | every entry kept, oldest first; `after` is the last entry's id. Size rule: list |
+| `sticky.feedback.reject` [session.drive] | c→d | `{ feedbackId, reason? }` → `{ feedback: Feedback }` | while it waits; `rejected`, `decidedBy`, `decidedAt`, `rejectReason`; the reason counts toward the stored bound (the oldest decided entries make room, else `feedback-full`); nothing is sent |
+| `sticky.feedback.list` [file.read] | c→d | `{ after? }` → `{ feedback: Feedback[], hasMore }` | every entry kept, oldest first; `after` is the last entry's id; an `after` that went meanwhile (withdrawn, dropped at a bound) goes on after where it was, as `inbox.list` does. Size rule: list |
 | `sticky.feedback.updated` | d→c | `{ feedback: Feedback }` or `{ removed: string }` | to every member: one entry as it is now, or the id of one that went (withdrawn, or dropped at a bound) |
 
 ---

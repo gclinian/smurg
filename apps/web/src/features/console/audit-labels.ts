@@ -173,6 +173,18 @@ const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {
   withdrawn: 'audit.detail.withdrawn',
 };
 
+/**
+ * Feedback on sticky notes (DESIGN 0.8.0 D4.3): its decision and reject reason in its own words (in zh-TW the
+ * glossary's "accepted / rejected" and "withdrawn" rows of feedback), the words of its action labels and of the notes
+ * view.
+ */
+const FEEDBACK_OUTCOME_KEYS: Readonly<Record<string, string>> = {
+  accepted: 'audit.detail.feedbackAccepted',
+  rejected: 'audit.detail.feedbackRejected',
+  withdrawn: 'audit.detail.feedbackWithdrawn',
+};
+const FEEDBACK_DETAIL_LABEL_KEYS: Readonly<Record<string, string>> = { ...DETAIL_LABEL_KEYS, rejectReason: 'audit.detail.feedbackRejectReason' };
+
 /** Keys that are ids or times already shown elsewhere in the row (or of no use to a person reading the log). */
 const HIDDEN_DETAIL_KEYS: ReadonlySet<string> = new Set(['suggestionId', 'feedbackId', 'authorUserId', 'sessionOwnerUserId', 'createdAt', 'resolvedAt', 'editedAt', 'decidedAt']);
 
@@ -193,13 +205,16 @@ export function auditDetailRows(entry: AuditEntry): AuditDetailRow[] {
   if (!detail) return [];
   const rows: AuditDetailRow[] = [];
   const shownReason = auditReason(entry);
+  const feedback = entry.action.startsWith('sticky.feedback.');
+  const outcomes = feedback ? FEEDBACK_OUTCOME_KEYS : SUGGESTION_OUTCOME_KEYS;
+  const labels = feedback ? FEEDBACK_DETAIL_LABEL_KEYS : DETAIL_LABEL_KEYS;
   for (const [key, raw] of Object.entries(detail)) {
     if (HIDDEN_DETAIL_KEYS.has(key) || raw === undefined || raw === null) continue;
     // A refusal's reason is already in the outcome cell.
     if (key === 'reason' && raw === shownReason) continue;
     const text = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? formatList(raw) : JSON.stringify(raw);
-    const value = key === 'outcome' && typeof raw === 'string' && raw in SUGGESTION_OUTCOME_KEYS ? t(SUGGESTION_OUTCOME_KEYS[raw] as Parameters<typeof t>[0]) : text;
-    const labelKey = DETAIL_LABEL_KEYS[key];
+    const value = key === 'outcome' && typeof raw === 'string' && raw in outcomes ? t(outcomes[raw] as Parameters<typeof t>[0]) : text;
+    const labelKey = labels[key];
     rows.push({ key, label: labelKey ? t(labelKey as Parameters<typeof t>[0]) : key, value, block: value.length > 80 || value.includes('\n') });
   }
   return rows;

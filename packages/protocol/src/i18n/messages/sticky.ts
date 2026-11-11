@@ -72,9 +72,11 @@ export const sticky = {
     en: () => 'Only the person who wrote this feedback can withdraw it.',
     'zh-TW': () => '只有寫這則意見的人可以撤回它',
   }),
+  // Removing hidden characters only shortens a text (the wire refused a longer one already): it grows when agentText
+  // puts "> " in front of each line that looks like a message header.
   'sticky.feedback.invalidText': message({}, {
-    en: () => 'The feedback is blank, or too long once hidden characters are removed.',
-    'zh-TW': () => '意見內容是空白的，或是移除隱藏字元後仍然太長',
+    en: () => 'The feedback is blank, or too long once smurg marks the lines that look like a message header ("> " in front).',
+    'zh-TW': () => '意見內容是空白的，或是 smurg 在看起來像訊息標頭的行前面加上「> 」之後太長了',
   }),
   'sticky.feedback.tooManyWaiting': message({ max: 'number' }, {
     en: (p) => `You have ${p.max} pieces of feedback waiting for a decision, the most one person may have. Wait for a decision, or withdraw one.`,

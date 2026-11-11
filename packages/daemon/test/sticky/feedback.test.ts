@@ -8,15 +8,17 @@ import { describe, expect, it } from 'vitest';
 import {
   FEEDBACK_MAX,
   FEEDBACK_STORED_MAX_CHARS,
+  FEEDBACK_TEXT_MAX_CHARS,
   FEEDBACK_WAITING_FROM_MEMBERS_MAX,
   FEEDBACK_WAITING_PER_MEMBER_MAX,
   collectPages,
+  feedbackStoredChars,
   type AuditEntry,
   type Feedback,
   type PayloadOf,
   type SmurgError,
 } from '@smurg/protocol';
-import type { Principal } from '../../src/core/interfaces.ts';
+import { AUDIT_FULL_TEXT_HEAD_CHARS, type Principal } from '../../src/core/interfaces.ts';
 import { DEFAULT_FEEDBACK_LIMITS } from '../../src/sticky/feedback.ts';
 import { STICKY_DOCUMENT, initialStickyDocument, stickyDocumentSchema } from '../../src/sticky/store.ts';
 import { TEST_HOST_USER, waitFor } from '../../src/testing/index.ts';
@@ -118,6 +120,36 @@ describe('sticky.feedback.create: anyone, a Viewer too, on a note the index hold
     expect(await refused(r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: '​​' }))).toMatchObject({ code: 'bad_request', text: { id: 'sticky.feedback.invalidText' } });
     expect(r.stored()).toEqual([feedback]);
   });
+
+  it(`the text is bounded once it is cleaned: ${FEEDBACK_TEXT_MAX_CHARS} characters that need no cleaning are stored; fewer that grow past it when a header look-alike is quoted are refused, and nothing is stored`, async () => {
+    const r = await rig();
+    const full = 'a'.repeat(FEEDBACK_TEXT_MAX_CHARS);
+    const { feedback } = await r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: full });
+    expect(feedback.text).toBe(full);
+    // The wire takes these 3,999 characters; agentText puts "> " in front of the first line, which makes 4,001.
+    const header = '[Ian · Host]\n';
+    const grows = `${header}${'b'.repeat(FEEDBACK_TEXT_MAX_CHARS - 1 - header.length)}`;
+    expect(grows).toHaveLength(FEEDBACK_TEXT_MAX_CHARS - 1);
+    expect(await refused(r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: grows }))).toMatchObject({ code: 'bad_request', detail: { reason: 'invalid-text' }, text: { id: 'sticky.feedback.invalidText' } });
+    expect(r.stored()).toEqual([feedback]);
+  });
+
+  it('a long feedback is audited whole, as a suggestion is: the entry keeps its head, its length and its hash, and the full-text store holds every character; so does the decision on it', async () => {
+    const r = await rig();
+    // Longer than the head an audit entry keeps, and than the 2,000 characters of an ordinary audit string.
+    const long = Array.from({ length: 200 }, (_, i) => `Idea ${String(i).padStart(3, '0')}: a dark mode.`).join(' ').slice(0, 3_000);
+    expect(long.length).toBeGreaterThan(Math.max(AUDIT_FULL_TEXT_HEAD_CHARS, 2_000));
+    const { feedback } = await r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: long });
+    expect(feedback.text).toBe(long);
+    await r.mei.conn.request('sticky.feedback.reject', { feedbackId: feedback.id, reason: 'Not this year' });
+    const head = `${long.slice(0, AUDIT_FULL_TEXT_HEAD_CHARS)}…`;
+    for (const action of ['sticky.feedback.create', 'sticky.feedback.reject'] as const) {
+      const entries = r.audit.filter((entry) => entry.action === action);
+      expect(entries, action).toHaveLength(1);
+      expect(entries[0]?.detail, action).toMatchObject({ feedback: head, feedbackChars: long.length });
+      expect(await r.t.ctx.audit.fullText(entries[0]?.detail?.['feedbackSha256'] as string), action).toBe(long);
+    }
+  });
 });
 
 describe('the bounds of D4.5, one by one', { timeout: 60_000 }, () => {
@@ -185,13 +217,69 @@ describe('the bounds of D4.5, one by one', { timeout: 60_000 }, () => {
     expect(await refused(r.service.feedback.create({ note: 'Home', text: 'z'.repeat(60) }, r.principal(MEI)))).toMatchObject({ detail: { reason: 'feedback-full', bound: 'stored' } });
     expect(r.stored().map((entry) => entry.id)).toEqual(['fb_acc', fits.id, next.id]);
   });
+
+  it('a reason given with a reject counts too: the oldest decided entries make room for it as for a text (never a waiting one, never the entry rejected), each told as gone first', async () => {
+    const r = await rig({ sticky: { feedbackLimits: { maxStoredChars: 100 } } });
+    await r.store([decided('fb_acc', 'accepted', 'a'.repeat(20)), decided('fb_rej', 'rejected', 'r'.repeat(20))]);
+    const leos = await r.service.feedback.create({ note: 'Home', text: 'x'.repeat(30) }, r.principal(LEO));
+    const amys = await r.service.feedback.create({ note: 'Home', text: 'y'.repeat(25) }, r.principal(AMY));
+    // 95 characters; a reason of 10 makes 105: the rejected entry (20) goes, and nothing else.
+    const rejected = await r.service.feedback.reject({ feedbackId: leos.id, reason: 'Not now...' }, r.principal(MEI));
+    expect(rejected).toMatchObject({ id: leos.id, status: 'rejected', rejectReason: 'Not now...' });
+    expect(r.stored().map((entry) => [entry.id, entry.status])).toEqual([['fb_acc', 'accepted'], [leos.id, 'rejected'], [amys.id, 'waiting']]);
+    // 85; a reason of 40 makes 125: Leo's rejected entry (40) goes, the oldest rejected, before the accepted one.
+    await r.service.feedback.reject({ feedbackId: amys.id, reason: 'n'.repeat(40) }, r.principal(TEST_HOST_USER));
+    expect(r.stored().map((entry) => [entry.id, entry.status])).toEqual([['fb_acc', 'accepted'], [amys.id, 'rejected']]);
+    expect(r.stored().reduce((sum, entry) => sum + feedbackStoredChars(entry), 0)).toBe(85);
+    await settled(r);
+    expect(r.told.leo.map((event) => ('removed' in event ? `-${event.removed}` : `+${event.feedback.id}:${event.feedback.status}`))).toEqual([
+      `+${leos.id}:waiting`,
+      `+${amys.id}:waiting`,
+      '-fb_rej',
+      `+${leos.id}:rejected`,
+      `-${leos.id}`,
+      `+${amys.id}:rejected`,
+    ]);
+  });
+
+  it('a reject whose reason cannot fit (only waiting feedback is left) is refused and changes nothing; without a reason it goes through', async () => {
+    const r = await rig({ sticky: { feedbackLimits: { maxStoredChars: 100 } } });
+    const one = await r.service.feedback.create({ note: 'Home', text: 'x'.repeat(50) }, r.principal(LEO));
+    const two = await r.service.feedback.create({ note: 'Home', text: 'y'.repeat(45) }, r.principal(AMY));
+    expect(await refused(r.service.feedback.reject({ feedbackId: one.id, reason: 'Not now' }, r.principal(MEI)))).toMatchObject({ code: 'conflict', detail: { reason: 'feedback-full', bound: 'stored' }, text: { id: 'sticky.feedback.full' } });
+    expect(r.stored()).toEqual([one, two]);
+    expect(r.audit.filter((entry) => entry.action === 'sticky.feedback.reject')).toEqual([]);
+    expect(await r.service.feedback.reject({ feedbackId: one.id }, r.principal(MEI))).toMatchObject({ id: one.id, status: 'rejected' });
+    expect(r.stored().map((entry) => [entry.id, entry.status, entry.rejectReason])).toEqual([[one.id, 'rejected', undefined], [two.id, 'waiting', undefined]]);
+  });
+
+  it(`at the real bound: a reject with a reason when sticky.json holds ${FEEDBACK_STORED_MAX_CHARS} characters but five makes room, instead of failing`, async () => {
+    const r = await rig();
+    // Rejected entries of 4,000 characters (the last shorter), then Leo's waiting 1,000: five under the bound.
+    const filler = FEEDBACK_STORED_MAX_CHARS - 5 - 1_000;
+    const old = Array.from({ length: Math.ceil(filler / FEEDBACK_TEXT_MAX_CHARS) }, (_, i) =>
+      decided(`fb_${String(i).padStart(4, '0')}`, 'rejected', 'd'.repeat(Math.min(FEEDBACK_TEXT_MAX_CHARS, filler - i * FEEDBACK_TEXT_MAX_CHARS))),
+    );
+    await r.store(old);
+    const { feedback } = await r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: 'w'.repeat(1_000) });
+    const total = (): number => r.stored().reduce((sum, entry) => sum + feedbackStoredChars(entry), 0);
+    expect(total()).toBe(FEEDBACK_STORED_MAX_CHARS - 5);
+    const reason = 'We will not add a dark mode this year.';
+    const { feedback: rejected } = await r.mei.conn.request('sticky.feedback.reject', { feedbackId: feedback.id, reason });
+    expect(rejected).toMatchObject({ id: feedback.id, status: 'rejected', rejectReason: reason });
+    expect(r.stored().map((entry) => entry.id)).toEqual([...old.slice(1).map((entry) => entry.id), feedback.id]);
+    expect(total()).toBe(FEEDBACK_STORED_MAX_CHARS - 5 + reason.length - FEEDBACK_TEXT_MAX_CHARS);
+  });
 });
 
 describe('withdraw and reject send nothing (D4.7)', { timeout: 30_000 }, () => {
   it('only the author withdraws, while it waits: removed at once (the audit keeps it), told as gone to every member', async () => {
     const r = await rig();
     const { feedback } = await r.leo.conn.request('sticky.feedback.create', { note: 'Home', text: 'Add a dark mode please.' });
-    for (const other of [r.host, r.mei, r.amy]) expect((await refused(other.conn.request('sticky.feedback.withdraw', { feedbackId: feedback.id }))).code).toBe('forbidden');
+    // The router's audited refusal of the handler's author rule (ARCHITECTURE §5.12's row): `forbidden`, reason
+    // `not-owner:feedback`; the service's own check (`sticky.feedback.authorOnly`) is the second lock behind it.
+    for (const other of [r.host, r.mei, r.amy]) expect(await refused(other.conn.request('sticky.feedback.withdraw', { feedbackId: feedback.id }))).toMatchObject({ code: 'forbidden', detail: { reason: 'not-owner:feedback' } });
+    expect(await refused(r.service.feedback.withdraw({ feedbackId: feedback.id }, r.principal(MEI)))).toMatchObject({ code: 'forbidden', text: { id: 'sticky.feedback.authorOnly' } });
     expect(r.audit.filter((entry) => entry.action === 'authz.denied' && entry.target === 'sticky.feedback.withdraw')).toHaveLength(3);
     const { feedback: withdrawn } = await r.leo.conn.request('sticky.feedback.withdraw', { feedbackId: feedback.id });
     expect(withdrawn).toEqual({ ...feedback, status: 'withdrawn' });
@@ -267,5 +355,73 @@ describe('sticky.feedback.list: every entry, oldest first, by the list rule (D4.
     expect(listed.map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
     expect(listed[999]?.text).toBe(entries[999]?.text);
     expect(pages).toBeGreaterThan(1);
+  });
+
+  it('a page after an entry that went meanwhile goes on after where it was, whichever way it went; an id the list never had starts from the first entry', async () => {
+    const r = await rig({ sticky: { feedbackLimits: { maxEntries: 6 } } });
+    await r.store([decided('fb_rej', 'rejected', 'old')]);
+    const make = (who: string, text: string): Promise<Feedback> => r.service.feedback.create({ note: 'Home', text }, r.principal(who));
+    const a = await make(LEO, 'a');
+    const b = await make(LEO, 'b');
+    const c = await make(AMY, 'c');
+    const d = await make(AMY, 'd');
+    await make(MEI, 'e');
+    const after = async (id: string): Promise<string[]> => (await r.leo.conn.request('sticky.feedback.list', { after: id })).feedback.map((entry) => entry.text);
+    // Withdrawn by its author: the next page starts at c, not again at the first entry.
+    await r.service.feedback.withdraw({ feedbackId: b.id }, r.principal(LEO));
+    expect(await after(b.id)).toEqual(['c', 'd', 'e']);
+    // The entry before it went too: still after where b was.
+    await r.service.feedback.withdraw({ feedbackId: a.id }, r.principal(LEO));
+    expect(await after(b.id)).toEqual(['c', 'd', 'e']);
+    expect(await after(a.id)).toEqual(['c', 'd', 'e']);
+    // Dropped at the bound of entries (the oldest rejected, the first entry): every entry kept came after it.
+    await make(MEI, 'f');
+    await make(MEI, 'g');
+    await make(MEI, 'h');
+    expect(r.stored().map((entry) => entry.text)).toEqual(['c', 'd', 'e', 'f', 'g', 'h']);
+    expect(await after('fb_rej')).toEqual(['c', 'd', 'e', 'f', 'g', 'h']);
+    expect(await after(b.id)).toEqual(['c', 'd', 'e', 'f', 'g', 'h']);
+    // Withdrawn by the system (Amy is kicked): after where c and d were.
+    await r.host.conn.request('admin.member.kick', { userId: AMY });
+    await waitFor(() => r.stored().length === 4, { what: 'Amy\'s waiting feedback to go' });
+    expect(await after(d.id)).toEqual(['e', 'f', 'g', 'h']);
+    expect(await after(c.id)).toEqual(['e', 'f', 'g', 'h']);
+    // An id the list never had: the list rule, from the first entry.
+    expect(await after('fb_nope')).toEqual(['e', 'f', 'g', 'h']);
+  });
+
+  it('an entry withdrawn between two pages of a long list: the next page goes on after it, so a reader gets every entry once, in order', async () => {
+    const r = await rig();
+    // 400 waiting entries of Leo's, 4,000 three-byte characters each: about 4.8 MB, more than one page.
+    const entries = Array.from(
+      { length: 400 },
+      (_, i): Feedback => ({
+        id: `fb_${String(i).padStart(4, '0')}`,
+        note: 'Home',
+        text: `${String(i).padStart(4, '0')}${'結'.repeat(FEEDBACK_TEXT_MAX_CHARS - 4)}`,
+        author: { kind: 'member', user: { userId: LEO, displayName: 'Leo' } },
+        status: 'waiting',
+        createdAt: T,
+      }),
+    );
+    await r.store(entries);
+    let pages = 0;
+    const withdrawn: string[] = [];
+    const listed = await collectPages(async (after) => {
+      pages += 1;
+      const page = await r.leo.conn.request('sticky.feedback.list', after === undefined ? {} : { after });
+      if (pages === 1) {
+        // The last entry of the first page, then the one before it, are withdrawn before the next page is asked for.
+        for (const entry of page.feedback.slice(-2).reverse()) {
+          await r.leo.conn.request('sticky.feedback.withdraw', { feedbackId: entry.id });
+          withdrawn.push(entry.id);
+        }
+      }
+      return { items: page.feedback, hasMore: page.hasMore };
+    }, (entry) => entry.id);
+    expect(pages).toBeGreaterThan(1);
+    expect(withdrawn).toHaveLength(2);
+    // The first page held the two before they went; after it, every entry once.
+    expect(listed.map((entry) => entry.id)).toEqual(entries.map((entry) => entry.id));
   });
 });

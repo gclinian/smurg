@@ -5,13 +5,15 @@
 //   sticky.feedback.create    on a note the index holds; the text cleaned once with agentText (what is stored, shown
 //                             and quoted is the same string); within the bounds of D4.5; audited with its full text
 //   sticky.feedback.withdraw  its author, while it waits: removed at once (the audit log keeps it)
-//   sticky.feedback.reject    a member with `session.drive`, while it waits: `rejected`; nothing is sent
-//   sticky.feedback.list      every entry kept, oldest first, by the list rule
+//   sticky.feedback.reject    a member with `session.drive`, while it waits: `rejected`; nothing is sent; its reason
+//                             counts toward the stored bound as a text does
+//   sticky.feedback.list      every entry kept, oldest first, by the list rule; a page after an entry that went
+//                             meanwhile goes on after where that entry was
 //   sticky.feedback.updated   one entry as it is now, or the id of one that went, to every member
 //
 // The bounds (D4.5): at most FEEDBACK_MAX entries and FEEDBACK_STORED_MAX_CHARS characters of text and reasons
-// together. Waiting feedback is never dropped: a create that does not fit once the oldest rejected entries, then the
-// oldest accepted ones, are gone is refused (`feedback-full`). At most FEEDBACK_WAITING_PER_MEMBER_MAX waiting per
+// together. Waiting feedback is never dropped: a create, or a reject's reason, that does not fit once the oldest
+// rejected entries, then the oldest accepted ones, are gone is refused (`feedback-full`). At most FEEDBACK_WAITING_PER_MEMBER_MAX waiting per
 // member and FEEDBACK_WAITING_FROM_MEMBERS_MAX from members together (the outside budgets come with the sources).
 // When a member is removed (kicked, or left), their waiting feedback is withdrawn by the system.
 //
@@ -77,10 +79,18 @@ export function memberAuthorOf(entry: Feedback): UserId | null {
   return entry.author.kind === 'member' ? entry.author.user.userId : null;
 }
 
+/** How many entries that went (withdrawn, dropped at a bound) the list remembers the place of. */
+const GONE_REMEMBERED = FEEDBACK_MAX;
+
 export class FeedbackService {
   /** Accepts on their way to the agent (accept.ts): an entry here is changed by nothing else until it settles. */
   readonly accepting = new Set<string>();
   readonly limits: FeedbackLimits;
+  /**
+   * Each entry that went, and the id of the entry right before it then (null: it was the first). Entries are only ever
+   * added at the end, so a page asked for after one of them goes on after where it was (`list`).
+   */
+  private readonly gone = new Map<string, string | null>();
   private readonly ctx: DaemonContext;
   private readonly index: NoteIndex;
   private readonly document: () => PersistentDocument<StickyDocument>;
@@ -126,8 +136,9 @@ export class FeedbackService {
       throw new SmurgError('conflict', msg('sticky.feedback.tooManyWaiting', { max: this.limits.waitingPerMember }), { reason: 'feedback-full', bound: 'author' });
     }
     if (waiting.length >= this.limits.waitingFromMembers) throw fullError('members');
-    const dropped = this.makeRoom(entry);
+    const dropped = this.makeRoom({ entries: 1, chars: feedbackStoredChars(entry) });
     if (dropped === null) throw fullError('stored');
+    this.forget(dropped);
     this.document().update((draft) => {
       const gone = new Set(dropped);
       draft.feedback = draft.feedback.filter((item) => !gone.has(item.id));
@@ -162,28 +173,48 @@ export class FeedbackService {
     return withdrawn;
   }
 
-  /** `sticky.feedback.reject` (D4.7): `session.drive`, while it waits. Nothing is sent to any agent. */
+  /**
+   * `sticky.feedback.reject` (D4.7): `session.drive`, while it waits. Nothing is sent to any agent. Its reason is
+   * stored with it and counts toward the stored bound (D4.5): the oldest decided entries make room for it as for a new
+   * text, each told as gone first; when they cannot (only waiting feedback is left), the reject is refused
+   * (`feedback-full`) instead of storing over the bound. (With the real budgets that cannot happen: waiting texts fill
+   * at most 500 × 4000 of the 2 Mi characters.)
+   */
   async reject(input: PayloadOf<'sticky.feedback.reject'>, principal: Principal): Promise<Feedback> {
     const entry = this.require(input.feedbackId);
     const by = this.driverOf(principal);
     if (entry.status !== 'waiting') throw NOT_WAITING(entry);
     if (this.accepting.has(entry.id)) throw ACCEPTING(entry);
     const reason = input.reason !== undefined && input.reason.length > 0 ? input.reason : undefined;
-    const rejected = this.decide(entry.id, (draft) => {
-      draft.status = 'rejected';
-      draft.decidedBy = by;
-      draft.decidedAt = this.ctx.clock.now();
-      if (reason !== undefined) draft.rejectReason = reason;
-    });
+    const dropped = this.makeRoom({ entries: 0, chars: reason?.length ?? 0 }, entry.id);
+    if (dropped === null) throw fullError('stored');
+    this.forget(dropped);
+    const rejected = this.decide(
+      entry.id,
+      (draft) => {
+        draft.status = 'rejected';
+        draft.decidedBy = by;
+        draft.decidedAt = this.ctx.clock.now();
+        if (reason !== undefined) draft.rejectReason = reason;
+      },
+      dropped,
+    );
     this.auditOutcome(principal.actor, 'sticky.feedback.reject', rejected, {});
+    for (const id of dropped) this.ctx.hub.broadcast('sticky.feedback.updated', { removed: id });
     this.publish(rejected);
     await this.persist();
     return rejected;
   }
 
-  /** `sticky.feedback.list`: every entry kept, oldest first; one page of THE list rule after `after`. */
+  /**
+   * `sticky.feedback.list`: every entry kept, oldest first; one page of THE list rule after `after`. Entries go often
+   * (withdrawn, dropped at a bound): an `after` that went meanwhile goes on after where it was, through the entries
+   * that were before it, instead of starting over (a reader would get the first pages twice), as `inbox.list` does.
+   * An `after` the list never had, or no longer remembers, starts from the first entry, as the list rule says.
+   */
   list(input: PayloadOf<'sticky.feedback.list'>): ResultInputOf<'sticky.feedback.list'> {
-    const page = takeListPage(this.entries(), input.after, (entry) => entry.id);
+    const entries = this.entries();
+    const page = takeListPage(entries, this.placeOf(input.after, entries), (entry) => entry.id);
     return { feedback: page.items, hasMore: page.hasMore };
   }
 
@@ -262,18 +293,19 @@ export class FeedbackService {
   }
 
   /**
-   * What must go so that `entry` fits the stored bounds: the ids of the oldest rejected entries, then of the oldest
-   * accepted ones, as few as needed. Null: it does not fit even then (waiting feedback is never dropped).
+   * What must go so that `adding` (a new entry, or a reject's reason) fits the stored bounds: the ids of the oldest
+   * rejected entries, then of the oldest accepted ones, as few as needed; never `keep` (the entry being decided), never
+   * one an accept is on its way for. Null: it does not fit even then (waiting feedback is never dropped).
    */
-  private makeRoom(entry: Feedback): string[] | null {
+  private makeRoom(adding: { readonly entries: number; readonly chars: number }, keep?: string): string[] | null {
     const kept = this.entries();
-    let count = kept.length + 1;
-    let chars = kept.reduce((sum, item) => sum + feedbackStoredChars(item), 0) + feedbackStoredChars(entry);
+    let count = kept.length + adding.entries;
+    let chars = kept.reduce((sum, item) => sum + feedbackStoredChars(item), 0) + adding.chars;
     const dropped: string[] = [];
     for (const status of ['rejected', 'accepted'] as const) {
       for (const item of kept) {
         if (count <= this.limits.maxEntries && chars <= this.limits.maxStoredChars) return dropped;
-        if (item.status !== status || this.accepting.has(item.id)) continue;
+        if (item.status !== status || item.id === keep || this.accepting.has(item.id)) continue;
         dropped.push(item.id);
         count -= 1;
         chars -= feedbackStoredChars(item);
@@ -284,6 +316,7 @@ export class FeedbackService {
 
   /** Removes a waiting entry and returns it as `withdrawn` (D4.5: a withdrawn entry is not kept). */
   private remove(entry: Feedback): Feedback {
+    this.forget([entry.id]);
     this.document().update((draft) => {
       draft.feedback = draft.feedback.filter((item) => item.id !== entry.id);
     });
@@ -291,8 +324,13 @@ export class FeedbackService {
     return { ...entry, status: 'withdrawn' };
   }
 
-  private decide(feedbackId: string, change: (draft: Feedback) => void): Feedback {
+  /** Changes one entry; `dropped` (the room `makeRoom` made for the change) goes in the same update. */
+  private decide(feedbackId: string, change: (draft: Feedback) => void, dropped: readonly string[] = []): Feedback {
     const next = this.document().update((draft) => {
+      if (dropped.length > 0) {
+        const gone = new Set(dropped);
+        draft.feedback = draft.feedback.filter((item) => !gone.has(item.id));
+      }
       const item = draft.feedback.find((candidate) => candidate.id === feedbackId);
       if (item !== undefined) change(item);
     });
@@ -338,6 +376,34 @@ export class FeedbackService {
 
   private entries(): readonly Feedback[] {
     return this.document().get().feedback;
+  }
+
+  /** Remembers where each of `ids` was, just before they are removed (`list` goes on after them). */
+  private forget(ids: readonly string[]): void {
+    if (ids.length === 0) return;
+    const going = new Set(ids);
+    const entries = this.entries();
+    entries.forEach((item, index) => {
+      if (!going.has(item.id)) return;
+      this.gone.set(item.id, index === 0 ? null : (entries[index - 1] as Feedback).id);
+      if (this.gone.size > GONE_REMEMBERED) this.gone.delete(this.gone.keys().next().value as string);
+    });
+  }
+
+  /**
+   * Where a page after `after` starts: `after` while it is kept; for one that went, the nearest entry before it that
+   * is still kept (undefined when none is: every entry kept came after it); for an id never seen, or forgotten,
+   * undefined (the list rule: from the first entry).
+   */
+  private placeOf(after: string | undefined, entries: readonly Feedback[]): string | undefined {
+    if (after === undefined) return undefined;
+    const kept = new Set(entries.map((entry) => entry.id));
+    let id: string | null | undefined = after;
+    for (let steps = 0; steps <= this.gone.size && typeof id === 'string'; steps++) {
+      if (kept.has(id)) return id;
+      id = this.gone.get(id);
+    }
+    return undefined;
   }
 
   private async persist(): Promise<void> {

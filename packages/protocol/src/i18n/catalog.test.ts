@@ -349,3 +349,10 @@ describe('seed: enumerated values with their own wording (protocol 5)', () => {
     expect(render('en', msg('session.title.item', { number: 2, title: 'Payment form' }))).toBe('2 · Payment form');
   });
 });
+
+describe('feedback on sticky notes: a refusal names a cause that can happen (DESIGN 0.8.0 D4.3)', () => {
+  it('feedback the wire took is refused once cleaned only when it is blank, or grew past its bound when its header look-alikes were quoted (removing hidden characters never makes a text longer)', () => {
+    expect(render('en', msg('sticky.feedback.invalidText'))).toBe('The feedback is blank, or too long once smurg marks the lines that look like a message header ("> " in front).');
+    expect(render('zh-TW', msg('sticky.feedback.invalidText'))).toBe('意見內容是空白的，或是 smurg 在看起來像訊息標頭的行前面加上「> 」之後太長了');
+  });
+});

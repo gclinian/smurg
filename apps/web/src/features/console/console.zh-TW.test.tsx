@@ -59,6 +59,9 @@ describe('host console in zh-TW', () => {
 
     const invites = (await screen.findByRole('heading', { level: 2, name: '邀請連結' })).closest('section') as HTMLElement;
     expect(within(invites).getByText('新成員可以讀到這個工作區先前的所有對話，包括已封存主題的對話。')).toBeTruthy();
+    // 0.8.0 (DESIGN 0.8.0 D4.1): a Viewer also gives feedback on sticky notes, so the hint no longer says "only".
+    fireEvent.change(within(invites).getByLabelText('角色'), { target: { value: 'viewer' } });
+    expect(within(invites).getByText('可以瀏覽檔案、觀看 session，也可以對便利貼提出意見。')).toBeTruthy();
     fireEvent.change(within(invites).getByLabelText('角色'), { target: { value: 'agent' } });
     fireEvent.click(within(invites).getByRole('button', { name: '建立邀請連結' }));
     expect(screen.getByRole('alertdialog', { name: '建立「可使用 agent」的邀請連結？' })).toBeTruthy();
@@ -240,15 +243,25 @@ describe('host console in zh-TW: Claude for the sticky notes (protocol 7)', () =
       '不採用便利貼上的意見',
       '撤回便利貼上的意見',
     ]);
+    const entry = { id: 'au_f', at: 1_731_300_000_000, outcome: 'ok', target: 'fb_1', actor: { kind: 'user', userId: 'dev:host', displayName: 'Ian' } } as const;
     const rows = auditDetailRows({
-      id: 'au_f',
-      at: 1_731_300_000_000,
-      outcome: 'ok',
-      target: 'fb_1',
-      actor: { kind: 'user', userId: 'dev:host', displayName: 'Ian' },
+      ...entry,
       action: 'sticky.feedback.reject',
       detail: { feedbackId: 'fb_1', note: 'Home', outsideSource: 'discord', outsideId: '123456789012345678', writtenBy: 'Mei', outcome: 'rejected', feedback: '加上深色模式', rejectReason: '今年不做' },
     });
-    expect(rows.map((row) => row.label)).toEqual(['便利貼', '寫在', '外部 id', '寫的人', '處理方式', '意見', '拒絕原因']);
+    // The decision and its reason in feedback's own words (docs/GLOSSARY.md: 採用 / 不採用；已採用 / 不採用, and
+    // 撤回 / 已撤回), the words of the action label and of the notes view.
+    expect(rows.map((row) => [row.label, row.value])).toEqual([
+      ['便利貼', 'Home'],
+      ['寫在', 'discord'],
+      ['外部 id', '123456789012345678'],
+      ['寫的人', 'Mei'],
+      ['處理方式', '不採用'],
+      ['意見', '加上深色模式'],
+      ['不採用的原因', '今年不做'],
+    ]);
+    const decision = (action: 'sticky.feedback.accept' | 'sticky.feedback.withdraw', outcome: string): string | undefined =>
+      auditDetailRows({ ...entry, action, detail: { note: 'Home', outcome, feedback: '加上深色模式' } }).find((row) => row.key === 'outcome')?.value;
+    expect([decision('sticky.feedback.accept', 'accepted'), decision('sticky.feedback.withdraw', 'withdrawn')]).toEqual(['已採用', '已撤回']);
   });
 });

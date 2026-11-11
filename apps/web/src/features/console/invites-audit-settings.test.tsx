@@ -26,6 +26,9 @@ describe('host console: invites', () => {
     const invites = await section('Invite links');
     const roles = within(invites).getByLabelText('Role') as HTMLSelectElement;
     expect([...roles.options].map((option) => option.textContent)).toEqual(['Agent access', 'Editor', 'Viewer']);
+    // 0.8.0 (DESIGN 0.8.0 D4.1): a Viewer also gives feedback on sticky notes, so the hint no longer says "only".
+    fireEvent.change(roles, { target: { value: 'viewer' } });
+    expect(within(invites).getByText('Can browse files, watch sessions and give feedback on sticky notes.')).toBeTruthy();
     fireEvent.change(roles, { target: { value: 'agent' } });
     expect(
       within(invites).getByText('Can start topics, agents and terminals (they run on your computer with your Claude account), message any agent, answer its permission requests and accept suggestions.'),

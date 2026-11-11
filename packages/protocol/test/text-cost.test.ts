@@ -17,6 +17,7 @@ import {
   agentTextWithin,
   checkRelPath,
   checkRememberableRule,
+  composeFeedback,
   composeRevise,
   entryPathSchema,
   fileRefKey,
@@ -40,6 +41,7 @@ import {
   noteNameSchema,
   noteTree,
   offerAlwaysRule,
+  outsideSafeName,
   parseInviteUrl,
   parseRuleString,
   pathSegmentSchema,
@@ -77,6 +79,17 @@ const LOOKS: Readonly<Record<string, Look>> = {
   quoteForAgent: { run: (text) => void quoteForAgent('text', text) },
   // (Four cleanings of each text and a quotation: measured at a quarter of the usual size.)
   'composeRevise ("Ask the agent to revise")': { run: (text) => void composeRevise({ target: 'spec', text, quote: { heading: text, text } }, LARGE_CHARS * 4), chars: LARGE_CHARS / 4 },
+  // 0.8.0 D4.6: an accepted feedback on a sticky note, a member's display name or an outside author's name beside it
+  // (the daemon at the one send, and the notes view's "What Claude gets"). Each text is cleaned twice and quoted.
+  'composeFeedback and outsideSafeName (an accepted feedback on a sticky note)': {
+    run: (text) =>
+      void [
+        composeFeedback({ note: 'Home', author: { kind: 'member', userId: 'github:1', displayName: text, role: 'viewer' }, text }),
+        composeFeedback({ note: 'Home', author: { kind: 'outside', source: 'slack', name: text, externalId: 'U1' }, text }),
+        outsideSafeName('discord', text, text),
+      ],
+    chars: LARGE_CHARS / 4,
+  },
   'mask and hasMaskable (everything an agent or a tool wrote)': {
     run: (text) => void [mask(text), hasMaskable(text)],
     fronts: ['-----BEGIN PRIVATE KEY-----', '-----BEGIN A ', 'authorization', 'authorization: bearer ', 'token', 'token="', 'sk-', 'a.token'],

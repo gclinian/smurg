@@ -205,7 +205,7 @@ export const t = defineStrings(
     'invites.roleHint.agent':
       'Can start topics, agents and terminals (they run on your computer with your Claude account), message any agent, answer its permission requests and accept suggestions.',
     'invites.roleHint.editor': "Can edit files, vote on an agent's questions and write suggestions for agents, but cannot start an agent or message one directly.",
-    'invites.roleHint.viewer': 'Can only browse files and watch sessions.',
+    'invites.roleHint.viewer': 'Can browse files, watch sessions and give feedback on sticky notes.',
     'invites.history': 'A new member can read every earlier conversation of this workspace, the ones of archived topics included.',
     'invites.createFailed': 'Could not create the invite link: {message}',
     'invites.link.title': 'Invite link created',
@@ -364,6 +364,11 @@ export const t = defineStrings(
     'audit.detail.feedback': 'Feedback',
     'audit.detail.outsideSource': 'Written in',
     'audit.detail.outsideId': 'Outside id',
+    // its decision and reason: the same English as a suggestion's; zh-TW has feedback's own words (docs/GLOSSARY.md)
+    'audit.detail.feedbackAccepted': 'Accepted',
+    'audit.detail.feedbackRejected': 'Rejected',
+    'audit.detail.feedbackWithdrawn': 'Withdrawn',
+    'audit.detail.feedbackRejectReason': 'Reject reason',
     'audit.outcome.ok': 'OK',
     'audit.outcome.denied': 'Denied',
     'audit.outcome.error': 'Error',
