@@ -603,4 +603,7 @@ export const WORST_CASES: Partial<Record<MessageType, WorstCase>> = {
   'sticky.feedback.reject': { payload: { feedbackId: id('fb'), reason: wide(L.REASON_MAX_CHARS) }, result: { feedback: worstFeedback(0) } },
   'sticky.feedback.list': { payload: { after: id('fb') }, result: { feedback: list(L.FEEDBACK_MAX, (index) => worstFeedback(index)), hasMore: true } },
   'sticky.feedback.updated': { payload: { feedback: worstFeedback(0) } },
+  // Build this (D5.1): the composed text at its bound (`big` gives exactly that many bytes of UTF-8), every note once.
+  'sticky.spec': { payload: { note: noteName(0) }, result: { text: big(L.SPEC_FROM_NOTES_MAX_BYTES), hash: HASH, notes: many(L.NOTE_LINKS_MAX + 1, (index) => noteName(index)) } },
+  'sticky.build': { payload: { note: noteName(0), hash: HASH }, result: { topicId: id('tp') } },
 };

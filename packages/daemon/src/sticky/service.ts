@@ -1,6 +1,7 @@
-// The sticky module's service (DESIGN 0.8.0 D2, D3.5, D4): the index of the notes and what members do with it, the one
-// Claude for the sticky notes of the workspace, and the feedback on the notes (feedback.ts; its one send to an agent
-// is accept.ts). No other module calls it (no service slot): its handlers and its bus listeners are its only callers.
+// The sticky module's service (DESIGN 0.8.0 D2, D3.5, D4, D5): the index of the notes and what members do with it,
+// the one Claude for the sticky notes of the workspace, the feedback on the notes (feedback.ts; its one send to an
+// agent is accept.ts) and "Build this" (build.ts). No other module calls it (no service slot): its handlers and its
+// bus listeners are its only callers.
 //
 //   sticky.list             one list-rule page of the index (`sources` stays empty until the outside sources come)
 //   sticky.changed          what changed in the index, to every member who may read files
@@ -8,9 +9,14 @@
 //                           activity name the person); `notes/` is made when it is missing
 //   sticky.assistant.start  the running notes session, or one started now for the caller
 //   sticky.feedback.*       feedback.ts (create, withdraw, reject, list) and accept.ts (accept)
+//   sticky.spec, .build     build.ts: the text a topic's spec would be made of, and the topic made from it
 //
-// Writes of one workspace run one at a time (`serial`): two creates of `Home` and `home`, or two presses of "Start
-// Claude", never interleave their checks and their writes. What waited its turn checks again what may have changed
+// Every NoteInfo members are told holds the note's `builds` (the topics made from it, the newest 8, D2.4): the index
+// knows nothing of them; this service adds them to what the index lists and announces, and announces a note again
+// when it was built.
+//
+// Writes of one workspace run one at a time (`serial`): two creates of `Home` and `home`, two presses of "Start
+// Claude", or two builds of one note, never interleave their checks and their writes. What waited its turn checks again what may have changed
 // meanwhile (the folder, the notes, the caller's membership and role).
 import { readdir } from 'node:fs/promises';
 import {
@@ -39,6 +45,7 @@ import type { PersistentDocument, Principal } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
 import { isStubService } from '../core/stubs.ts';
 import { FeedbackAccept } from './accept.ts';
+import { NoteBuilder } from './build.ts';
 import { FeedbackService, type FeedbackLimits } from './feedback.ts';
 import { NoteIndex, lookAtNotesFolder, type IndexChange } from './index.ts';
 import { notesRolePrompt } from './prompts.ts';
@@ -89,6 +96,8 @@ export class StickyServiceImpl {
   readonly feedback: FeedbackService;
   /** Accepting feedback: the one send of feedback to an agent (D4.6). */
   readonly acceptor: FeedbackAccept;
+  /** "Build this" (D5): the spec of a note, and the topic made from it. */
+  readonly builder: NoteBuilder;
   private readonly serial = new Serial();
   private doc: PersistentDocument<StickyDocument> | null = null;
 
@@ -97,6 +106,12 @@ export class StickyServiceImpl {
     this.index = new NoteIndex(ctx, { debounceMs: options.fileDebounceMs ?? DEFAULT_STICKY_DEBOUNCE_MS }, (change) => this.announce(change));
     this.feedback = new FeedbackService(ctx, { index: this.index, document: () => this.requireDoc(), ...(options.feedbackLimits === undefined ? {} : { limits: options.feedbackLimits }) });
     this.acceptor = new FeedbackAccept(ctx, { feedback: this.feedback, assistant: () => this.assistant() });
+    this.builder = new NoteBuilder(ctx, {
+      index: this.index,
+      document: () => this.requireDoc(),
+      serial: (work) => this.serial.run(work),
+      buildsChanged: (name) => this.announceBuilt(name),
+    });
   }
 
   /** The bus listeners: changes on disk of the main workspace, saves of the editor, a watcher that may have missed some. */
@@ -138,7 +153,7 @@ export class StickyServiceImpl {
 
   /** `sticky.list`: one page of the index by the list rule, in its order. */
   list(payload: PayloadOf<'sticky.list'>): ResultInputOf<'sticky.list'> {
-    const page = takeListPage(this.index.list(), payload.after, (note) => note.name);
+    const page = takeListPage(this.index.list().map((note) => this.withBuilds(note)), payload.after, (note) => note.name);
     return { notes: page.items, hasMore: page.hasMore, truncated: this.index.truncated(), sources: [] };
   }
 
@@ -184,7 +199,7 @@ export class StickyServiceImpl {
       // the index does not list it, and so the reply holds no note.
       const note = this.index.find(name);
       if (note === null) throw fullError();
-      return { note };
+      return { note: this.withBuilds(note) };
     });
   }
 
@@ -250,7 +265,21 @@ export class StickyServiceImpl {
   }
 
   private announce(change: IndexChange): void {
-    this.ctx.hub.broadcast('sticky.changed', { upserted: [...change.upserted], removed: [...change.removed], truncated: change.truncated });
+    this.ctx.hub.broadcast('sticky.changed', { upserted: change.upserted.map((note) => this.withBuilds(note)), removed: [...change.removed], truncated: change.truncated });
+  }
+
+  /** A note as members see it: what the index holds, with the topics made from it (a shadowed one has none). */
+  private withBuilds(note: NoteInfo): NoteInfo {
+    if (note.shadowed === true || this.doc === null) return note;
+    const builds = this.builder.buildsOf(note.name);
+    return builds.length === 0 ? note : { ...note, builds };
+  }
+
+  /** A note was built (D5.2): every member is told its NoteInfo with the new topic. */
+  private announceBuilt(name: string): void {
+    const note = this.index.find(name);
+    if (note === null) return;
+    this.ctx.hub.broadcast('sticky.changed', { upserted: [this.withBuilds(note)], removed: [], truncated: this.index.truncated() });
   }
 
 }

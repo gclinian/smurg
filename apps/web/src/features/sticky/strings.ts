@@ -86,6 +86,24 @@ export const t = defineStrings(
     // Accept refused because Claude for the sticky notes is not running (no-assistant): start it, then accept again.
     'feedback.start': 'Start Claude',
     'feedback.startFailed': 'Claude was not started: {reason}',
+    // "Build this" (D5.3), for a member who may start sessions: a topic made from the note, nothing started. The dialog
+    // shows the exact text of the spec as plain text; Start comes next, in the topic's plan.
+    'build.button': 'Build this',
+    'build.held': 'Build this waits until every change to this sticky note is saved and Claude is not writing it.',
+    'build.title': 'Build this sticky note',
+    'build.body':
+      "smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work.",
+    'build.notes': { one: 'The text of {count} sticky note: {names}.', other: 'The text of {count} sticky notes: {names}.' },
+    'build.text': 'The text of the spec',
+    'build.invisible': 'This text contains characters you cannot see. They go into the spec as they are.',
+    'build.loading': 'Reading the sticky notes…',
+    'build.loadFailed': 'The text could not be read: {reason}',
+    'build.confirm': 'Make the topic',
+    'build.failed': 'The topic was not made: {reason}',
+    'build.openPlan': "Open the topic's plan",
+    // The topics made from the open note (D2.4 `builds`), each a way to its plan.
+    'builds.title': 'Topics built from this sticky note',
+    'builds.open': 'Open the plan of the topic {name}',
   },
   zhTW,
 );

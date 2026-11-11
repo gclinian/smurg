@@ -99,6 +99,7 @@ const ACTION_KEY = {
   'sticky.feedback.accept': 'audit.action.sticky.feedback.accept',
   'sticky.feedback.reject': 'audit.action.sticky.feedback.reject',
   'sticky.feedback.withdraw': 'audit.action.sticky.feedback.withdraw',
+  'sticky.build': 'audit.action.sticky.build',
   'member.role': 'audit.action.member.role',
   'member.kick': 'audit.action.member.kick',
   'member.leave': 'audit.action.member.leave',
@@ -164,6 +165,9 @@ const DETAIL_LABEL_KEYS: Readonly<Record<string, string>> = {
   feedback: 'audit.detail.feedback',
   outsideSource: 'audit.detail.outsideSource',
   outsideId: 'audit.detail.outsideId',
+  // "Build this" (0.8.0, DESIGN 0.8.0 D5.2)
+  notes: 'audit.detail.notes',
+  step: 'audit.detail.step',
 };
 
 const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {

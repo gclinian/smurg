@@ -124,6 +124,19 @@ export const notesSession = {
 /** Sticky notes (protocol 7): Home links to two notes, one of which is not written yet. */
 export const homeNote = { name: 'Home', links: ['Checkout', 'Payment form'] };
 export const checkoutNote = { name: 'Checkout', links: ['Home', '結帳流程'] };
+/** What "Build this" shows and writes (DESIGN 0.8.0 D5.1): the note, a note it links to, the fixed last line. */
+export const specFromNotes = [
+  'Built from the sticky note "notes/Checkout.md".',
+  '',
+  'Coupons are checked at the till. See [[Payment form]].',
+  '',
+  '## Linked sticky note "notes/Payment form.md"',
+  '',
+  'Card or cash.',
+  '',
+  'Other sticky notes are not part of this spec.',
+  '',
+].join('\n');
 /** Feedback on a sticky note (protocol 7, DESIGN 0.8.0 D4.3): a Viewer's that waits, and an outsider's that was cut. */
 export const waitingFeedback = { id: 'fb_1', note: 'Home', text: 'Add a dark mode please.', author: { kind: 'member', user: { userId: 'dev:vic', displayName: 'Vic' } }, status: 'waiting', createdAt: T };
 export const outsideFeedback = { id: 'fb_2', note: 'Checkout', text: 'The coupon field is hard to find.', cut: true, author: { kind: 'outside', source: 'slack', name: 'Mei Chen', externalId: 'U012ABCDEF' }, status: 'waiting', createdAt: T };
@@ -2162,5 +2175,32 @@ export const MESSAGE_SAMPLES: Record<MessageType, MessageSamples> = {
       valid: [{ feedback: waitingFeedback }, { feedback: outsideFeedback }, { removed: 'fb_1' }],
       invalid: [{}, { feedback: waitingFeedback, removed: 'fb_1' }, { removed: '' }, { feedback: { ...waitingFeedback, cut: true } }],
     },
+  },
+  // ---- Build this (protocol 7, DESIGN 0.8.0 D5) --------------------------------------------------------------------
+  'sticky.spec': {
+    payload: { valid: [{ note: 'Checkout' }, { note: '結帳流程' }], invalid: [{}, { note: 'a/b' }, { note: 'CLAUDE' }, { note: 'Checkout', hash: HASH }] },
+    result: {
+      valid: [
+        { text: specFromNotes, hash: HASH, notes: ['Checkout', 'Payment form'] },
+        { text: 'Built from the sticky note "notes/結帳流程.md".\n\n優惠券\n\nOther sticky notes are not part of this spec.\n', hash: HASH, notes: ['結帳流程'] },
+      ],
+      invalid: [
+        { text: specFromNotes, notes: ['Checkout'] },
+        { text: specFromNotes, hash: 'abc', notes: ['Checkout'] },
+        { text: specFromNotes, hash: HASH, notes: [] },
+        { text: specFromNotes, hash: HASH, notes: ['Checkout', 'checkout'] },
+        { text: specFromNotes, hash: HASH, notes: ['a/b'] },
+        { text: 'a\u0000b', hash: HASH, notes: ['Checkout'] },
+        { text: 'x'.repeat(256 * 1024 + 1), hash: HASH, notes: ['Checkout'] },
+        { text: specFromNotes, hash: HASH, notes: ['Checkout'], slug: 'checkout' },
+      ],
+    },
+  },
+  'sticky.build': {
+    payload: {
+      valid: [{ note: 'Checkout', hash: HASH }, { note: '結帳流程', hash: HASH }],
+      invalid: [{ note: 'Checkout' }, { hash: HASH }, { note: 'Checkout', hash: 'A'.repeat(64) }, { note: 'Checkout', hash: HASH, slug: 'checkout' }, { note: 'Checkout', hash: HASH, text: specFromNotes }],
+    },
+    result: { valid: [{ topicId: 'tp_1' }], invalid: [{}, { topicId: '' }, { topicId: 'tp_1', session: 'sess_a' }] },
   },
 };

@@ -225,6 +225,11 @@ export const NOTES_MAX = 500;
 export const NOTE_INFO_BUILDS_MAX = 8;
 /** Builds `sticky.json` keeps (D5.2); the oldest goes first. */
 export const NOTE_BUILDS_MAX = 200;
+/**
+ * "Build this" (D5.1): the spec composed from a sticky note and the notes it links to directly, in bytes of UTF-8, at
+ * most (the text `sticky.spec` answers, the SPEC.md `sticky.build` writes). A larger one is refused, never cut.
+ */
+export const SPEC_FROM_NOTES_MAX_BYTES = 256 * KiB;
 /** One feedback on a sticky note, in UTF-16 units, as stored (after `agentText`, D4.3). */
 export const FEEDBACK_TEXT_MAX_CHARS = 4_000;
 /** Feedback entries `sticky.json` keeps, and the characters of their texts and reasons together (D4.5). */

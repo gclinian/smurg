@@ -2,10 +2,13 @@
 // the REAL sticky module, fakes for everything else, and four members over real connections. What the Viewer's
 // connection was sent of `sticky.changed` is collected: every member who may read files gets it. With
 // `conversation: true` (the feedback, DESIGN 0.8.0 D4) the conversation and suggest modules are the real ones too, in
-// front of the FAKE agent runtime, which records every message it is sent (`fakes.agents.log.of('send')`).
+// front of the FAKE agent runtime, which records every message it is sent (`fakes.agents.log.of('send')`). With
+// `topics: true` ("Build this", DESIGN 0.8.0 D5) the topics module is the real one too, so a build makes a real topic
+// whose discussion the fake runtime starts, and the topic reads the files the build wrote.
 import { join } from 'node:path';
 import { afterEach } from 'vitest';
 import type { PayloadOf } from '@smurg/protocol';
+import type { AgentsConfig } from '../../src/core/config.ts';
 import type { FeatureModule } from '../../src/core/context.ts';
 import { fakesModule, fakesOf, type Fakes } from '../../src/core/fakes/index.ts';
 import { toDisposable } from '../../src/core/lifecycle.ts';
@@ -16,6 +19,7 @@ import { locksModule } from '../../src/locks/module.ts';
 import { createStickyModule } from '../../src/sticky/module.ts';
 import type { StickyModuleOptions, StickyServiceImpl } from '../../src/sticky/service.ts';
 import { createSuggestModule } from '../../src/suggest/module.ts';
+import { createTopicsModule } from '../../src/topics/module.ts';
 import { createTempDir, createTempProject, createTestDaemon, removeTempDir, waitFor, type TestClient, type TestDaemon } from '../../src/testing/index.ts';
 
 export const MEI = 'dev:mei';
@@ -53,6 +57,10 @@ export interface NotesOptions {
   readonly conversation?: boolean;
   /** The sticky module's own options (the bounds of the feedback). */
   readonly sticky?: Omit<StickyModuleOptions, 'fileDebounceMs'>;
+  /** The real topics module (and its plans and reports) in front of the fake agent runtime. */
+  readonly topics?: boolean;
+  /** The agent runtime's limits (`ctx.config.agents`: `maxAgentSessions`). */
+  readonly agents?: Partial<AgentsConfig>;
 }
 
 const cleanups: (() => Promise<void>)[] = [];
@@ -68,9 +76,18 @@ export async function startNotes(options: NotesOptions = {}): Promise<NotesStack
   await options.prepare?.(root);
   const sticky = createStickyModule({ ...options.sticky, fileDebounceMs: 30 });
   const log = createMemoryLogger();
-  const real: FeatureModule[] = options.conversation === true ? [conversationSeed, createConversationModule(), createSuggestModule()] : [];
-  const fakes = fakesModule({ handlers: true, ...(options.conversation === true ? { except: ['conversation', 'suggestions'] as const } : {}) });
-  const t = await createTestDaemon({ root, log, modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakes, ...real, sticky] });
+  const real: FeatureModule[] = [
+    ...(options.conversation === true ? [conversationSeed, createConversationModule(), createSuggestModule()] : []),
+    ...(options.topics === true ? [createTopicsModule({ fileDebounceMs: 10 })] : []),
+  ];
+  const except = [...(options.conversation === true ? (['conversation', 'suggestions'] as const) : []), ...(options.topics === true ? (['topics', 'plans', 'reports'] as const) : [])];
+  const fakes = fakesModule({ handlers: true, ...(except.length === 0 ? {} : { except }) });
+  const t = await createTestDaemon({
+    root,
+    log,
+    modules: [locksModule, createFilesModule({ watch: options.watch ?? true }), fakes, ...real, sticky],
+    ...(options.agents === undefined ? {} : { agents: options.agents }),
+  });
   cleanups.push(() => t.cleanup());
   const service = sticky.serviceOf(t.ctx) as StickyServiceImpl;
   const host = await t.connectHost();

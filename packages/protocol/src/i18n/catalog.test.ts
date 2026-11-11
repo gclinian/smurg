@@ -10,6 +10,7 @@ import { ATTENTION_SUBJECTS } from '../schema/inbox.ts';
 import { AUTO_MERGE_REASONS, REPORT_OUTCOMES } from '../schema/topics.ts';
 import {
   ADMIN_CHANGES,
+  BUILD_STEPS,
   CONFLICT_RECOVERY_REASONS,
   FILE_CHANGES,
   GIT_STEPS,
@@ -63,6 +64,7 @@ const ENUM_PARAMS: Readonly<Record<string, Readonly<Record<string, readonly stri
   'conversation.held': { reason: HELD_REASONS },
   'conversation.heldLater': { reason: HELD_REASONS },
   'sticky.name.invalid': { rule: NOTE_NAME_RULES },
+  'sticky.build.failedAt': { step: BUILD_STEPS },
 };
 
 function sample(kind: ParamKind, name: string, variant: number): string | number | boolean | string[] {

@@ -676,7 +676,7 @@ export const MESSAGE_REGISTRY = Object.freeze({
     checks: ['agent-session'],
   }),
 
-  // ---- sticky.* (§5.12, protocol 7: DESIGN 0.8.0 D2, D3.5, D4) -----------------------------------------------------
+  // ---- sticky.* (§5.12, protocol 7: DESIGN 0.8.0 D2, D3.5, D4, D5) -------------------------------------------------
   'sticky.list': request(sticky.stickyListPayloadSchema, sticky.stickyListResultSchema, 'file.read', { sizeRule: 'list' }),
   'sticky.changed': event(sticky.stickyChangedPayloadSchema, 'file.read', { checks: ['recipients:all'] }),
   // As the caller, through the file service (a sticky note's name is never a host-only one).
@@ -709,6 +709,16 @@ export const MESSAGE_REGISTRY = Object.freeze({
   'sticky.feedback.updated': event(sticky.stickyFeedbackUpdatedPayloadSchema, 'file.read', {
     checks: ['recipients:all'],
     redact: FEEDBACK_TEXT_KEYS,
+  }),
+  // Build this (DESIGN 0.8.0 D5): the text is read as the caller and carries the notes' text, as `file.read`'s result
+  // does; the build makes a topic and writes its two files through the file service as the caller. It starts nothing.
+  'sticky.spec': request(sticky.stickySpecPayloadSchema, sticky.stickySpecResultSchema, 'session.create', {
+    checks: ['path-guard'],
+    resultSensitive: true,
+    redact: ['text'],
+  }),
+  'sticky.build': request(sticky.stickyBuildPayloadSchema, sticky.stickyBuildResultSchema, 'session.create', {
+    checks: ['path-guard', 'host-only-paths'],
   }),
 });
 

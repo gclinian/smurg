@@ -315,6 +315,9 @@ const REAL_ANSWERS: { readonly [T in Exclude<RequestType, 'channel.leave'>]: str
   'sticky.feedback.accept': NO_FEEDBACK,
   'sticky.feedback.reject': NO_FEEDBACK,
   'sticky.feedback.list': 'ok',
+  // protocol 7, Build this (D5): the sample's note is not in the index, so nothing is read and no topic is made.
+  'sticky.spec': 'not_found sticky.note.missing',
+  'sticky.build': 'not_found sticky.note.missing',
 };
 
 describe('the release composition: every request type × every role in front of the real handlers', () => {

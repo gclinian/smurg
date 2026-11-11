@@ -140,6 +140,9 @@ export const REQUEST_SAMPLES: { readonly [T in RequestType]: PayloadInputOf<T> }
   'sticky.feedback.accept': { feedbackId: 'fb_nope' },
   'sticky.feedback.reject': { feedbackId: 'fb_nope' },
   'sticky.feedback.list': {},
+  // Build this (D5): a note the index does not hold, so nothing is read and no topic is made.
+  'sticky.spec': { note: 'Nowhere' },
+  'sticky.build': { note: 'Nowhere', hash: 'a'.repeat(64) },
 };
 
 export const NOTIFY_SAMPLES: { readonly [T in InboundNotifyType]: PayloadInputOf<T> } = {

@@ -66,7 +66,7 @@ type ReadResult = { readonly links: readonly string[] } | 'oversized' | 'unreada
  * file replaced by a save), the workspace's root moved or is not registered. Every other refusal is what the path IS
  * for a member without rights (a symlink, a hard link, a special file, something hidden from members).
  */
-const PASSING_DENIALS: ReadonlySet<PathDeniedReason> = new Set(['changed', 'root-changed', 'unknown-root']);
+export const PASSING_DENIALS: ReadonlySet<PathDeniedReason> = new Set(['changed', 'root-changed', 'unknown-root']);
 
 /**
  * Whether a look at a path failed for a reason that passes: a passing refusal of PathGuard, a file that went since

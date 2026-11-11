@@ -264,4 +264,22 @@ describe('host console in zh-TW: Claude for the sticky notes (protocol 7)', () =
       auditDetailRows({ ...entry, action, detail: { note: 'Home', outcome, feedback: '加上深色模式' } }).find((row) => row.key === 'outcome')?.value;
     expect([decision('sticky.feedback.accept', 'accepted'), decision('sticky.feedback.withdraw', 'withdrawn')]).toEqual(['已採用', '已撤回']);
   });
+
+  it('"Build this" in the audit log: its name and its details in Traditional Chinese (DESIGN 0.8.0 D5.2)', () => {
+    expect(auditActionLabel('sticky.build')).toBe('從便利貼建立主題（把它做出來）');
+    const rows = auditDetailRows({
+      id: 'au_b',
+      at: 1_731_300_000_000,
+      outcome: 'error',
+      target: 'tp_9',
+      actor: { kind: 'user', userId: 'dev:mei', displayName: 'Mei' },
+      action: 'sticky.build',
+      detail: { note: '結帳流程', topicId: 'tp_9', slug: 'topic-1', specHash: 'c'.repeat(64), notes: ['結帳流程'], step: 'plan', reason: 'internal' },
+    });
+    expect(rows.filter((row) => ['note', 'notes', 'step'].includes(row.key)).map((row) => [row.label, row.value])).toEqual([
+      ['便利貼', '結帳流程'],
+      ['放進 spec 的便利貼', '結帳流程'],
+      ['沒有完成的步驟', 'plan'],
+    ]);
+  });
 });

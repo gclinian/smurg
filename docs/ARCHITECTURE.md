@@ -1768,7 +1768,7 @@ type NoteInfo = {
   oversized?: true;      // over NOTE_MAX_BYTES (64 KiB): not read, no links
   unreadable?: true;     // not a regular file of one link that a member without rights may read, or not UTF-8
   shadowed?: true;       // its name folds equal to another's, which sorts first by code unit and is the note
-  builds?: string[];     // the topics made from it, the newest 8
+  builds?: string[];     // the topics made from it ("Build this"), the newest first, at most 8
 };
 type SourceState = { source: 'slack' | 'discord'; state: 'reading' | 'waiting-for-room' | 'failing'; problem?: WireText };
 ```
@@ -1821,6 +1821,24 @@ are accepts, rejections and withdrawals.
 | `sticky.feedback.reject` [session.drive] | c→d | `{ feedbackId, reason? }` → `{ feedback: Feedback }` | while it waits; `rejected`, `decidedBy`, `decidedAt`, `rejectReason`; the reason counts toward the stored bound (the oldest decided entries make room, else `feedback-full`); nothing is sent |
 | `sticky.feedback.list` [file.read] | c→d | `{ after? }` → `{ feedback: Feedback[], hasMore }` | every entry kept, oldest first; `after` is the last entry's id; an `after` that went meanwhile (withdrawn, dropped at a bound) goes on after where it was, as `inbox.list` does. Size rule: list |
 | `sticky.feedback.updated` | d→c | `{ feedback: Feedback }` or `{ removed: string }` | to every member: one entry as it is now, or the id of one that went (withdrawn, or dropped at a bound) |
+
+**Build this** (`src/sticky/build.ts`, DESIGN 0.8.0 D5) makes a topic from a sticky note and starts nothing: the member
+presses Start in the topic's own Start dialog, whose preflight and pins apply as to every topic (§2 rule 6(b)). The
+spec is composed by the daemon from what the CALLER reads: the note and each note it links to directly (its
+`wikiLinks`, by their names on disk; a link back to the note is the note), each read by the index's rules too (no
+symlink at the end, a regular file of one link directly in the real `notes/`: the host's build never copies a file a
+link leads to into a spec every member reads), at most 64 KiB each, decoded as `doc.open` decodes a file
+(`classifyText`: UTF-8, no NUL, the byte order mark dropped, LF), into one text of at most
+`SPEC_FROM_NOTES_MAX_BYTES` (256 KiB): `Built from the sticky note "notes/<name>.md".`, the note's text, then
+`## Linked sticky note "notes/<name>.md"` and each linked note's text (one not written yet: `This sticky note is not
+written yet.`), then `Other sticky notes are not part of this spec.` (`composeSpecFromNotes`; the paths as JSON
+strings). Every build is recorded in `sticky.json` (`{ note, topicId, by, at, hash }`, at most 200, the oldest
+dropped) as soon as its topic exists, and every NoteInfo members are told carries the topics of its note (`builds`).
+
+| Type | Dir | Payload | Notes |
+|---|---|---|---|
+| `sticky.spec` [session.create] | c→d | `{ note }` → `{ text, hash, notes }` | the text above, its SHA-256 (of its UTF-8) and the names whose text is in it (the note first). A note the index does not hold: `not_found`, `sticky.note.missing`; a note over 64 KiB: `too_large`, `sticky.spec.oversized` with its name; one that cannot be read so: `conflict`, `sticky.spec.unreadable` with its name; a text over 256 KiB: `too_large`, `sticky.spec.tooLarge` (never cut). The result carries the notes' text: never logged (`resultSensitive`, `redact: ['text']`) |
+| `sticky.build` [session.create] | c→d | `{ note, hash }` → `{ topicId }` | one at a time per workspace; the caller's role checked again; composes the text again (another `hash`: `conflict`, reason `note-changed`, `sticky.build.noteChanged`). Before anything is made: the topic limit (`topic.limit`), the agent sessions' limit (`session.limit.agents`: the topic's discussion is one), a free slug (`slugFromName` of the name, else `-2` … `-9` shortened to fit, never one a stored topic or an entry of `specs/` has, else `conflict`, reason `slug-unavailable`), and that its PLAN.md parses. Then, as the caller: `topic.create` (its discussion is kept), the record, `specs/<slug>/SPEC.md` (the text) and `PLAN.md` (one work item, id `build`, titled with the note's name) through the file service, audit `sticky.build` (`note`, `topicId`, `slug`, `specHash`, `notes`). A step that fails after the topic exists (`record`, `spec`, `plan`) leaves the topic as it is, is audited with outcome `error` and its step, and is refused with the cause's code, `sticky.build.failedAt` and `detail: { reason: 'failed-at', step, topicId }` |
 
 ---
 

@@ -2,10 +2,11 @@
 // its wiki links, the pages without a note, the lock line, and the index in the store; the edit half (D7.5): Edit
 // with the shared editor, "Add a sticky note", "Ask Claude about this sticky note"; and the feedback under a note
 // (D7.8): the box, the list, Withdraw, Accept and Reject, "What Claude gets", the counts, the group of notes that are
-// gone, and the feedback in the store.
+// gone, and the feedback in the store; and "Build this" (D5.3): the dialog's exact text, the confirm, the plan opened,
+// when it waits, and the topics made from the note.
 import { NOTES_MAX, SmurgError, composeFeedback, noteTree, type Feedback, type FeedbackAuthorForAgent, type NoteInfo, type UserRef } from '@smurg/protocol';
 import { msg, renderEnglish } from '@smurg/protocol/i18n';
-import { buildAgentSession } from '@smurg/protocol/testing';
+import { buildAgentSession, buildTopic } from '@smurg/protocol/testing';
 import { act, cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it, vi } from 'vitest';
@@ -1214,5 +1215,199 @@ describe('the feedback in the store (D7.3, D7.8)', () => {
     expect(stores.sticky.feedbackDraft('home')).toBe('typed');
     stores.sticky.setFeedbackDraft('HOME', '');
     expect(stores.sticky.feedbackDraft('Home')).toBe('');
+  });
+});
+
+describe('"Build this" (D5.3): a topic made from the open sticky note, nothing started', () => {
+  const tools = (): HTMLElement => within(note()).getByRole('group', { name: 'What to do with this sticky note' });
+  const buildButton = (): HTMLButtonElement => within(tools()).getByRole('button', { name: 'Build this' }) as HTMLButtonElement;
+  const dialog = (): HTMLElement => screen.getByRole('dialog', { name: 'Build this sticky note' });
+  const HASH = 'c'.repeat(64);
+  const NEW_HASH = 'd'.repeat(64);
+  // Markdown that would render as a heading, emphasis, a link and code if it were rendered: it is shown as written.
+  const SPEC = [
+    'Built from the sticky note "notes/Home.md".',
+    '',
+    '# Welcome',
+    '',
+    'Start at [[Checkout]], **now**. See <b>this</b> and `code`.',
+    '',
+    '## Linked sticky note "notes/Checkout.md"',
+    '',
+    'Pay with [[Payment form]].',
+    '',
+    'Other sticky notes are not part of this spec.',
+    '',
+  ].join('\n');
+
+  async function withSpec(role: 'host' | 'agent', spec: { text: string; hash: string; notes: string[] } = { text: SPEC, hash: HASH, notes: ['Home', 'Checkout'] }) {
+    const view = await shown({ role });
+    const opened: unknown[] = [];
+    view.session.commands.handle('openColumn', (payload) => {
+      opened.push(payload);
+    });
+    view.conn.handle('sticky.spec', () => spec);
+    return { view, opened };
+  }
+
+  it('is there for a member who may start sessions, beside what else they may do with the note; an Editor and a Viewer have none', async () => {
+    for (const role of ['host', 'agent'] as const) {
+      await shown({ role });
+      expect(buildButton().disabled).toBe(false);
+      cleanup();
+    }
+    for (const role of ['editor', 'viewer'] as const) {
+      await shown({ role });
+      expect(within(note()).queryByRole('button', { name: 'Build this' })).toBeNull();
+      cleanup();
+    }
+  });
+
+  it('the dialog shows the exact text of the spec as plain, visible text, never rendered, and says that Start comes next', async () => {
+    const { view } = await withSpec('agent');
+    await userEvent.click(buildButton());
+    await view.settle();
+    expect(view.conn.requestsOf('sticky.spec').map((request) => request.payload)).toEqual([{ note: 'Home' }]);
+    expect(dialog().getAttribute('aria-describedby')).not.toBeNull();
+    expect(within(dialog()).getByText("smurg makes a topic from the text below: the text is the topic's spec, and its plan is one work item. Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work.")).toBeTruthy();
+    expect(within(dialog()).getByText('The text of 2 sticky notes: Home and Checkout.')).toBeTruthy();
+    const text = within(dialog()).getByRole('region', { name: 'The text of the spec' });
+    // Character for character, with nothing rendered: no heading, no emphasis, no link, no code, no element at all.
+    expect(text.textContent).toBe(SPEC);
+    expect((text.querySelector('.md-plain') as HTMLElement).children).toHaveLength(0);
+    for (const role of ['heading', 'link', 'strong', 'code']) expect(within(text).queryByRole(role)).toBeNull();
+    // No character nobody sees: no warning.
+    expect(within(dialog()).queryByText(/characters you cannot see/)).toBeNull();
+    expect(within(dialog()).getByRole('button', { name: 'Make the topic' })).toBeTruthy();
+  });
+
+  it('confirm: one sticky.build with the hash of the text shown, however often it is pressed; then the topic\'s plan opens in the sessions view, and nothing is started', async () => {
+    const { view, opened } = await withSpec('host');
+    await userEvent.click(buildButton());
+    await view.settle();
+    const confirm = within(dialog()).getByRole('button', { name: 'Make the topic' });
+    await userEvent.click(confirm);
+    await userEvent.click(confirm);
+    expect(view.conn.requestsOf('sticky.build').map((request) => request.payload)).toEqual([{ note: 'Home', hash: HASH }]);
+    expect(opened).toEqual([]);
+    await act(async () => {
+      view.conn.respond('sticky.build', { topicId: 'tp_9' });
+    });
+    await view.settle();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(opened).toEqual([{ target: { kind: 'plan', topicId: 'tp_9' } }]);
+    // Start is the topic's own Start dialog: nothing here asks for a Start, a preflight or a session.
+    for (const type of ['plan.start', 'plan.preflight', 'session.create', 'topic.create'] as const) expect(view.conn.requestsOf(type), type).toEqual([]);
+  });
+
+  it('a text with characters nobody sees gets the warning the Start dialog gives', async () => {
+    const { view } = await withSpec('host', { text: `Built from the sticky note "notes/Home.md".\n\nPay​ now.\n\nOther sticky notes are not part of this spec.\n`, hash: HASH, notes: ['Home'] });
+    await userEvent.click(buildButton());
+    await view.settle();
+    expect(within(dialog()).getByText('This text contains characters you cannot see. They go into the spec as they are.')).toBeTruthy();
+    expect(within(dialog()).getByText('The text of 1 sticky note: Home.')).toBeTruthy();
+  });
+
+  it('the note changed after the text was shown: the host\'s words, the new text read again, and a new confirm sends the new hash', async () => {
+    const { view, opened } = await withSpec('host');
+    await userEvent.click(buildButton());
+    await view.settle();
+    view.conn.handle('sticky.spec', () => ({ text: `${SPEC}A new line.\n`, hash: NEW_HASH, notes: ['Home', 'Checkout'] }));
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Make the topic' }));
+    const changed = new SmurgError('conflict', msg('sticky.build.noteChanged'), { reason: 'note-changed' });
+    await act(async () => {
+      view.conn.fail('sticky.build', changed);
+    });
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toContain(`The topic was not made: ${describeError(changed)}`);
+    expect(within(dialog()).getByRole('region', { name: 'The text of the spec' }).textContent).toBe(`${SPEC}A new line.\n`);
+    expect(view.conn.requestsOf('sticky.spec')).toHaveLength(2);
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Make the topic' }));
+    expect(view.conn.requestsOf('sticky.build').map((request) => request.payload.hash)).toEqual([HASH, NEW_HASH]);
+    expect(opened).toEqual([]);
+  });
+
+  it('a step that failed after the topic was made: the host\'s words, and a way to the topic\'s plan (D5.4)', async () => {
+    const { view, opened } = await withSpec('host');
+    await userEvent.click(buildButton());
+    await view.settle();
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Make the topic' }));
+    await act(async () => {
+      view.conn.fail('sticky.build', new SmurgError('insufficient_disk', msg('sticky.build.failedAt', { step: 'spec' }), { reason: 'failed-at', step: 'spec', topicId: 'tp_7' }));
+    });
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toContain('The topic was made and is in the sessions view, but its SPEC.md was not written.');
+    await userEvent.click(within(dialog()).getByRole('button', { name: "Open the topic's plan" }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(opened).toEqual([{ target: { kind: 'plan', topicId: 'tp_7' } }]);
+  });
+
+  it('a text that cannot be read is said with the host\'s words; "Try again" reads it again; nothing can be confirmed meanwhile', async () => {
+    const view = await shown({ role: 'host' });
+    const oversized = new SmurgError('too_large', msg('sticky.spec.oversized', { name: 'Checkout', maxKiB: 64 }), { reason: 'note-oversized' });
+    view.conn.handle('sticky.spec', () => {
+      throw oversized;
+    });
+    await userEvent.click(buildButton());
+    await view.settle();
+    expect(within(dialog()).getByRole('alert').textContent).toBe(`The text could not be read: ${describeError(oversized)}`);
+    expect((within(dialog()).getByRole('button', { name: 'Make the topic' }) as HTMLButtonElement).disabled).toBe(true);
+    view.conn.handle('sticky.spec', () => ({ text: SPEC, hash: HASH, notes: ['Home', 'Checkout'] }));
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Try again' }));
+    await view.settle();
+    expect(within(dialog()).getByRole('region', { name: 'The text of the spec' }).textContent).toBe(SPEC);
+    // Cancel makes nothing.
+    await userEvent.click(within(dialog()).getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(view.conn.requestsOf('sticky.build')).toEqual([]);
+  });
+
+  it('waits while Claude holds the note\'s lock, while a person types in it, and while this page\'s own change is not saved: the button says why', async () => {
+    const view = await shown({ role: 'host' });
+    const file = { root: { kind: 'main' as const }, path: 'notes/Home.md' };
+    const held = (): void => {
+      expect(buildButton().disabled).toBe(true);
+      const reason = document.getElementById(buildButton().getAttribute('aria-describedby') ?? '');
+      expect(reason?.textContent).toBe('Build this waits until every change to this sticky note is saved and Claude is not writing it.');
+    };
+    act(() => view.conn.emit('lock.state', { file, lock: makeAgentLock('notes/Home.md') }));
+    held();
+    act(() => view.conn.emit('lock.state', { file, lock: null }));
+    expect(buildButton().disabled).toBe(false);
+    expect(buildButton().getAttribute('aria-describedby')).toBeNull();
+    act(() => view.conn.emit('lock.state', { file, lock: makeHumanLock('notes/Home.md') }));
+    held();
+    act(() => view.conn.emit('lock.state', { file, lock: null }));
+    // This page types: its change is not on the host's disk until it is saved.
+    await userEvent.click(within(tools()).getByRole('radio', { name: 'Edit' }));
+    await view.settle();
+    await waitFor(() => expect(view.fake.bindings).toHaveLength(1));
+    act(() => view.fake.bindings[0]?.ytext.insert(0, 'Typed here. '));
+    held();
+  });
+
+  it('the topics made from the note are listed in the card, newest first, each a way to its plan; one the page does not know of is left out; everyone sees them', async () => {
+    const built: NoteInfo[] = NOTES.map((info) => (info.name === 'Home' ? { ...info, builds: ['tp_2', 'tp_gone', 'tp_1'] } : info));
+    for (const role of ['host', 'viewer'] as const) {
+      const view = await shown({ role, notes: built });
+      const opened: unknown[] = [];
+      view.session.commands.handle('openColumn', (payload) => {
+        opened.push(payload);
+      });
+      act(() => {
+        view.conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_1', name: 'Home', slug: 'home' }) });
+        view.conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_2', name: 'Home', slug: 'home-2' }) });
+      });
+      const section = within(note()).getByRole('region', { name: 'Topics built from this sticky note' });
+      expect(within(section).getAllByRole('listitem').map((item) => item.textContent)).toEqual(['Homespecs/home-2', 'Homespecs/home']);
+      const first = within(section).getAllByRole('button')[0] as HTMLElement;
+      expect(first.getAttribute('title')).toBe('Open the plan of the topic Home');
+      await userEvent.click(first);
+      expect(opened).toEqual([{ target: { kind: 'plan', topicId: 'tp_2' } }]);
+      cleanup();
+    }
+    // A note nobody built shows no such part.
+    await shown({ role: 'host' });
+    expect(within(note()).queryByRole('region', { name: 'Topics built from this sticky note' })).toBeNull();
   });
 });

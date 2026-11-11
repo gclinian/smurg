@@ -17,6 +17,10 @@
 //     reaches nobody's agent while it waits; the host's page counts it, shows what Claude gets (composeFeedback of the
 //     entry, character for character) and accepts it; the stand-in's turn then changes the note, and every page shows
 //     the change and the feedback decided;
+//   - "Build this" (DESIGN 0.8.0 D5, BUILD-PLAN S7): the host's dialog shows exactly the text the daemon composes as
+//     the host reads it; confirming makes the topic and opens its plan in the sessions view, with one work item and
+//     Start; Start opens the topic's own Start dialog (cancelled here: nothing starts); SPEC.md is that text on disk;
+//     the note names the topic afterwards; the Editor has no "Build this";
 //   - nothing the pages did was an error of the page, the Content Security Policy included.
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -239,6 +243,46 @@ describe.skipIf(chrome === null)('the sticky notes in a real browser (built app,
     await host.locator('.app-topbar__mode').getByRole('link', { name: 'Sticky notes', exact: true }).waitFor({ timeout: STEP_MS });
     // The host's own message to Claude quotes it.
     await claudePane(host).locator('.conv-msg', { hasText: FEEDBACK }).first().waitFor({ timeout: STEP_MS });
+  }, 240_000);
+
+  it('"Build this": the host reads the exact text of the spec and confirms; the topic\'s plan opens with Start, whose own dialog comes next; nothing starts, and the note names its topic', async () => {
+    // Ideas is open in the host's page, its last change saved and nobody's lock on it.
+    await note(host).getByRole('heading', { level: 2, name: 'Ideas' }).waitFor({ timeout: STEP_MS });
+    await waitUntil(async () => (await env.stack.hostClient.conn.request('lock.list', {})).locks.length === 0, STEP_MS, 'no lock on any file');
+    // An Editor may not start sessions: no "Build this" on their page.
+    expect(await note(amy).getByRole('button', { name: 'Build this' }).count()).toBe(0);
+    const button = note(host).getByRole('button', { name: 'Build this' });
+    await expect.poll(() => button.isEnabled(), { timeout: STEP_MS }).toBe(true);
+    await button.click();
+    const dialog = host.getByRole('dialog', { name: 'Build this sticky note' });
+    const text = dialog.getByRole('region', { name: 'The text of the spec' });
+    await text.waitFor({ timeout: STEP_MS });
+    // What the dialog shows is what the daemon composes from what the host reads: the note, decoded, word for word.
+    const spec = await env.stack.hostClient.conn.request('sticky.spec', { note: 'Ideas' });
+    expect(spec.text).toBe(`Built from the sticky note "notes/Ideas.md".\n\n- Gift cards, with gift wrapping\n- A reading list per member\n\nOther sticky notes are not part of this spec.\n`);
+    expect(await text.textContent()).toBe(spec.text);
+    await dialog.getByText(/Nothing starts yet: the topic's plan opens in the sessions view, and Start there starts the work\./).waitFor({ timeout: STEP_MS });
+    await dialog.getByRole('button', { name: 'Make the topic' }).click();
+    await dialog.waitFor({ state: 'detached', timeout: STEP_MS });
+    // The sessions view, with the topic's plan: one work item, named after the note, and Start.
+    await expect.poll(() => host.locator('.app-shell').getAttribute('data-mode'), { timeout: STEP_MS }).toBe('sessions');
+    const plan = host.getByRole('region', { name: 'Plan' });
+    await plan.getByText('1 work item').waitFor({ timeout: STEP_MS });
+    await plan.getByRole('list', { name: 'Work items' }).getByRole('listitem').first().getByText('Ideas').first().waitFor({ timeout: STEP_MS });
+    expect(await readFile(join(env.stack.root, 'specs', 'ideas', 'SPEC.md'), 'utf8')).toBe(spec.text);
+    // Start is the topic's own Start dialog, with its checks: it comes next, and nothing started before it.
+    await plan.getByRole('button', { name: /^Start 1 item$/ }).click();
+    const start = host.getByRole('dialog', { name: /^Start 1 item$/ });
+    await start.getByText(/^1 item starts now: 1 · Ideas\.$/).waitFor({ timeout: STEP_MS });
+    await start.getByRole('button', { name: 'Cancel' }).click();
+    await start.waitFor({ state: 'detached', timeout: STEP_MS });
+    const { sessions } = await env.stack.hostClient.conn.request('session.list', {});
+    expect(sessions.filter((session) => session.kind === 'agent' && session.purpose === 'item')).toEqual([]);
+    // Back in the notes view, the note names the topic made from it.
+    await toMode(host, 'notes');
+    const builds = note(host).getByRole('region', { name: 'Topics built from this sticky note' });
+    await builds.getByRole('button', { name: 'Ideas' }).waitFor({ timeout: STEP_MS });
+    await builds.getByText('specs/ideas').waitFor({ timeout: STEP_MS });
   }, 240_000);
 
   it('nothing the pages did was an error of the page, the Content Security Policy included', () => {

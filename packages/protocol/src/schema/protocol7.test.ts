@@ -4,8 +4,8 @@
 // states, shape by shape, what a peer of protocol 6 meets: the Welcome gained a required key, so this side refuses
 // protocol 6's; a session only gained an enum value, so for it the meaningful direction is the other one: protocol
 // 6's own strict schema (the code of tag v0.7.0, the last published smurg of protocol 6) refuses a session of purpose
-// `notes`; protocol 6 has no message `sticky.*` (its registry knows none of the ten types), no capability
-// `feedback.give` and none of the four audit actions of feedback (DESIGN 0.8.0 D4.1, D4.8).
+// `notes`; protocol 6 has no message `sticky.*` (its registry knows none of the twelve types), no capability
+// `feedback.give`, none of the four audit actions of feedback and no `sticky.build` (DESIGN 0.8.0 D4.1, D4.8, D5.2).
 import { execFile } from 'node:child_process';
 import { cp, mkdtemp, readFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -22,7 +22,7 @@ import { agentSession, homeNote, notesSession, publicSettings } from './message-
 import { MESSAGE_REGISTRY, MESSAGE_TYPES } from './registry.ts';
 import { feedbackSchema, noteBuildSchema, noteInfoSchema, stickyCursorsSchema } from './sticky.ts';
 
-/** The message types protocol 7 added: the index, a new note, Claude for the sticky notes (S2), feedback (S5, D4.4). */
+/** The message types protocol 7 added: the index, a new note, Claude for the sticky notes (S2), feedback (S5, D4.4), Build this (S7, D5). */
 const STICKY_TYPES = [
   'sticky.list',
   'sticky.changed',
@@ -34,9 +34,12 @@ const STICKY_TYPES = [
   'sticky.feedback.reject',
   'sticky.feedback.list',
   'sticky.feedback.updated',
+  'sticky.spec',
+  'sticky.build',
 ] as const;
-/** The audit actions protocol 7 added (D4.8). */
+/** The audit actions protocol 7 added (D4.8): those of feedback, and "Build this" (S7, D5.2). */
 const FEEDBACK_ACTIONS = ['sticky.feedback.create', 'sticky.feedback.accept', 'sticky.feedback.reject', 'sticky.feedback.withdraw'] as const;
+const STICKY_ACTIONS = [...FEEDBACK_ACTIONS, 'sticky.build'] as const;
 
 const run = promisify(execFile);
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
@@ -106,19 +109,20 @@ describe('what a peer of protocol 6 meets, shape by shape (D8.2)', () => {
     const tagRegistry = (await import(join(tree.src, 'schema', 'registry.ts'))) as { isMessageType: (type: string) => boolean };
     for (const type of STICKY_TYPES) expect(tagRegistry.isMessageType(type), type).toBe(false);
     // Feedback (D4.1, D4.8): the tag knows no capability `feedback.give` (its roles refuse it and grant it to no role)
-    // and none of the four audit actions, so an audit line of this smurg's feedback is no line of the tag's.
+    // and none of the four audit actions, so an audit line of this smurg's feedback is no line of the tag's; nor is
+    // one of "Build this" (D5.2).
     const tagRoles = (await import(join(tree.src, 'roles.ts'))) as { capabilitySchema: typeof capabilitySchema; CAPABILITIES: readonly string[]; can: (role: string, capability: string) => boolean };
     expect(tagRoles.CAPABILITIES).not.toContain('feedback.give');
     expect(tagRoles.capabilitySchema.safeParse('feedback.give').success).toBe(false);
     for (const role of ROLES) expect(tagRoles.can(role, 'feedback.give'), role).toBe(false);
     const tagAudit = (await import(join(tree.src, 'schema', 'entities.ts'))) as { auditActionSchema: typeof auditActionSchema };
-    for (const action of FEEDBACK_ACTIONS) expect(tagAudit.auditActionSchema.safeParse(action).success, action).toBe(false);
+    for (const action of STICKY_ACTIONS) expect(tagAudit.auditActionSchema.safeParse(action).success, action).toBe(false);
     expect(tagAudit.auditActionSchema.safeParse('suggest.accept').success).toBe(true);
   });
 });
 
 describe('the messages of the sticky notes (D2.4, D2.5, D3.5, D4.4)', () => {
-  it('are exactly ten, under the one prefix `sticky`', () => {
+  it('are exactly twelve, under the one prefix `sticky`', () => {
     expect(MESSAGE_TYPES.filter((type) => type.startsWith('sticky.'))).toEqual([...STICKY_TYPES]);
   });
 
@@ -128,9 +132,22 @@ describe('the messages of the sticky notes (D2.4, D2.5, D3.5, D4.4)', () => {
     expect(MESSAGE_REGISTRY['sticky.changed'].checks).toEqual(['recipients:all']);
     expect(MESSAGE_REGISTRY['sticky.create'].capability).toBe('file.write');
     expect(MESSAGE_REGISTRY['sticky.assistant.start'].capability).toBe('session.create');
-    // Nothing of a note's content is on the wire: no type of the ten is sensitive (feedback is like a suggestion: its
-    // text is redacted from the logs, not withheld from members).
-    for (const type of STICKY_TYPES) expect(MESSAGE_REGISTRY[type].sensitive || MESSAGE_REGISTRY[type].resultSensitive, type).toBe(false);
+    // Nothing of a note's content is on the wire but what "Build this" shows: no other type is sensitive (feedback is
+    // like a suggestion: its text is redacted from the logs, not withheld from members). The text of `sticky.spec` is
+    // the notes' text, read as the caller: its result is never logged, as file.read's is not (D5.1).
+    for (const type of STICKY_TYPES) expect(MESSAGE_REGISTRY[type].sensitive || MESSAGE_REGISTRY[type].resultSensitive, type).toBe(type === 'sticky.spec');
+    expect(MESSAGE_REGISTRY['sticky.spec'].resultSensitive).toBe(true);
+    expect(MESSAGE_REGISTRY['sticky.spec'].sensitive).toBe(false);
+  });
+
+  it('"Build this" is for a member who may start sessions; the build names the text it confirms by its hash, and says nothing else (D5.1, D5.2)', () => {
+    for (const type of ['sticky.spec', 'sticky.build'] as const) expect(MESSAGE_REGISTRY[type].capability, type).toBe('session.create');
+    expect(MESSAGE_REGISTRY['sticky.build'].payload.safeParse({ note: 'Checkout', hash: 'a'.repeat(64) }).success).toBe(true);
+    // The daemon composes the text again: a caller gives no text, no slug, no plan.
+    for (const extra of [{ text: 'Build a rocket.' }, { slug: 'checkout' }, { plan: '### 1. Rocket' }, { start: true }]) {
+      expect(MESSAGE_REGISTRY['sticky.build'].payload.safeParse({ note: 'Checkout', hash: 'a'.repeat(64), ...extra }).success, JSON.stringify(extra)).toBe(false);
+    }
+    for (const action of STICKY_ACTIONS) expect(AUDIT_ACTIONS, action).toContain(action);
   });
 
   it('every member gives feedback, a Viewer too; it is decided with session.drive; its author withdraws it; everyone reads it (D4.1, D4.4)', () => {

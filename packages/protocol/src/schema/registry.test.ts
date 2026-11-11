@@ -213,6 +213,9 @@ const ARCH_CATALOG: readonly (readonly [string, ArchDir, string])[] = [
   ['sticky.feedback.reject', 'c→d', '[session.drive]'],
   ['sticky.feedback.list', 'c→d', '[file.read]'],
   ['sticky.feedback.updated', 'd→c', ''],
+  // §5.12, Build this (DESIGN 0.8.0 D5)
+  ['sticky.spec', 'c→d', '[session.create]'],
+  ['sticky.build', 'c→d', '[session.create]'],
 ];
 
 function expectedAccess(dir: ArchDir, notation: string): MessageAccess {
@@ -329,6 +332,10 @@ describe('required capability matches ARCHITECTURE', () => {
     for (const type of ['sticky.feedback.accept', 'sticky.feedback.reject'] as const) expect(MESSAGE_REGISTRY[type].checks, type).toEqual(['feedback-waiting']);
     expect(MESSAGE_REGISTRY['sticky.feedback.create'].checks).toEqual([]);
     expect(MESSAGE_REGISTRY['sticky.feedback.updated'].checks).toEqual(['recipients:all']);
+    // Protocol 7 (DESIGN 0.8.0 D5): "Build this" reads the notes as the caller, and writes the topic's two files as the
+    // caller through the file service.
+    expect(MESSAGE_REGISTRY['sticky.spec'].checks).toEqual(['path-guard']);
+    expect(MESSAGE_REGISTRY['sticky.build'].checks).toEqual(['path-guard', 'host-only-paths']);
   });
 
   it('events name their recipients; c2d types do not', () => {
@@ -467,6 +474,8 @@ describe('sensitivity', () => {
     'worktree.merge.fileDiff',
     'admin.invite.create',
     'admin.claudeConfig.get',
+    // protocol 7 (DESIGN 0.8.0 D5.1): the text "Build this" shows carries the sticky notes' text, as file.read's does
+    'sticky.spec',
   ];
 
   it('flags exactly the payloads that carry contents, keys or secrets', () => {
@@ -487,7 +496,7 @@ describe('sensitivity', () => {
       'sk-ant-api03-abc', '#k=abc&s=def', 'diff --git', 'amy()', 'agent()', 'base()',
       // conversations: a person's message, a command, an edit's diff, a note, a suggestion, a report section, a raw settings file
       // (protocol 7: feedback on a sticky note, a reason not to take it, an outside author's name)
-      'Add a dark mode please', 'coupon field is hard', 'Mei Chen', 'Not now',
+      'Add a dark mode please', 'coupon field is hard', 'Mei Chen', 'Not now', 'Coupons are checked at the till',
       'Where should the cart live?', 'pnpm test cart', '+++ b/docs/x.md', 'Amy asked for the server', 'Both, behind a flag', 'Run the unit tests only',
       'please run the tests', 'Make the scope smaller', 'does not check stock yet', '"hooks"', '/Users/ian/notes.txt',
       // the diff of the spec since the last Start
@@ -603,6 +612,11 @@ describe('wire types and router checks', () => {
     // member with agent access accepts or rejects it (DESIGN 0.8.0 D4.1, D4.4).
     for (const role of ROLES) for (const type of ['sticky.feedback.create', 'sticky.feedback.withdraw', 'sticky.feedback.list']) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
     for (const type of ['sticky.feedback.accept', 'sticky.feedback.reject']) {
+      for (const role of ['host', 'agent'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
+      for (const role of ['editor', 'viewer'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(false);
+    }
+    // "Build this" makes a topic, so it is for a member who may start sessions, as `topic.create` is (D5).
+    for (const type of ['sticky.spec', 'sticky.build']) {
       for (const role of ['host', 'agent'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(true);
       for (const role of ['editor', 'viewer'] as const) expect(mayInvoke(role, type), `${role} ${type}`).toBe(false);
     }

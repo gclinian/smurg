@@ -555,3 +555,20 @@ describe('host console: feedback on sticky notes in the audit log (protocol 7, D
     ]);
   });
 });
+
+describe('host console: "Build this" in the audit log (protocol 7, DESIGN 0.8.0 D5.2)', () => {
+  it('the action has its name, and an entry shows the sticky note, the topic and the notes whose text went into the spec; a step that failed is named', () => {
+    expect(auditActionLabel('sticky.build')).toBe('Made a topic from a sticky note (Build this)');
+    const base = { id: 'au_b', at: 1_731_300_000_000, target: 'tp_9', actor: { kind: 'user', userId: 'dev:mei', displayName: 'Mei' }, action: 'sticky.build' } as const;
+    const detail = { note: 'Checkout', topicId: 'tp_9', slug: 'checkout-2', specHash: 'c'.repeat(64), notes: ['Checkout', 'Payment form'] };
+    expect(auditDetailRows({ ...base, outcome: 'ok', detail }).map((row) => [row.label, row.value])).toEqual([
+      ['Sticky note', 'Checkout'],
+      ['topicId', 'tp_9'],
+      ['slug', 'checkout-2'],
+      ['specHash', 'c'.repeat(64)],
+      ['Sticky notes in the spec', 'Checkout, Payment form'],
+    ]);
+    const failed = auditDetailRows({ ...base, outcome: 'error', detail: { ...detail, step: 'spec', reason: 'insufficient_disk' } });
+    expect(failed.find((row) => row.key === 'step')).toMatchObject({ label: 'Step that failed', value: 'spec' });
+  });
+});

@@ -6,21 +6,25 @@
 //
 // Above the text, for a member who may write: Read / Edit (the shared editor of that one note, NoteEdit.tsx) and
 // "Add a sticky note" (AddNote.tsx, only while the note takes a change); for a member with a box in Claude's
-// conversation, "Ask Claude about this sticky note" (the notes view puts the link into that box, D7.7). A Viewer
-// reads, and has none of them. Under the note, for everyone: its feedback and the box "Give feedback" (Feedback.tsx,
-// D7.8).
+// conversation, "Ask Claude about this sticky note" (the notes view puts the link into that box, D7.7); for a member
+// who may start sessions, "Build this" (BuildDialog.tsx, D5.3), held while Claude writes the note or a change to it is
+// not saved yet (the daemon reads the file on disk), and the topics already made from the note, each a way to its plan
+// (D2.4 `builds`). A Viewer reads, and has none of them. Under the note, for everyone: its feedback and the box "Give
+// feedback" (Feedback.tsx, D7.8).
 import { NOTES_HOME, fileRefKey, type NoteInfo } from '@smurg/protocol';
 import { useEffect, useId, useMemo, useState } from 'react';
 import { useAppServices } from '../../app/services.tsx';
 import { routePath } from '../../lib/router.ts';
 import { useStore } from '../../lib/store.ts';
 import { selectNote, type StickyState } from '../../lib/stores/sticky.ts';
-import { useCan, useStores, useWorkspaceSession } from '../../lib/workspace/context.tsx';
+import { selectTopic } from '../../lib/stores/topics.ts';
+import { useCan, useCommand, useStores, useWorkspaceSession } from '../../lib/workspace/context.tsx';
 import { Button, Segmented, Spinner } from '../../ui/index.ts';
-import { IconAgent, IconComment, IconEdit, IconEye } from '../../ui/icons.tsx';
-import { useDocumentText, useHeldDocument, useHeldDocumentWritable } from '../editor/standalone.tsx';
+import { IconAgent, IconComment, IconEdit, IconEye, IconPlan } from '../../ui/icons.tsx';
+import { useDocumentText, useHeldDocument, useHeldDocumentWritable, type HeldDocument } from '../editor/standalone.tsx';
 import { Markdown, type MarkdownWikiLinks } from '../markdown/index.ts';
 import { AddNote } from './AddNote.tsx';
+import { BuildDialog } from './BuildDialog.tsx';
 import { NoteFeedback } from './Feedback.tsx';
 import { HOME_KEY, findWikiLinks, noteFile, noteKey } from './model.ts';
 import { NoteEdit } from './NoteEdit.tsx';
@@ -121,17 +125,67 @@ export function OpenNote({ note, shown, onAskClaude }: OpenNoteProps) {
 
 type View = 'read' | 'edit';
 
+const NO_SESSION = { getState: (): { readonly pendingSave: boolean } | undefined => undefined, subscribe: () => () => {} };
+
+/**
+ * Whether "Build this" waits (D5.3 in the plan's words: held while the note is agent-locked or has an unsaved change):
+ * Claude holds the note's lock, a person's typing holds it (their change is not on the host's disk yet), or this
+ * page's own change is not saved. The daemon builds from the file on disk, so the text shown would not be the text
+ * typed.
+ */
+function useBuildHeld(held: HeldDocument | null, lockKey: string): boolean {
+  const stores = useStores();
+  const locked = useStore(stores.locks, (state) => state.locks.get(lockKey) !== undefined);
+  const unsaved = useStore(held?.session ?? NO_SESSION, (state) => state?.pendingSave === true);
+  return locked || unsaved;
+}
+
+/** The topics made from this note that the page knows of (D2.4), newest first, each a way to its plan. */
+function NoteBuilds({ builds }: { builds: readonly string[] }) {
+  const stores = useStores();
+  const openColumn = useCommand('openColumn');
+  const titleId = useId();
+  const topics = useStore(stores.topics, (state) => state);
+  const known = builds.flatMap((topicId) => {
+    const topic = selectTopic(topics, topicId);
+    return topic === undefined ? [] : [topic];
+  });
+  if (known.length === 0) return null;
+  return (
+    <section className="sticky-card__builds" aria-labelledby={titleId}>
+      <h3 id={titleId} className="sticky-card__builds-title">
+        {t('builds.title')}
+      </h3>
+      <ul className="sticky-card__builds-list">
+        {known.map((topic) => (
+          <li key={topic.id}>
+            <IconPlan size={14} />
+            <button type="button" className="sticky-card__topic" title={t('builds.open', { name: topic.name })} onClick={() => void openColumn({ target: { kind: 'plan', topicId: topic.id } })}>
+              {topic.name}
+            </button>
+            <span className="sticky-card__builds-folder">{`specs/${topic.slug}`}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /** A sticky note the index lists, read: its text as Markdown with its links, live as people and Claude write it. */
 export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: (name: string) => void }) {
   const stores = useStores();
   const headingId = useId();
   const canWrite = useCan('file.write');
+  const canBuild = useCan('session.create');
   const file = useMemo(() => noteFile(note.name), [note.name]);
   // A file the index could not read as a member without rights is not asked for (D2.2).
   const held = useHeldDocument(note.unreadable === true ? null : file);
   const text = useDocumentText(held?.session);
   const writable = useHeldDocumentWritable(held);
   const agentWriting = useStore(stores.locks, (state) => state.locks.get(fileRefKey(file))?.kind === 'agent');
+  const buildHeld = useBuildHeld(held, fileRefKey(file));
+  const [building, setBuilding] = useState(false);
+  const heldId = useId();
   const wikiLinks = useWikiLinks();
   const [view, setView] = useState<View>('read');
   const [edited, setEdited] = useState(false);
@@ -164,8 +218,9 @@ export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: 
   } else if (text.trim() === '') body = <p className="sticky-card__quiet">{t('note.empty')}</p>;
   else body = <Markdown text={text} headingBase={3} wikiLinks={wikiLinks} className="sticky-card__text" />;
 
+  const buildable = canBuild && held !== null;
   const tools =
-    (canWrite && held !== null) || onAskClaude !== undefined ? (
+    (canWrite && held !== null) || onAskClaude !== undefined || buildable ? (
       <div className="sticky-card__tools" role="group" aria-label={t('note.actions')}>
         {canWrite && held !== null ? (
           <Segmented<View>
@@ -185,6 +240,11 @@ export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: 
             {t('note.ask')}
           </Button>
         ) : null}
+        {buildable ? (
+          <Button size="sm" icon={<IconPlan size={14} />} disabled={buildHeld} aria-describedby={buildHeld ? heldId : undefined} onClick={() => setBuilding(true)}>
+            {t('build.button')}
+          </Button>
+        ) : null}
       </div>
     ) : null;
 
@@ -195,6 +255,12 @@ export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: 
           {note.name}
         </h2>
         {tools}
+        {buildable && buildHeld ? (
+          <p id={heldId} className="sticky-card__held">
+            {t('build.held')}
+          </p>
+        ) : null}
+        {note.builds !== undefined && note.builds.length > 0 ? <NoteBuilds builds={note.builds} /> : null}
         {agentWriting ? (
           <p className="sticky-card__lock" role="status">
             <IconAgent size={14} />
@@ -212,6 +278,7 @@ export function NoteRead({ note, onAskClaude }: { note: NoteInfo; onAskClaude?: 
         ) : null}
       </div>
       {note.oversized === true ? <p className="sticky-page__aside">{t('note.oversized')}</p> : null}
+      {buildable ? <BuildDialog note={note.name} open={building} onClose={() => setBuilding(false)} /> : null}
       <NoteFeedback note={note.name} box />
     </article>
   );

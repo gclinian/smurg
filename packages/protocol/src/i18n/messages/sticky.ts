@@ -31,6 +31,28 @@ const RULES: Readonly<Record<NoteNameRule, { readonly en: string; readonly 'zh-T
   },
 };
 
+/**
+ * The steps of "Build this" that come after the topic exists (`sticky.build.failedAt`'s `step`, D5.4): the record of
+ * the build on the sticky note, the topic's SPEC.md, its PLAN.md. A step that fails leaves the topic as it is.
+ */
+export const BUILD_STEPS = ['record', 'spec', 'plan'] as const;
+export type BuildStep = (typeof BUILD_STEPS)[number];
+
+const BUILD_STEP_TEXTS: Readonly<Record<BuildStep, { readonly en: string; readonly 'zh-TW': string }>> = {
+  record: {
+    en: 'The topic was made and is in the sessions view, but smurg could not record on the sticky note that it was built from it.',
+    'zh-TW': '主題已經建立，可以在 session 畫面找到，但 smurg 沒有在便利貼上記下這個主題是從它建立的',
+  },
+  spec: {
+    en: 'The topic was made and is in the sessions view, but its SPEC.md was not written.',
+    'zh-TW': '主題已經建立，可以在 session 畫面找到，但它的 SPEC.md 沒有寫入',
+  },
+  plan: {
+    en: 'The topic was made and is in the sessions view, with its SPEC.md, but its PLAN.md was not written.',
+    'zh-TW': '主題已經建立，可以在 session 畫面找到，SPEC.md 也寫好了，但它的 PLAN.md 沒有寫入',
+  },
+};
+
 export const sticky = {
   'sticky.name.invalid': message({ rule: 'string' }, {
     en: (p) => {
@@ -89,5 +111,31 @@ export const sticky = {
   'sticky.feedback.noAssistant': message({}, {
     en: () => 'Claude for the sticky notes is not running. Start it first: accepted feedback goes to it.',
     'zh-TW': () => '便利貼的 Claude 沒有在執行。請先啟動它：採用的意見會交給它',
+  }),
+
+  // ---- Build this (D5) ------------------------------------------------------------------------------------------
+  'sticky.spec.oversized': message({ name: 'string', maxKiB: 'number' }, {
+    en: (p) => `The sticky note ${p.name} is larger than ${p.maxKiB} KiB, so it cannot go into a spec.`,
+    'zh-TW': (p) => `便利貼「${p.name}」超過 ${p.maxKiB} KiB，所以不能放進 spec`,
+  }),
+  'sticky.spec.unreadable': message({ name: 'string' }, {
+    en: (p) => `smurg could not read the sticky note ${p.name} for you, so it cannot go into a spec.`,
+    'zh-TW': (p) => `smurg 無法替你讀取便利貼「${p.name}」，所以它不能放進 spec`,
+  }),
+  'sticky.spec.tooLarge': message({ maxKiB: 'number' }, {
+    en: (p) => `This sticky note and the sticky notes it links to are larger than ${p.maxKiB} KiB together, too much for one spec. Make them shorter, or link fewer of them.`,
+    'zh-TW': (p) => `這張便利貼和它連到的便利貼加起來超過 ${p.maxKiB} KiB，一份 spec 放不下。請把它們寫短一點，或少連幾張`,
+  }),
+  'sticky.build.noteChanged': message({}, {
+    en: () => 'This sticky note or a sticky note it links to changed after the text was shown. Read the new text, then confirm again.',
+    'zh-TW': () => '顯示這段文字之後，這張便利貼或它連到的便利貼改了。請看新的文字，再確認一次',
+  }),
+  'sticky.build.slugUnavailable': message({ slug: 'string' }, {
+    en: (p) => `smurg found no free folder for the topic: specs/${p.slug} and the numbered ones up to specs/${p.slug}-9 are all taken.`,
+    'zh-TW': (p) => `smurg 找不到可以給這個主題用的資料夾：specs/${p.slug} 和編號到 specs/${p.slug}-9 的資料夾都已經被用掉了`,
+  }),
+  'sticky.build.failedAt': message({ step: 'string' }, {
+    en: (p) => BUILD_STEP_TEXTS[p.step as BuildStep]?.en ?? 'The topic was made and is in the sessions view, but a later step did not go through.',
+    'zh-TW': (p) => BUILD_STEP_TEXTS[p.step as BuildStep]?.['zh-TW'] ?? '主題已經建立，可以在 session 畫面找到，但後面的步驟沒有完成',
   }),
 } as const;

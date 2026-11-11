@@ -932,6 +932,8 @@ export const AUDIT_ACTIONS = [
   'sticky.feedback.accept',
   'sticky.feedback.reject',
   'sticky.feedback.withdraw',
+  // protocol 7 (DESIGN 0.8.0 D4.8, D5.2): "Build this", a topic made from a sticky note (nothing started)
+  'sticky.build',
   'member.role',
   'member.kick',
   'member.leave',

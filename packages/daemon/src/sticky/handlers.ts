@@ -1,4 +1,4 @@
-// sticky.* handlers (ARCHITECTURE §5.12, DESIGN 0.8.0 D2.4, D2.5, D3.5, D4.4; registry checks in brackets). Every
+// sticky.* handlers (ARCHITECTURE §5.12, DESIGN 0.8.0 D2.4, D2.5, D3.5, D4.4, D5; registry checks in brackets). Every
 // capability is the router's, checked against the caller's CURRENT role before the handler runs.
 import type { Router } from '../core/interfaces.ts';
 import { DisposableStack, type Disposable } from '../core/lifecycle.ts';
@@ -31,5 +31,10 @@ export function registerStickyHandlers(router: Router, service: StickyServiceImp
   stack.add(router.handle('sticky.feedback.reject', async (payload, req) => ({ feedback: await service.feedback.reject(payload, req.principal) })));
   // [file.read]: one list-rule page of every feedback kept.
   stack.add(router.handle('sticky.feedback.list', (payload) => service.feedback.list(payload)));
+
+  // Build this (D5). [session.create] path-guard: the note and the notes it links to, read as the caller.
+  stack.add(router.handle('sticky.spec', (payload, req) => service.builder.spec(payload, req.principal)));
+  // [session.create] path-guard, host-only-paths: the topic and its two files, as the caller; it starts nothing.
+  stack.add(router.handle('sticky.build', (payload, req) => service.builder.build(payload, req.principal)));
   return stack;
 }

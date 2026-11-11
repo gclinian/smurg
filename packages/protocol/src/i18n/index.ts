@@ -52,7 +52,7 @@ export { formatBytes } from './format.ts';
 export { CONFLICT_RECOVERY_REASONS, FILE_CHANGES, type ConflictRecoveryReason, type FileChange } from './messages/activity.ts';
 export { ADMIN_CHANGES, type AdminChange } from './messages/errors.ts';
 export { GIT_STEPS, type GitStep } from './messages/worktrees.ts';
-export { NOTE_NAME_RULES, type NoteNameRule } from './messages/sticky.ts';
+export { BUILD_STEPS, NOTE_NAME_RULES, type BuildStep, type NoteNameRule } from './messages/sticky.ts';
 
 /** The message files, by area (tests: no id is defined in two files). */
 export const MESSAGE_GROUPS = { errors, files, sessions, conversation, topics, inbox, worktrees, activity, notify, client, roles, sticky } as const;

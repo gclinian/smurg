@@ -369,6 +369,9 @@ export const t = defineStrings(
     'audit.detail.feedbackRejected': 'Rejected',
     'audit.detail.feedbackWithdrawn': 'Withdrawn',
     'audit.detail.feedbackRejectReason': 'Reject reason',
+    // "Build this" (0.8.0, DESIGN 0.8.0 D5.2): the sticky notes whose text went into the spec, and the step that failed
+    'audit.detail.notes': 'Sticky notes in the spec',
+    'audit.detail.step': 'Step that failed',
     'audit.outcome.ok': 'OK',
     'audit.outcome.denied': 'Denied',
     'audit.outcome.error': 'Error',
@@ -469,6 +472,7 @@ export const t = defineStrings(
     'audit.action.sticky.feedback.accept': 'Accepted feedback on a sticky note',
     'audit.action.sticky.feedback.reject': 'Rejected feedback on a sticky note',
     'audit.action.sticky.feedback.withdraw': 'Withdrew feedback on a sticky note',
+    'audit.action.sticky.build': 'Made a topic from a sticky note (Build this)',
     'audit.action.member.role': 'Changed a role',
     'audit.action.member.kick': 'Removed a member',
     'audit.action.member.leave': 'Member left',

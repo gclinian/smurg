@@ -1,9 +1,11 @@
 // The sticky notes in Traditional Chinese (DESIGN 0.8.0 D7): the list's words, the open note's, the pages without a
 // note, what a member does with the open note (Read / Edit, Add a sticky note, Ask Claude), and the feedback under it
 // (D7.8: the box, Accept and Reject, Withdraw, "What Claude gets", "Show N earlier", the counts, the group of notes
-// that are gone). A note's name is a file's name and is never translated: `Home` is Home in both languages (D1.1).
+// that are gone), and "Build this" (D5.3). A note's name is a file's name and is never translated: `Home` is Home in
+// both languages (D1.1).
 import { SmurgError, type Feedback } from '@smurg/protocol';
 import { msg } from '@smurg/protocol/i18n';
+import { buildTopic } from '@smurg/protocol/testing';
 import { act, cleanup, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -194,5 +196,53 @@ describe('the sticky notes in zh-TW', () => {
     const entry = within(note()).getByRole('region', { name: '意見' }).querySelector(':scope > ul > li') as HTMLElement;
     expect([...entry.querySelectorAll('.sticky-fb__note')].map((line) => line.textContent)).toEqual(['這則訊息比較長：只保留了開頭。', '已移除看不見的字元。']);
     expect(entry.querySelector('.sticky-fb__source')?.textContent).toBe('來自 Slack');
+  });
+});
+
+describe('"Build this" in zh-TW (D5.3)', () => {
+  it('the button, the dialog (what it does, the notes, the warning, the text, the confirm), why it waits, and the topics made from the note', async () => {
+    const view = await shown({ role: 'host', notes: [{ name: 'Home', links: ['Checkout'], builds: ['tp_1'] }, { name: 'Checkout', links: [] }] });
+    act(() => view.conn.emit('topic.updated', { topic: buildTopic({ id: 'tp_1', name: 'Home', slug: 'home' }) }));
+    const section = within(note()).getByRole('region', { name: '從這張便利貼建立的主題' });
+    expect(within(section).getByRole('button', { name: 'Home' }).getAttribute('title')).toBe('打開主題「Home」的計畫');
+    const tools = within(note()).getByRole('group', { name: '這張便利貼可以做的事' });
+    view.conn.handle('sticky.spec', () => ({ text: 'Built from the sticky note "notes/Home.md".\n\n付\u200b款\n\nOther sticky notes are not part of this spec.\n', hash: 'c'.repeat(64), notes: ['Home', 'Checkout'] }));
+    await userEvent.click(within(tools).getByRole('button', { name: '把它做出來' }));
+    await view.settle();
+    const dialog = screen.getByRole('dialog', { name: '把這張便利貼做出來' });
+    expect(within(dialog).getByText('smurg 會用下面這段文字建立一個主題：這段文字就是主題的 spec，計畫只有一個工作項目。現在還不會開始：主題的計畫會在 session 畫面打開，在那裡按「開始」才會開始工作。')).toBeTruthy();
+    expect(within(dialog).getByText('2 張便利貼的文字：Home 和 Checkout。')).toBeTruthy();
+    expect(within(dialog).getByText('這段文字裡有你看不到的字元，它們會原樣放進 spec。')).toBeTruthy();
+    expect(within(dialog).getByRole('region', { name: 'spec 的文字' })).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: '建立主題' })).toBeTruthy();
+    await userEvent.click(within(dialog).getByRole('button', { name: '取消' }));
+    // Claude holds the note's lock: the button waits, and says why.
+    act(() => view.conn.emit('lock.state', { file: { root: { kind: 'main' }, path: 'notes/Home.md' }, lock: makeAgentLock('notes/Home.md') }));
+    const button = within(tools).getByRole('button', { name: '把它做出來' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    expect(document.getElementById(button.getAttribute('aria-describedby') ?? '')?.textContent).toBe('要等這張便利貼的修改都存好、Claude 也沒有在寫它，才能把它做出來。');
+  });
+
+  it('a refusal in the host\'s words: the topic was not made, or it was and a later step did not go through', async () => {
+    const view = await shown({ role: 'agent' });
+    view.conn.handle('sticky.spec', () => ({ text: 'x\n', hash: 'c'.repeat(64), notes: ['Home'] }));
+    await userEvent.click(within(note()).getByRole('button', { name: '把它做出來' }));
+    await view.settle();
+    const dialog = screen.getByRole('dialog', { name: '把這張便利貼做出來' });
+    await userEvent.click(within(dialog).getByRole('button', { name: '建立主題' }));
+    const changed = new SmurgError('conflict', msg('sticky.build.noteChanged'), { reason: 'note-changed' });
+    await act(async () => {
+      view.conn.fail('sticky.build', changed);
+    });
+    await view.settle();
+    expect(within(dialog).getByRole('alert').textContent).toBe(`沒有建立主題：${describeError(changed)}`);
+    expect(describeError(changed)).toContain('請看新的文字，再確認一次');
+    await userEvent.click(within(dialog).getByRole('button', { name: '建立主題' }));
+    await act(async () => {
+      view.conn.fail('sticky.build', new SmurgError('internal', msg('sticky.build.failedAt', { step: 'plan' }), { reason: 'failed-at', step: 'plan', topicId: 'tp_3' }));
+    });
+    await view.settle();
+    expect(within(dialog).getByRole('alert').textContent).toContain('主題已經建立，可以在 session 畫面找到，SPEC.md 也寫好了，但它的 PLAN.md 沒有寫入');
+    expect(within(dialog).getByRole('button', { name: '打開主題的計畫' })).toBeTruthy();
   });
 });
