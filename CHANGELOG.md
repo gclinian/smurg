@@ -5,6 +5,34 @@ Every released version's changes are recorded here (the format follows
 [Semantic Versioning](https://semver.org/)). A version's section is also its release notes; a version without a
 section is not released. This changelog in [繁體中文](docs/zh-TW/CHANGELOG.md).
 
+## [Unreleased]
+
+- **Sticky notes, a third view.** "Sticky notes" in the top bar, beside the sessions view and code mode: small
+  Markdown notes in `notes/` of the shared folder that link to each other with `[[Name]]` and grow from one first
+  note, `Home`. People edit a note together in place, add a note linked from the open one, and follow a link to a
+  note that is not written yet to write it ([guide for teammates](docs/JOINING.md) §11).
+- **Claude for the sticky notes**, on the right of the view: one agent session per workspace, started by a member
+  with agent access, that reads the project and writes only sticky notes. It runs no command, and smurg's own gate
+  holds it to that. "Ask Claude about this sticky note" puts the note's link into the message.
+- **Feedback from everyone, a Viewer too.** Anyone gives feedback under a sticky note. It reaches no agent until a
+  member with agent access accepts it, exactly as shown ("What Claude gets"); then it goes once to Claude for the
+  sticky notes as that member's own message. Rejecting and withdrawing send nothing, and a member who leaves or is
+  removed takes their waiting feedback with them. Members with agent access see how much waits on the
+  "Sticky notes" link and in the list of notes.
+- **"Build this"** makes a topic from a sticky note: its spec is the exact text of the note and the notes it links
+  to, shown before the topic is made, and its plan is one work item. Its discussion starts as every topic's does; the
+  work starts only with Start in the topic's own Start dialog, and its item then merges by itself like any other.
+- **Slack and Discord.** The host connects one Slack and one Discord channel per shared folder (`smurg connect`,
+  `smurg disconnect`). The host's computer reads their new messages once a minute over HTTPS, the relay never sees
+  them, and a person's message becomes feedback from someone who is not a member, waiting like any other. The bot
+  token stays in `~/.smurg/connectors.json` ([host guide](docs/HOSTING.md) §11).
+- **The relay sees one name of the project**: a page loaded at a sticky note's address (a reload, a link someone
+  sent) names that note in what it asks the relay for. Nothing else of a note leaves the encryption
+  ([`SECURITY.md`](SECURITY.md)).
+- **The protocol changed (version 7)**, and so did what smurg stores in a workspace. Update before you share again
+  (`smurg update`); a page and a host of different versions refuse each other, as before. A folder this version
+  opened cannot be opened by 0.7.0 again.
+
 ## [0.7.0] - 2026-10-29
 
 - **Topics run to the end by themselves.** After Start, smurg merges each work item into the shared folder when its

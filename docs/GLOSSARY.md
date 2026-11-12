@@ -198,6 +198,11 @@ A sticky note's name is its file's name without `.md`, written by a person: it i
 of a file (`Home` reads Home in the zh-TW notes view too). What Claude for the sticky notes may do is said in its own
 words, never in the discussion's: it reads the project and writes only sticky notes.
 
+Not part of 0.8.0, and so without words yet: renaming or deleting a sticky note from the notes view (code mode's file
+tree does both, and the list follows the files), a link with words of its own (`[[Name|label]]`), an inbox item for
+waiting feedback (the counts on the "Sticky notes" link and on the rows show it), editing feedback before it is
+accepted, and replies in Slack or Discord threads. A guide that names one of these says that it is not built.
+
 ## Language-neutral names
 
 Names that are stored and shown to everyone have ONE spelling and are never translated.

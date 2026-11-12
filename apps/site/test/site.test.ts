@@ -177,7 +177,9 @@ describe('the built site', () => {
       // §11 says how the host connects a Slack and a Discord channel, what is read and stored where, the budgets, the
       // state the notes view shows and the smallest permissions of each bot (DESIGN 0.8.0 D6.2), and what is not taken
       // (S8's check); it adds 3.9 KB to the built page (196,812 bytes without it, 200,775 with it, measured with the
-      // site's own build): both bounds rose by 4 KB, to 200 KB, and 238 KB with what the page loads.
+      // site's own build): both bounds rose by 4 KB, to 200 KB, and 238 KB with what the page loads. The sentences the
+      // rest of 0.8.0 adds to the guide (what a Viewer does, what reaches an agent, a topic made by "Build this",
+      // Claude for the sticky notes passing to the host, what was verified) bring it to 203,072 bytes: within both.
       expect(size(path), `${path} itself`).toBeLessThan(200 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
       expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(238 * 1024);
@@ -1397,9 +1399,15 @@ describe('the generated pages', () => {
         // grow by (DESIGN 0.6.0 D20): what decides which commands run, now that agents run in auto mode by default.
         // 0.7.0 raised it once more by the sentence each had to gain (DESIGN 0.7.0 D21): how it works says that the
         // team checks the result at the end and the host can undo, the security model that a work item's change
-        // reaches the host's folder unread unless automatic merging is off (about 30 words, 60 characters).
-        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(520);
-        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1300);
+        // reaches the host's folder unread unless automatic merging is off (about 30 words, 60 characters). 0.8.0 raised
+        // it by the three sentences the security model had to gain: the two DESIGN 0.8.0's Security asks for (a Viewer
+        // gives feedback, which reaches Claude only once a member with agent access accepts it; a sticky note made a
+        // topic with "Build this" merges by itself once one member with agent access confirmed its spec at Start), and
+        // the one the build made true (the relay sees the name of a sticky note whose address a page is loaded at,
+        // ARCHITECTURE §11 D-5): 59 words and 130 characters, the English page 577 words, the Chinese 1,422 characters.
+        // How it works gained two clauses: what the relay sees, and that Viewers give feedback on sticky notes.
+        if (lang === 'en') expect(all.split(' ').length, `${where}: words`).toBeLessThanOrEqual(580);
+        else expect([...all].length, `${where}: characters`).toBeLessThanOrEqual(1430);
         const lists = inMain.filter((el) => el.tag === 'ol' || el.tag === 'ul');
         shape[lang] = [inMain.filter((el) => /^h[1-6]$|^ol$|^ul$|^blockquote$|^pre$|^table$/.test(el.tag)).map((el) => el.tag), lists.map((list) => list.children().filter((li) => li.tag === 'li').length), links.length, inMain.filter((el) => el.tag === 'strong').length];
       }

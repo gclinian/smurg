@@ -15,19 +15,25 @@ answer in the advisory thread. Fixes are released as a new version; only the lat
   edits, votes, suggestions) is encrypted between the host's daemon and each member's browser or CLI; the relay
   forwards ciphertext. A way for the relay, or anyone on the network, to read or change that content is a
   vulnerability. So is a way to join a workspace without a valid invite, or to keep access after the host removed it.
-- **Roles.** A member doing something their role does not allow is a vulnerability: a viewer editing or voting; an
+- **Roles.** A member doing something their role does not allow is a vulnerability: a viewer editing, voting or
+  accepting feedback (a viewer giving feedback on a sticky note is the role, `docs/JOINING.md` §2, §11); an
   editor starting a topic, messaging an agent directly, answering a permission request, opening or typing into a
   terminal; a member reading files the host keeps private; anyone escaping the shared folder; anyone but the host
   merging, confirming the folder's Claude Code settings, allowing a request marked host-only, or changing a file
   only the host may change (also by renaming or deleting a folder that holds one).
-- **What reaches an agent.** Text written by a member without agent access reaching an agent in any way other than
-  the ones the design allows (an accepted suggestion, a submitted answer, and the files of the project that the
-  agent reads: S1 to S4 and S21 below) is a vulnerability. So is text that passes for smurg's own voice towards an
-  agent, a way around the cleaning of invisible characters, and a file that reaches an agent through a message
-  instead of through one of its tools (S12).
+- **What reaches an agent.** Text written by a member without agent access, or by a person outside the workspace (a
+  message of a connected Slack or Discord channel), reaching an agent in any way other than the ones the design
+  allows (an accepted suggestion, a submitted answer, the files of the project that the agent reads, and feedback on
+  a sticky note that a member with agent access accepted, in exactly the characters shown, quoted in that member's
+  own message to Claude for the sticky notes: S1 to S4, S21 and S24 to S26 below) is a vulnerability. Feedback that
+  waits, was rejected or was withdrawn reaching any agent is one. So is text that passes for smurg's own voice
+  towards an agent, a way around the cleaning of invisible characters, and a file that reaches an agent through a
+  message instead of through one of its tools (S12).
 - **What smurg promises about an agent's limits.** smurg's own check runs before every tool call of an agent (the
   tool gate, `docs/ARCHITECTURE.md` §7.6, §7.7). A discussion agent that runs a command, reads outside the project
-  or writes anything but its topic's spec and plan; a work item's agent that edits the spec or the plan; any agent
+  or writes anything but its topic's spec and plan; Claude for the sticky notes that runs a command, reads smurg's
+  own folder or writes anything but a sticky note (a Markdown file directly in `notes/`); a work item's agent that
+  edits the spec or the plan; any agent
   that writes Claude Code's own configuration or starts a subagent; an agent's shell command that writes where a
   script of the confirmed project settings is without a person having been asked; a command that runs while the
   daemon is not reachable: each is a vulnerability, whatever the host's Claude Code settings allow.
@@ -74,14 +80,24 @@ answer in the advisory thread. Fixes are released as a new version; only the lat
   drawn as ordinary links (`docs/JOINING.md` §5). These are known limits of this version. A way to make a link's
   words run as code, or to keep its destination from the hover and the focus as well, is a vulnerability.
 - **What the relay operator sees**: account identities, IP addresses, workspace ids, frame sizes and timing, never
-  content (`docs/ARCHITECTURE.md` §6, §11 D-5). Hosts who do not accept that can run their own relay
-  (`apps/relay/README.md`).
+  content (`docs/ARCHITECTURE.md` §6, §11 D-5), with one exception since 0.8.0: the relay also serves the web app,
+  so a page loaded at a sticky note's address (a reload, a link someone sent, a link opened in a new tab) names that
+  note in the request the relay's operator serves and can log. Nothing else of a note leaves the encrypted channel,
+  and a login from the notes view returns without the note's name. Hosts who do not accept that can run their own
+  relay (`apps/relay/README.md`).
+- **Slack and Discord, when the host connects a channel** (`smurg connect`, `docs/HOSTING.md` §11): the host's
+  computer reads that channel over HTTPS from `slack.com` or `discord.com` only, once a minute; the relay is not
+  involved. The bot token stays in `~/.smurg/connectors.json` (mode 0600), never on the wire, in the workspace's
+  state, the audit log or a log line; agent sessions, which run as the host, can read that file as they can read
+  the relay login. A Slack token in what an agent prints is masked; a Discord token has no fixed form and is not.
+  Nothing is read while no channel is connected.
 - The published checksums (`SHA256SUMS`) are served from the same place as the executables and are not signed: they
   catch a corrupted download, not a compromised publisher (`docs/RELEASING.md` §9).
 - **Verification used no real model.** The topics flow was tested with a scripted stand-in for the model, and real
   Claude Code 2.1.288 only against a fake API, never against the real model, on macOS; real Claude Code was not run
   on Linux. The properties below are properties of smurg's code and of Claude Code 2.1.288 as verified that way; a
-  real model's behaviour inside those limits is not verified.
+  real model's behaviour inside those limits is not verified. The sticky notes of 0.8.0 were tested the same way, and
+  Slack and Discord only against stand-in servers with made-up tokens, never with a real bot.
 
 ## The security points of the topics flow (0.5.0)
 
@@ -93,7 +109,7 @@ tests that pin them are named in `docs/ACCEPTANCE.md`.
 |---|---|---|
 | S1 | An Editor's suggestion steers an agent | It reaches the agent only when a member with agent access accepts it. What that member sees is what is sent: the card shows the stored text character for character, never as formatted text; invisible characters were removed and header-like lines quoted when it was stored; and it arrives under a header naming its author and who accepted. |
 | S2 | Vote comments and own-word answers steer an agent | The daemon never forwards them. The agent gets the chosen options and the counts. An answer or a note in someone's own words needs agent access, and is audited with its author; a voter is named as its author only when the text is that voter's own. |
-| S3 | Spec and plan text written by an Editor is read by agents | By design people edit these files. Work items start only from the content a member with agent access confirmed at Start: the dialog shows who edited by hand (a member who renamed or deleted the topic's folder is named for both files), the files are pinned by hash, and an item whose files changed since does not start. The checkpoint commit holds exactly the two files. |
+| S3 | Spec and plan text written by an Editor is read by agents | By design people edit these files. Work items start only from the content a member with agent access confirmed at Start: the dialog shows who edited by hand (a member who renamed or deleted the topic's folder is named for both files), the files are pinned by hash, and an item whose files changed since does not start. The checkpoint commit holds exactly the two files. A topic made from a sticky note with "Build this" (0.8.0) is no exception: its spec is the text of the note and the notes it links to, and its work item merges by itself once one member with agent access confirmed that spec at Start (S26). |
 | S4 | Injection through code, web pages or tool output | The tool gate decides every tool call by the kind of session, before Claude Code's permission flow and whatever allow rules exist: a discussion agent has no shell and no network tool, reads only inside the project and writes only its topic's spec and plan. A work item's edits stay in its worktree and are reviewed; commands and network ask. No agent starts a subagent (S15). |
 | S5 | Who can cause a command to run on the host | A member with agent access allowing a request; a kind such a member chose to always allow (one of two checked forms, never a shell, an interpreter, something that downloads and runs code or a command made of several; removed with the member who added it; a topic's kind answers a waiting request by itself only when that request is one plain command of the kind, or a fetch from its host with an address of at most 2,048 characters); read-only and simple file commands inside a worktree; and what the host's own Claude Code allow rules allow, which apply to agent sessions (the host is told once which). Never an Editor or a Viewer; never a discussion session. In a folder whose confirmed project settings run scripts, a shell command that writes where such a script is, or that smurg cannot follow, asks a person whatever would have let it run (S10). Every command that ran without a request and ended without an error is in the audit log, marked as not asked; a command a topic's always-allowed kind answered is audited with that kind. |
 | S6 | Permission answers | A card exists only for a request that arrived on that session's own pipe, and only open requests are answered. A person never allows what they cannot see: the whole command, an edit's diff, the address of a fetch, any other tool's whole input, as the tool will run it. Nothing is shortened, masked or removed; a character nobody can see is written out; a request too large to show is denied; and in the web app the buttons that allow wait until a long command or diff was scrolled to its end. The first answer wins. No agent writes Claude Code's configuration. Every decision of a person is audited with the full command; an answer smurg gives by itself (a topic's always-allowed kind, a refusal) with the tool and the reason. |
@@ -114,3 +130,15 @@ tests that pin them are named in `docs/ACCEPTANCE.md`.
 | S21 | People writing into an agent's worktree | People may edit code there, and the report names the files and the people. Nobody can write the topic's folder there: not the spec copy the agent started from, not the report, and not by renaming or deleting a folder above them. A report counts only after the agent's own check passed for that content in that session. |
 | S22 | The host's own MCP servers, connectors and plugins | Not offered to agent sessions unless the host switches them on; never to a discussion session. |
 | S23 | What the audit log shows | Every command that ran without a person's decision (marked as not asked, or with the always-allowed kind that answered it), every message smurg sent by itself, starts and refusals of the scheduler, the creation of every session (with its mode and the state of the project settings for a session without a topic), and for a submitted own-word answer its author. Role changes, removals, decisions about project settings and removed entries are never moved to the overflow file of S13. |
+
+## The security points of the sticky notes (0.8.0)
+
+Every member, a Viewer too, gives feedback on sticky notes, and a person outside the workspace can, through a channel
+the host connected. The rule stays: nothing a person without agent access writes reaches an agent unseen.
+
+| # | Point | What smurg does |
+|---|---|---|
+| S24 | Feedback steers an agent | It reaches no agent until a member with agent access accepts it, and then once: as that member's own message to Claude for the sticky notes, a fixed sentence naming the note and the author (a person outside the workspace by a cleaned name and the source, never as a member), then the feedback, quoted. Before the click the page shows that exact message ("What Claude gets") as plain text. Nobody edits feedback. Rejecting and withdrawing send nothing. That one send is the only way feedback goes to an agent, and a test reads the code to hold it. Bounded: 20 waiting per member, 300 from members, 200 from outside, 20 per outside person; a member who leaves or is removed takes their waiting feedback with them. |
+| S25 | Sticky notes are read by Claude for the sticky notes, whoever wrote them | By design: every Editor writes notes, and the agent reads every note and the project as a discussion does. smurg's own gate holds it to writing a Markdown file directly in `notes/` under a valid name (never `notes/CLAUDE.md`, never through a `notes` that is a link, a hard link or a second name that differs only in case), refuses its reads of smurg's own folder and every command, and refuses every permission request it makes without a card (its questions to the team are cards). What it writes is a note in front of everyone; it builds nothing. |
+| S26 | "Build this" turns a note into work | Only a member with agent access. The daemon composes the spec from what that member may read, by the rules of the notes' index (a note that is a link or a hard link is never copied in), and shows all of it as plain text before the topic is made; the topic's work starts only with Start in the topic's own dialog (S3), whose pins and checks apply. Once ONE member with agent access confirmed the spec there, the work item merges by itself on the host's standing consent, unless the host merges each item; its agent can still read the other files of the main folder. |
+| S27 | Slack and Discord | Outbound only, from the host's computer, to two fixed hosts over HTTPS, with no redirect followed, a time limit and a bound on what is read; a channel id or a token of another form is never used. A message becomes feedback that waits, from someone who is never a member: no role, no mention, no inbox, no avatar, always shown with the source. Names and texts are cleaned and bounded before they are stored or shown. Nothing written before the connection becomes feedback. |

@@ -89,7 +89,9 @@ const FROZEN: Readonly<Record<string, string>> = {
 
 /**
  * packages/daemon/src/<file>: every file of the daemon that defines a persisted schema (the walk's roots: each one
- * that declares a document, and the six of the persisted things that are no document).
+ * that declares a document, and the six of the persisted things that are no document). Taken again for 0.8.0 S9 (the
+ * documents): sessions/session-manager.ts changed only a comment (the Leave dialog names Claude for the sticky notes
+ * too), so this changes no stored shape: no step.
  */
 const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'conversation/cards-store.ts': 'dd4d4571457ea824abcad95178254af2a33ad38e91806947b222ed5121261cb2',
@@ -104,7 +106,7 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
   'sessions/agent/project-settings.ts': 'f78365de979f27c4f678a6f4bc0df7544b3225c530a12acbad2b9f713c38b0af',
   'sessions/agent/store.ts': '1f84217f697b7d5c73e60cc7165c987228b39f65277d679e4aa447826ffd7949',
   'sessions/agent/transcript.ts': '1f648c75612cde4a7888c9a87f5ae79eec137c1a8440eabaf5dbf8b3bd8c59d6',
-  'sessions/session-manager.ts': '677adb28f3465fdbdb104bcaa0c431ad876d9a043491c59bf6ac33f12e7d0608',
+  'sessions/session-manager.ts': '3df52611b25a24915794ab93a8784a51e4631c936917f31ea3048c0bdf6ee776',
   'sticky/store.ts': '1feb716985c35ea116f58d67cb6ed74c701ab910fc8d115c7c7e5316fa685676',
   'suggest/store.ts': '5a2bef034e1917fb44d0752b4e04c0a3dbebe627b922a1edfea07c3f94304ba2',
   'topics/store.ts': '8839f4f0d7e2e477e2f13b4474a38773f00760a5a1e93e567f79ce4c61ca3f45',
@@ -142,13 +144,15 @@ const DAEMON_SOURCES: Readonly<Record<string, string>> = {
  * (DESIGN 0.8.0 D6.2): schema/sticky.ts gained isOutsideChannelId, isOutsideBotToken and OUTSIDE_TOKEN_MAX_CHARS, the
  * forms smurg connect and the daemon's sources check a channel id and a bot token by (connectors.json is the command's
  * file, not a document of the workspace); no schema of a stored file changed, and the cursors and outside feedback of
- * sticky.json are written now in the shape S2 declared (sticky/store.ts did not change): no step.
+ * sticky.json are written now in the shape S2 declared (sticky/store.ts did not change): no step. Taken again for
+ * 0.8.0 S9 (the documents): codec.ts changed only a comment (the list rule names sticky.list and sticky.feedback.list),
+ * so this changes no stored shape: no step.
  */
 const PROTOCOL_SOURCES: Readonly<Record<string, string>> = {
   'agent-text.ts': '46b91b84394ab8f98101518742ba31ba3989c7db5676565d7e81756f5026a296',
   'bytes.ts': '7fc163368b2d2a82d5ce3d834922c96611f20331e61bff91b5ad22276391fa1c',
   'channel/identity-binding.ts': '57e7cbac993b088e66a8193dfca6054b5d6a8cfb5d95175c9eaf4d42c786e6dd',
-  'codec.ts': '377cf872871c2185149f8b9cead0cf36bb19d0e7e3cf966c2b92988e5a25422a',
+  'codec.ts': '00d4f3bda76c711066cf7b56da2a685b1efa8f33eb218de5c6c030026be5354c',
   'constants.ts': '34354def40c7fe60ef351dbaa7e4c56f8ea901aada51c48411168a57d95ff926',
   'errors.ts': '0f2a058bb5226b4aad03f32560712ba9ca35838eb999e73ea2bd8e9611fddbf4',
   'i18n/define.ts': 'e6d7dd5a5ea9a26cbdf32dc3e2b118d8d8e13998360301089d4d17e81f4f4188',

@@ -833,7 +833,8 @@ export class SessionManagerImpl implements SessionManager {
         }
       }
       // Not at a leave: the member keeps their role and comes back to what they kept (the Leave dialog names the
-      // topic sessions that pass to the host, nothing else). `worktree.remove` asks for the role each time.
+      // topic sessions and Claude for the sticky notes that pass to the host, nothing else). `worktree.remove` asks
+      // for the role each time.
       if (change !== 'left') await this.handOverWorktrees(userId);
     }
     const cleared = new Set<string>();

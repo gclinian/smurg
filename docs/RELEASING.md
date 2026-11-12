@@ -946,5 +946,6 @@ paid Workers plan removes the daily caps without a code or configuration change.
 - **No workflow has a Cloudflare or Google secret**: the relay, the site and the downloads are deployed by hand, and
   the relay's secrets exist only in Cloudflare's secret store.
 - **What the relay operator can see**: account identities and IP addresses of connections, workspace ids, frame sizes
-  and timing, never content (ARCHITECTURE §11 D-5); `docs/HOSTING.md` §2 tells hosts the same in plain words, and
+  and timing, never content, but since 0.8.0 the name of a sticky note whose address a page is loaded at (ARCHITECTURE
+  §11 D-5); `docs/HOSTING.md` §2 tells hosts the same in plain words, and
   that they can run a relay of their own (`apps/relay/README.md`).

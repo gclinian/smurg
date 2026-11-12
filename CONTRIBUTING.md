@@ -46,9 +46,10 @@ Read `docs/ARCHITECTURE.md` §0 before you write or run code. In short:
 8. What a published smurg wrote, every later smurg reads: no reset, no default, no lenient parse, and an upgrade
    step is never removed (below: "When you change something smurg stores").
 
-`docs/ARCHITECTURE.md` §1 has the layout and which package may import which. The design of the topics flow, as it
-was written before the code, is in `docs/design/v0.5.0/`; where it and `docs/ARCHITECTURE.md` differ, the
-architecture document describes what was built.
+`docs/ARCHITECTURE.md` §1 has the layout and which package may import which. The design of each version since
+0.5.0, as it was written before the code, is in `docs/design/`: `v0.5.0/` the topics flow, `v0.6.0/` models,
+permission modes and work items without git, `v0.7.0/` work items that merge by themselves, `v0.8.0/` the sticky
+notes. Where a design and `docs/ARCHITECTURE.md` differ, the architecture document describes what was built.
 
 Three things to keep in mind when you touch agents:
 

@@ -48,7 +48,7 @@ export const zhTW = {
   'mode.code.conflicts': '手寫 code 模式：{count} 個未處理的衝突',
   'title.waiting': '（{count} 個在等）{title}',
   'leave.title': '離開這個工作區？',
-  'leave.body': '你開的終端機和未分主題的 session（便利貼的 Claude 除外）會結束。你開始的主題 session（討論和工作項目）和便利貼的 Claude 改由主人接手，並繼續執行。你設定的東西會移除：你設為一律允許的指令類型、你開始但還沒啟動的工作項目、你放寬的權限模式，以及你還在等 agent 讀取的訊息。之後仍可以用這個瀏覽器重新連線。',
+  'leave.body': '你開的終端機和未分主題的 session（便利貼的 Claude 除外）會結束。你開始的主題 session（討論和工作項目）和便利貼的 Claude 改由主人接手，並繼續執行。你設定的東西會移除：你設為一律允許的指令類型、你開始但還沒啟動的工作項目、你放寬的權限模式、你還在等 agent 讀取的訊息，以及你在便利貼上還在等待處理的意見。之後仍可以用這個瀏覽器重新連線。',
   'leave.bodyHost': '你是主人：離開只會關閉這個分頁的連線，不會停止分享。要停止分享，請在主人電腦的終端機執行 smurg stop。',
   'leave.confirm': '離開',
   'leave.failed': '離開時發生問題：{reason}',

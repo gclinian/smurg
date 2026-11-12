@@ -31,6 +31,17 @@ settled is ready to check; the host can undo where smurg keeps history; and plan
 (§2 rule 11, §5.10, §7.6 "Restart", §7.8 "Automatic merging"). §11 D-29 and D-30 record why; §0 rule 8 names the
 second upgrade step that sets a value on the open side. The design is kept in `docs/design/v0.7.0/`.
 
+**0.8.0** (protocol 7, workspace shapes 4) follows the owner's brief of 2026-11-11 (`docs/design/v0.8.0/OWNER-BRIEF.md`:
+a simpler way to work together): a third view, Sticky notes, beside the sessions view and code mode (§9), where people
+write small Markdown notes in `notes/` that link to each other with `[[Name]]` and grow from one first note, `Home`;
+Claude for the sticky notes, one confined agent session per workspace that reads the project and writes only notes
+(purpose `notes`, §7.6, §7.7 G13); feedback that every member, a Viewer too, gives on a note and that reaches an agent
+only when a member with agent access accepts it, exactly as shown (§2 rules 5 and 6 (d), §3, §11 D-31); "Build this",
+which makes a topic from a note and leaves the work to the topic's own Start dialog; and one Slack and one Discord
+channel per workspace that the host's computer reads, whose messages become feedback (§5.12). The sessions view and
+topics are as they were, and `/w/<id>` stays the sessions view. §0 rule 8 says why 0.8.0 has no upgrade step. The
+design is kept in `docs/design/v0.8.0/`; its README names where the build took a side the design left open.
+
 ---
 
 ## 0. Rules for everyone who writes or runs code in this repo
@@ -84,7 +95,10 @@ the process table).
    2; §11 D-25); and, by the owner's words of 2026-10-26 (0.7.0), workspaces of 0.6.0 and earlier merge work items by
    themselves after the update (`stateStepFromV060`: `merging: 'auto'`); the host is told by `smurg host` and in the
    console. Items armed before the update keep the host's merge (their pins; §11 D-29). Every other step gives a new
-   security-relevant value its closed side.
+   security-relevant value its closed side. 0.8.0 (workspace shapes 4) adds no step: its one new document
+   (`sticky.json`) was written by no published smurg, and the stored enums only widen (the purpose `notes`, the audit
+   actions of feedback and of "Build this"), as 0.6.0 and 0.7.0 widened theirs. A folder 0.8.0 opened is refused by
+   0.7.0 as written by a newer smurg: there is no way back for it (§7.1, the stamp).
 
 ---
 
@@ -93,9 +107,9 @@ the process table).
 ```
 smurg/
 ├── apps/
-│   ├── web/            React + Vite SPA: the sessions view (inbox, topics, conversations in columns) and code mode
-│   │                   (Monaco, Yjs, xterm.js). Since 0.5.0 `src/features/` also has columns/, sidebar/,
-│   │                   conversation/, markdown/ and topics/ (§9)
+│   ├── web/            React + Vite SPA: the sessions view (inbox, topics, conversations in columns), code mode
+│   │                   (Monaco, Yjs, xterm.js) and, since 0.8.0, the sticky notes. Since 0.5.0 `src/features/` also
+│   │                   has columns/, sidebar/, conversation/, markdown/ and topics/; since 0.8.0 sticky/ (§9)
 │   ├── relay/          Cloudflare Worker + Durable Objects (WorkspaceDO, TransferDO, DeviceLoginDO); also serves the web SPA
 │   └── site/           smurg.ai product page in both languages (static files + a Worker for a few redirects; www is a
 │                       zone rule)
@@ -103,15 +117,16 @@ smurg/
 │   ├── protocol/       zod schemas, roles/capabilities, Noise channel, framing, invite links, client SDK,
 │   │                   locale detection (`/locale`) and the wire message catalog (`/i18n`)
 │   ├── daemon/         host-side daemon (library + hook/MCP entry points). Modules: §7.2; since 0.5.0 among them
-│   │                   sessions/agent/ (the agent runtime), conversation/, topics/ and inbox/
-│   └── cli/            `smurg` binary: host / attach / stop / status / login / logout / update / uninstall / licenses
-│                       (+ internal: hook, mcp)
+│   │                   sessions/agent/ (the agent runtime), conversation/, topics/ and inbox/; since 0.8.0 sticky/
+│   │                   (the sticky notes, their feedback, "Build this", Slack and Discord: §5.12)
+│   └── cli/            `smurg` binary: host / attach / stop / status / login / logout / update / uninstall / licenses,
+│                       since 0.8.0 connect / disconnect (+ internal: hook, mcp)
 ├── tests/
 │   ├── e2e/            cross-package acceptance tests (relay + daemon + headless clients)
 │   └── lint/           repository-wide checks of the language rules (§10)
 ├── docs/               ARCHITECTURE.md, GLOSSARY.md, QUICKSTART.md / HOW-IT-WORKS.md / HOSTING.md / JOINING.md /
 │                       SECURITY-MODEL.md (+ zh-TW/), DEVELOPMENT.md, RELEASING.md, research/, ACCEPTANCE.md,
-│                       design/v0.5.0/ (the owner's brief and the design of 0.5.0 as written)
+│                       design/ (each version's brief or decisions and its design as written: v0.5.0 to v0.8.0)
 └── scripts/            dev + packaging scripts
 ```
 
@@ -226,6 +241,7 @@ message from a reference. `packages/protocol/test/entry-boundaries.test.ts` chec
 | Sessions (agent / terminal), whoever opened them | what the host's own OS account may do: they run as the host, unsandboxed (§11 D-15) | everything that arrives on the hook / MCP socket and on an agent's pipes is a claim, not a fact (§7.6, §7.7); a member who may open or drive sessions (`agent` role, "Agent access") is trusted by the host like the host's own account (§12) |
 | The model in an agent session | nothing | it reads what several people wrote and whatever is in the files: every tool call passes smurg's tool gate; in the modes that ask, what it asks to run becomes a card a person answers; in auto mode (the default since 0.6.0) Claude Code's own check, a model's judgement, decides most commands, and smurg's gate asks or refuses only where it can read the command (G10 to G12) and refuses by deny rules what names its protected places (§7.6 "Deny rules beyond the session's folder"); what it prints is masked and clipped before anyone sees it (§5.9, §7.7) |
 | Editors and Viewers | what their capabilities give them through smurg (§3) | steering an agent: rule 6 |
+| A person outside the workspace (0.8.0: the Slack or Discord channel the host connected) | nothing: no role, no capability, never a member | what they write is feedback that waits, cleaned and bounded; it reaches an agent only as rule 6 (d) says (§5.12) |
 
 Rules that follow (and that reviewers check):
 
@@ -248,14 +264,23 @@ Rules that follow (and that reviewers check):
    - (0.7.0) pause a plan, leave a work item out, let a held item merge as it is: `session.drive`; whether work items
      merge by themselves (`merging`), undo a merge, accept a direct item as it is, ask an agent to take host-only
      paths out of its change: the host (`admin`, `worktree.merge.decide`);
-   - an Editor's message is a suggestion; a Viewer watches.
-6. **Nothing a person without agent access writes reaches an agent unseen.** An Editor's text reaches an agent only
-   (a) as a suggestion a member with agent access accepted, in exactly the characters the card showed (§5.6);
+   - (0.8.0) give feedback on a sticky note: `feedback.give` (every role, a Viewer too); accept or reject it:
+     `session.drive`; start Claude for the sticky notes, and "Build this": `session.create`; write a sticky note:
+     `file.write`;
+   - an Editor's message is a suggestion; a Viewer watches and gives feedback.
+6. **Nothing a person without agent access writes reaches an agent unseen.** The text of a member without agent
+   access (an Editor's; since 0.8.0 a Viewer's feedback too), and of a person outside the workspace, reaches an agent
+   only (a) as a suggestion a member with agent access accepted, in exactly the characters the card showed (§5.6);
    (b) inside `SPEC.md` / `PLAN.md`, in exactly the content a member with agent access confirmed in the Start dialog
-   (the pin, §7.8); or (c) as words the decider, a member with agent access, put into the note of an answer on
-   purpose. Vote comments and other people's "Other" answers are never sent by the daemon. One case is unavoidable
-   and stated: the discussion agent reads its topic's files on every turn, whoever edited them; what it can do with
-   that is bounded by the tool gate (rule 8, §12).
+   (the pin, §7.8; a topic made by "Build this" too, whose spec is a sticky note's text); (c) as words the decider, a
+   member with agent access, put into the note of an answer on purpose; or (d) (0.8.0) as feedback, of a member or of
+   an outside author, that a member with agent access accepted, in exactly the characters shown, quoted in that
+   member's own message to Claude for the sticky notes (§5.12). Vote comments and other people's "Other" answers are
+   never sent by the daemon, and neither is feedback that waits, was rejected or was withdrawn. Two cases are
+   unavoidable and stated: the discussion agent reads its topic's files on every turn, whoever edited them; and
+   Claude for the sticky notes reads `notes/*.md`, whoever wrote them (every Editor may write a note). What either
+   can do with that is bounded by the tool gate (rule 8, §12): the discussion writes only its topic's two files, and
+   Claude for the sticky notes writes only notes (G13); neither runs a command.
 7. **Every text for an agent is framed and cleaned by the daemon** (§5.9 "Text for agents"): a person's message under
    a header line that names who wrote it, smurg's own messages under a tag drawn at random per session, invisible
    characters removed before a text is stored, shown and sent. Claude Code delivers a message as written: it expands
@@ -299,6 +324,10 @@ Rules that follow (and that reviewers check):
     it stays an uncommitted change until the host commits it; an Editor's hand edit in a work item's checkout, which
     would otherwise reach the host's branch as a commit with nobody in between, waits for the host (`by-hand`); a
     member with agent access could have had the agent make the same edit. The checks are the agent's claims (§12).
+    A topic made by "Build this" (0.8.0) is no exception: its spec is the text of a sticky note and of the notes it
+    links to directly, shown in full before the topic is made, and its one work item merges by itself on the same
+    consent once ONE member with agent access confirmed that spec at Start; the item's agent can still read the
+    other files of the main folder, as every item's can.
 
 ---
 
@@ -323,6 +352,7 @@ type Capability =
                              // always-allowed kinds, ask for the plan
   | 'suggest.create'
   | 'discuss'                // vote, comment, mention, be responsible, review a result report
+  | 'feedback.give'          // (protocol 7) give feedback on a sticky note, withdraw one's own while it waits
   | 'worktree.merge.request'
   | 'worktree.merge.decide'
   | 'lock.force-release'
@@ -333,6 +363,7 @@ type Capability =
 |---|:-:|:-:|:-:|:-:|
 | file.read, file.download, session.view | ✅ | ✅ | ✅ | ✅ |
 | file.write, suggest.create, discuss | ✅ | ✅ | ✅ | ❌ |
+| feedback.give | ✅ | ✅ | ✅ | ✅ |
 | session.create, session.drive | ✅ | ✅ | ❌ | ❌ |
 | worktree.merge.request | ✅ | ✅ | ❌ | ❌ |
 | worktree.merge.decide, lock.force-release, admin | ✅ | ❌ | ❌ | ❌ |
@@ -340,7 +371,9 @@ type Capability =
 The role `agent` ("Agent access") replaced `runner` on 2026-10-01 (§11 D-15): there are no sandboxed guest sessions.
 A session an `agent` member opens runs exactly like the host's own (the host's OS user, environment, HOME, `~/.claude`
 and Claude Code login). `discuss` (protocol 4) is what an Editor has and a Viewer has not: taking part in what the
-agents ask and produce, without being able to drive them.
+agents ask and produce, without being able to drive them. `feedback.give` (protocol 7) is what every role holds, a
+Viewer too (the owner's "everyone", §11 D-31): writing feedback on a sticky note, which reaches no agent until a
+member with `session.drive` accepts it exactly as shown (§2 rule 6 (d)).
 
 This table is implemented once, in `@smurg/protocol` (`roles.ts`), and used by the daemon for enforcement and by the
 web app only for hiding UI. A registry entry may also say `none` (every member), `owner-checked-in-handler` or
@@ -361,6 +394,8 @@ Resource-level rules (daemon handlers):
   only; `worktree.remove`: the host, or the worktree's owner WHILE they hold `session.create` (an owner record alone
   gives nothing). The diffs of a request: `file.read` (host-private files withheld).
 - `lock.release`: caller must be one of the human holders.
+- `sticky.feedback.withdraw`: the member who wrote it, while it waits (an outside author's feedback has no member who
+  may withdraw it). `sticky.feedback.accept` / `reject`: `session.drive`, while it waits; nobody edits feedback.
 
 ```ts
 type Actor =
@@ -425,7 +460,9 @@ kick answers within R2's 3 s:
 4. `UploadService.abortAllForUser` (not for a role change).
 
 One `session.handover` audit entry per handed-over session says from whom, why, whether it was stopped, and what was
-removed. Feature modules do not duplicate any of this. A step's budget is for the answer: a step that has used its
+removed. Feature modules do not duplicate any of this. One thing is a module's own (0.8.0): the sticky module
+withdraws the waiting feedback of a member who is kicked or leaves (`member.kicked`, `member.left`; audited by the
+system with the reason), not after a role change, since every role may give feedback. A step's budget is for the answer: a step that has used its
 time is not stopped, it goes on after the kick answered, and the handover of a sessions' step that was late is
 audited when that step is through (its sessions are not known before). What a session names in between (the member
 as responsible, until the step's last act clears it) decides nothing: "Who decides" counts active members only.
@@ -718,7 +755,7 @@ in `codec.ts`):
 |---|---|---|
 | `page` | `session.watch`, `session.history`, `session.cards.get` | at most `EVENTS_PAGE_MAX` (500) events and `EVENTS_PAGE_MAX_BYTES` (2 MiB) of events, never fewer than one; the cards the events point to fill what is left, the rest is named in `moreCards` |
 | `batch` | `session.events` | at most `EVENTS_BATCH_MAX` (64) events, `EVENTS_BATCH_MAX_BYTES` (512 KiB) and `EVENTS_BATCH_MS` (100 ms) per message |
-| `list` | `session.list`, `suggest.list`, `topic.list`, `inbox.list`, `inbox.changed`, `admin.claudeConfig.get` | the reply is closed at `LIST_REPLY_MAX_BYTES` (4 MiB; at most `LIST_MAX_ITEMS` entries, at least one) with `hasMore: true`; the next request passes `after`, the last id it got (`takeListPage` on the daemon, `collectPages` on a client) |
+| `list` | `session.list`, `suggest.list`, `topic.list`, `inbox.list`, `inbox.changed`, `admin.claudeConfig.get`; since protocol 7 `sticky.list` (by the note's name) and `sticky.feedback.list` | the reply is closed at `LIST_REPLY_MAX_BYTES` (4 MiB; at most `LIST_MAX_ITEMS` entries, at least one) with `hasMore: true`; the next request passes `after`, the last id it got (`takeListPage` on the daemon, `collectPages` on a client) |
 
 `schema/worst-case.test.ts` builds the largest valid instance of every entity and reply and fails when one could
 exceed an Envelope.
@@ -726,8 +763,9 @@ exceed an Envelope.
 **Rates.** Counts cap what is stored; rates cap what one member can make everyone else's browser and the relay carry.
 A registry entry may name a bucket (`rate`): the Router takes one token of the member's bucket before the handler
 runs. Per minute: `vote` 30 (`question.vote`), `comment` 10 (`question.comment`), `suggestion` 10 (`suggest.create`,
-`suggest.edit`, `topic.revise`, `report.followUp`, shared: an edit is sent whole to everyone a new suggestion is sent
-to, and written whole to the audit text store); handlers take `mention` (20, one per kept mention) and the MCP answers
+`suggest.edit`, `topic.revise`, `report.followUp`, since protocol 7 `sticky.feedback.create`, shared: an edit is sent
+whole to everyone a new suggestion is sent to, and written whole to the audit text store, and so is a feedback);
+handlers take `mention` (20, one per kept mention) and the MCP answers
 `agent-notify` (10 per session). A refusal is `rate_limited` (`detail: { reason: 'rate-limited', bucket }`), audited
 as `authz.denied` and counted against the connection's refusal budget like every refusal (§5.8).
 
@@ -1937,7 +1975,8 @@ the alarm also sweeps clients whose last ping is older than 30 s (→ `peer.clos
 per-workspace and per-account socket caps.
 
 What the relay can observe (R3): workspace id, connection id, frame sizes and timing — and, because it performs the
-login, the account identity and IP address of each connection. It never sees keys, invite secrets, device ids or content.
+login, the account identity and IP address of each connection. It never sees keys, invite secrets, device ids or content
+(0.8.0: but a page loaded at a sticky note's address names that note in the request the relay serves, §11 D-5).
 
 Tests start the relay with wrangler's `createTestHarness()` on a random port (no Cloudflare account). The R3 byte
 tap is a test-only hook (`RELAY_TAP_URL`, gated to local hostnames) that POSTs every frame to a local collector.
@@ -2173,7 +2212,7 @@ a schema, no strip, no passthrough.
 - **The stamp `written-by.json`**: `{ "smurg": "X.Y.Z", "shapes": 1, "at": <ms> }`, and `"pending": [{ document,
   from, copy }]` while an upgrade is under way. Not a document (older versions ignore the file). Written first in
   phase 2 of every start with the store's atomic write, and never lowered (neither `shapes` nor `smurg`).
-  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1, 2 since 0.6.0, 3 since 0.7.0) is ONE integer for everything persisted under the workspace, documents
+  `shapes` (`WORKSPACE_SHAPES`, 1 in 0.5.1, 2 since 0.6.0, 3 since 0.7.0, 4 since 0.8.0) is ONE integer for everything persisted under the workspace, documents
   or not; a version raises it whenever any persisted shape changes. A stamp whose `shapes` is above this smurg's
   refuses the WHOLE folder as `newer` before any document is read, and that number decides ALONE: it is taken from
   any stamp that is a regular file (no link, within the size cap) holding a JSON object with a number there,
@@ -2362,7 +2401,9 @@ packages/daemon/src/
 ├── conversation/  messages to agents, questions, votes, comments, permission decisions, cards
 ├── suggest/       suggestion-service.ts handlers.ts
 ├── topics/        topics, the plan (format, preflight, pins, the scheduler), reports, prompts
-├── sticky/        (0.8.0) the index of the sticky notes in notes/, new notes, Claude for the sticky notes, sticky.json
+├── sticky/        (0.8.0) the index of the sticky notes in notes/, new notes, Claude for the sticky notes, sticky.json,
+│                  feedback.ts accept.ts (the one send of accepted feedback) build.ts ("Build this") sources/ (Slack
+│                  and Discord, read from the host's computer)
 ├── inbox/         the derived inbox, mentions, results
 ├── worktree/      worktree-manager.ts merge.ts handlers.ts
 ├── local/         protocol.ts (ctl frames + schemas, shared with the CLI) local-channel.ts (the hub's channel for a
@@ -4297,16 +4338,20 @@ Node distribution the executable is copied from, and embeds the result with `LIC
 | `/join/:workspaceId` | invite acceptance (§4.1) |
 | `/w/:workspaceId` | the workspace: the **sessions view**, the main screen since 0.5.0 |
 | `/w/:workspaceId/code` | the workspace: **code mode** (the workbench of 0.4.0: files, editor, terminal) |
+| `/w/:workspaceId/notes[/:name]` | the workspace: the **sticky notes** (0.8.0), at Home or at the note `name` (`encodeURIComponent`, decoded inside a `try`, held to `noteNameSchema` as it is: anything else is not-found; a valid name with no note is its "not written yet" page) |
 | `/w/:workspaceId/console[/:section]` | the host console, optionally at one of `CONSOLE_SECTIONS` (what an inbox item of the host opens) |
 
-**The mode is a route, and both views stay mounted.** `WorkspaceRoute` renders ONE `WorkspaceShell` for the two
-workspace routes; it mounts the sessions view and code mode and shows one (`hidden` + `inert` on the other), so
-composer drafts, open columns, editor tabs and scroll positions survive the switch and nothing reconnects; a reload
-and the back button keep the mode. Code mode's chunk (Monaco, xterm.js) is loaded when code mode is first shown, and
-the sessions view imports neither statically (`scripts/check-chunks.ts` guards the first-load chunk). The shell owns
-what belongs to neither view: the top bar with the two-segment switch "Sessions | Code mode" (links with
-`aria-current`; the inbox counts on "Sessions" while in code mode), the connection banners, the commands that move
-between the views, the overlays the features registered, the notices, and the tab title with the waiting count.
+**The mode is a route, and the views stay mounted.** `WorkspaceRoute` renders ONE `WorkspaceShell` for the three
+workspace routes (`WorkspaceMode` is `notes`, `sessions` or `code` since 0.8.0); it mounts the sessions view and code
+mode, mounts the notes view the first time it is shown, and shows one (`hidden` + `inert` on the others), so composer
+drafts, open columns, editor tabs, the open note and scroll positions survive the switch and nothing reconnects; a
+reload and the back button keep the mode. Code mode's chunk (Monaco, xterm.js) is loaded when code mode is first
+shown, the notes view's (`NotesView`) when it is first shown, and the sessions view imports none of them statically
+(`scripts/check-chunks.ts` guards the first-load chunk). The shell owns what belongs to no view: the top bar with the
+switch "Sticky notes | Sessions | Code mode" (links with `aria-current`; the inbox counts on "Sessions" while another
+view is on screen; for a member with `session.drive` the waiting feedback on "Sticky notes", in every view), the
+connection banners, the commands that move between the views, the overlays the features registered, the notices,
+and the tab title with the waiting count.
 
 ```
 apps/web/src/
@@ -4330,6 +4375,8 @@ apps/web/src/
 │   │                  mounted by the spec and plan columns
 │   ├── files/ activity/ transfer/   code mode: file tree and root switcher, activity feed and conflicts, transfers
 │   ├── worktree/      the worktree switcher, merge review and diffs (also mounted by the report column)
+│   ├── sticky/        (0.8.0) the notes view's parts: the tree of notes, the open note (read, Edit, "Add a sticky
+│   │                  note"), the feedback under it, the "Build this" dialog, the host's Slack and Discord lines
 │   └── console/       members, sessions, suggestions, merges, invites, audit log, settings; the Claude Code project
 │                      settings and the host's own rules; redaction of one event
 └── ui/          shared components + design tokens (Segmented, Collapsible, Card, StatusGlyph, KindIcon, Chip,
@@ -4365,6 +4412,7 @@ onRoleChange`, and `onResumed` for a resumed Welcome). Role-based hiding in the 
 | `conversations` | `session.watch` / `history` / `cards.get`, `session.events`, `session.delta`, `question.changed` / `updated`, `permission.updated`, `suggest.updated` | per watched session: a WINDOW of the log folded into render items, the cards by id, the streaming text buffers, `firstSeq` / `nextSeq` |
 | `columns` | nothing from the daemon | open columns, their order, widths (weights) and pins, the focused one, what this browser showed last (what makes a row bold), the session list's folding and filter, the session beside the editor in code mode; per browser and workspace (`localStorage['smurg.columns.<id>']`). Columns are a personal view: nothing about them is sent |
 | `suggestions`, `worktrees`, and the stores of code mode (`files`, `docs`, `locks`, `presence`, `activity`, `conflicts`, `transfers`, `admin`, `workspace`) | their message families | as in 0.4.0; a new `draft` merge request replaces the worktree's earlier one |
+| `sticky` (0.8.0) | `sticky.list` (every page) and `sticky.changed`, from the first show of the notes view; `sticky.feedback.list` and `sticky.feedback.updated`, with the channel for a member with `session.drive`, else with the notes view | the notes by folded name (`foldNoteName`), fold twins, `truncated`, the sources' states, the note last open in this page; the feedback by id, held only while the whole list is (so every count is right); the unsent feedback text of each note (page memory); selectors for the tree, a note's feedback and the waiting counts |
 
 **Columns** (`ColumnTarget` of §5.11 plus a terminal session; `MAX_COLUMNS` = 4). A thing is open at most once:
 opening it again gives its column the focus. A click on a row replaces what the focused column shows; "open to the
@@ -4540,6 +4588,27 @@ selection fills the side column's composer (a message or a suggestion by role), 
 (one line: `path:12`). In an item's worktree the folder `specs/<slug>/` is read-only for everyone (§7.4); the
 editor's read-only banner says why. A new "agents are waiting" item whose session is in no visible column shows a
 toast with "Open".
+
+**The notes view** (0.8.0, `app/workspace/NotesView.tsx`, `features/sticky`): three panes in split panes (widths
+under `smurg.pane.notes-tree` and `smurg.pane.notes-chat`), its own skip link and F6 stops. Left: the tree of notes
+from Home along their links (`noteTree`; `ui/Tree` with `activatesGroups`, so a row with notes below opens its note),
+then "Not linked", and for a member with `session.drive` the waiting counts and "Feedback on sticky notes that are
+gone" (none while the index is cut at 500); for the host, the states of Slack and Discord. Middle: the open note as
+one sticky note, held as a shared document (`useHeldDocument`) only when the index lists it: read with the Markdown
+renderer and its synchronous `wikiLinks` option (a link to a note not written yet is drawn apart and says so in
+words), "Edit" (the shared editor of that one note, without "Send to agent", for `file.write`), "Add a sticky note"
+(only while the note takes a change: `sticky.create`, then `- [[Name]]` at the end of the open note in one
+transaction), "Ask Claude about this sticky note" (the link into the composer's draft), "Build this" (for
+`session.create`, held while a lock or an unsaved change is on the note; the dialog shows `sticky.spec`'s text as
+plain text and makes the topic, then opens its plan in the sessions view), the topics built from it, and under it the
+feedback: a box for everyone, the list (an outside author with "from Slack" / "from Discord", the text as plain text),
+"Withdraw" on one's own, "Accept", "Reject" and "What Claude gets" (`composeFeedback` of the entry) for
+`session.drive`. A name with no note shows "Write this sticky note" (`file.write`) and that name's feedback; no Home:
+"Write the first sticky note". Right: a `ColumnFrame` on Claude for the sticky notes (place `notes`), or "Start
+Claude" / "Start Claude again" for `session.create`. While the notes view is shown, `openInCodeMode` of a main-root
+file that `noteNameOf` accepts opens that note there. A login from the notes view returns to `/w/<id>/notes`
+without the note's name, so the relay's login never holds one; a full page load at a note's address still sends the
+name to the relay's origin in the path (§11 D-5).
 
 **Terminals** (`features/agents`). The panel of the member who opened a terminal drives the PTY size: columns and
 rows are fitted to the visible area (`terminal-fit.ts`, sent with `session.attach` and then as `exec.resize`), with
@@ -4790,7 +4859,8 @@ marked in its row until it is confirmed. D-15 (2026-10-01) removed the guest san
 withdrawn) and the guests' half of D-4 and D-9. D-24 (2026-10-08) records 0.5.1: it departs from no requirement of
 SPEC.md but from the rule 0.5.0 was built under. D-25 to D-28 (2026-10-20) record 0.6.0: the owner's decisions on
 permission modes, git and models (`docs/design/v0.6.0/DECISIONS.md`, beside the design they were built from). D-29 and
-D-30 (2026-10-27) record 0.7.0: the owner's words of 2026-10-26 (`docs/design/v0.7.0/`). D-16 to D-23 (2026-10-05)
+D-30 (2026-10-27) record 0.7.0: the owner's words of 2026-10-26 (`docs/design/v0.7.0/`). D-31 (2026-11-12) records
+0.8.0: the owner's brief of 2026-11-11 (`docs/design/v0.8.0/`). D-16 to D-23 (2026-10-05)
 record 0.5.0: the owner's brief (`docs/design/v0.5.0/OWNER-BRIEF.md`, `OWNER-DECISIONS.md`) supersedes SPEC.md's wording
 of R4 (agent sessions) and R6 (suggestions), and SPEC.md itself is not edited. Rows written before 0.5.0 keep their
 wording where it still holds; where 0.5.0 changed what a row says, the row says so ("0.5.0:").
@@ -4801,7 +4871,7 @@ wording where it still holds; where 0.5.0 changed what a row says, the row says 
 | D-2 | D6 / R9: agents work in a **git worktree** | The user-facing concept and the location `.smurg/worktrees/<id>` are unchanged, but each one is created with `git clone --shared --no-checkout` instead of `git worktree add`. | A real `git worktree` forces the sandbox to grant the guest write access inside the main repository's `.git` (objects, `worktrees/<name>`, refs), which contradicts R9's "cannot read or write the main workspace". A shared clone needs read access only. (`sandbox.md`, verification section) Kept after D-15 (no sandbox any more): a session in a worktree still writes nothing into the main repository through git, and every merge goes through the host's review. |
 | D-3 | R2: a kicked user's session processes are terminated | Terminated: the PTY's process group (0.5.0: for an agent session the process group of its `claude` child), all descendants, and every process carrying the session's id in its environment. **Not** covered: a process that deliberately detaches (`setsid`) *and* scrubs its environment, on macOS and (since D-15: no sandbox, no PID namespace) on Linux. Such a process keeps running as the host's user. | The only way to find such a process on macOS is to scan every process on the machine with a private API and kill what matches. Two research spikes that tried this killed unrelated processes of the host user. The risk of harming the host outweighs the benefit for a prototype. Measured since: macOS reuses freed pids within milliseconds (so kills are identity-checked, §7.6), and `ps -E` hides the environment of Apple platform binaries (`/bin/sleep`, `/bin/sh`, `/usr/bin/python3`), so a platform-binary job orphaned before the first 2 s descendant scan also escapes a natural exit. 0.5.0: the same holds for what an agent's commands leave running. Each command of an agent runs in a shell of its own, so a `&` job is orphaned at once and is found only by the session's id in its environment: on macOS a job of an Apple platform binary is found only when the 2 s scan saw it while its shell still ran; a `node`, a `pnpm`, a `python` from Homebrew, a `cargo` is found. |
 | D-4 **(withdrawn 2026-10-01, D-15)** | R5: "read: deny the host's home by default" | Was: srt's read model (everything readable, then broad `denyRead` regions, then `allowRead` carve-outs). There is no guest sandbox any more (D-15). | — |
-| D-5 | R3: the relay can only see workspace id, connection id, message size and timing | Also true for content, keys and device ids. But the relay performs the login, so it additionally knows the **account identity and IP address** of each connection. | Inherent to R2 (login at the relay). Stated openly rather than hidden. (`relay.md`) |
+| D-5 | R3: the relay can only see workspace id, connection id, message size and timing | Also true for content, keys and device ids. But the relay performs the login, so it additionally knows the **account identity and IP address** of each connection. **0.8.0**: the relay's Worker also serves the web app, so a full page load at a sticky note's address (`/w/<id>/notes/<name>`: a reload, a shared link, a link opened in a new tab) sends the note's NAME to the relay's origin in the request path. The Worker's code does not run for it (static assets), but the operator's account serves it and can log it. A login from the notes view returns without the name; nothing else of a note leaves the encrypted channel. | Inherent to R2 (login at the relay). Stated openly rather than hidden. (`relay.md`) 0.8.0: the design puts the open note in the address (DESIGN 0.8.0 D7.1); moving it to the fragment, which no browser sends, is the other side, left to the owner (`docs/design/v0.8.0/README.md`). |
 | D-6 | R8: `FileChanged` hook as the basis of the fallback | The fallback is driven by the daemon's own file watcher; `FileChanged` only feeds the activity feed. | `FileChanged` watches literal file names in the cwd only and misses the first moments of a session. (`claude-hooks.md`) |
 | D-7 | §6: packages `web`, `relay`, `daemon`, `cli`, `protocol` | Adds `tests/e2e`. | Acceptance tests must depend on every package. |
 | D-8 | R3: on a kick or a role change the daemon revokes the member's device keys | A **kick** revokes every device key of the member. A **role change** does not revoke keys: it closes the member's channels (`channel.closed{role-changed}`), the router applies the new role to the very next message, and the client reconnects with the same key and a fresh Welcome. Losing the right to open sessions (a role below "Agent access", D-15) ends the terminals and free agent sessions the member opened; 0.5.0: the sessions of their topics pass to the host and keep running (D-17). | Revoking the keys on a role change would lock the member out: they could only come back through a new invite, which makes "change a role" the same as "kick". What the requirement protects against — the old role still being usable — is achieved by the per-message role check and the channel close. |
@@ -4826,6 +4896,7 @@ wording where it still holds; where 0.5.0 changed what a row says, the row says 
 | D-27 **(0.6.0, the owner's decision 3)** | R9: every agent works in a worktree or a session of its own and a person merges | **Without the git program, work items run directly in the shared folder**: only the host starts or retries them, after the Start dialog's tick; one agent holds the folder at a time, later turns included; the report has no diff (`no-history`), nothing waits for a merge, nothing can be undone; an item runs directly only because its own confirmed Start said so (§7.8). | The owner: it must run where git does not. Never silent: the dialog names it before anything runs, the plan and the report say it, the guides say it; and the host's alone, since members with agent access could otherwise change the folder with no review. |
 | D-29 **(0.7.0, the owner's words of 2026-10-26)** | R9: the owner requests the merge, the host sees the full diff, then confirms (0.6.0: a person reviews the report, the host merges each item, and an item that depends on another starts only after that merge) | **Work items merge by themselves when they are in order, on the host's standing consent.** The workspace setting `merging` (`auto` by default, and for workspaces of 0.6.0 and earlier at the update: `stateStepFromV060`, the second open-side step of §0 rule 8; items armed before the update keep the host's merge) is the host's, off in the console ("I merge each item myself", which gives back 0.6.0's flow at once); a Start may choose "The host merges each item"; a detached HEAD is the host's. "In order" (§2 rule 11, §7.8 "Automatic merging") is computed again just before `git merge`; only into the Start's branch; a conflict against other work items is resolved by the item's own agent (three tries), one against a person's change is a decision; what needs a person is a decision that stops only its item and what depends on it; the review is a mark; the topic is ready to check at the end, and the host can undo. Author the host, committer smurg, a trailer and an audit entry with the consent. | The owner (2026-10-26): "I don't want progress to stop because of a review report; let it merge automatically." Measured with the stand-in through the release composition (U1: a team that left after Start found its plan stopped 1.2 s later and still stopped 8 hours later; with automatic merging the same plan is ready to check about 2 s after Start, `release-flow.unattended.test.ts` and `release-flow.unattended-decisions.test.ts` M1–M16) and with real git 2.49 (U2, R-SAFE: the trailer and the split author, the branch guard, a staged index, update and resolve, undo by revert, an undo that snapshots first keeps a person's saved edits). The checks are the agent's claims (§12). |
 | D-30 **(0.7.0, the owner's words of 2026-10-26)** | AD-10 of 0.5.0 (§7.6 "Restart", the host guide §10.5): after a restart of `smurg host` nothing runs by itself; every plan with work in progress is paused until someone presses "Continue all" | **Plans go on by themselves after a restart**, once `smurg host` has printed which topics go on (`Daemon.goOn()`); a person's Pause (`plan.pause`, survives restarts) and a topic with an interrupted direct item stay paused; the pin and history checks run first. `smurg host` and `smurg stop` say at a stop how many topics will go on. Automatic continues after a usage limit, a broken turn (twice), a crash (once) and a failed snapshot (once), each audited; never for an item a person stopped. | A restart is not a decision about the work, and every update needs one (`smurg update` refuses while a host runs). The brake that Ctrl-C was is now Pause, and the stop line says what goes on. Tests: `release-flow.restart.test.ts` (changed on purpose), `release-flow.unattended.test.ts` M4, M5, M6, M16. |
+| D-31 **(0.8.0, the owner's brief of 2026-11-11)** | §8: a Viewer browses files, watches sessions and downloads; only "Editor" and above give an agent anything (R6: suggestions) | **Every role, a Viewer too, gives feedback on a sticky note** (the capability `feedback.give`, held by all four roles; §3). Feedback reaches no agent by itself: a member with agent access (`session.drive`) accepts it, exactly as shown, and the daemon sends it ONCE to Claude for the sticky notes as that member's own message that quotes it (`composeFeedback`, §5.12; §2 rule 6 (d)); rejecting and withdrawing send nothing; nobody edits it. A message of a person outside the workspace (a Slack or Discord channel the host connected) becomes feedback of the same kind, from someone who is never a member. Bounded: 20 waiting per member, 300 from members, 200 from outside, 20 per outside person. SPEC.md is not edited. | The owner: "a feature that lets everyone give their opinion on a sticky note by leaving a comment. Developers can review and approve these opinions" (`docs/design/v0.8.0/OWNER-BRIEF.md`, translated). A Viewer's text reaching an agent unaccepted would break §2 rule 6, so acceptance is the gate, and the one send is pinned by code (`test/sticky/accept.test.ts` reads `src/sticky/` for it). Tests: protocol `roles.test.ts` ("give feedback"), daemon `test/sticky/feedback.test.ts`, `test/sticky/accept.test.ts`, `test/sticky/sources.test.ts`, e2e `n.sticky-notes.test.ts`. |
 | D-28 **(0.6.0, the owner's decision 4)** | R4: the host's own Claude Code runs the agents with its own default model (0.5.x never passed `--model`) | **The model is chosen per session and per topic** by the host and every member with Agent access, from the list the host's own Claude Code offers (a probe of its `initialize`, hooks off), at start and live (`set_model`); null is the host's default (every 0.5.x session). A model that may bill usage credits says so where it is chosen, and the console lists the sessions on one; a member who goes takes such a choice back with them. A refused or substituted model is said in the conversation; the strip shows the model that runs. | Users could not choose a model. Measured with 2.1.288 (U1, `test/sessions/models-claude-real.test.ts` R1, R7): only `--model` on every start is deterministic, `set_model` applies from the next turn, a 404 leaves the process usable, the probe runs no hook of the host's and sends no model request. |
 
 ## 12. Known limits of the prototype
@@ -5071,6 +5142,17 @@ Known limits of 0.5.0 (agent conversations, topics, the inbox). They are the ris
   available in an agent session, and smurg never chooses the model.
 - **An Editor as the responsible person** cannot allow commands or write a note for the agent: those go to members
   with agent access, and a plan where people choose Editors for every item waits on whoever has agent access.
+- **The sticky notes (0.8.0).** Verified with the scripted stand-in for the model and, for Slack and Discord, against
+  fake servers on 127.0.0.1 with fake tokens: no real model wrote a note or worked in accepted feedback, and no real
+  bot read a channel (`docs/design/v0.8.0/README.md` lists what the readers assume of the two services and could
+  not check). Claude for the sticky notes reads every note, whoever wrote it, and every file of
+  the project a discussion may read (§2 rule 6): a note can carry instructions to it, which is why it writes only
+  notes and runs nothing. A note's name is in the address of the notes view and reaches the relay's origin on a full
+  page load (§11 D-5). On Linux a `notes/` folder that appears with its files already in it, or a path swapped for a
+  folder within one batch of the watcher, can be missed by the index until the next change in it (below: the native file watcher on Linux). Not built in
+  0.8.0: rename or delete from the notes view (code mode's file tree does both; the index follows), a link with its
+  own words (`[[Name|label]]`), an inbox item for waiting feedback (the counts show it), editing feedback before
+  accepting it, and reading replies in threads.
 - **Not exercised**: MCP elicitation; a real `claude` on Linux; the packaged executable's hook under a real model's
   tool rate; Enter-to-send with a Chinese input method (the guard is `event.isComposing`); a 320 px column with a
   permission card that holds a diff.

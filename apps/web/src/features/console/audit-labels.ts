@@ -168,7 +168,13 @@ const DETAIL_LABEL_KEYS: Readonly<Record<string, string>> = {
   // "Build this" (0.8.0, DESIGN 0.8.0 D5.2)
   notes: 'audit.detail.notes',
   step: 'audit.detail.step',
+  // what was done to a feedback's text before it was stored (0.8.0, DESIGN 0.8.0 D4.3, D6.3): shown as a yes
+  cleaned: 'audit.detail.cleaned',
+  cut: 'audit.detail.cut',
 };
+
+/** Detail keys that are only ever `true` when present: their value is said as a word, not as `true`. */
+const FLAG_DETAIL_KEYS: ReadonlySet<string> = new Set(['cleaned', 'cut']);
 
 const SUGGESTION_OUTCOME_KEYS: Readonly<Record<string, string>> = {
   accepted: 'audit.detail.accepted',
@@ -217,7 +223,12 @@ export function auditDetailRows(entry: AuditEntry): AuditDetailRow[] {
     // A refusal's reason is already in the outcome cell.
     if (key === 'reason' && raw === shownReason) continue;
     const text = typeof raw === 'string' ? raw : Array.isArray(raw) && raw.every((item) => typeof item === 'string') ? formatList(raw) : JSON.stringify(raw);
-    const value = key === 'outcome' && typeof raw === 'string' && raw in outcomes ? t(outcomes[raw] as Parameters<typeof t>[0]) : text;
+    const value =
+      key === 'outcome' && typeof raw === 'string' && raw in outcomes
+        ? t(outcomes[raw] as Parameters<typeof t>[0])
+        : FLAG_DETAIL_KEYS.has(key) && raw === true
+          ? t('audit.detail.yes')
+          : text;
     const labelKey = labels[key];
     rows.push({ key, label: labelKey ? t(labelKey as Parameters<typeof t>[0]) : key, value, block: value.length > 80 || value.includes('\n') });
   }

@@ -10,8 +10,8 @@ message agents, Editors suggest, and the team votes on agents' questions. This p
 - **Your computer** runs `smurg host`. The files and the agents stay there; the agents run as you
   ([what that means](#what-it-is-today)).
 - **The relay** forwards the data between you and teammates and cannot read it: everything is end-to-end
-  encrypted. It knows which account connects, from which IP address, and when
-  ([what the relay can see](HOSTING.md#21-the-shared-relay-default)).
+  encrypted. It knows which account connects, from which IP address, and when, and the name of a sticky note
+  whose address a page is loaded at ([what the relay can see](HOSTING.md#21-the-shared-relay-default)).
 - **A browser** is all a teammate needs: they open the invite link in Chrome and log in with Google.
 
 ## Several people, one agent
@@ -22,7 +22,7 @@ What each [role](JOINING.md#2-roles-what-you-can-do) can say to an agent:
   agents ask to run.
 - **Editors** suggest: their message reaches the agent only once accepted. They also edit files and review
   results.
-- **Viewers** watch.
+- **Viewers** watch and give feedback on sticky notes.
 
 Agents are told to bring decisions to the team as multiple-choice questions. Everyone but Viewers votes, and one
 person submits the answer: the votes are advice ([questions and votes](JOINING.md#53-questions-and-votes)).

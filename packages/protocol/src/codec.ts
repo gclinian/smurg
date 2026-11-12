@@ -281,7 +281,8 @@ export function takeWithinBytes<T>(
 }
 
 /**
- * THE list rule (`session.list`, `suggest.list`, `topic.list`, `inbox.list`, `admin.claudeConfig.get`) over a list
+ * THE list rule (`session.list`, `suggest.list`, `topic.list`, `inbox.list`, `admin.claudeConfig.get`, and since
+ * protocol 7 `sticky.list` and `sticky.feedback.list`) over a list
  * that is already in its order: the entries after the one whose id is `after` (from the start when `after` is absent
  * or no longer in the list), closed at LIST_REPLY_MAX_BYTES and at `maxItems` entries (default LIST_MAX_ITEMS), always
  * at least one entry; `hasMore` when entries are left. The next request passes the last id it got as `after`.

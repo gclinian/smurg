@@ -87,7 +87,7 @@ export const t = defineStrings(
       other: "The topic sessions (discussions and work items) and Claude for the sticky notes that {name} started are stopped and pass to you: the agent's turn is interrupted, and its open questions and permission requests are withdrawn ({count} sessions right now).",
     },
     'kick.removed':
-      'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, and their votes on open questions.',
+      'What {name} put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, their votes on open questions, and their feedback on sticky notes that still waits.',
     'kick.responsible': {
       one: '{name} is no longer responsible for anything ({count} session right now): its questions are then decided by whoever started it, or by you.',
       other: '{name} is no longer responsible for anything ({count} sessions right now): their questions are then decided by whoever started them, or by you.',
@@ -372,6 +372,9 @@ export const t = defineStrings(
     // "Build this" (0.8.0, DESIGN 0.8.0 D5.2): the sticky notes whose text went into the spec, and the step that failed
     'audit.detail.notes': 'Sticky notes in the spec',
     'audit.detail.step': 'Step that failed',
+    'audit.detail.cleaned': 'Hidden characters removed',
+    'audit.detail.cut': 'Only its start kept',
+    'audit.detail.yes': 'Yes',
     'audit.outcome.ok': 'OK',
     'audit.outcome.denied': 'Denied',
     'audit.outcome.error': 'Error',

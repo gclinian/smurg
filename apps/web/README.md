@@ -16,6 +16,11 @@ conversation with an agent, a terminal, a topic's spec, its plan, a result repor
 mode** (`/w/:id/code`) is the workbench of 0.4.0 (file tree, editor, terminal, activity) behind a switch in the top
 bar. Both stay mounted.
 
+**0.8.0 (protocol 7) adds a third view, the sticky notes** (`/w/:id/notes`, `/w/:id/notes/:name`; DESIGN 0.8.0 D7 in
+`docs/design/v0.8.0/`): the tree of notes grown from Home by their wiki links on the left, the open note in the middle
+(read, edited together, its feedback under it, "Build this"), and Claude for the sticky notes on the right. It is the
+first link of the mode switch, mounted the first time it is shown. `/w/:id` stays the sessions view.
+
 **How to read this document** (state of 2026-10-07, after the integration of the web packages). "As built" means the
 code is in `src/` and has tests: the shell with both views, every store, the commands, the slots, the UI kit, the
 columns strip, the left column, the Markdown renderer, the conversation column and its cards, the terminal column, the
@@ -26,7 +31,7 @@ still says "Contract", it describes what the design fixes; the code named beside
 - [Run the whole system locally](#run-the-whole-system-locally)
 - [Directory layout and ownership](#directory-layout-and-ownership)
 - [Routes and the join flow](#routes-and-the-join-flow)
-- [The two views of a workspace](#the-two-views-of-a-workspace)
+- [The three views of a workspace](#the-three-views-of-a-workspace)
 - [Connection layer and connection states](#connection-layer-and-connection-states)
 - [Stores (one per domain)](#stores-one-per-domain)
 - [Capability checks (only to hide UI)](#capability-checks-only-to-hide-ui)
@@ -109,8 +114,9 @@ src/
 ├── boot/capture-invite.ts   Before any other code runs: stores the invite fragment in sessionStorage and removes it from the address bar
 ├── boot/locale.ts           Resolves the language of this browser and sets <html lang>, before the strings and any component
 ├── app/                     The shell: App, routes, pages, connection screens
-│   └── workspace/           WorkspaceRoute, WorkspaceShell (both views mounted), SessionsView (the main screen),
-│                            Workbench (code mode, a lazy chunk), TopBar (the mode switch), EmptyColumns, the notices,
+│   └── workspace/           WorkspaceRoute, WorkspaceShell (the views stay mounted), SessionsView (the main screen),
+│                            Workbench (code mode, a lazy chunk), NotesView (the sticky notes, a lazy chunk, 0.8.0),
+│                            TopBar (the mode switch), EmptyColumns, the notices,
 │                            feature-slots.ts (finds every features/*/slots.tsx), layout.ts and layout-limits.ts
 ├── lib/                     Shared logic
 │   ├── connection/          The WorkspaceConnection interface, state -> UI mapping, browser dependencies (IndexedDB keys)
@@ -177,15 +183,19 @@ stores, ask for it at handover.
 | `/join/:workspaceId` | Accept an invite (see below) |
 | `/w/:workspaceId` | The workspace in the **sessions view**, the main screen (a lazy-loaded chunk) |
 | `/w/:workspaceId/code` | The same workspace in **code mode** (the workbench; its own lazy chunk inside the workspace chunk) |
+| `/w/:workspaceId/notes` | The same workspace in the **sticky notes** (0.8.0; its own lazy chunk), at Home |
+| `/w/:workspaceId/notes/:name` | The sticky notes at the note `name` (`encodeURIComponent`; decoded inside a `try` and held to `noteNameSchema` as it is, else `not-found`; a valid name with no note is its "not written yet" page) |
 | `/w/:workspaceId/console` | The host console (anyone who is not the host sees an explanation) |
 | `/w/:workspaceId/console/:section` | The host console at one of its sections (`CONSOLE_SECTIONS` of `@smurg/protocol`): what an inbox item of the host opens |
 
-The router is `lib/router.ts` (History API, a closed `Route` union: `landing`, `join`, `workspace`, `code`,
+The router is `lib/router.ts` (History API, a closed `Route` union: `landing`, `join`, `workspace`, `code`, `notes`,
 `console`, `not-found`). An invalid workspace id or an unknown console section is `not-found`, never "repaired". For
 links inside the app use `<Link to>`, `useNavigate()` and `useRoute()` from `app/navigation.tsx`.
 
 The mode of a workspace is a route on purpose (the design's AD-12): a reload, the back button and a shared address
-keep it. `WorkspaceRoute` renders ONE `WorkspaceShell` for `workspace` and `code`; the console is a page of its own.
+keep it. `WorkspaceRoute` renders ONE `WorkspaceShell` for `workspace`, `code` and `notes`; the console is a page of
+its own. A login from the sticky notes returns to `/w/:id/notes` without the note's name, so the relay's login never
+holds one (a full page load at a note's address still names it to the relay's origin: ARCHITECTURE §11 D-5).
 
 **The join flow (ARCHITECTURE §4.1)** is implemented in `boot/capture-invite.ts` and `app/pages/JoinPage.tsx`:
 
@@ -217,15 +227,17 @@ key first and falls back to the invite when the host does not know the device. (
 went on as a device the host had never seen and said "This device can no longer connect … ask the host for a new
 invite link", about a link that still worked.)
 
-## The two views of a workspace
+## The three views of a workspace
 
-As built (`app/workspace/`, `features/columns`, `features/sidebar`).
+As built (`app/workspace/`, `features/columns`, `features/sidebar`, and since 0.8.0 `features/sticky`).
 
-**The shell.** `WorkspaceShell.tsx` mounts BOTH views and shows one; the other is `hidden` and `inert`. So unsent
-composer text, open columns, editor tabs and scroll positions survive the switch, and nothing reconnects. Its root
-element is `.app-shell` with `data-mode="sessions|code"`; the two views are `data-view="sessions"` and
-`data-view="code"`. Code mode's module (`Workbench.tsx`, with Monaco and xterm behind it) is a lazy chunk loaded when
-code mode is first shown. The shell also owns what belongs to neither view: the top bar, the connection banners, the
+**The shell.** `WorkspaceShell.tsx` mounts the sessions view and code mode, mounts the sticky notes the first time
+they are shown, and shows one view; the others are `hidden` and `inert`. So unsent composer text, open columns,
+editor tabs, the open sticky note and scroll positions survive the switch, and nothing reconnects. Its root element is
+`.app-shell` with `data-mode="notes|sessions|code"`; the three views are `data-view="notes"`, `data-view="sessions"`
+and `data-view="code"`. Code mode's module (`Workbench.tsx`, with Monaco and xterm behind it) is a lazy chunk loaded
+when code mode is first shown, and so is the notes view's (`NotesView.tsx`). The shell also owns what belongs to no
+view: the top bar, the connection banners, the
 commands that move between the views (`openColumn`, `setMode`, `openInCodeMode`), the overlays the features
 registered, the notices, and the browser tab's title, which carries the number of waiting items ("(2 waiting) …").
 
@@ -255,12 +267,36 @@ registered, the notices, and the browser tab's title, which carries the number o
 
 **Code mode** (`Workbench.tsx`) is described in [Code mode](#code-mode).
 
-**The top bar** (`TopBar.tsx`) is the same in both views and in the console: workspace name and host, connection
+**The sticky notes** (`NotesView.tsx`, `features/sticky`, the `sticky` store; DESIGN 0.8.0 D7):
+
+```
+┌ list of notes ───────┬ the open note ─────────────────┬ Claude for the sticky notes ┐
+│ Sticky notes from    │ Home  [Read | Edit]            │ its conversation, or       │
+│ Home (a tree)        │ the note as Markdown, links    │ "Start Claude"             │
+│ Not linked           │ Feedback: box, list, Accept    │                            │
+└──────────────────────┴────────────────────────────────┴────────────────────────────┘
+```
+
+- Two `SplitPane`s (widths under `smurg.pane.notes-tree` and `smurg.pane.notes-chat`, nothing in `smurg.layout`), its
+  own skip link ("Skip to the sticky note") and F6 stops: the list, the open note's name, Claude's pane.
+- The **list** is `ui/Tree` with `activatesGroups` (Enter, Space and a click on a row with notes below open its note
+  and unfold it; the twisty only folds), then "Not linked", and for a member with `session.drive` the waiting counts
+  and "Feedback on sticky notes that are gone"; for the host, the states of Slack and Discord.
+- The **open note** is held as a shared document only when the index lists it: the Markdown renderer with its
+  `wikiLinks` option, "Edit" (`StandaloneDocument` with `sendToAgent={false}`), "Add a sticky note", "Ask Claude about
+  this sticky note", "Build this" and its dialog, the topics built from it, and the feedback under it (`Feedback.tsx`).
+- **Claude's pane** is a `ColumnFrame` (place `notes`) on the agent session of purpose `notes`, or its start.
+- The feature imports exactly `editor/standalone.tsx` and `markdown/index.ts` of other features (the two lines of
+  `feature-slots.test.ts`).
+
+**The top bar** (`TopBar.tsx`) is the same in every view and in the console: workspace name and host, connection
 status, member avatars with presence, your own role, the console link (host), the mode switch, the layout toggles of
-the view on screen, language, theme and "Leave". The mode switch is two links, "Sessions" and "Code mode" (the mode
-is a route); the current one has `aria-current`. While code mode is on screen the "Sessions" segment carries the two
-inbox counts, so a question is not missed while hand-coding; the "Code mode" segment carries the number of open
-conflicts, because a conflict can hold a person's unsaved text.
+the view on screen (none in the sticky notes), language, theme and "Leave". The mode switch is three links,
+"Sticky notes", "Sessions" and "Code mode" (the mode is a route); the current one has `aria-current`. While another
+view is on screen the "Sessions" segment carries the two inbox counts, so a question is not missed while hand-coding;
+the "Code mode" segment carries the number of open conflicts, because a conflict can hold a person's unsaved text;
+for a member with `session.drive` the "Sticky notes" segment carries how much feedback waits, in every view, and leads
+to the note last open in this page.
 
 **What is remembered where.** What a person folded (the left column and its two sections; code mode's file tree,
 session column and drawer) is per browser: `localStorage['smurg.layout']` (`layout.ts`; a browser that ran 0.4.0
@@ -350,6 +386,7 @@ store before the promise resolves.
 | `host` | `session.host.get`, `session.host` | the state of the host's Claude account and of the main folder's Claude Code project settings |
 | `columns` | nothing from the daemon | the member's own view (see "What is remembered where") |
 | `suggestions` | `suggest.list`, `suggest.updated` | suggestions, by session |
+| `sticky` (0.8.0) | `sticky.list` and `sticky.changed` from the first show of the sticky notes; `sticky.feedback.list` and `sticky.feedback.updated` with the channel for a member with `session.drive`, else with the sticky notes | the notes by folded name, fold twins, `truncated`, the sources' states, the note last open in this page; the feedback by id, held only while the whole list is; the unsent feedback text of each note (page memory) |
 
 The other stores (`workspace`, `presence`, `files`, `locks`, `docs`, `activity`, `conflicts`, `worktrees`, `admin`,
 `transfers`) are as in 0.4.0.

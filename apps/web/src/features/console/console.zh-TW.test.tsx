@@ -265,6 +265,22 @@ describe('host console in zh-TW: Claude for the sticky notes (protocol 7)', () =
     expect([decision('sticky.feedback.accept', 'accepted'), decision('sticky.feedback.withdraw', 'withdrawn')]).toEqual(['已採用', '已撤回']);
   });
 
+  it('feedback whose hidden characters were removed, or an outside message that was cut, is said in Traditional Chinese', () => {
+    const rows = auditDetailRows({
+      id: 'au_c',
+      at: 1_731_300_000_000,
+      outcome: 'ok',
+      target: 'fb_3',
+      actor: { kind: 'system' },
+      action: 'sticky.feedback.create',
+      detail: { note: 'Home', outsideSource: 'discord', writtenBy: 'Mei', feedback: '加上深色模式', cleaned: true, cut: true },
+    });
+    expect(rows.filter((row) => row.key === 'cleaned' || row.key === 'cut').map((row) => [row.label, row.value])).toEqual([
+      ['已移除看不見的字元', '是'],
+      ['只保留了開頭', '是'],
+    ]);
+  });
+
   it('"Build this" in the audit log: its name and its details in Traditional Chinese (DESIGN 0.8.0 D5.2)', () => {
     expect(auditActionLabel('sticky.build')).toBe('從便利貼建立主題（把它做出來）');
     const rows = auditDetailRows({

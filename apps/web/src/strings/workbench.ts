@@ -60,7 +60,7 @@ export const tWorkbench = defineStrings(
     'mode.code.conflicts': { one: 'Code mode: {count} open conflict', other: 'Code mode: {count} open conflicts' },
     'title.waiting': '({count} waiting) {title}',
     'leave.title': 'Leave this workspace?',
-    'leave.body': 'The terminals and the sessions without a topic that you opened, except Claude for the sticky notes, end. The topic sessions (discussions and work items) and Claude for the sticky notes that you started pass to the host and keep running. What you put in place is removed: the kinds of commands you always allowed, the work items you started that have not begun, a permission mode you loosened, and your messages that still wait for an agent. You can reconnect later with this browser.',
+    'leave.body': 'The terminals and the sessions without a topic that you opened, except Claude for the sticky notes, end. The topic sessions (discussions and work items) and Claude for the sticky notes that you started pass to the host and keep running. What you put in place is removed: the kinds of commands you always allowed, the work items you started that have not begun, a permission mode you loosened, your messages that still wait for an agent, and your feedback on sticky notes that still waits. You can reconnect later with this browser.',
     'leave.bodyHost': "You are the host: leaving only closes this tab's connection and does not stop sharing. To stop sharing, run smurg stop in a terminal on the host computer.",
     'leave.confirm': 'Leave',
     'leave.failed': 'Something went wrong while leaving: {reason}',

@@ -6,7 +6,7 @@ need to have used smurg or Claude Code before. The host (the person who shares t
 
 New here? Start with the [quick start](QUICKSTART.md).
 
-Four things to know first:
+Five things to know first:
 
 - **Every file is on the host's computer.** What you see and change in the browser is the file on the host's
   computer; saving is automatic.
@@ -17,9 +17,12 @@ Four things to know first:
   the team multiple-choice questions and writes a spec; the agent turns the spec into a plan of work items; one
   agent per work item does the work; smurg merges each item whose report says it is complete and verified (unless
   the host merges each item), and at the end the team checks the result (§6).
+- **Sticky notes are the simplest way in.** Everyone writes small notes together that link to each other and grow
+  from one first note; Claude writes notes with you; everyone, a Viewer too, can give feedback on a note; and a note
+  can become a topic (§11).
 - The connection between you and the host's computer is **end-to-end encrypted**: the server in between (the relay)
   cannot see file contents, conversations, terminal output or commands (it knows which account you logged in with and
-  the IP address you connect from).
+  the IP address you connect from, and the name of a sticky note whose address a page is loaded at, §11).
 
 Contents: [1. Join](#1-join-with-an-invite-link) · [2. Roles](#2-roles-what-you-can-do) ·
 [3. The main screen](#3-the-main-screen-inbox-sessions-and-columns) ·
@@ -27,7 +30,8 @@ Contents: [1. Join](#1-join-with-an-invite-link) · [2. Roles](#2-roles-what-you
 [5. Talk to agents](#5-talk-to-agents-messages-suggestions-questions-and-votes) ·
 [6. Topics](#6-topics-from-discussion-to-reviewed-result) ·
 [7. Worktrees and merge requests](#7-worktrees-and-merge-requests) · [8. Host offline](#8-what-host-offline-means) ·
-[9. Leaving](#9-leaving-a-workspace-what-ends) · [10. From a terminal (CLI)](#10-joining-from-a-terminal-cli-optional)
+[9. Leaving](#9-leaving-a-workspace-what-ends) · [10. From a terminal (CLI)](#10-joining-from-a-terminal-cli-optional) ·
+[11. Sticky notes](#11-sticky-notes)
 
 ## 1. Join with an invite link
 
@@ -48,8 +52,8 @@ repost the link in a group or in public, and do not copy only the part before th
    and your device's name.
 4. You are in the workspace. On the left are your inbox and the list of sessions, grouped by topic; on the right is
    room for up to four columns side by side: an agent's conversation, a spec, a plan, a result report (§3). The top
-   bar shows who the host is, the connection state ("Connected"), your role, and a switch between "Sessions" (this
-   screen) and "Code mode" (the file tree and the editor, §4).
+   bar shows who the host is, the connection state ("Connected"), your role, and a switch between "Sticky notes"
+   (the notes everyone writes, §11), "Sessions" (this screen) and "Code mode" (the file tree and the editor, §4).
 
 The interface comes in English and Traditional Chinese: it starts in your browser's language, and the language menu
 on the page switches it (the login and join pages have it too). Everyone sees the language they chose; this guide
@@ -96,15 +100,16 @@ The host chooses your role with the invite link and can change it later in the h
 |---|:-:|:-:|:-:|
 | See files, download files or folders, read every conversation, spec, plan and result report, watch every terminal | ✅ | ✅ | ✅ |
 | Be mentioned by other members (it shows in your inbox) | ✅ | ✅ | ✅ |
-| Edit, create, rename, delete and upload files; edit a topic's spec and plan | ❌ | ✅ | ✅ |
+| Give feedback on a sticky note (it reaches an agent only when someone with agent access accepts it, §11) | ✅ | ✅ | ✅ |
+| Edit, create, rename, delete and upload files; write sticky notes; edit a topic's spec and plan | ❌ | ✅ | ✅ |
 | Vote and comment on an agent's questions; mention people | ❌ | ✅ | ✅ |
 | Send suggestions to an agent (it gets them only when someone with agent access accepts) | ❌ | ✅ | ✅ |
 | Be the responsible person of a session or a work item; review a result report | ❌ | ✅ | ✅ |
 | Mark a topic's result as checked ("I've checked the result") | ❌ | ✅ | ✅ |
 | Decide what a work item that was not merged needs ("Merge it as it is", "Leave it out…"); pause a plan | ❌ | ❌ | ✅ |
-| Start a topic, ask for the plan, start work items, open agent sessions and terminals (**they run as the host**) | ❌ | ❌ | ✅ |
+| Start a topic, ask for the plan, start work items, open agent sessions and terminals (**they run as the host**); start Claude for the sticky notes; "Build this" | ❌ | ❌ | ✅ |
 | Send messages to any agent, stop it, answer an agent's question in your own words | ❌ | ❌ | ✅ |
-| Allow or deny what an agent asks to run; accept or reject suggestions | ❌ | ❌ | ✅ |
+| Allow or deny what an agent asks to run; accept or reject suggestions and feedback on sticky notes | ❌ | ❌ | ✅ |
 | Choose the model of an agent session or a topic, and what its agents may do without asking | ❌ | ❌ | ✅ |
 | Type into **any** terminal session | ❌ | ❌ | ✅ |
 | Ask the host to merge a worktree | ❌ | ❌ | ✅ |
@@ -135,7 +140,8 @@ command that someone allows, and any terminal, runs as the host and is not bound
 
 ## 3. The main screen: inbox, sessions and columns
 
-The screen you arrive at is the sessions view (the "Sessions" side of the switch in the top bar).
+The screen you arrive at is the sessions view (the "Sessions" side of the switch in the top bar). The switch's first
+side, "Sticky notes", is the notes view (§11).
 
 **The inbox** (top left) holds what waits for you, in two groups:
 
@@ -202,9 +208,9 @@ Each session shows what it is doing:
 
 ## 4. Code mode: edit files together
 
-"Code mode" in the top bar switches to the file tree and the editor; "Sessions" switches back. Both sides keep
-their state: the columns you had open are still there when you return. While you are in code mode, the inbox counts
-stay visible on the switch.
+"Code mode" in the top bar switches to the file tree and the editor; "Sessions" or "Sticky notes" switches back.
+Every view keeps its state: the columns you had open, and the sticky note you had open, are still there when you
+return. While you are in code mode, the inbox counts stay visible on the switch.
 
 - **Click a file** in the file tree on the left to open it in the editor; **right-click** a file or folder to create,
   rename, delete or download (a folder is packed into a zip). The buttons above the file tree create a file or a
@@ -617,17 +623,17 @@ Since 0.5.0 the roles do more than they did in 0.4.0, and you have today's meani
 "**Leave**" at the top right → confirm with "Leave".
 
 **What ends** (within seconds): the terminal sessions you opened, and the agent sessions you opened that belong to
-no topic. The worktrees of those sessions are kept, with their changes, and stay yours: you find them when you
-open the workspace again.
+no topic, except Claude for the sticky notes. The worktrees of those sessions are kept, with their changes, and stay
+yours: you find them when you open the workspace again.
 
-**What passes to the host**: the sessions of topics that you created or started. They keep running, now looked
-after by the host, so a plan does not stop because you left. Questions you would have decided are decided by the
-next person in line or by the host.
+**What passes to the host**: the sessions of topics that you created or started, and Claude for the sticky notes if
+you started it. They keep running, now looked after by the host, so a plan does not stop because you left. Questions
+you would have decided are decided by the next person in line or by the host.
 
 **What is removed with you**: your votes on questions that are still open, your messages that an agent has not read
 yet, the kinds of commands you always allowed, a permission mode you chose that is not stricter than what the session
-would follow, and a model you chose that may be billed to usage credits. Work items you started that have
-not begun yet do not start until someone starts them again.
+would follow, a model you chose that may be billed to usage credits, and your feedback on sticky notes that is still
+waiting. Work items you started that have not begun yet do not start until someone starts them again.
 
 **What is not deleted**:
 
@@ -641,9 +647,10 @@ not begun yet do not start until someone starts them again.
 (after a while the host and the members with agent access can answer in your place).
 
 When the host changes your role so that you can no longer use agents, the same things end, pass to the host and
-are removed (your votes stay while you may still vote), and the worktrees you had kept pass to the host too: you
-can no longer remove them. When the host removes you from the workspace, the same happens, the topic sessions you
-started are stopped before they pass to the host, and your suggestions that nobody decided are closed.
+are removed (your votes stay while you may still vote, and your waiting feedback stays: every role may give
+feedback), and the worktrees you had kept pass to the host too: you can no longer remove them. When the host removes
+you from the workspace, the same happens, the topic sessions and Claude for the sticky notes that you started are
+stopped before they pass to the host, and your suggestions that nobody decided are closed.
 
 ## 10. Joining from a terminal (CLI, optional)
 
@@ -718,3 +725,72 @@ be tricked into printing them).
 
 The CLI cannot open sessions, message agents, vote or send suggestions, and it has no "Leave": use the web app for
 those.
+
+## 11. Sticky notes
+
+Sticky notes are the simplest way to work together in smurg: small notes that everyone writes and edits at the same
+time, that link to each other, and that grow from one first note, `Home`. Claude for the sticky notes, on the right,
+writes notes with you; anyone can give feedback on a note; and a note can become a topic that agents build (§6). Each
+note is a Markdown file `notes/<Name>.md` in the shared folder, so code mode shows it too (§4).
+
+How to use it, in order:
+
+1. **Open "Sticky notes"**, the first link of the switch in the top bar. On the left is the list
+   "Sticky notes from Home": Home first, and under each note the notes it links to, in the order of its links (a row
+   with notes under it opens its note and unfolds; its arrow only folds). Notes that Home does not reach are under
+   "Not linked". In the middle is the open note, drawn as one sticky note; on the right is
+   "Claude for the sticky notes". The open note is in the page's address, so you can send someone a link to it.
+2. **Write the first sticky note.** While there is none, the page says "Start with one sticky note", and
+   "Write the first sticky note" makes an empty `Home` (Editors, members with agent access and the host). A Viewer
+   reads "There is no sticky note yet. A member who can edit writes the first one."
+3. **Write, link and add notes.** "Edit" shows the shared editor of that one note: everyone types together, each with
+   their own cursor and name, and it is saved by itself, as in code mode; "Read" shows the note formatted again. A link
+   to another note is `[[Name]]`. A link to a note that is not written yet is drawn with a dashed line and says so; its
+   page says "This sticky note is not written yet." and offers "Write this sticky note". "Add a sticky note" asks for
+   the "Name of the new sticky note", makes it empty and puts `- [[Name]]` at the end of the open note. A name has at
+   most 80 characters, none of `/ \ [ ] | # ^ * _ ~ < > & @` and no backtick, and no space or dot at its start or
+   end; `Home` and `home` are one note. Keep each note small: when one grows, move a part into a new note and link
+   it. The notes view does not rename or delete a note, because links are not rewritten; code mode's file tree does
+   both.
+4. **Start Claude and ask it to edit.** Claude for the sticky notes is one agent session for the whole workspace, and
+   everyone sees it on the right. A member with agent access or the host presses "Start Claude"
+   ("Start Claude again" after it ended); everyone else reads "A member with agent access can start it." It runs on
+   the host's computer like every agent, reads the project and writes only sticky notes: it runs no command, and smurg
+   itself refuses any other write. Write to it as to any agent (§5): an Editor's message is a suggestion that someone
+   with agent access accepts first (§5.2), and a Viewer reads along. "Ask Claude about this sticky note" puts the open
+   note's link into your message, so Claude knows which note you mean. While Claude changes a note, the note says
+   "Claude is writing this sticky note." and everyone sees the new text at once. When the member who started it
+   leaves, it passes to the host (§9).
+5. **Give feedback.** Under every note is its "Feedback". Everyone, a Viewer too, writes in the box and presses
+   "Give feedback". The line under the box says what becomes of it:
+   "Everyone in the workspace sees it. It reaches Claude only when a member with agent access accepts it."
+   While it waits, you can "Withdraw" your own. Feedback is shown as plain text, exactly as written; at most 20 of
+   yours wait at once.
+6. **Accept or reject it** (members with agent access and the host). Beside each feedback that waits are "Accept"
+   and "Reject". "What Claude gets" shows, before you press, the exact message: a fixed sentence that names the note
+   and who wrote the feedback, then the feedback, quoted. "Accept" sends it once to Claude for the sticky notes, as
+   your own message; Claude then changes that note, or writes a new note and links it, and everyone sees what it
+   wrote. When Claude for the sticky notes is not running, Accept says so and offers "Start Claude": press Accept
+   again once it runs. "Reject" asks "Why? (optional; everyone sees it)", and nothing reaches an agent. Decided
+   feedback folds under what waits ("Show 2 earlier"). How much waits is shown only to those who can decide: on the
+   link ("Sticky notes: 2 pieces of feedback waiting") and on each row of the list. It is not an inbox item. Feedback
+   on a note that was renamed or removed is listed under "Feedback on sticky notes that are gone" and can be decided
+   from there.
+7. **Build this, then Start** (members with agent access and the host). "Build this" on a note opens
+   "Build this sticky note": the exact text that becomes a new topic's spec, as plain text (the note and the notes it
+   links to directly; no other note is part of it). "Make the topic" makes the topic, with a plan of one work item
+   named after the note, and opens the plan in the sessions view. As for every new topic, its discussion session
+   with Claude starts at once; the work does not start yet. There, "Start 1 item" opens the topic's own Start dialog
+   (§6, step 6), and from then on the topic runs as every topic does: its work item works in its own worktree, writes
+   a result report, and merges into the shared folder by itself when the report says it is complete and verified,
+   unless the host merges each item (§6, steps 7 to 9). The note lists its topics under
+   "Topics built from this sticky note". While someone is typing in the note or Claude is writing it, the button
+   waits: "Build this waits until every change to this sticky note is saved and Claude is not writing it."
+8. **Slack and Discord** (the host). The host can connect one Slack channel and one Discord channel to the workspace
+   ([host guide](HOSTING.md) §11). A message a person writes there becomes feedback on the note it names with
+   `[[Name]]`, else on Home, from a person who is not a member: it shows their name and "from Slack" or
+   "from Discord", and waits to be accepted or rejected like any other feedback.
+
+The sticky notes of this version were tested with a scripted stand-in for the model, not with a real Claude account,
+and Slack and Discord with stand-in servers, never with a real bot. Expect rough edges, and tell the host when
+something does not work.

@@ -70,9 +70,9 @@ Every step, up to a first topic whose work is merged and checked: [Quick start](
 - **Merged by itself, then checked.** Each finished item comes with a result report; smurg merges what its report says
   is complete and verified, and you check the result.
 
-Also: an inbox for each person, up to four columns side by side, three roles (Viewer, Editor, Agent access), and a
-code mode with a shared editor and terminals. The interface is in English or Traditional Chinese. The
-[guide for teammates](docs/JOINING.md) explains each.
+Also: sticky notes the team writes with Claude and gives feedback on, an inbox for each person, up to four columns
+side by side, three roles (Viewer, Editor, Agent access), and a code mode with a shared editor and terminals. The
+interface is in English or Traditional Chinese. The [guide for teammates](docs/JOINING.md) explains each.
 
 ## How it is built
 
@@ -111,7 +111,7 @@ The same guides, easier to read: <https://smurg.ai/docs/>. Every document of the
 | `smurg uninstall` | Removes smurg from this computer after listing what it will remove |
 | `smurg licenses` | Prints smurg's license and the notices of the third-party software in the executable |
 
-`smurg <command> --help` prints every option of a command.
+`smurg connect` / `smurg disconnect` take a Slack or Discord channel's messages as feedback on sticky notes, or stop. `smurg <command> --help` prints every option of a command.
 
 </details>
 

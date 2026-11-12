@@ -121,8 +121,9 @@ export const sessions = {
     'zh-TW': () => '訊息是空白的，或是移除隱藏字元後仍然太長',
   }),
   'responsible.notEligible': message({ name: 'string' }, {
-    en: (p) => `${p.name} cannot be responsible: viewers only watch.`,
-    'zh-TW': (p) => `${p.name} 不能當負責人：「旁觀」只能觀看`,
+    // (0.8.0, DESIGN 0.8.0 D4.1: a Viewer also gives feedback on sticky notes, so "only watch" is no longer true)
+    en: (p) => `${p.name} cannot be responsible: a viewer watches and gives feedback on sticky notes, but does not vote on questions or review reports.`,
+    'zh-TW': (p) => `${p.name} 不能當負責人：「旁觀」可以觀看，也可以對便利貼提出意見，但不能對選擇題投票，也不能看過報告`,
   }),
   'responsible.unknownMember': message({}, {
     en: () => 'That person is not a member of this workspace.',

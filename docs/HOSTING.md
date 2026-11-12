@@ -111,7 +111,8 @@ need to deploy anything**; you only need a Google account (hosts and teammates b
 - It can see: **which Google account** each connection belongs to (account ID, name and picture; at login Google
   also gives the relay your email, used as the display name only when the account has no name), **the IP address it
   connects from**, which workspace code it connects to, and the size and time of every message. From these it can
-  tell who worked with whom and when, and how much data they sent.
+  tell who worked with whom and when, and how much data they sent. One name too: when a browser loads a page at a
+  sticky note's address (a reload, a link someone sent), the address it asks the relay for holds that note's name.
 - It stores: each workspace's code and which account is its host. Logins themselves are not stored (a relay login
   is a signed token valid for 7 days); only when you log `smurg` in with a code does the relay keep that request for
   at most 10 minutes (the code, and the IP address and approximate location of the computer that ran `smurg login`,
@@ -197,9 +198,11 @@ the links, before anything goes on, a line says which topics go on by themselves
 channel (in person, on the phone) to make sure nobody, the relay included, is posing as you. `smurg status` shows it
 (the "Daemon key fingerprint" line).
 
-Roles: Viewer (`viewer`) can only look; Editor (`editor`) can edit files, vote and comment on agents' questions,
-review result reports and send suggestions to agents; Agent access (`agent`) can also start topics and work items,
-send messages to agents, allow what agents ask to run and open terminals on your computer **as you** (§5.1). Later
+Roles: Viewer (`viewer`) looks and gives feedback on sticky notes, which reaches an agent only when you or a member
+with agent access accepts it; Editor (`editor`) can also edit files and sticky notes, vote and comment on agents'
+questions, review result reports and send suggestions to agents; Agent access (`agent`) can also start topics and
+work items, send messages to agents, accept feedback, allow what agents ask to run and open terminals on your
+computer **as you** (§5.1). Later
 you can manage members, roles, invites and sessions, and read the audit log, in the host console of the web app.
 
 When you share a folder again later, its topics and the agent sessions of last time are still there, with their
@@ -250,7 +253,15 @@ conversations, and their plans go on by themselves where they stopped, except a 
   says it is complete and verified, without anyone reading its diff first: in a repository it becomes a commit on
   your branch. The checks in a report are the agent's own claims, and a prompt injection that reached a work item's
   agent reaches your folder the same way. You can turn this off ("I merge each item myself" under
-  "Merging work items" in the host console's settings), and you can undo a merged item (§10.3).
+  "Merging work items" in the host console's settings), and you can undo a merged item (§10.3). The same holds for a
+  topic made from a sticky note with "Build this": its spec is that note's text and the notes it links to, and its
+  work item merges by itself once one member with agent access confirmed that spec at Start; its agent can still read
+  the other files of the folder.
+- **What reaches an agent from people without agent access.** Feedback on a sticky note, a Viewer's and a Slack or
+  Discord message's too, reaches no agent until you or a member with agent access accepts it, exactly as shown: then
+  it goes once to Claude for the sticky notes as that member's own message. Claude for the sticky notes reads every
+  sticky note, whoever wrote it, and writes only sticky notes; it runs no command, and smurg's own gate holds it to
+  that.
 - **Give Agent access only to people you fully trust** (§5.1): this role lets someone make an agent run any command
   on your computer, read your home folder and use your Claude account. Other teammates can take part as Editors:
   they edit with you, vote, comment, review and send suggestions to agents.
@@ -280,7 +291,8 @@ Agent access (`agent`) is the highest role you can give a teammate. A teammate w
 - **choose the model and the permission mode** of any agent session and of a topic's work items (§5.2): any model
   your Claude Code offers, and any mode but "Asks for nothing";
 - type into **any** terminal session, including the ones you opened and the ones other teammates opened;
-- accept or reject the suggestions any agent session receives, answer an agent's question in their own words, and
+- accept or reject the suggestions any agent session receives and the feedback on sticky notes, answer an agent's
+  question in their own words, and
   ask you to merge any worktree (merging is yours: by default smurg merges for you what a work item's report says is
   complete and verified, §10.3);
 - **decide what a work item that was not merged needs** ("Merge it as it is", "Leave it out…"), and pause a plan.
@@ -324,7 +336,8 @@ shared folder runs when Claude Code's check allows it; §5.2 says where smurg st
   that you understand).
 - **Taking it back**: in the host console, change the role back to Editor or Viewer, or remove the member. They can
   no longer start anything, message agents or answer requests. The terminals and the agent sessions without a topic
-  that they opened end at once. The sessions of topics they started **pass to you**: they keep running when you
+  that they opened end at once, except Claude for the sticky notes. The sessions of topics they started, and Claude
+  for the sticky notes if they started it, **pass to you**: they keep running when you
   only changed the role, and are stopped first when you removed the member. The worktrees they had kept, with the
   changes in them, pass to you as well: they can no longer remove them, and you decide what becomes of the changes.
   What they put in place goes with them: the kinds of commands they always allowed, work items they started that have not begun yet, a permission
@@ -1207,7 +1220,8 @@ It removes:
 - the cache: the native modules unpacked from the executable (macOS: `~/Library/Caches/smurg`; Linux:
   `~/.cache/smurg`; with `SMURG_CACHE_DIR` set, the `native-…` folders in that directory);
 - the state folder `~/.smurg` (or `SMURG_HOME`): logins, the device key, every workspace's keys, members and
-  invite links, the conversations of agent sessions, log files. Afterwards the members and invite links of the
+  invite links, the conversations of agent sessions, the tokens of connected Slack and Discord channels, log files.
+  Afterwards the members and invite links of the
   workspaces you shared no longer work. `--keep-data` keeps it.
 
 It does not touch:
@@ -1229,7 +1243,9 @@ When you run smurg from source: delete the three places above yourself.
 ## 10. Topics from the host's side
 
 The guide for teammates (§6 there) walks through a topic from the discussion to the result the team checks. This
-section is what a topic asks of you as the host.
+section is what a topic asks of you as the host. A topic can also come from a sticky note: "Build this" makes it,
+with the note's text and the notes it links to as its spec and one work item, and its work starts only with Start
+(the guide for teammates, §11). Everything below holds for it as for any topic.
 
 ### 10.1 What only you can do
 
@@ -1566,7 +1582,8 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   Editor's suggestion to a work item's agent. A result
   report of an item you merge yourself that nobody reviewed does the same after six times that long.
 - **A member leaves the workspace, or you change their role** so that they can no longer use agents: their
-  terminals and their agent sessions without a topic end. The sessions of topics pass to you and keep running
+  terminals and their agent sessions without a topic end. The sessions of topics, and Claude for the sticky notes
+  when they started it, pass to you and keep running
   ("Amy left. This session now runs for the host"). When they left or are now a Viewer, whatever they were
   responsible for is decided by the next person in line: whoever opened the session or pressed Start, or you. A
   member you made an Editor stays responsible for what they had. The worktrees of the sessions that ended are
@@ -1574,7 +1591,8 @@ When smurg host starts again, 2 topics go on by themselves. To keep a plan stopp
   take away the role, and they find them when they open the workspace again.
 - **You remove a member**: the same, but their topic sessions are stopped first
   ("Amy was removed. This session was stopped and now runs for the host"), and the worktrees they had kept pass
-  to you. A member who is removed and joins again does not get their old sessions back.
+  to you. A member who is removed and joins again does not get their old sessions back. A member who leaves or is
+  removed takes their feedback on sticky notes that still waits with them; a role change leaves it.
 - In all these cases what they put in place goes with them: the kinds of commands they always allowed are removed,
   a permission mode they chose goes back unless it is stricter than what the session or the topic would follow (a
   stricter one stays), a model they chose that may be billed to usage credits goes back to your default (the conversation
@@ -1619,6 +1637,10 @@ only when the work is done, and a check that did not pass as failed) decides wha
 reading it, and has never been seen. Watch the reports and the merges of your first topics, and turn automatic
 merging off (§10.3) until you trust them.
 
+The sticky notes of 0.8.0 (the notes view, Claude for the sticky notes, feedback, "Build this") were verified the same
+way, with the stand-in; Slack and Discord only against stand-in servers with made-up tokens. What a real model
+writes into the notes, and how Slack and Discord answer a real bot, have never been seen.
+
 What bounds the damage when an agent does not behave: smurg checks the plan and the report format itself and asks
 the agent to fix them (at most twice in a row), asks once for a missing report, and puts work that stopped into
 someone's inbox instead of letting it stop unseen. Watch your first topic with a real project closely, and if a
@@ -1659,8 +1681,10 @@ Limits of this version that are known:
   really hosted there yet: besides real Claude Code (above), the installer has not run on a fresh Linux computer.
 - Only the Apple silicon executable is tested on the development machine. The Intel Mac and Linux executables are
   built by GitHub Actions on their own platforms and smoke-tested there.
-- Not built: comments on a section of a spec, cost or token figures, and a terminal client for agent conversations
-  (`smurg attach` attaches terminal sessions only: the guide for teammates, §10).
+- Not built: comments on a section of a spec, cost or token figures, a terminal client for agent conversations
+  (`smurg attach` attaches terminal sessions only: the guide for teammates, §10), renaming or deleting a sticky note
+  in the notes view (code mode's file tree does both), a link with words of its own (`[[Name|label]]`), an inbox item
+  for waiting feedback, and replies in Slack or Discord threads.
 
 ## 11. Slack and Discord
 

@@ -974,9 +974,10 @@ Docs: https://smurg.ai/docs/
   'uninstall.size.mb': (p: { mb: string }) => ` (${p.mb} MB)`,
   'uninstall.refusal.hint': (p: { stateDir: string }) =>
     `Nothing was removed. To remove only the executable and the cache: smurg uninstall --keep-data; check what is in the state folder (${p.stateDir}) and delete it yourself, or set SMURG_HOME back to smurg's state folder and run the command again.`,
-  'uninstall.what.state': () => "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs",
+  'uninstall.what.state': () =>
+    "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the tokens of connected Slack and Discord channels, the logs",
   'uninstall.what.stateSymlink': () =>
-    "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the logs (this is a symlink: only the link itself is removed)",
+    "state folder: logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the tokens of connected Slack and Discord channels, the logs (this is a symlink: only the link itself is removed)",
   'uninstall.what.cache': () => 'cache: the native modules the executable unpacked',
   'uninstall.what.executable': () => 'the executable',
   'uninstall.state.notDirectory': (p: { stateDir: string }) => `smurg's state folder is not a folder: ${p.stateDir}`,

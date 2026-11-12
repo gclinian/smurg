@@ -246,7 +246,8 @@ describe('host console: members', () => {
     ).toBeTruthy();
     expect(
       within(dialog).getByText(
-        'What Amy put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, and their votes on open questions.',
+        // (0.8.0, DESIGN 0.8.0 D4.5: a member who is removed takes their waiting feedback with them, and the dialog says so)
+        'What Amy put in place is removed: the kinds of commands they always allowed, the work items they started that have not begun, a permission mode they loosened, their messages that still wait for an agent, their votes on open questions, and their feedback on sticky notes that still waits.',
       ),
     ).toBeTruthy();
     expect(within(dialog).getByText('Amy is no longer responsible for anything (1 session right now): its questions are then decided by whoever started it, or by you.')).toBeTruthy();
@@ -552,6 +553,27 @@ describe('host console: feedback on sticky notes in the audit log (protocol 7, D
       ['Decision', 'Withdrawn'],
       ['Feedback', 'Coupons'],
       ['Reason', 'author-removed'],
+    ]);
+  });
+
+  it('an entry says in words that hidden characters were removed from a feedback and that an outside message was cut', () => {
+    const rows = auditDetailRows({
+      id: 'au_c',
+      at: 1_731_300_000_000,
+      outcome: 'ok',
+      target: 'fb_3',
+      actor: { kind: 'system' },
+      action: 'sticky.feedback.create',
+      detail: { feedbackId: 'fb_3', note: 'Home', outsideSource: 'slack', outsideId: 'U012ABCDEF', writtenBy: 'Mei Chen', feedback: 'Price filter, please.', createdAt: 1, cleaned: true, cut: true },
+    });
+    expect(rows.map((row) => [row.label, row.value])).toEqual([
+      ['Sticky note', 'Home'],
+      ['Written in', 'slack'],
+      ['Outside id', 'U012ABCDEF'],
+      ['Written by', 'Mei Chen'],
+      ['Feedback', 'Price filter, please.'],
+      ['Hidden characters removed', 'Yes'],
+      ['Only its start kept', 'Yes'],
     ]);
   });
 });

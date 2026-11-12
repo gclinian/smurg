@@ -814,8 +814,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'uninstall.size.mb': (p) => `（${p.mb} MB）`,
   'uninstall.refusal.hint': (p) =>
     `沒有移除任何東西。要只移除執行檔和快取：smurg uninstall --keep-data；狀態目錄（${p.stateDir}）請確認內容後自己刪除，或把 SMURG_HOME 改回 smurg 的狀態目錄再執行一次。`,
-  'uninstall.what.state': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔',
-  'uninstall.what.stateSymlink': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔（這是一個 symlink：只移除連結本身）',
+  'uninstall.what.state': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、紀錄檔',
+  'uninstall.what.stateSymlink': () => '狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、紀錄檔（這是一個 symlink：只移除連結本身）',
   'uninstall.what.cache': () => '快取：執行檔解壓縮出來的原生模組',
   'uninstall.what.executable': () => '執行檔',
   'uninstall.state.notDirectory': (p) => `smurg 的狀態目錄不是資料夾：${p.stateDir}`,
