@@ -94,6 +94,23 @@ describe('the app in zh-TW', () => {
     expect((await screen.findByTestId('relay-unreachable-banner')).textContent).toMatch(/不是主人離線。\d 秒後重試$/);
   });
 
+  it('Leave asks first and says in zh-TW what ends, what passes to the host and what is removed, the waiting feedback on sticky notes too', async () => {
+    const services = createTestServices({ path: `/w/${WORKSPACE_ID}` });
+    render(<App services={services} />);
+    await waitFor(() => expect(services.connections).toHaveLength(1), { timeout: 15_000 });
+    const { conn } = services.connections[0]!;
+    act(() => conn.admit(makeWelcome({ role: 'editor' })));
+    const topbar = await screen.findByRole('banner', { name: '工作區' }, { timeout: 15_000 });
+    await userEvent.click(within(topbar).getByRole('button', { name: '離開' }));
+    const dialog = await screen.findByRole('alertdialog', { name: '離開這個工作區？' });
+    // (DESIGN 0.8.0 D3.5: Claude for the sticky notes passes to the host; D4.5: a member who leaves takes their waiting
+    // feedback with them; review S9-T1)
+    expect(dialog.textContent).toContain(
+      '你開的終端機和未分主題的 session（便利貼的 Claude 除外）會結束。你開始的主題 session（討論和工作項目）和便利貼的 Claude 改由主人接手，並繼續執行。你設定的東西會移除：你設為一律允許的指令類型、你開始但還沒啟動的工作項目、你放寬的權限模式、你還在等 agent 讀取的訊息，以及你在便利貼上還在等待處理的意見。之後仍可以用這個瀏覽器重新連線。',
+    );
+    expect(conn.requestsOf('channel.leave')).toHaveLength(0);
+  });
+
   it('the sticky notes at the address of a note: that note, the regions and the skip link in zh-TW; switching views keeps the one connection', async () => {
     const at = `/w/${WORKSPACE_ID}/notes/${encodeURIComponent('Payment form')}`;
     const services = createTestServices({ path: at });

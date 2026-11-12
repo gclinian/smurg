@@ -352,6 +352,14 @@ describe('seed: enumerated values with their own wording (protocol 5)', () => {
   });
 });
 
+describe('what a Viewer does since 0.8.0 (DESIGN 0.8.0 D4.1)', () => {
+  it('the refusal of a Viewer as the responsible person says that a viewer also gives feedback on sticky notes, not that viewers only watch', () => {
+    // (review S9-T3: the tests that produce this refusal check only its id and its { name })
+    expect(render('en', msg('responsible.notEligible', { name: 'Leo' }))).toBe('Leo cannot be responsible: a viewer watches and gives feedback on sticky notes, but does not vote on questions or review reports.');
+    expect(render('zh-TW', msg('responsible.notEligible', { name: 'Leo' }))).toBe('Leo 不能當負責人：「旁觀」可以觀看，也可以對便利貼提出意見，但不能對選擇題投票，也不能看過報告');
+  });
+});
+
 describe('feedback on sticky notes: a refusal names a cause that can happen (DESIGN 0.8.0 D4.3)', () => {
   it('feedback the wire took is refused once cleaned only when it is blank, or grew past its bound when its header look-alikes were quoted (removing hidden characters never makes a text longer)', () => {
     expect(render('en', msg('sticky.feedback.invalidText'))).toBe('The feedback is blank, or too long once smurg marks the lines that look like a message header ("> " in front).');

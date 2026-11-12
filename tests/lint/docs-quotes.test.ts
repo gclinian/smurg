@@ -593,6 +593,8 @@ const QUOTES: readonly Quote[] = [
   webQuote('sticky.feedback.give', ['JOINING']),
   webQuote('sticky.feedback.hint', ['JOINING']),
   webQuote('sticky.feedback.withdraw', ['JOINING']),
+  // (review S9-R2, S9-SEC-1: feedback is kept as agentText cleans it, not exactly as written, and the guide says so)
+  webQuote('sticky.feedback.cleaned', ['JOINING']),
   webQuote('sticky.feedback.accept', ['JOINING']),
   webQuote('sticky.feedback.reject', ['JOINING']),
   webQuote('sticky.feedback.preview', ['JOINING']),
@@ -609,6 +611,7 @@ const QUOTES: readonly Quote[] = [
   webQuote('sticky.build.held', ['JOINING']),
   webQuote('sticky.feedback.source.slack', ['JOINING', 'HOSTING']),
   webQuote('sticky.feedback.source.discord', ['JOINING', 'HOSTING']),
+  webQuote('sticky.feedback.cut', ['JOINING']),
   // ---- the activity feed's sentences (the wire catalog)
   { what: 'wire activity.agentBashChange', guides: ['HOSTING'], render: (locale) => wire(locale, 'activity.agentBashChange', { agent: 'Claude (Amy)', path: 'src/app.ts', change: 'change' }) },
 ];

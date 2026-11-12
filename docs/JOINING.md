@@ -764,8 +764,10 @@ How to use it, in order:
 5. **Give feedback.** Under every note is its "Feedback". Everyone, a Viewer too, writes in the box and presses
    "Give feedback". The line under the box says what becomes of it:
    "Everyone in the workspace sees it. It reaches Claude only when a member with agent access accepts it."
-   While it waits, you can "Withdraw" your own. Feedback is shown as plain text, exactly as written; at most 20 of
-   yours wait at once.
+   While it waits, you can "Withdraw" your own. Feedback is shown as plain text, as it is kept: characters that
+   cannot be seen are removed when it is given, and it then says "Hidden characters were removed."; a line that looks
+   like a message header, such as a line that is only `[[Name]]`, is kept with `> ` in front. That text is what Claude
+   gets once the feedback is accepted. At most 20 of yours wait at once.
 6. **Accept or reject it** (members with agent access and the host). Beside each feedback that waits are "Accept"
    and "Reject". "What Claude gets" shows, before you press, the exact message: a fixed sentence that names the note
    and who wrote the feedback, then the feedback, quoted. "Accept" sends it once to Claude for the sticky notes, as
@@ -789,7 +791,9 @@ How to use it, in order:
 8. **Slack and Discord** (the host). The host can connect one Slack channel and one Discord channel to the workspace
    ([host guide](HOSTING.md) §11). A message a person writes there becomes feedback on the note it names with
    `[[Name]]`, else on Home, from a person who is not a member: it shows their name and "from Slack" or
-   "from Discord", and waits to be accepted or rejected like any other feedback.
+   "from Discord", and waits to be accepted or rejected like any other feedback. It is kept in the same way as
+   feedback given here, and a message longer than 4,000 characters keeps only its start: the feedback then says
+   "The message was longer: only its start is kept."
 
 The sticky notes of this version were tested with a scripted stand-in for the model, not with a real Claude account,
 and Slack and Discord with stand-in servers, never with a real bot. Expect rough edges, and tell the host when

@@ -83,7 +83,12 @@ describe('host console in zh-TW', () => {
     const kick = screen.getByRole('alertdialog', { name: '踢出 Amy？' });
     expect(within(kick).getByText('Amy 開的所有終端機和未分主題的 session（便利貼的 Claude 除外）立即終止（目前 2 個）。')).toBeTruthy();
     expect(within(kick).getByText(/^Amy 開始的主題 session（討論和工作項目）和便利貼的 Claude 會停止並改由你接手/)).toBeTruthy();
-    expect(within(kick).getByText(/^Amy 設定的東西會移除：他設為一律允許的指令類型/)).toBeTruthy();
+    // (the whole sentence: DESIGN 0.8.0 D4.5, a member who is removed takes their waiting feedback with them; review S9-T2)
+    expect(
+      within(kick).getByText(
+        'Amy 設定的東西會移除：他設為一律允許的指令類型、他開始但還沒啟動的工作項目、他放寬的權限模式、他還在等 agent 讀取的訊息、他在未回答選擇題上的投票，以及他在便利貼上還在等待處理的意見。',
+      ),
+    ).toBeTruthy();
     fireEvent.click(within(kick).getByRole('button', { name: '取消' }));
 
     fireEvent.change(screen.getByLabelText('Amy 的角色'), { target: { value: 'viewer' } });

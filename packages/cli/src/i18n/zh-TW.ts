@@ -801,8 +801,8 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'usage.uninstall': () => `用法：smurg uninstall [--keep-data] [--yes]
 
   從這台電腦移除 smurg：執行檔本身、快取（執行檔解壓縮出來的原生模組），以及狀態目錄 ~/.smurg
-  （登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、紀錄檔）。先列出會移除的路徑，確認之後才動手；
-  正在分享的工作區會先停止（和 smurg stop 一樣）。
+  （登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、
+  紀錄檔）。先列出會移除的路徑，確認之後才動手；正在分享的工作區會先停止（和 smurg stop 一樣）。
   專案資料夾裡的 .smurg/（worktree 和還沒合併的修改）不會動，只會列出來讓你自己決定。
   --keep-data         保留狀態目錄，只移除執行檔和快取
   --yes               不詢問，直接移除（不在終端機裡執行時必須加）

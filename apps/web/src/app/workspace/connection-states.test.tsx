@@ -240,6 +240,11 @@ describe('connection states in the UI', () => {
     expect(dialog.textContent).toContain('The terminals and the sessions without a topic that you opened, except Claude for the sticky notes, end.');
     expect(dialog.textContent).toContain('The topic sessions (discussions and work items) and Claude for the sticky notes that you started pass to the host and keep running.');
     expect(dialog.textContent).toContain('What you put in place is removed');
+    // … the whole list of it, the feedback on sticky notes that still waits too (DESIGN 0.8.0 D4.5: a member who leaves
+    // takes it with them; review S9-T1).
+    expect(dialog.textContent).toContain(
+      'What you put in place is removed: the kinds of commands you always allowed, the work items you started that have not begun, a permission mode you loosened, your messages that still wait for an agent, and your feedback on sticky notes that still waits. You can reconnect later with this browser.',
+    );
     // There is no guest login on the host's computer any more (protocol v2).
     expect(dialog.textContent).not.toMatch(/Claude (login|sign-in|credentials)/i);
     conn.handle('channel.leave', () => ({}));

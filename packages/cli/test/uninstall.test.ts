@@ -245,9 +245,28 @@ describe('smurg uninstall', () => {
     expect(prompts).toEqual(['確定要移除嗎？ [y/N] ']);
     expect(io.out()).toContain('smurg uninstall 會移除：\n');
     expect(io.out()).toContain(`  ${s.executable}（21 B）  執行檔\n`);
+    // What the state folder holds, the tokens of connected channels too (0.8.0, DESIGN 0.8.0 D6.2; review S9-T2).
+    const state = io.out().split('\n').find((line) => line.startsWith(`  ${s.dirs.stateDir}（`));
+    expect(state).toMatch(/^ {2}\S+（\d+ (?:B|KB)） {2}狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、紀錄檔$/);
     expect(io.out()).toContain('\n不會動：\n');
     expect(io.err()).toBe('smurg：已取消，沒有移除任何東西。\n');
     await expectNothingRemoved(s);
+    // A state folder that is a symlink: the same list, and that only the link goes.
+    const linked = await setup();
+    const real = join(await realpath(linked.dirs.home), 'state-elsewhere');
+    await mkdir(join(real, 'workspaces'), { recursive: true });
+    const link = join(linked.dirs.home, 'state-link');
+    await symlink(real, link);
+    const viaLink = await uninstall(linked, [], { answer: 'n', env: { ...linked.env, SMURG_HOME: link, SMURG_LANG: '', LANG: 'zh_TW.UTF-8' } });
+    expect(viaLink.code).toBe(1);
+    expect(viaLink.io.out()).toContain(`  ${link}  狀態目錄：登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、紀錄檔（這是一個 symlink：只移除連結本身）\n`);
+    expect(await exists(link)).toBe(true);
+    // The help says the same list (review S9-R1).
+    const help = await uninstall(s, ['--help'], { env: { ...s.env, SMURG_LANG: '', LANG: 'zh_TW.UTF-8' } });
+    expect(help.code).toBe(0);
+    const said = help.io.out().replace(/\n\s*/g, '');
+    expect(said).toContain('以及狀態目錄 ~/.smurg（登入、裝置金鑰、每個工作區的金鑰／成員／邀請連結、agent session 的對話、已連接的 Slack 和 Discord 頻道的 token、紀錄檔）。');
+    expect(said).toContain(`~/.smurg（${renderText('zh-TW', m('uninstall.what.state')).replace(/^狀態目錄：/, '')}）`);
   });
 
   it('anything but y / yes cancels: nothing is removed (exit 1)', async () => {
@@ -524,6 +543,11 @@ describe('smurg uninstall', () => {
     expect(help.code).toBe(0);
     expect(help.io.out()).toBe(renderText('en', m('usage.uninstall')));
     expect(help.io.out()).toContain('Usage: smurg uninstall [--keep-data] [--yes]');
+    // The help says what the state folder holds as the plan line does (0.8.0, DESIGN 0.8.0 D6.2: connectors.json, the
+    // tokens of connected channels, is in it and goes with it; review S9-R1).
+    const said = help.io.out().replace(/\s+/g, ' ');
+    expect(said).toContain("the state folder ~/.smurg (logins, the device key, every workspace's keys, members and invite links, the conversations of agent sessions, the tokens of connected Slack and Discord channels, the logs).");
+    expect(said).toContain(`~/.smurg (${renderText('en', m('uninstall.what.state')).replace(/^state folder: /, '')})`);
     for (const option of ['--keep-data', '--yes']) expect(help.io.out()).toContain(`  ${option} `);
     const bad = await uninstall(s, ['--force']);
     expect(bad.code).toBe(2);

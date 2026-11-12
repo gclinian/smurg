@@ -172,7 +172,7 @@ Sticky notes, and Claude for the sticky notes.
 | The agent session that writes the sticky notes (one per workspace) | Claude for the sticky notes (prose); Sticky notes (its title and its kind) | 便利貼的 Claude；便利貼 | `notes`, `session.title.notes`, `sessions.purpose.notes` |
 | The first sticky note | `Home` (a file name: never translated) | `Home` | `notes/Home.md` |
 | What anyone writes about a sticky note for Claude to work in, once a member with agent access accepts it (the owner's word); everyone gives it, a Viewer too | feedback; "give feedback on a sticky note" | 意見；「對便利貼提出意見」 | `sticky.json` `feedback`, `feedback.give`, `sticky.feedback.*` |
-| What a member with agent access does with waiting feedback: send it, exactly as written, to Claude for the sticky notes as their own message, or not (the suggestion's words, never another pair) | Accept / Reject; accepted / rejected | 採用 / 不採用；已採用 / 不採用 | `sticky.feedback.accept`, `sticky.feedback.reject` |
+| What a member with agent access does with waiting feedback: send it, exactly as shown, to Claude for the sticky notes as their own message, or not (the suggestion's words, never another pair) | Accept / Reject; accepted / rejected | 採用 / 不採用；已採用 / 不採用 | `sticky.feedback.accept`, `sticky.feedback.reject` |
 | What the author does with their own feedback while it waits (the suggestion's word) | Withdraw / withdrawn | 撤回 / 已撤回 | `sticky.feedback.withdraw` |
 | The box under a sticky note where anyone writes feedback, and its button | Give feedback | 提出意見 | `sticky.feedback.give` |
 | Before Accept: the exact message Claude for the sticky notes would get, shown as plain text | What Claude gets | Claude 會收到什麼 | `sticky.feedback.preview` |

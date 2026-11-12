@@ -960,8 +960,9 @@ Docs: https://smurg.ai/docs/
 
   Remove smurg from this computer: the executable itself, the cache (the native modules the executable unpacked)
   and the state folder ~/.smurg (logins, the device key, every workspace's keys, members and invite links, the
-  conversations of agent sessions, the logs). It lists the paths it will remove first and acts only after you
-  confirm; workspaces being shared are stopped first (as smurg stop does).
+  conversations of agent sessions, the tokens of connected Slack and Discord channels, the logs). It lists the
+  paths it will remove first and acts only after you confirm; workspaces being shared are stopped first (as smurg
+  stop does).
   The .smurg/ folders inside project folders (worktrees and changes that are not merged yet) are not touched; they
   are only listed, for you to decide.
   --keep-data         keep the state folder; remove only the executable and the cache
