@@ -144,10 +144,17 @@ describe('the index of notes/ (D2.2)', { timeout: 60_000 }, () => {
     // (Made in place with mkdir and then a write, a listing that fell between the two under load saw an empty folder,
     // and Linux's inotify does not report a file written into a folder before the watcher added that folder: nothing
     // came after it, S6/S7. That case is ARCHITECTURE §12's known limit of Linux, not what this test is about.)
+    // The link goes first, and the folder comes only once the index listed again after that: @parcel/watcher 2.6.0
+    // reports a path deleted and created again within one of its batches as ONE `update` (src/Event.hh, "Assume update
+    // event when rapidly removed and created"), and the files watcher takes an update of a folder for a change of its
+    // metadata (files/watcher.ts recheck), so a swap in one batch was never news to the index (S8's check, review S8-T1).
     const ready = join(s.root, '..', 'notes-ready');
     await mkdir(ready);
     await writeFile(join(ready, 'Home.md'), '[[A]]\n');
+    const before = s.service.index.listings();
     await rm(join(s.root, 'notes'));
+    await s.listed(before, 'the listing after the link went');
+    expect(await notes(s)).toEqual([]);
     await rename(ready, join(s.root, 'notes'));
     await until('the real folder', () => named(s, 'Home') !== null);
   });

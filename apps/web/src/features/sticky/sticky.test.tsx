@@ -1534,7 +1534,12 @@ describe('the Slack and Discord channels the host connected (D6.4)', () => {
   it('the host sees one line per connected source, under the list: reading, waiting for room, not read with the host\'s words; it follows what the host tells', async () => {
     const view = await shown({ role: 'host', list: () => ({ notes: [...NOTES], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, failing] }) });
     expect(sourcesPart()).toBeTruthy();
-    expect(within(list()).getByRole('heading', { name: 'Slack and Discord' }).getAttribute('title')).toBe('The channels you connected with smurg connect. Your computer reads them; only you see this.');
+    // What the hint says is true: only the host is shown the part, and every member's page is sent the states (S8-SEC-1).
+    expect(within(list()).getByRole('heading', { name: 'Slack and Discord' }).getAttribute('title')).toBe(
+      'The channels you connected with smurg connect. Your computer reads them. Only you see this part, though the state of each channel is also sent to every member.',
+    );
+    // Home is listed: nothing is said about it.
+    expect(within(sourcesPart() as HTMLElement).queryByText(/no sticky note Home/)).toBeNull();
     expect(lines()).toEqual(['Slack: new messages are read once a minute.', 'Discord: not read. The bot token was refused. Connect the channel again with smurg connect and a bot token that works.']);
     // The state is in words, the dot only repeats it.
     expect(within(sourcesPart() as HTMLElement).getAllByRole('listitem').map((item) => item.getAttribute('data-state'))).toEqual(['reading', 'failing']);
@@ -1548,6 +1553,23 @@ describe('the Slack and Discord channels the host connected (D6.4)', () => {
     // Disconnected: the part goes.
     act(() => view.conn.emit('sticky.changed', { upserted: [], removed: [], truncated: false, sources: [] }));
     expect(sourcesPart()).toBeNull();
+  });
+
+  it('while the index lists no sticky note Home, the host is told that a message naming no sticky note is not kept; the line goes once Home is there', async () => {
+    const line = 'There is no sticky note Home, so a message that names no sticky note with [[Name]] is not kept.';
+    const withoutHome = NOTES.filter((note) => note.name !== 'Home');
+    const view = await shown({ role: 'host', list: () => ({ notes: [...withoutHome], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }] }) });
+    expect(within(sourcesPart() as HTMLElement).getByText(line).tagName).toBe('P');
+    // A line of its own, not one of a source.
+    expect(lines()).toEqual(['Slack: new messages are read once a minute.']);
+    act(() => view.conn.emit('sticky.changed', { upserted: [{ name: 'Home', links: [] }], removed: [], truncated: false }));
+    expect(within(sourcesPart() as HTMLElement).queryByText(line)).toBeNull();
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: ['Home'], truncated: false }));
+    expect(within(sourcesPart() as HTMLElement).getByText(line)).toBeTruthy();
+    cleanup();
+    // Nobody else is shown it, as nobody else is shown the part.
+    await shown({ role: 'agent', list: () => ({ notes: [...withoutHome], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }] }) });
+    expect(within(list()).queryByText(line)).toBeNull();
   });
 
   it('nobody but the host sees the sources, and the host sees nothing while none is connected', async () => {

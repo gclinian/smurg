@@ -4,8 +4,9 @@
 //
 // They play the shapes of the public documentation (checked 2026-11-12):
 //  - Slack: `GET /conversations.history?channel&oldest&inclusive&limit&cursor` with `Authorization: Bearer <token>`,
-//    the newest messages of the range first, `has_more` and `response_metadata.next_cursor`; `GET /users.info?user`;
-//    a refusal is HTTP 200 `{ ok: false, error }` (invalid_auth, channel_not_found, not_in_channel, …).
+//    the newest messages of the range first, `has_more` and `response_metadata.next_cursor`; `GET /users.info?user`
+//    (`user_not_found`, `user_not_visible`); a refusal is HTTP 200 `{ ok: false, error }` (invalid_auth,
+//    channel_not_found, not_in_channel, …).
 //  - Discord: `GET /channels/<id>/messages?after&limit` with `Authorization: Bot <token>`; the messages right after
 //    `after` (or the newest without it), sent newest first here so the reader must put them in order; 401 for a bad
 //    token, 404 for an unknown channel.
@@ -47,13 +48,16 @@ export interface SlackMessage {
   readonly user?: string;
   readonly subtype?: string;
   readonly bot_id?: string;
+  readonly app_id?: string;
 }
 
 export interface FakeSlack extends FakeSource {
   /** The channels and their messages (any order: the fake sorts them). */
   readonly channels: Map<string, SlackMessage[]>;
-  /** users.info: user id → profile names. */
+  /** users.info: user id → profile names. Any other user is `user_not_found`. */
   readonly users: Map<string, { readonly name?: string; readonly real_name?: string; readonly display_name?: string }>;
+  /** users.info: the users Slack will not show this bot (`user_not_visible`, a person of another organization). */
+  readonly hidden: Set<string>;
   /** Writes a message now, and returns its ts. */
   post(channel: string, message: Omit<SlackMessage, 'ts'> & { readonly ts?: string }): string;
 }
@@ -62,7 +66,7 @@ export interface DiscordMessage {
   readonly id: string;
   readonly content: string;
   readonly type?: number;
-  readonly author: { readonly id: string; readonly username: string; readonly global_name?: string | null; readonly bot?: boolean };
+  readonly author: { readonly id: string; readonly username: string; readonly global_name?: string | null; readonly bot?: boolean; readonly system?: boolean };
   readonly webhook_id?: string;
 }
 
@@ -152,11 +156,13 @@ async function startFake(handle: (path: string, params: Record<string, string>, 
 export async function startFakeSlack(token: string): Promise<FakeSlack> {
   const channels = new Map<string, SlackMessage[]>();
   const users = new Map<string, { readonly name?: string; readonly real_name?: string; readonly display_name?: string }>();
+  const hidden = new Set<string>();
   let clock = Math.floor(Date.now() / 1000) * 1_000_000;
   const fake = await startFake(
     (path, params, authorization) => {
       if (authorization !== `Bearer ${token}`) return { status: 200, body: { ok: false, error: authorization === null ? 'not_authed' : 'invalid_auth' } };
       if (path === 'users.info') {
+        if (hidden.has(params['user'] ?? '')) return { status: 200, body: { ok: false, error: 'user_not_visible' } };
         const user = users.get(params['user'] ?? '');
         if (user === undefined) return { status: 200, body: { ok: false, error: 'user_not_found' } };
         return { status: 200, body: { ok: true, user: { id: params['user'], name: user.name ?? '', real_name: user.real_name ?? '', profile: { display_name: user.display_name ?? '', real_name: user.real_name ?? '' } } } };
@@ -179,6 +185,7 @@ export async function startFakeSlack(token: string): Promise<FakeSlack> {
     requests: fake.requests,
     channels,
     users,
+    hidden,
     answerNext: (...answers) => fake.forced.push(...answers),
     post: (channel, message) => {
       // A new message is of now (as Slack stamps it), and after every earlier one.

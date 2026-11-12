@@ -84,8 +84,9 @@ export const zhTW = {
   'builds.archivedFailed': '無法載入已封存的主題：{reason}',
   'builds.archivedMark': '已封存',
   'sources.title': 'Slack 和 Discord',
-  'sources.hint': '你用 smurg connect 連接的頻道。由你的電腦讀取；只有你看得到這裡。',
+  'sources.hint': '你用 smurg connect 連接的頻道。由你的電腦讀取。只有你看得到這一區，不過每個頻道的狀態也會傳送給每位成員。',
   'sources.reading': '{source}：每分鐘讀取一次新訊息。',
   'sources.waiting': '{source}：等候空間。來自外部的意見，已經有 smurg 能保留的上限那麼多在等待處理（所有人合計，或是其中一個人）；有一些被採用或不採用之後就會繼續讀取。',
   'sources.failing': '{source}：沒有讀取。{reason}',
+  'sources.noHome': '還沒有 Home 便利貼，所以沒有用 [[名稱]] 指名便利貼的訊息不會保留。',
 } as const;

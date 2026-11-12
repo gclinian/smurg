@@ -557,3 +557,10 @@
 .sticky-sources__item[data-state='failing'] .sticky-sources__dot {
   background: var(--color-danger);
 }
+.sticky-sources__note {
+  margin: var(--space-2) 0 0;
+  padding: 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  line-height: 1.4;
+}

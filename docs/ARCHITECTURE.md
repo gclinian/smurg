@@ -1790,19 +1790,22 @@ outside source and the builds.
 the environment. The daemon checks each channel id (`isOutsideChannelId`: Slack `^[CG][A-Z0-9]{8,31}$`, Discord
 `^[0-9]{17,20}$`) and token (`isOutsideBotToken`: Slack `xoxb-`) before anything is fetched: one of another form is
 `failing` (`sticky.source.channelInvalid`, `.tokenInvalid`) and never put into a URL. Then, from the host's computer,
-at most once a minute per source: `GET https://slack.com/api/conversations.history` (`Authorization: Bearer`, names
-through `users.info`, kept 6 h) and `GET https://discord.com/api/v10/channels/<id>/messages?after=` (`Authorization:
-Bot`); `redirect: 'error'`, 15 s, at most 4 MiB read (an answer over it is refused, and the next read asks for half as
-many messages). The two base URLs are constants, replaceable only through `DaemonOptions.outsideBaseUrls` (tests: fake
-servers on 127.0.0.1; anything but https, or http on 127.0.0.1, is refused). The first read of a channel keeps only
-where it is (the newest message, or a minute before now in an empty channel); a later read takes the messages after
-the cursor, oldest first: a person's message (no bot, app, webhook or event, not empty, not written before
-`connectedAt`) becomes waiting feedback through `FeedbackService.createOutside` on the first `[[Name]]` that names a note
-of the index, else Home (with no Home it is dropped and counted), audited by the system with the source and the
-outside id. While 200 wait from outside, or the next message's writer has 20 waiting, the source stops there
+at most once a minute per source: `GET https://slack.com/api/conversations.history` (`Authorization: Bearer`, at most
+5 pages of 100 from the newest back: more since the cursor and the oldest of them are not read; names through
+`users.info`, kept 6 h, a person it will not name, `user_not_found` or `user_not_visible`, is `Slack user`) and
+`GET https://discord.com/api/v10/channels/<id>/messages?after=` (`Authorization: Bot`); `redirect: 'error'`, 15 s, at
+most 4 MiB read (an answer over it is refused, and the next read asks for half as many messages). The two base URLs
+are constants, replaceable only through `DaemonOptions.outsideBaseUrls` (tests: fake servers on 127.0.0.1; anything
+but https, or http on 127.0.0.1, is refused). The first read of a channel keeps only where it is (the newest message,
+or a minute before now in an empty channel); a later read takes the messages after the cursor, oldest first: a
+person's message (no bot, app, webhook or event, not empty, not written before `connectedAt`) becomes waiting
+feedback through `FeedbackService.createOutside` on the first `[[Name]]` that names a note of the index, else Home
+(with no Home it is dropped and counted, and the host's notes view says so while Home is not listed), audited by the
+system with the source and the outside id. Thread replies are never read (Slack's `thread_broadcast` is an event,
+skipped). While 200 wait from outside, or the next message's writer has 20 waiting, the source stops there
 (`waiting-for-room`) and asks nothing until there is room; a 429 is waited out (its `Retry-After` or `retry_after`).
 A refusal is `failing` with its text (`sticky.source.tokenRefused`, `.noAccess`, `.unreachable`, `.badAnswer`) and is
-tried again a minute later. The notes view shows the states to the host.
+tried again a minute later. Every member is sent the states; the notes view shows them to the host only.
 
 **Feedback** (`feedback.give`, every role, a Viewer too) is what anyone writes about a sticky note for Claude for the
 sticky notes to work in. It reaches NO agent until a member with `session.drive` accepts it, exactly as shown: then

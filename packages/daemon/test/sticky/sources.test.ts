@@ -184,6 +184,86 @@ describe('the outside sources: Slack and Discord read from the host’s computer
     expect(r.audit.find((entry) => entry.action === 'sticky.feedback.create')).toMatchObject({ actor: { kind: 'system' }, detail: { outsideSource: 'discord', outsideId: '200000000000000001', writtenBy: 'Mei Chen' } });
   });
 
+  it('Slack: a writer users.info will not name (user_not_found, user_not_visible) is "Slack user" and the read goes on past them; a bot or an app without a subtype, and a user id of another form, are never taken', async () => {
+    const r = await start({ slack: slackEntry() });
+    await firstRead(r, 'slack');
+    // A person of another organization the bot may not see (Slack Connect), and one Slack does not know.
+    r.slack.hidden.add('U0OTHERORG1');
+    r.slack.post(CHANNEL, { user: 'U0UNKNOWN01', text: 'From someone Slack does not know.' });
+    r.slack.post(CHANNEL, { user: 'U0OTHERORG1', text: 'From someone Slack will not show.' });
+    // An app's chat.postMessage has bot_id and app_id and no subtype; each of the two alone is enough to skip it.
+    r.slack.post(CHANNEL, { user: 'U0APP000001', bot_id: 'B0BOT00001', app_id: 'A0APP00001', text: 'From an app.' });
+    r.slack.post(CHANNEL, { user: 'U0APP000002', bot_id: 'B0BOT00002', text: 'From a bot, no app id.' });
+    r.slack.post(CHANNEL, { user: 'U0APP000003', app_id: 'A0APP00003', text: 'From an app, no bot id.' });
+    // A user id of another form is no outside id (and is never asked for).
+    r.slack.post(CHANNEL, { user: 'U0/../x', text: 'A user id of another form.' });
+    r.slack.post(CHANNEL, { user: 'u0lower0001', text: 'A lower-case user id.' });
+    r.slack.post(CHANNEL, { user: 'U0MEI00001', text: 'And Mei after them.' });
+    const newest = r.slack.post(CHANNEL, { user: 'U0UNKNOWN01', text: 'The unknown one again.' });
+    await waitFor(async () => (await cursorOf(r.s, 'slack')) === newest, { timeoutMs: 10_000, what: 'the cursor past them all' });
+    await sleep(300);
+    expect(feedback(r.s)).toMatchObject([
+      { note: 'Home', text: 'From someone Slack does not know.', author: { kind: 'outside', source: 'slack', name: 'Slack user', externalId: 'U0UNKNOWN01' }, status: 'waiting' },
+      { note: 'Home', text: 'From someone Slack will not show.', author: { kind: 'outside', source: 'slack', name: 'Slack user', externalId: 'U0OTHERORG1' }, status: 'waiting' },
+      { note: 'Home', text: 'And Mei after them.', author: { kind: 'outside', source: 'slack', name: 'Mei Chen', externalId: 'U0MEI00001' } },
+      { note: 'Home', text: 'The unknown one again.', author: { kind: 'outside', source: 'slack', name: 'Slack user', externalId: 'U0UNKNOWN01' } },
+    ]);
+    expect(feedback(r.s)).toHaveLength(4);
+    // The reader itself left out the ids of another form (the store's schema, which refuses them too, never saw one).
+    expect(logged(r.s, 'an outside message was not kept: it makes no feedback entry')).toBe(false);
+    // No name is no failure: the source never stopped, and was never told as failing.
+    expect(r.told.flat().some((state) => state.state === 'failing')).toBe(false);
+    expect(await states(r.s)).toEqual([{ source: 'slack', state: 'reading' }]);
+    // A name Slack will not give is kept like a name: asked for once per person.
+    expect(r.slack.requests.filter((request) => request.path === 'users.info').map((request) => request.params['user'])).toEqual(['U0UNKNOWN01', 'U0OTHERORG1', 'U0MEI00001']);
+  });
+
+  it('Discord: an author with no name a reader sees is "Discord user"; a system user and an author id of another form are never taken', async () => {
+    const r = await start({ discord: discordEntry() });
+    await firstRead(r, 'discord');
+    r.discord.post(DISCORD_CHANNEL, { author: { id: '200000000000000005', username: '', global_name: null }, content: 'No name at all.' });
+    r.discord.post(DISCORD_CHANNEL, { author: { id: '200000000000000006', username: '\u200b\u2060', global_name: ' \u200b ' }, content: 'A name of nothing a reader sees.' });
+    // Discord's own system user (an official message) is no person.
+    r.discord.post(DISCORD_CHANNEL, { author: { id: '643945264868098049', username: 'Discord', system: true }, content: 'An official message.' });
+    r.discord.post(DISCORD_CHANNEL, { author: { id: 'abc', username: 'abc' }, content: 'An author id of another form.' });
+    r.discord.post(DISCORD_CHANNEL, { author: { id: '12345', username: 'short' }, content: 'An author id too short.' });
+    const newest = r.discord.post(DISCORD_CHANNEL, { author: { id: '200000000000000001', username: 'mei' }, content: 'And mei after them.' });
+    await waitFor(async () => (await cursorOf(r.s, 'discord')) === newest, { timeoutMs: 10_000, what: 'the cursor past them all' });
+    await sleep(300);
+    expect(feedback(r.s)).toMatchObject([
+      { note: 'Home', text: 'No name at all.', author: { kind: 'outside', source: 'discord', name: 'Discord user', externalId: '200000000000000005' } },
+      { note: 'Home', text: 'A name of nothing a reader sees.', author: { kind: 'outside', source: 'discord', name: 'Discord user', externalId: '200000000000000006' } },
+      { note: 'Home', text: 'And mei after them.', author: { kind: 'outside', source: 'discord', name: 'mei', externalId: '200000000000000001' } },
+    ]);
+    expect(feedback(r.s)).toHaveLength(3);
+    // The reader itself left out the ids of another form (the store's schema, which refuses them too, never saw one).
+    expect(logged(r.s, 'an outside message was not kept: it makes no feedback entry')).toBe(false);
+  });
+
+  it('an invisible character inside a text is removed, and the feedback and its audit entry say it was cleaned (D4.3)', async () => {
+    const r = await start({ slack: slackEntry(), discord: discordEntry() });
+    await firstRead(r, 'slack');
+    await firstRead(r, 'discord');
+    const slackRaw = 'Price\u200b filter, please.';
+    const discordRaw = 'Sort\u2060 by price.';
+    r.slack.post(CHANNEL, { user: 'U0MEI00001', text: slackRaw });
+    r.discord.post(DISCORD_CHANNEL, { author: { id: '200000000000000001', username: 'mei' }, content: discordRaw });
+    await feedbackCount(r.s, 2, 'both');
+    for (const [raw, text, source] of [
+      [slackRaw, 'Price filter, please.', 'slack'],
+      [discordRaw, 'Sort by price.', 'discord'],
+    ] as const) {
+      expect(agentText(raw)).toEqual({ text, cleaned: true });
+      const entry = feedback(r.s).find((item) => item.author.kind === 'outside' && item.author.source === source) as Feedback;
+      expect(entry).toMatchObject({ text, cleaned: true });
+      expect(entry.cut).toBeUndefined();
+      expect(r.audit.find((item) => item.action === 'sticky.feedback.create' && item.target === entry.id)).toMatchObject({ actor: { kind: 'system' }, detail: { outsideSource: source, feedback: text, cleaned: true } });
+    }
+    // And so it is stored.
+    await r.s.service.feedback.flush();
+    expect((await stored(r.s)).feedback.every((entry) => entry.cleaned === true)).toBe(true);
+  });
+
   it('a first read of an empty channel starts from now, and so does a channel other than the cursor’s: nothing from before the connection becomes feedback', async () => {
     const { slack, discord } = await fakes();
     slack.channels.set('C0OTHER0001', []);

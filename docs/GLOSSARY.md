@@ -192,6 +192,7 @@ Sticky notes, and Claude for the sticky notes.
 | A conversation of Slack or Discord that is connected | channel | 頻道 | `SourceState.source` |
 | The secret of the Slack app or Discord bot that reads the channel; it stays on the host's computer | bot token | bot token | `connectors.json` `token` |
 | What the host's computer does with a connected channel (shown to the host under the list of sticky notes) | read once a minute; waiting for room; not read | 每分鐘讀取一次；等候空間；沒有讀取 | `SourceState`, `sticky.sources.*`, `sticky.source.*` |
+| A message of a connected channel that never becomes feedback (a bot's or an app's, an empty one, a reply in a thread, one that names no sticky note while there is no Home) | not taken; a reply in a thread | 不會收下；討論串裡的回覆 | HOSTING §11, `sticky.sources.noHome` |
 
 A sticky note's name is its file's name without `.md`, written by a person: it is never translated, like every name
 of a file (`Home` reads Home in the zh-TW notes view too). What Claude for the sticky notes may do is said in its own

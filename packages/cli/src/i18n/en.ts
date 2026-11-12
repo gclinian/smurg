@@ -290,8 +290,9 @@ Docs: https://smurg.ai/docs/
 
   Connect one Slack channel or one Discord channel to the workspace of a folder you share. While smurg host shares
   the folder, this computer reads the channel's new messages once a minute over HTTPS (the relay never sees them),
-  and each message of a person becomes feedback on the sticky note it names with [[Name]], else on Home. It waits
-  there like any other feedback until a member with agent access accepts it. What was written before is not read.
+  and messages of people become feedback on the sticky note each names with [[Name]], else on Home (the guide says
+  which are not taken). Each waits there like any other feedback until a member with agent access accepts it.
+  What was written before is not read.
   smurg asks for the bot's token without showing it and keeps it in ~/.smurg/connectors.json (mode 0600); agent
   sessions run as you and can read that file, as they can read your relay login.
   --channel <id>      the channel's id (Slack: C or G and letters and digits; Discord: 17 to 20 digits)
@@ -322,7 +323,7 @@ Docs: https://smurg.ai/docs/
       : "A Discord bot token is on your application's Bot page (Reset Token).",
   'connect.done': (p: { source: ConnectSource; channel: string; folder: string }) =>
     `Connected the ${SOURCE_NAME[p.source]} channel ${p.channel} to ${p.folder}.\n` +
-    "While smurg host shares this folder, this computer reads the channel's new messages once a minute; each message of a person becomes feedback on a sticky note. " +
+    "While smurg host shares this folder, this computer reads the channel's new messages once a minute; messages of people become feedback on sticky notes (the guide says which are not taken). " +
     `A smurg host that shares it now starts within a few seconds. Guide: ${GUIDE_SOURCES}`,
   'connect.replaced': (p: { source: ConnectSource; channel: string }) => `It takes the place of the ${SOURCE_NAME[p.source]} channel ${p.channel}, which is no longer read.`,
   'disconnect.done': (p: { source: ConnectSource; channel: string; folder: string }) =>

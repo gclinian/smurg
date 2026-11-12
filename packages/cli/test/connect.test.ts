@@ -4,7 +4,7 @@
 // ~/.smurg/connectors.json with mode 0600; the workspace is the one `smurg host` shares the folder as; an entry this
 // smurg cannot read is kept; disconnect removes the token (and the file once nothing is connected); both languages.
 // No request is made to Slack or Discord here (the command makes none), and no test token is a real one.
-import { chmod, lstat, readFile, realpath, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, readFile, realpath, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { runCli } from '../src/cli/run.ts';
@@ -76,16 +76,16 @@ describe('smurg connect and smurg disconnect (DESIGN 0.8.0 D6.2)', () => {
     expect(prompts).toEqual(['Bot token of your Slack app (it is not shown): ']);
     expect(io.out()).toBe(
       `Connected the Slack channel C0123ABCDE to ${s.folder}.\n` +
-        "While smurg host shares this folder, this computer reads the channel's new messages once a minute; each message of a person becomes feedback on a sticky note. " +
+        "While smurg host shares this folder, this computer reads the channel's new messages once a minute; messages of people become feedback on sticky notes (the guide says which are not taken). " +
         'A smurg host that shares it now starts within a few seconds. Guide: https://smurg.ai/docs/hosting/#11-slack-and-discord\n',
     );
     expect(io.out() + io.err()).not.toContain('FakeTokenForTestsOnly');
     expect(await stored(s)).toEqual({ version: 1, workspaces: { [WORKSPACE]: { slack: { token: SLACK_TOKEN, channel: 'C0123ABCDE', connectedAt: NOW } } } });
     expect((await lstat(connectorsFile(s))).mode & 0o777).toBe(0o600);
     expect(await loadConnectors(statePaths(s.env), WORKSPACE)).toEqual({ slack: { token: SLACK_TOKEN, channel: 'C0123ABCDE', connectedAt: NOW } });
-    // From a folder below the shared one? No: the folder named (or the working directory) is the shared one itself.
-    const below = await run(s, ['connect', 'discord', join(s.folder, '.'), '--channel', '123456789012345678'], { secret: DISCORD_TOKEN });
-    expect(below.code).toBe(0);
+    // The folder may be named, in any spelling of the shared folder itself (`<folder>/.` is that folder).
+    const named = await run(s, ['connect', 'discord', join(s.folder, '.'), '--channel', '123456789012345678'], { secret: DISCORD_TOKEN });
+    expect(named.code).toBe(0);
     expect(await loadConnectors(statePaths(s.env), WORKSPACE)).toEqual({
       slack: { token: SLACK_TOKEN, channel: 'C0123ABCDE', connectedAt: NOW },
       discord: { token: DISCORD_TOKEN, channel: '123456789012345678', connectedAt: NOW },
@@ -155,6 +155,31 @@ describe('smurg connect and smurg disconnect (DESIGN 0.8.0 D6.2)', () => {
     expect(gone.code).toBe(2);
     expect(gone.io.err()).toContain('Folder not found');
     expect(await exists(connectorsFile(s))).toBe(false);
+  });
+
+  it('a folder below the shared one is not the shared folder: named, or as the working directory, connect and disconnect refuse it before anything is asked, and connectors.json stays as it was', async () => {
+    const s = await setup();
+    expect((await run(s, ['connect', 'slack', '--channel', 'C0123ABCDE'], { secret: SLACK_TOKEN })).code).toBe(0);
+    const before = await readFile(connectorsFile(s), 'utf8');
+    const sub = join(s.folder, 'sub');
+    await mkdir(sub);
+    const cases: [readonly string[], string][] = [
+      [['connect', 'slack', sub, '--channel', 'G0999ZZZZZ'], s.folder],
+      [['connect', 'slack', 'sub', '--channel', 'G0999ZZZZZ'], s.folder],
+      [['connect', 'discord', '--channel', '123456789012345678'], sub],
+      [['disconnect', 'slack', sub], s.folder],
+      [['disconnect', 'slack'], sub],
+    ];
+    for (const [argv, cwd] of cases) {
+      const { code, io, prompts } = await run(s, argv, { secret: SLACK_TOKEN, cwd });
+      const what = `${argv.join(' ')} (in ${cwd})`;
+      expect(code, what).toBe(1);
+      expect(io.err(), what).toContain(`smurg: This folder is not shared from this computer yet: ${sub}`);
+      expect(io.err(), what).toContain('Run smurg host <folder> once (with the same --relay), then connect the channel.');
+      expect(io.out(), what).toBe('');
+      expect(prompts, what).toEqual([]);
+    }
+    expect(await readFile(connectorsFile(s), 'utf8')).toBe(before);
   });
 
   it('connecting again replaces the channel (and says which one is no longer read); disconnect removes the token, the file goes once nothing is connected', async () => {

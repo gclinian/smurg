@@ -219,8 +219,9 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
   'usage.connect': () => `用法：smurg connect slack|discord [資料夾] --channel <id> [--relay 網址]
 
   把一個 Slack 頻道或一個 Discord 頻道連接到你分享的資料夾的工作區。smurg host 分享這個資料夾時，這台電腦每分鐘
-  透過 HTTPS 讀一次頻道的新訊息（relay 看不到這些訊息），每則由人寫的訊息都會成為意見，放在訊息用 [[名稱]] 指名的
-  便利貼上，沒有指名就放在 Home。它會和其他意見一樣等待處理，直到「可使用 agent」的成員採用它。連接之前寫的訊息不會讀取。
+  透過 HTTPS 讀一次頻道的新訊息（relay 看不到這些訊息），由人寫的訊息會成為意見，放在訊息用 [[名稱]] 指名的
+  便利貼上，沒有指名就放在 Home（哪些訊息不會收下，請看說明）。它會和其他意見一樣等待處理，直到「可使用 agent」的
+  成員採用它。連接之前寫的訊息不會讀取。
   smurg 會用不顯示的方式詢問 bot 的 token，存在 ~/.smurg/connectors.json（權限 0600）；agent session 以你的身分執行，
   讀得到這個檔案，就像讀得到你的 relay 登入資料一樣。
   --channel <id>      頻道的 id（Slack：C 或 G 開頭，後面是英文字母和數字；Discord：17 到 20 位數字）
@@ -251,7 +252,7 @@ export const zhTW: { readonly [K in keyof typeof en]: (typeof en)[K] } = {
       : 'Discord 的 bot token 在你的 application 的 Bot 頁（Reset Token）。',
   'connect.done': (p) =>
     `已把 ${SOURCE_NAME[p.source]} 頻道 ${p.channel} 連接到 ${p.folder}。\n` +
-    'smurg host 分享這個資料夾時，這台電腦每分鐘讀一次這個頻道的新訊息；每則由人寫的訊息都會成為便利貼上的意見。' +
+    'smurg host 分享這個資料夾時，這台電腦每分鐘讀一次這個頻道的新訊息；由人寫的訊息會成為便利貼上的意見（哪些訊息不會收下，請看說明）。' +
     `現在正在分享它的 smurg host 會在幾秒內開始讀取。說明：${GUIDE_SOURCES}`,
   'connect.replaced': (p) => `它取代了原本連接的 ${SOURCE_NAME[p.source]} 頻道 ${p.channel}，那個頻道不會再讀取。`,
   'disconnect.done': (p) => `已中斷 ${SOURCE_NAME[p.source]} 頻道 ${p.channel} 和 ${p.folder} 的連接：它的 token 已移除，分享這個資料夾的 smurg host 會在幾秒內停止讀取它。`,

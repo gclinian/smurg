@@ -119,7 +119,9 @@ export class SlackReader implements SourceReader {
       const profile = recordOf(user?.['profile']);
       name = [stringOf(profile, 'display_name'), stringOf(profile, 'real_name'), stringOf(user, 'real_name'), stringOf(user, 'name')].find((candidate) => candidate !== null && candidate.trim() !== '') ?? null;
     } catch (err) {
-      if (!(err instanceof SourceFailed && err.problem === 'no-access' && NO_NAME.has(err.why))) throw err;
+      // By the code alone, whatever `call` sorted it as: user_not_found and user_not_visible are no refusal of the
+      // channel (`bad-answer` for a history call), and here they only mean that this person has no name to show.
+      if (!(err instanceof SourceFailed && NO_NAME.has(err.why))) throw err;
       name = null;
     }
     if (this.names.size >= NAMES_KEPT_MAX) this.names.delete(this.names.keys().next().value as string);

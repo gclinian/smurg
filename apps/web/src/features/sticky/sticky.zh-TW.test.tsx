@@ -306,7 +306,8 @@ describe('"Build this" in zh-TW (D5.3)', () => {
     const problem = { text: msg('sticky.source.channelInvalid'), fallback: 'The channel id in connectors.json does not have the form of a channel id, so smurg never reads the channel. Connect it again with smurg connect.' };
     const view = await shown({ role: 'host', list: () => ({ notes: [{ name: 'Home', links: [] }], hasMore: false, truncated: false, sources: [{ source: 'slack', state: 'reading' }, { source: 'discord', state: 'failing', problem }] }) });
     const part = screen.getByRole('region', { name: 'Slack 和 Discord' });
-    expect(within(part).getByRole('heading', { name: 'Slack 和 Discord' }).getAttribute('title')).toBe('你用 smurg connect 連接的頻道。由你的電腦讀取；只有你看得到這裡。');
+    // What the hint says is true: only the host is shown the part, and every member's page is sent the states (S8-SEC-1).
+    expect(within(part).getByRole('heading', { name: 'Slack 和 Discord' }).getAttribute('title')).toBe('你用 smurg connect 連接的頻道。由你的電腦讀取。只有你看得到這一區，不過每個頻道的狀態也會傳送給每位成員。');
     expect(within(part).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'Slack：每分鐘讀取一次新訊息。',
       'Discord：沒有讀取。connectors.json 裡的頻道 id 不是頻道 id 的格式，所以 smurg 不會讀取這個頻道。請用 smurg connect 重新連接',
@@ -315,5 +316,10 @@ describe('"Build this" in zh-TW (D5.3)', () => {
     expect(within(screen.getByRole('region', { name: 'Slack 和 Discord' })).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
       'Discord：等候空間。來自外部的意見，已經有 smurg 能保留的上限那麼多在等待處理（所有人合計，或是其中一個人）；有一些被採用或不採用之後就會繼續讀取。',
     ]);
+    // Home goes: a message that names no sticky note is not kept, and the host is told so.
+    const noHome = '還沒有 Home 便利貼，所以沒有用 [[名稱]] 指名便利貼的訊息不會保留。';
+    expect(within(screen.getByRole('region', { name: 'Slack 和 Discord' })).queryByText(noHome)).toBeNull();
+    act(() => view.conn.emit('sticky.changed', { upserted: [], removed: ['Home'], truncated: false }));
+    expect(within(screen.getByRole('region', { name: 'Slack 和 Discord' })).getByText(noHome)).toBeTruthy();
   });
 });

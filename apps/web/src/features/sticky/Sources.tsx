@@ -3,12 +3,16 @@
 // works. Reading (once a minute); waiting for room (the outside budgets of D4.5 are full: it reads on once some of that
 // feedback is decided); not read, with the host's own words for why (a channel id or a token of another form, the
 // token refused, no access, the service not reached, an answer that could not be read). Nothing while none is connected.
-// The state comes with the index (`sticky.list`, `sticky.changed` `sources`); the members are told it too, but only the
-// host connected the channels and can change them (`smurg connect`), so only the host is shown it.
+// While the index lists no sticky note Home, a line says that a message naming no sticky note is not kept (D6.3: the
+// daemon drops it), so the host learns it before such messages are lost, not from a log line (review S8-SEC-2).
+// The state comes with the index (`sticky.list`, `sticky.changed` `sources`); every member's page is sent it too (the
+// hint says so: review S8-SEC-1), but only the host connected the channels and can change them (`smurg connect`), so
+// only the host is shown it.
 import type { OutsideSource, SourceState } from '@smurg/protocol';
 import { useId } from 'react';
 import { renderWireText } from '../../lib/errors.ts';
 import { useStore } from '../../lib/store.ts';
+import { selectHasHome } from '../../lib/stores/sticky.ts';
 import { useCapabilities, useStores } from '../../lib/workspace/context.tsx';
 import { t } from './strings.ts';
 
@@ -30,6 +34,8 @@ function lineOf(state: SourceState): string {
 export function Sources() {
   const stores = useStores();
   const sources = useStore(stores.sticky, (state) => state.sources);
+  // Only a loaded index says that Home is not there.
+  const noHome = useStore(stores.sticky, (state) => state.status === 'ready' && !selectHasHome(state));
   const isHost = useCapabilities().isHost;
   const headingId = useId();
   if (!isHost || sources.length === 0) return null;
@@ -46,6 +52,7 @@ export function Sources() {
           </li>
         ))}
       </ul>
+      {noHome ? <p className="sticky-sources__note">{t('sources.noHome')}</p> : null}
     </section>
   );
 }

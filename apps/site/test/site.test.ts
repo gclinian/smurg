@@ -175,9 +175,9 @@ describe('the built site', () => {
       // 234 KB with what it loads. The fixes before the release brought the English page to 192 KB (§5 names the one
       // other `CLAUDE_CODE_*` variable agents get): the page's bound is 196 KB, and 234 KB with what it loads. 0.8.0:
       // §11 says how the host connects a Slack and a Discord channel, what is read and stored where, the budgets, the
-      // state the notes view shows and the smallest permissions of each bot (DESIGN 0.8.0 D6.2); it adds 3.3 KB to the
-      // built page (196,812 bytes without it, 200,215 with it, measured with the site's own build): both bounds rose by
-      // 4 KB, to 200 KB, and 238 KB with what the page loads.
+      // state the notes view shows and the smallest permissions of each bot (DESIGN 0.8.0 D6.2), and what is not taken
+      // (S8's check); it adds 3.9 KB to the built page (196,812 bytes without it, 200,775 with it, measured with the
+      // site's own build): both bounds rose by 4 KB, to 200 KB, and 238 KB with what the page loads.
       expect(size(path), `${path} itself`).toBeLessThan(200 * 1024);
       const icons = DRAWN_ICONS.reduce((sum, file) => sum + size(file), 0);
       expect(bytes - icons, `${path} with ${loaded.join(', ')}, the drawn icons aside`).toBeLessThan(238 * 1024);
