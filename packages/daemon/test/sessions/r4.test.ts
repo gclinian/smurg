@@ -124,7 +124,10 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     const { session } = await host.conn.request('session.create', { kind: 'terminal', workspace: { mode: 'main' }, cols: 100, rows: 30 });
     const first = viewer(host.conn, session.id);
     await first.attach({ cols: 100, rows: 30 });
-    typeInto(host.conn, session.id, 'i=1; while [ $i -le 300 ]; do echo "scroll-$i"; i=$((i+1)); sleep 0.01; done; echo LOOP-$((6*7))-FINISHED\r');
+    // `echo;` first: `/bin/sh -l` reads /etc/profile before its first prompt, and dash (Ubuntu's sh) does not redraw a
+    // line typed before that prompt, so the prompt comes after the line and the first output would share its row
+    // (`$ scroll-1`).
+    typeInto(host.conn, session.id, 'echo; i=1; while [ $i -le 300 ]; do echo "scroll-$i"; i=$((i+1)); sleep 0.01; done; echo LOOP-$((6*7))-FINISHED\r');
     await waitFor(() => first.received.includes('scroll-5'), 'the loop to start');
 
     // The client goes away (closed tab, sleeping laptop): no leave.
@@ -143,7 +146,8 @@ describe('R4 agent session', { timeout: 60_000 }, () => {
     await waitFor(() => second.text().includes('LOOP-42-FINISHED'), 'the loop to finish');
     await second.drained();
     const lines = second.lines();
-    for (let i = 1; i <= 300; i++) expect(lines.filter((line) => line === `scroll-${i}`), `scroll-${i}`).toHaveLength(1);
+    const top = JSON.stringify(lines.slice(0, 6)); // for the failure message: what the rows held
+    for (let i = 1; i <= 300; i++) expect(lines.filter((line) => line === `scroll-${i}`), `scroll-${i} in ${top}`).toHaveLength(1);
     expect(second.gaps).toEqual([]);
   });
 

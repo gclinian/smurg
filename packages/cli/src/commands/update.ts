@@ -12,17 +12,22 @@
 //     this holds (fail closed, as scripts/install.sh): the size the server announced, the sha256 of SHA256SUMS, exactly
 //     one build marker and it names that version (scripts/release-markers.ts), and the file starts here and says that
 //     version (`--version`). On macOS the quarantine attribute, if any, is removed after the sha256 matched. The file's
-//     bytes are never touched (the ad-hoc signature stays valid);
+//     bytes are never touched (the ad-hoc signature stays valid). The executable is read with node:http(s), not fetch
+//     (../update/downloads.ts requestBody); a try that stalls (no byte for 30 s), breaks off, cannot connect or meets a
+//     server error (5xx) is followed by another that asks for the rest (a Range request; all of it again where the
+//     server cannot), at most 5 tries in all and 3 in a row that bring no new byte, and the checks see the bytes of
+//     every try as one stream; the last try's failure is what the person reads;
 //  4. renames the temp file over process.execPath (mode 0755): atomic, and a `smurg` that is running keeps its old file.
 //
 // Nothing is replaced on any failure, and the temp file is removed on every way out (an error, Ctrl-C, even
 // process.exit). SHA256SUMS is not signed: the trust is the installer's (https and the downloads site; ARCHITECTURE §12).
 // Not the single executable (a source checkout): refused, there is nothing here to replace.
 import { execFile } from 'node:child_process';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, type Hash } from 'node:crypto';
 import { constants as fsConstants, rmSync } from 'node:fs';
-import { access, lstat, open, readdir, rename, unlink } from 'node:fs/promises';
+import { access, lstat, open, readdir, rename, unlink, type FileHandle } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { parseArgs } from '../cli/args.ts';
 import { CliError, isCliError } from '../cli/errors.ts';
@@ -35,13 +40,14 @@ import {
   DownloadError,
   INSTALL_COMMAND,
   asDownloadError,
-  download,
   downloadText,
   downloadsBase,
   latestVersion,
+  requestBody,
   sha256Of,
   targetName,
   withTimeout,
+  type Body,
   type DownloadsBase,
   type FetchLike,
 } from '../update/downloads.ts';
@@ -58,17 +64,24 @@ export interface UpdateDeps {
   readonly version?: string;
   readonly platform?: string;
   readonly arch?: string;
+  /** Reads the two small files (latest/VERSION, SHA256SUMS); the executable is read with node:http(s). */
   readonly fetch?: FetchLike;
   /** macOS's xattr tool. Default: /usr/bin/xattr (never looked up on PATH). */
   readonly xattr?: string;
   /** Timeout of the two small files (latest/VERSION, SHA256SUMS). */
   readonly metaTimeoutMs?: number;
-  /** The download ends when no byte arrives for this long. */
+  /** A try of the download ends when no byte arrives for this long. */
   readonly stallTimeoutMs?: number;
+  /** The pause before another try of the download. */
+  readonly retryPauseMs?: number;
 }
 
 const META_TIMEOUT_MS = 15_000;
 const STALL_TIMEOUT_MS = 30_000;
+const RETRY_PAUSE_MS = 1_000;
+/** Tries of the executable's download in all, and in a row that bring no new byte. */
+const DOWNLOAD_TRIES = 5;
+const IDLE_TRIES = 3;
 const PROBE_TIMEOUT_MS = 60_000;
 const SUMS_MAX_BYTES = 64 * 1024;
 /** An executable is about 120 MiB; anything far beyond that is not one. */
@@ -163,20 +176,96 @@ interface Expected {
   readonly version: string;
 }
 
+interface DownloadOptions {
+  /** Ctrl-C. */
+  readonly signal: AbortSignal;
+  readonly stallMs: number;
+  readonly pauseMs: number;
+  readonly progress: ReturnType<typeof progressLine>;
+}
+
+/** What the tries of one download wrote to the temp file so far: the checks see it as one stream. */
+interface Received {
+  hash: Hash;
+  markers: BuildMarkerScanner;
+  /** Bytes written and checked: where the next try goes on. */
+  bytes: number;
+  /** The size the server announced; null: unknown. */
+  total: number | null;
+  /** The ETag of the answer the bytes came from. */
+  etag: string | null;
+  /** The bytes are as stored (no Content-Encoding): the next try asks for the rest of them. */
+  resumable: boolean;
+}
+
+const CONTENT_RANGE = /^bytes ([0-9]{1,15})-([0-9]{1,15})\/([0-9]{1,15})$/;
+
+/** A failure another try can mend: a stall, a connection that broke off or was not made, a server error. */
+function retryable(err: unknown): boolean {
+  return err instanceof DownloadError && (err.kind === 'timeout' || err.kind === 'network' || err.kind === 'incomplete' || (err.kind === 'http' && (err.status ?? 0) >= 500));
+}
+
+const tempWriteError = (temp: string, err: unknown): CliError => new CliError(m('update.tempWrite', { temp, code: codeOf(err) }), { hint: m('update.tempWrite.hint'), cause: err });
+
+/** All of `chunk` at `position` of the temp file. */
+async function writeAt(handle: FileHandle, chunk: Uint8Array, position: number, temp: string): Promise<void> {
+  try {
+    for (let done = 0; done < chunk.length; ) done += (await handle.write(chunk, done, chunk.length - done, position + done)).bytesWritten;
+  } catch (err) {
+    throw tempWriteError(temp, err);
+  }
+}
+
 /**
  * Streams `<base>/<path>` into `temp` (created here, 0755 when complete) and checks what can be checked on the way:
- * the announced size, the sha256, the build marker. Throws without leaving a half-checked file in place: the caller
- * removes `temp` on every failure.
+ * the announced size, the sha256, the build marker. A try that fails in a way another can mend is followed by one that
+ * asks for the rest (DOWNLOAD_TRIES, IDLE_TRIES); the last failure is the one thrown. Throws without leaving a
+ * half-checked file in place: the caller removes `temp` on every failure.
  */
-async function downloadExecutable(
-  base: DownloadsBase,
-  path: string,
-  temp: string,
-  expected: Expected,
-  options: { readonly signal: AbortSignal; readonly fetch: FetchLike | undefined; readonly stallMs: number; readonly progress: ReturnType<typeof progressLine> },
-): Promise<void> {
-  const url = `${base.url}/${path}`;
+async function downloadExecutable(base: DownloadsBase, path: string, temp: string, expected: Expected, options: DownloadOptions): Promise<void> {
   const name = path.slice(path.lastIndexOf('/') + 1);
+  let handle: FileHandle;
+  try {
+    handle = await open(temp, 'wx', 0o700);
+  } catch (err) {
+    throw new CliError(m('update.tempCreate', { dir: dirname(temp), code: codeOf(err) }), { hint: m('update.unchanged'), cause: err });
+  }
+  const got: Received = { hash: createHash('sha256'), markers: new BuildMarkerScanner(), bytes: 0, total: null, etag: null, resumable: false };
+  try {
+    for (let tries = 1, idle = 0; ; tries++) {
+      const before = got.bytes;
+      try {
+        await downloadTry(base, path, handle, temp, got, options);
+        break;
+      } catch (err) {
+        idle = got.bytes > before ? 0 : idle + 1;
+        if (!retryable(err) || tries === DOWNLOAD_TRIES || idle === IDLE_TRIES) throw err;
+      }
+      await sleep(options.pauseMs, undefined, { signal: options.signal });
+    }
+    try {
+      await handle.chmod(0o755);
+      await handle.sync();
+    } catch (err) {
+      throw tempWriteError(temp, err);
+    }
+  } finally {
+    await handle.close().catch(() => {});
+    options.progress.clear();
+  }
+  const actual = got.hash.digest('hex');
+  if (actual !== expected.sha256) {
+    throw new CliError(m('update.sha256', { name, expected: expected.sha256, actual }), { hint: m('update.unchanged') });
+  }
+  const built = [...got.markers.versions].sort();
+  if (built.length !== 1 || built[0] !== expected.version) {
+    throw new CliError(built.length === 0 ? m('update.wrongBuild.none', { name, version: expected.version }) : m('update.wrongBuild', { name, version: expected.version, markers: built }), { hint: m('update.unchanged') });
+  }
+}
+
+/** One request: all of the file, or the rest of it after `got.bytes`; it ends when no byte arrives for `stallMs`. */
+async function downloadTry(base: DownloadsBase, path: string, handle: FileHandle, temp: string, got: Received, options: DownloadOptions): Promise<void> {
+  const url = `${base.url}/${path}`;
   const stall = new AbortController();
   const signal = AbortSignal.any([options.signal, stall.signal]);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -185,58 +274,59 @@ async function downloadExecutable(
     timer = setTimeout(() => stall.abort(new DOMException('no data', 'TimeoutError')), options.stallMs);
   };
   alive();
-  const hash = createHash('sha256');
-  const markers = new BuildMarkerScanner();
+  let answer: Body | undefined;
   try {
-    const response = await download(base, path, { signal, identity: true, ...(options.fetch ? { fetch: options.fetch } : {}) });
-    // The announced size counts only when the body arrives as it is stored (a compressed body is decoded on the way).
-    const encoding = response.headers.get('content-encoding');
-    const announced = encoding === null || encoding === 'identity' ? response.headers.get('content-length') : null;
-    const total = announced !== null && /^[0-9]{1,15}$/.test(announced) ? Number(announced) : null;
-    if (total !== null && total > EXECUTABLE_MAX_BYTES) throw new DownloadError('too-large', url);
-    let handle;
-    try {
-      handle = await open(temp, 'wx', 0o700);
-    } catch (err) {
-      throw new CliError(m('update.tempCreate', { dir: dirname(temp), code: codeOf(err) }), { hint: m('update.unchanged'), cause: err });
-    }
-    let received = 0;
-    try {
-      for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
-        alive();
-        received += chunk.length;
-        if (received > EXECUTABLE_MAX_BYTES) throw new DownloadError('too-large', url);
-        hash.update(chunk);
-        markers.push(chunk);
-        try {
-          await handle.write(chunk);
-        } catch (err) {
-          throw new CliError(m('update.tempWrite', { temp, code: codeOf(err) }), { hint: m('update.tempWrite.hint'), cause: err });
-        }
-        options.progress.update(received, total);
+    answer = await requestBody(base, path, { signal, ...(got.resumable ? { from: got.bytes } : {}) });
+    const { response, identity } = answer;
+    const etag = response.headers.etag ?? null;
+    if (response.statusCode === 206) {
+      // The rest of the same file as stored, or the next try asks for all of it.
+      const range = CONTENT_RANGE.exec(response.headers['content-range'] ?? '');
+      const size = range === null ? -1 : Number(range[3]);
+      if (range === null || !identity || Number(range[1]) !== got.bytes || Number(range[2]) !== size - 1 || (got.total !== null && size !== got.total) || (got.etag !== null && etag !== got.etag)) {
+        got.resumable = false;
+        throw new DownloadError('incomplete', url);
       }
-      if (total !== null && received !== total) throw new DownloadError('incomplete', url);
-      await handle.chmod(0o755);
-      await handle.sync();
-    } catch (err) {
-      if (isCliError(err) || err instanceof DownloadError) throw err;
-      // The body ended early (the connection dropped): not "cannot connect".
-      const mapped = asDownloadError(err, url, signal);
-      throw mapped instanceof DownloadError && mapped.kind === 'network' ? new DownloadError('incomplete', url, { cause: err }) : mapped;
-    } finally {
-      await handle.close().catch(() => {});
+      got.total = size;
+    } else {
+      // All of it (the first try, or a server that does not continue): from the first byte again.
+      if (got.bytes > 0) {
+        got.hash = createHash('sha256');
+        got.markers = new BuildMarkerScanner();
+        got.bytes = 0;
+        try {
+          await handle.truncate(0);
+        } catch (err) {
+          throw tempWriteError(temp, err);
+        }
+      }
+      // The announced size counts only when the body arrives as it is stored (a compressed body is decoded on the way).
+      const announced = identity ? (response.headers['content-length'] ?? null) : null;
+      got.total = announced !== null && /^[0-9]{1,15}$/.test(announced) ? Number(announced) : null;
+      got.etag = etag;
+      got.resumable = identity;
     }
+    if (got.total !== null && got.total > EXECUTABLE_MAX_BYTES) throw new DownloadError('too-large', url);
+    for await (const chunk of answer.body) {
+      alive();
+      if (got.bytes + chunk.length > EXECUTABLE_MAX_BYTES) throw new DownloadError('too-large', url);
+      got.hash.update(chunk);
+      got.markers.push(chunk);
+      await writeAt(handle, chunk, got.bytes, temp);
+      got.bytes += chunk.length;
+      options.progress.update(got.bytes, got.total);
+    }
+    // An abort may end the body without an error.
+    if (signal.aborted) throw signal.reason;
+    if (got.total !== null && got.bytes !== got.total) throw new DownloadError('incomplete', url);
+  } catch (err) {
+    if (isCliError(err) || err instanceof DownloadError) throw err;
+    // The body ended early (the connection dropped): not "cannot connect".
+    const mapped = asDownloadError(err, url, signal);
+    throw mapped instanceof DownloadError && mapped.kind === 'network' ? new DownloadError('incomplete', url, { cause: err }) : mapped;
   } finally {
     if (timer !== undefined) clearTimeout(timer);
-    options.progress.clear();
-  }
-  const actual = hash.digest('hex');
-  if (actual !== expected.sha256) {
-    throw new CliError(m('update.sha256', { name, expected: expected.sha256, actual }), { hint: m('update.unchanged') });
-  }
-  const built = [...markers.versions].sort();
-  if (built.length !== 1 || built[0] !== expected.version) {
-    throw new CliError(built.length === 0 ? m('update.wrongBuild.none', { name, version: expected.version }) : m('update.wrongBuild', { name, version: expected.version, markers: built }), { hint: m('update.unchanged') });
+    answer?.response.destroy();
   }
 }
 
@@ -374,7 +464,7 @@ export async function runUpdate(argv: readonly string[], ctx: CommandContext, de
 
     say(ctx, m('update.downloading', { latest, name, from: `${base.url}/${release}` }));
     temp = join(dir, `.smurg-update-${randomBytes(6).toString('hex')}`);
-    await downloadExecutable(base, `${release}/${name}`, temp, { sha256, version: latest }, { signal: stop.signal, fetch: fetchImpl, stallMs: deps.stallTimeoutMs ?? STALL_TIMEOUT_MS, progress });
+    await downloadExecutable(base, `${release}/${name}`, temp, { sha256, version: latest }, { signal: stop.signal, stallMs: deps.stallTimeoutMs ?? STALL_TIMEOUT_MS, pauseMs: deps.retryPauseMs ?? RETRY_PAUSE_MS, progress });
     const quarantineRemoved = platform === 'darwin' ? await clearQuarantine(deps.xattr ?? '/usr/bin/xattr', temp) : false;
     await probe(temp, latest, io.env, stop.signal);
     if (interrupted) throw new Error('interrupted');

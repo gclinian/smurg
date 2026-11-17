@@ -95,7 +95,7 @@ const EXPRESSIONS: Readonly<Record<string, number>> = {
   'commands/host.ts': 1,
   'commands/stop.ts': 1,
   'commands/uninstall.ts': 2,
-  'commands/update.ts': 3,
+  'commands/update.ts': 4,
   'licenses/notices.ts': 5,
   'relay/login.ts': 1,
   'sea/native.ts': 2,
